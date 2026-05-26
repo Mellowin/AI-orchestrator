@@ -71,18 +71,20 @@ export function applyFileUpdates(
         copyFileSync(fullPath, backupPath);
       }
 
+      // Register in manifest BEFORE writing, so rollback knows about this file
+      // even if writeFileSync throws.
+      manifest.push({
+        path: update.path,
+        existedBefore,
+        backupPath: existedBefore ? backupPath : '',
+      });
+
       const parentDir = dirname(fullPath);
       if (!existsSync(parentDir)) {
         mkdirSync(parentDir, { recursive: true });
       }
 
       writeFileSync(fullPath, update.content, 'utf-8');
-
-      manifest.push({
-        path: update.path,
-        existedBefore,
-        backupPath: existedBefore ? backupPath : '',
-      });
     }
   } catch (err) {
     rollbackFileUpdates(repoPath, manifest);
@@ -102,9 +104,12 @@ export function rollbackFileUpdates(
     const fullPath = resolve(repoPath, entry.path);
 
     if (entry.existedBefore) {
-      if (existsSync(entry.backupPath)) {
-        copyFileSync(entry.backupPath, fullPath);
+      if (!entry.backupPath || !existsSync(entry.backupPath)) {
+        throw new Error(
+          `Rollback failed: backup missing for ${entry.path}`
+        );
       }
+      copyFileSync(entry.backupPath, fullPath);
     } else {
       if (existsSync(fullPath)) {
         unlinkSync(fullPath);
