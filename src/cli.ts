@@ -3,6 +3,7 @@ import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState } from './state-manager.js';
 import { buildContext } from './context-builder.js';
 import { validateFileList } from './guardrails.js';
+import { runChecks } from './runner.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -70,6 +71,15 @@ if (command === 'run') {
       process.exit(1);
     }
     console.log(`[run] Guardrails context file check: ok`);
+
+    const checkResult = runChecks(task.repo_path, task.checks);
+    if (!checkResult.success) {
+      console.error(`\n[run] Checks: failed`);
+      console.error(`[run] Failed command: ${checkResult.failedStep?.command} ${checkResult.failedStep?.args?.join(' ')}`);
+      console.error(`[run] Logs:\n${checkResult.logs}`);
+      process.exit(1);
+    }
+    console.log(`[run] Checks: ok`);
 
     process.exit(0);
   } catch (err) {
