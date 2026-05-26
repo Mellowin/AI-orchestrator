@@ -217,15 +217,20 @@ if (command === 'attempt') {
     console.error('Usage: npx tsx src/cli.ts attempt <taskId> <attemptNumber>');
     process.exit(1);
   }
-  const attemptNumber = parseInt(attemptArg, 10);
-  if (!Number.isInteger(attemptNumber) || attemptNumber < 1) {
+  if (!/^[1-9]\d*$/.test(attemptArg)) {
     console.error(`[attempt] Invalid attempt number: ${attemptArg}`);
     process.exit(1);
   }
+  const attemptNumber = Number(attemptArg);
 
   try {
     const attemptDir = join(getRunDir(taskId), `attempt-${attemptNumber}`);
     if (!existsSync(attemptDir)) {
+      console.error(`[attempt] Not found: attempt-${attemptNumber}`);
+      process.exit(1);
+    }
+    const attemptStats = statSync(attemptDir);
+    if (!attemptStats.isDirectory()) {
       console.error(`[attempt] Not found: attempt-${attemptNumber}`);
       process.exit(1);
     }
