@@ -135,11 +135,22 @@ export function createBranch(
 
 export function getChangedFiles(repoPath: string): string[] {
   validateRepoPath(repoPath);
-  const output = git(repoPath, ['diff', '--name-only']);
+  const output = git(repoPath, [
+    'status',
+    '--porcelain',
+    '--untracked-files=all',
+  ]);
   return output
     .split('\n')
     .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+    .filter((s) => s.length > 0)
+    .map((s) => {
+      const withoutPrefix = s.slice(3);
+      if (withoutPrefix.includes(' -> ')) {
+        return withoutPrefix.split(' -> ')[1];
+      }
+      return withoutPrefix;
+    });
 }
 
 export function getCurrentDiff(repoPath: string): string {

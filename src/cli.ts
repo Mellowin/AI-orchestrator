@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState } from './state-manager.js';
 import { buildContext } from './context-builder.js';
@@ -11,6 +12,7 @@ import {
   getChangedFiles,
   getDiffStat,
 } from './git-manager.js';
+import { runMockApplyFlow } from './mock-apply-flow.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -18,7 +20,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff> <taskId>'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply> <taskId> [jsonPath]'
   );
   process.exit(1);
 }
@@ -85,6 +87,41 @@ if (command === 'git-diff') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[git-diff] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'mock-apply') {
+  const jsonPath = args[2];
+  if (!jsonPath) {
+    console.error('Usage: npx tsx src/cli.ts mock-apply <taskId> <jsonPath>');
+    process.exit(1);
+  }
+  try {
+    if (!existsSync(jsonPath)) {
+      throw new Error(`jsonPath does not exist: ${jsonPath}`);
+    }
+    const stats = statSync(jsonPath);
+    if (!stats.isFile()) {
+      throw new Error(`jsonPath is not a file: ${jsonPath}`);
+    }
+
+    const task = loadTask('tasks.yaml', taskId);
+    const rawJson = readFileSync(jsonPath, 'utf-8');
+    const result = runMockApplyFlow(task, rawJson);
+
+    if (result.success) {
+      console.log('[mock-apply] Success');
+      console.log(result.logs);
+      process.exit(0);
+    } else {
+      console.error('[mock-apply] Failed');
+      console.error(result.logs);
+      process.exit(1);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[mock-apply] Error: ${message}`);
     process.exit(1);
   }
 }
