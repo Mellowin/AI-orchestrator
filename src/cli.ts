@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { loadTask } from './task-loader.js';
+import { loadState, saveState, initState } from './state-manager.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -11,17 +12,45 @@ if (!command || !taskId) {
 }
 
 if (command === 'status') {
-  console.log(`[status] Task: ${taskId}`);
-  console.log('No runs recorded yet.');
-  console.log(`Start with: npx tsx src/cli.ts run ${taskId}`);
-  process.exit(0);
+  try {
+    const task = loadTask('tasks.yaml', taskId);
+    const state = loadState(taskId);
+
+    console.log(`[status] Task: ${taskId}`);
+    console.log(`Title: ${task.title}`);
+
+    if (!state) {
+      console.log('No runs recorded yet.');
+      console.log(`Start with: npx tsx src/cli.ts run ${taskId}`);
+    } else {
+      console.log(`Status: ${state.status}`);
+      console.log(`Attempt: ${state.current_attempt}`);
+      console.log(`Branch: ${state.branch}`);
+      console.log(`Updated: ${state.updated_at}`);
+    }
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[status] Error: ${message}`);
+    process.exit(1);
+  }
 }
 
 if (command === 'run') {
   try {
     const task = loadTask('tasks.yaml', taskId);
-    console.log('[run] Task loaded successfully:\n');
-    console.log(JSON.stringify(task, null, 2));
+    let state = loadState(taskId);
+
+    if (!state) {
+      state = initState(task);
+      saveState(taskId, state);
+      console.log(`[run] Initialized new state for task "${taskId}"`);
+    } else {
+      console.log(`[run] Existing state found for task "${taskId}"`);
+    }
+
+    console.log('[run] Current state:\n');
+    console.log(JSON.stringify(state, null, 2));
     process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
