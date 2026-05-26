@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState, getRunDir } from './state-manager.js';
 import { buildContext } from './context-builder.js';
@@ -20,7 +21,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply> <taskId> [jsonPath]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -42,11 +43,11 @@ if (command === 'status') {
       console.log(`Branch: ${state.branch}`);
       console.log(`Updated: ${state.updated_at}`);
 
-      if (state.last_logs) {
-        const lines = state.last_logs.split('\n');
-        const trimmed = lines.slice(-20).join('\n');
+      const rawLogs = state.last_logs?.trimEnd() ?? '';
+      if (rawLogs.length > 0) {
+        const lines = rawLogs.split('\n').slice(-20);
         console.log('Last logs:');
-        console.log(trimmed);
+        console.log(lines.join('\n'));
       } else {
         console.log('Last logs: none');
       }
@@ -206,6 +207,73 @@ if (command === 'run') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[run] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'attempt') {
+  const attemptArg = args[2];
+  if (!attemptArg) {
+    console.error('Usage: npx tsx src/cli.ts attempt <taskId> <attemptNumber>');
+    process.exit(1);
+  }
+  const attemptNumber = parseInt(attemptArg, 10);
+  if (!Number.isInteger(attemptNumber) || attemptNumber < 1) {
+    console.error(`[attempt] Invalid attempt number: ${attemptArg}`);
+    process.exit(1);
+  }
+
+  try {
+    const attemptDir = join(getRunDir(taskId), `attempt-${attemptNumber}`);
+    if (!existsSync(attemptDir)) {
+      console.error(`[attempt] Not found: attempt-${attemptNumber}`);
+      process.exit(1);
+    }
+
+    console.log(`[attempt] Task: ${taskId}`);
+    console.log(`[attempt] Attempt: attempt-${attemptNumber}`);
+
+    const entries = readdirSync(attemptDir, { withFileTypes: true });
+    const files = entries.filter((e) => e.isFile()).map((e) => e.name);
+
+    const priority = [
+      'raw-kimi-output.json',
+      'parsed-kimi-output.json',
+      'patch-manifest.json',
+      'logs.txt',
+    ];
+    const sorted = files.sort((a, b) => {
+      const idxA = priority.indexOf(a);
+      const idxB = priority.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    if (sorted.length > 0) {
+      console.log('Files:');
+      for (const file of sorted) {
+        console.log(`  - ${file}`);
+      }
+    } else {
+      console.log('Files: none');
+    }
+
+    const logsPath = join(attemptDir, 'logs.txt');
+    if (existsSync(logsPath)) {
+      const rawLogs = readFileSync(logsPath, 'utf-8').trimEnd();
+      if (rawLogs.length > 0) {
+        const lines = rawLogs.split('\n').slice(-40);
+        console.log('Last logs:');
+        console.log(lines.join('\n'));
+      }
+    }
+
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[attempt] Error: ${message}`);
     process.exit(1);
   }
 }
