@@ -1,4 +1,8 @@
-import { ensureClean, getChangedFiles, getWorkingTreeDiffStat } from './git-manager.js';
+import {
+  ensureClean,
+  getChangedFiles,
+  getWorkingTreeDiffStat,
+} from './git-manager.js';
 import { parseKimiOutputJson } from './kimi-output-validator.js';
 import { applyFileUpdates, rollbackFileUpdates } from './patch-engine.js';
 import {
@@ -77,8 +81,14 @@ export function runMockApplyFlow(
     logs += `Flow failed: ${message}\n`;
 
     if (manifest.length > 0) {
-      rollbackFileUpdates(task.repo_path, manifest);
-      logs += 'Rollback completed\n';
+      try {
+        rollbackFileUpdates(task.repo_path, manifest);
+        logs += 'Rollback completed\n';
+      } catch (rollbackErr) {
+        const rollbackMessage =
+          rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+        logs += `Rollback failed: ${rollbackMessage}\n`;
+      }
     }
 
     return { success: false, logs };
