@@ -12,7 +12,6 @@ import {
 } from './guardrails.js';
 import { runChecks } from './runner.js';
 import {
-  getRunDir,
   initAttemptDir,
   initState,
   loadState,
@@ -55,7 +54,7 @@ export function runMockApplyFlow(
     state.updated_at = new Date().toISOString();
     saveState(task.id, state);
 
-    initAttemptDir(task.id, attemptNum);
+    const attemptDir = initAttemptDir(task.id, attemptNum);
     logs = saveAttemptArtifact(
       task.id,
       attemptNum,
@@ -86,8 +85,7 @@ export function runMockApplyFlow(
     ensureClean(task.repo_path);
     logs += 'Working tree is clean\n';
 
-    const runDir = getRunDir(task.id);
-    manifest = applyFileUpdates(task.repo_path, kimiOutput.files, runDir);
+    manifest = applyFileUpdates(task.repo_path, kimiOutput.files, attemptDir);
     logs += `Applied ${manifest.length} file(s)\n`;
 
     logs = saveAttemptArtifact(
