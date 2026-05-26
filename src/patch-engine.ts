@@ -57,31 +57,36 @@ export function applyFileUpdates(
     mkdirSync(backupDir, { recursive: true });
   }
 
-  for (const update of updates) {
-    const fullPath = resolve(repoPath, update.path);
-    const existedBefore = existsSync(fullPath);
-    const backupPath = join(backupDir, encodeURIComponent(update.path));
+  try {
+    for (const update of updates) {
+      const fullPath = resolve(repoPath, update.path);
+      const existedBefore = existsSync(fullPath);
+      const backupPath = join(backupDir, encodeURIComponent(update.path));
 
-    if (existedBefore) {
-      const backupParent = dirname(backupPath);
-      if (!existsSync(backupParent)) {
-        mkdirSync(backupParent, { recursive: true });
+      if (existedBefore) {
+        const backupParent = dirname(backupPath);
+        if (!existsSync(backupParent)) {
+          mkdirSync(backupParent, { recursive: true });
+        }
+        copyFileSync(fullPath, backupPath);
       }
-      copyFileSync(fullPath, backupPath);
+
+      const parentDir = dirname(fullPath);
+      if (!existsSync(parentDir)) {
+        mkdirSync(parentDir, { recursive: true });
+      }
+
+      writeFileSync(fullPath, update.content, 'utf-8');
+
+      manifest.push({
+        path: update.path,
+        existedBefore,
+        backupPath: existedBefore ? backupPath : '',
+      });
     }
-
-    const parentDir = dirname(fullPath);
-    if (!existsSync(parentDir)) {
-      mkdirSync(parentDir, { recursive: true });
-    }
-
-    writeFileSync(fullPath, update.content, 'utf-8');
-
-    manifest.push({
-      path: update.path,
-      existedBefore,
-      backupPath: existedBefore ? backupPath : '',
-    });
+  } catch (err) {
+    rollbackFileUpdates(repoPath, manifest);
+    throw err;
   }
 
   return manifest;
@@ -97,12 +102,9 @@ export function rollbackFileUpdates(
     const fullPath = resolve(repoPath, entry.path);
 
     if (entry.existedBefore) {
-      if (!entry.backupPath || !existsSync(entry.backupPath)) {
-        throw new Error(
-          `Rollback failed: backup missing for ${entry.path}`
-        );
+      if (existsSync(entry.backupPath)) {
+        copyFileSync(entry.backupPath, fullPath);
       }
-      copyFileSync(entry.backupPath, fullPath);
     } else {
       if (existsSync(fullPath)) {
         unlinkSync(fullPath);

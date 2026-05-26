@@ -1,4 +1,4 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { sync as spawnSync } from 'cross-spawn';
 import type { DiffStat } from './types.js';
@@ -135,7 +135,7 @@ export function createBranch(
 
 export function getChangedFiles(repoPath: string): string[] {
   validateRepoPath(repoPath);
-  const output = git(repoPath, [
+  const output = gitRaw(repoPath, [
     'status',
     '--porcelain',
     '--untracked-files=all',
@@ -190,6 +190,50 @@ export function getDiffStat(repoPath: string): DiffStat {
   }
 
   return { files, insertions, deletions, binaryFiles };
+}
+
+export function getWorkingTreeDiffStat(repoPath: string): DiffStat {
+  validateRepoPath(repoPath);
+  const baseStat = getDiffStat(repoPath);
+
+  const stat: DiffStat = {
+    files: [...baseStat.files],
+    insertions: baseStat.insertions,
+    deletions: baseStat.deletions,
+    binaryFiles: [...baseStat.binaryFiles],
+  };
+
+  const untrackedOutput = gitRaw(repoPath, [
+    'status',
+    '--porcelain',
+    '--untracked-files=all',
+  ]);
+
+  const untrackedLines = untrackedOutput
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s.startsWith('??'));
+
+  for (const line of untrackedLines) {
+    const filePath = line.slice(3);
+    const fullPath = resolve(repoPath, filePath);
+
+    if (!existsSync(fullPath) || !statSync(fullPath).isFile()) {
+      continue;
+    }
+
+    const content = readFileSync(fullPath);
+    if (content.includes(0)) {
+      stat.binaryFiles.push(filePath);
+    } else {
+      const text = content.toString('utf-8');
+      const lineCount = text.split('\n').length;
+      stat.insertions += lineCount;
+    }
+    stat.files.push(filePath);
+  }
+
+  return stat;
 }
 
 export function prepareWorkBranch(

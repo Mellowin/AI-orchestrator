@@ -1,6 +1,6 @@
 import { parseKimiOutputJson } from './kimi-output-validator.js';
 import { applyFileUpdates, rollbackFileUpdates } from './patch-engine.js';
-import { getChangedFiles, getDiffStat } from './git-manager.js';
+import { getChangedFiles, getWorkingTreeDiffStat } from './git-manager.js';
 import {
   validateDiffSize,
   validateFileList,
@@ -33,7 +33,7 @@ export function runMockApplyFlow(
 
   try {
     const changedFiles = getChangedFiles(task.repo_path);
-    const diffStat = getDiffStat(task.repo_path);
+    const diffStat = getWorkingTreeDiffStat(task.repo_path);
     logs += `Changed files: ${changedFiles.length}\n`;
 
     const fileListResult = validateFileList(changedFiles, task.guardrails);
@@ -71,8 +71,12 @@ export function runMockApplyFlow(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logs += `Rolling back due to error: ${message}\n`;
-    rollbackFileUpdates(task.repo_path, manifest);
-    logs += 'Rollback completed\n';
+    // Note: applyFileUpdates already rolled back if it failed internally.
+    // This rollback handles post-apply failures only.
+    if (manifest.length > 0) {
+      rollbackFileUpdates(task.repo_path, manifest);
+      logs += 'Rollback completed\n';
+    }
     return { success: false, logs };
   }
 }
