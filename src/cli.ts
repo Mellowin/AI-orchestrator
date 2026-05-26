@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState } from './state-manager.js';
+import { buildContext } from './context-builder.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -51,6 +52,13 @@ if (command === 'run') {
 
     console.log('[run] Current state:\n');
     console.log(JSON.stringify(state, null, 2));
+
+    const context = buildContext(task);
+    console.log(`\n[run] Context files: ${context.files.length}`);
+    for (const f of context.files) {
+      console.log(`  - ${f.path}`);
+    }
+
     process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
