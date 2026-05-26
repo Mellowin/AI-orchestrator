@@ -27,12 +27,14 @@ export interface Guardrails {
 
 export type RunStatus =
   | 'pending'
+  | 'running'
   | 'coding'
   | 'patching'
   | 'running_checks'
   | 'reviewing'
   | 'approved'
   | 'rejected'
+  | 'failed'
   | 'failed_guardrails'
   | 'failed_max_attempts';
 

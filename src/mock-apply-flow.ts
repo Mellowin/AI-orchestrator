@@ -11,8 +11,8 @@ import {
   validateTestsPresent,
 } from './guardrails.js';
 import { runChecks } from './runner.js';
-import { getRunDir } from './state-manager.js';
-import type { PatchManifestEntry, Task } from './types.js';
+import { getRunDir, initState, loadState, saveState } from './state-manager.js';
+import type { PatchManifestEntry, RunState, Task } from './types.js';
 
 export function runMockApplyFlow(
   task: Task,
@@ -20,8 +20,15 @@ export function runMockApplyFlow(
 ): { success: boolean; logs: string } {
   let logs = '';
   let manifest: PatchManifestEntry[] = [];
+  let state: RunState | null = null;
 
   try {
+    state = loadState(task.id) ?? initState(task);
+    state.current_attempt += 1;
+    state.status = 'running';
+    state.updated_at = new Date().toISOString();
+    saveState(task.id, state);
+
     const kimiOutput = parseKimiOutputJson(rawKimiJson);
     logs += 'KimiOutput parsed successfully\n';
 
@@ -29,7 +36,7 @@ export function runMockApplyFlow(
     const preApplyResult = validateFileList(updatePaths, task.guardrails);
     if (!preApplyResult.ok) {
       logs += `Pre-apply guardrails failed: ${preApplyResult.reason}\n`;
-      return { success: false, logs };
+      throw new Error(preApplyResult.reason);
     }
     logs += 'Pre-apply guardrails passed\n';
 
@@ -75,6 +82,12 @@ export function runMockApplyFlow(
     }
 
     logs += 'All checks passed\n';
+
+    state.status = 'approved';
+    state.last_logs = logs;
+    state.updated_at = new Date().toISOString();
+    saveState(task.id, state);
+
     return { success: true, logs };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -88,6 +101,19 @@ export function runMockApplyFlow(
         const rollbackMessage =
           rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
         logs += `Rollback failed: ${rollbackMessage}\n`;
+      }
+    }
+
+    if (state) {
+      try {
+        state.status = 'failed';
+        state.last_logs = logs;
+        state.updated_at = new Date().toISOString();
+        saveState(task.id, state);
+      } catch (stateErr) {
+        const stateMessage =
+          stateErr instanceof Error ? stateErr.message : String(stateErr);
+        logs += `State save failed: ${stateMessage}\n`;
       }
     }
 
