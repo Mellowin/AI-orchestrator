@@ -8,6 +8,8 @@ import {
   ensureClean,
   getCurrentBranch,
   branchExists,
+  getChangedFiles,
+  getDiffStat,
 } from './git-manager.js';
 
 const args = process.argv.slice(2);
@@ -16,7 +18,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check> <taskId>'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff> <taskId>'
   );
   process.exit(1);
 }
@@ -64,6 +66,25 @@ if (command === 'git-check') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[git-check] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'git-diff') {
+  try {
+    const task = loadTask('tasks.yaml', taskId);
+    const changed = getChangedFiles(task.repo_path);
+    const stat = getDiffStat(task.repo_path);
+
+    console.log(`[git-diff] Task: ${taskId}`);
+    console.log(`[git-diff] Changed files: ${changed.length}`);
+    console.log(`[git-diff] Insertions: ${stat.insertions}`);
+    console.log(`[git-diff] Deletions: ${stat.deletions}`);
+    console.log(`[git-diff] Binary files: ${stat.binaryFiles.length}`);
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[git-diff] Error: ${message}`);
     process.exit(1);
   }
 }

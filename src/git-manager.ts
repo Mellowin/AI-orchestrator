@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { sync as spawnSync } from 'cross-spawn';
+import type { DiffStat } from './types.js';
 
 function validateRepoPath(repoPath: string): void {
   const resolved = resolve(repoPath);
@@ -126,6 +127,53 @@ export function createBranch(
   git(repoPath, ['checkout', baseBranch]);
   git(repoPath, ['pull', '--ff-only']);
   git(repoPath, ['checkout', '-b', workBranch]);
+}
+
+export function getChangedFiles(repoPath: string): string[] {
+  validateRepoPath(repoPath);
+  const output = git(repoPath, ['diff', '--name-only']);
+  return output
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+export function getCurrentDiff(repoPath: string): string {
+  validateRepoPath(repoPath);
+  return git(repoPath, ['diff', '--no-ext-diff']);
+}
+
+export function getDiffStat(repoPath: string): DiffStat {
+  validateRepoPath(repoPath);
+  const output = git(repoPath, ['diff', '--numstat']);
+  const lines = output
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  const files: string[] = [];
+  const binaryFiles: string[] = [];
+  let insertions = 0;
+  let deletions = 0;
+
+  for (const line of lines) {
+    const parts = line.split('\t');
+    if (parts.length < 3) continue;
+
+    const [insStr, delStr, filePath] = parts;
+
+    if (insStr === '-' || delStr === '-') {
+      binaryFiles.push(filePath);
+    } else {
+      const ins = parseInt(insStr, 10);
+      const del = parseInt(delStr, 10);
+      if (!isNaN(ins)) insertions += ins;
+      if (!isNaN(del)) deletions += del;
+      files.push(filePath);
+    }
+  }
+
+  return { files, insertions, deletions, binaryFiles };
 }
 
 export function prepareWorkBranch(
