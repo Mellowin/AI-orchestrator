@@ -2,6 +2,7 @@
 import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState } from './state-manager.js';
 import { buildContext } from './context-builder.js';
+import { validateFileList } from './guardrails.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -58,6 +59,17 @@ if (command === 'run') {
     for (const f of context.files) {
       console.log(`  - ${f.path}`);
     }
+
+    const guardrailsResult = validateFileList(
+      task.context_files,
+      task.guardrails
+    );
+    if (!guardrailsResult.ok) {
+      console.error(`\n[run] Guardrails context file check: failed`);
+      console.error(`[run] ${guardrailsResult.reason}`);
+      process.exit(1);
+    }
+    console.log(`[run] Guardrails context file check: ok`);
 
     process.exit(0);
   } catch (err) {
