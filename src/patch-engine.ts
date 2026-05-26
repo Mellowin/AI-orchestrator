@@ -8,6 +8,10 @@ import {
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { FileUpdate, PatchManifestEntry } from './types.js';
 
+function normalizePath(filePath: string): string {
+  return filePath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+/g, '/');
+}
+
 function validateUpdatePath(filePath: string, repoPath: string): void {
   if (!filePath || filePath.length === 0) {
     throw new Error('Update path must not be empty');
@@ -36,6 +40,16 @@ export function applyFileUpdates(
   updates: FileUpdate[],
   runDir: string
 ): PatchManifestEntry[] {
+  const seen = new Set<string>();
+  for (const update of updates) {
+    validateUpdatePath(update.path, repoPath);
+    const normalized = normalizePath(update.path);
+    if (seen.has(normalized)) {
+      throw new Error(`Duplicate file update: ${update.path}`);
+    }
+    seen.add(normalized);
+  }
+
   const manifest: PatchManifestEntry[] = [];
   const backupDir = join(runDir, 'backup');
 
@@ -44,8 +58,6 @@ export function applyFileUpdates(
   }
 
   for (const update of updates) {
-    validateUpdatePath(update.path, repoPath);
-
     const fullPath = resolve(repoPath, update.path);
     const existedBefore = existsSync(fullPath);
     const backupPath = join(backupDir, encodeURIComponent(update.path));
@@ -81,12 +93,16 @@ export function rollbackFileUpdates(
 ): void {
   for (let i = manifest.length - 1; i >= 0; i--) {
     const entry = manifest[i];
+    validateUpdatePath(entry.path, repoPath);
     const fullPath = resolve(repoPath, entry.path);
 
     if (entry.existedBefore) {
-      if (existsSync(entry.backupPath)) {
-        copyFileSync(entry.backupPath, fullPath);
+      if (!entry.backupPath || !existsSync(entry.backupPath)) {
+        throw new Error(
+          `Rollback failed: backup missing for ${entry.path}`
+        );
       }
+      copyFileSync(entry.backupPath, fullPath);
     } else {
       if (existsSync(fullPath)) {
         unlinkSync(fullPath);
