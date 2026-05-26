@@ -1,7 +1,9 @@
 import {
   ensureClean,
   getChangedFiles,
+  getCurrentBranch,
   getWorkingTreeDiffStat,
+  prepareWorkBranch,
 } from './git-manager.js';
 import { parseKimiOutputJson } from './kimi-output-validator.js';
 import { applyFileUpdates, rollbackFileUpdates } from './patch-engine.js';
@@ -84,6 +86,12 @@ export function runMockApplyFlow(
 
     ensureClean(task.repo_path);
     logs += 'Working tree is clean\n';
+
+    const currentBranch = getCurrentBranch(task.repo_path);
+    logs += `Current branch: ${currentBranch}\n`;
+    const isResume = currentBranch === task.work_branch;
+    prepareWorkBranch(task.repo_path, task.base_branch, task.work_branch, isResume);
+    logs += `Work branch ready: ${task.work_branch}\n`;
 
     manifest = applyFileUpdates(task.repo_path, kimiOutput.files, attemptDir);
     logs += `Applied ${manifest.length} file(s)\n`;
