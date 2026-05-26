@@ -4,13 +4,20 @@ import { loadState, saveState, initState } from './state-manager.js';
 import { buildContext } from './context-builder.js';
 import { validateFileList } from './guardrails.js';
 import { runChecks } from './runner.js';
+import {
+  ensureClean,
+  getCurrentBranch,
+  branchExists,
+} from './git-manager.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
 const taskId = args[1];
 
 if (!command || !taskId) {
-  console.error('Usage: npx tsx src/cli.ts <run|status> <taskId>');
+  console.error(
+    'Usage: npx tsx src/cli.ts <run|status|git-check> <taskId>'
+  );
   process.exit(1);
 }
 
@@ -35,6 +42,28 @@ if (command === 'status') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[status] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'git-check') {
+  try {
+    const task = loadTask('tasks.yaml', taskId);
+    const exists = branchExists(task.repo_path, task.work_branch);
+    ensureClean(task.repo_path);
+    const current = getCurrentBranch(task.repo_path);
+
+    console.log(`[git-check] Task: ${taskId}`);
+    console.log(`[git-check] Repo: ${task.repo_path}`);
+    console.log(`[git-check] Current branch: ${current}`);
+    console.log(
+      `[git-check] Work branch "${task.work_branch}" exists: ${exists}`
+    );
+    console.log(`[git-check] Clean: true`);
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[git-check] Error: ${message}`);
     process.exit(1);
   }
 }
@@ -75,7 +104,9 @@ if (command === 'run') {
     const checkResult = runChecks(task.repo_path, task.checks);
     if (!checkResult.success) {
       console.error(`\n[run] Checks: failed`);
-      console.error(`[run] Failed command: ${checkResult.failedStep?.command} ${checkResult.failedStep?.args?.join(' ')}`);
+      console.error(
+        `[run] Failed command: ${checkResult.failedStep?.command} ${checkResult.failedStep?.args?.join(' ')}`
+      );
       console.error(`[run] Logs:\n${checkResult.logs}`);
       process.exit(1);
     }
