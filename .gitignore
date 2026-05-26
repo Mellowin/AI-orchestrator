@@ -31,3 +31,7 @@ Thumbs.db
 
 # Testing
 coverage/
+
+tmp-*.json
+test-*.ts
+test-*.js
