@@ -6,27 +6,40 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import type { RunState, Task } from './types.js';
+import type { RunState, RunStatus, Task } from './types.js';
 import { config } from './config.js';
 
+const VALID_STATUSES: RunStatus[] = [
+  'pending',
+  'coding',
+  'patching',
+  'running_checks',
+  'reviewing',
+  'approved',
+  'rejected',
+  'failed_guardrails',
+  'failed_max_attempts',
+];
+
+function validateTaskId(taskId: string): void {
+  if (!taskId || taskId.length === 0) {
+    throw new Error('taskId must not be empty');
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(taskId)) {
+    throw new Error(
+      `Invalid taskId: "${taskId}". Only letters, digits, hyphens and underscores are allowed.`
+    );
+  }
+}
+
 export function getRunDir(taskId: string): string {
+  validateTaskId(taskId);
   return resolve(config.runsDir, taskId);
 }
 
 export function getStatePath(taskId: string): string {
+  validateTaskId(taskId);
   return join(getRunDir(taskId), 'state.json');
-}
-
-export function loadState(taskId: string): RunState | null {
-  const statePath = getStatePath(taskId);
-  if (!existsSync(statePath)) {
-    return null;
-  }
-
-  const content = readFileSync(statePath, 'utf-8');
-  const parsed = JSON.parse(content) as unknown;
-  validateRunState(parsed);
-  return parsed as RunState;
 }
 
 function isObject(val: unknown): val is Record<string, unknown> {
@@ -38,9 +51,24 @@ function validateRunState(state: unknown): void {
     throw new Error('Invalid state.json: not an object');
   }
 
+  if (!VALID_STATUSES.includes(state.status as RunStatus)) {
+    throw new Error(
+      `Invalid state.json: unknown status "${String(state.status)}"`
+    );
+  }
+
+  if (
+    typeof state.current_attempt !== 'number' ||
+    !Number.isInteger(state.current_attempt) ||
+    state.current_attempt < 0
+  ) {
+    throw new Error(
+      'Invalid state.json: current_attempt must be a non-negative integer'
+    );
+  }
+
   const requiredStrings = [
     'task_id',
-    'status',
     'branch',
     'repo_path',
     'created_at',
@@ -52,13 +80,30 @@ function validateRunState(state: unknown): void {
       throw new Error(`Invalid state.json: missing or invalid "${key}"`);
     }
   }
+}
 
-  if (typeof state.current_attempt !== 'number') {
-    throw new Error('Invalid state.json: missing or invalid "current_attempt"');
+export function loadState(taskId: string): RunState | null {
+  validateTaskId(taskId);
+  const statePath = getStatePath(taskId);
+  if (!existsSync(statePath)) {
+    return null;
   }
+
+  const content = readFileSync(statePath, 'utf-8');
+  const parsed = JSON.parse(content) as unknown;
+  validateRunState(parsed);
+
+  if ((parsed as Record<string, unknown>).task_id !== taskId) {
+    throw new Error(
+      `Invalid state.json: task_id mismatch (expected "${taskId}", got "${String((parsed as Record<string, unknown>).task_id)}")`
+    );
+  }
+
+  return parsed as RunState;
 }
 
 export function saveState(taskId: string, state: RunState): void {
+  validateTaskId(taskId);
   const runDir = getRunDir(taskId);
   if (!existsSync(runDir)) {
     mkdirSync(runDir, { recursive: true });
@@ -86,6 +131,7 @@ export function initState(task: Task): RunState {
 }
 
 export function initAttemptDir(taskId: string, attempt: number): string {
+  validateTaskId(taskId);
   const attemptDir = join(getRunDir(taskId), `attempt-${attempt}`);
   if (!existsSync(attemptDir)) {
     mkdirSync(attemptDir, { recursive: true });
@@ -99,6 +145,7 @@ export function writeAttemptFile(
   filename: string,
   data: string
 ): void {
+  validateTaskId(taskId);
   if (isAbsolute(filename)) {
     throw new Error(`Absolute paths are not allowed in filename: ${filename}`);
   }
