@@ -73,8 +73,13 @@ export interface Task {
   work_branch: string;      // имя ветки, которую создаст оркестратор
   goal: string;             // описание задачи
   context_files: string[];  // относительные пути внутри repo_path
-  checks: string[];         // ["npm run lint", "npm run build"]
+  checks: Check[];          // команды для запуска
   guardrails: Guardrails;
+}
+
+export interface Check {
+  command: string;          // например "npm"
+  args: string[];           // например ["run", "lint"]
 }
 
 export interface Guardrails {
@@ -144,13 +149,20 @@ export interface ValidationResult {
 export interface RunResult {
   success: boolean;
   logs: string;
-  failedStep?: string;
+  failedStep?: Check;
 }
 
 export interface DiffStat {
   files: string[];
   insertions: number;
   deletions: number;
+  binaryFiles: string[];    // файлы, которые git считает binary
+}
+
+export interface PatchManifestEntry {
+  path: string;
+  existedBefore: boolean;
+  backupPath: string;
 }
 ```
 
@@ -161,6 +173,8 @@ export const config = {
   openaiApiKey: process.env.OPENAI_API_KEY,
   kimiApiKey: process.env.KIMI_API_KEY,
   kimiBaseURL: process.env.KIMI_BASE_URL || 'https://api.moonshot.cn/v1',
+  kimiModel: process.env.KIMI_MODEL || 'kimi-k2.6',
+  openaiReviewModel: process.env.OPENAI_REVIEW_MODEL || 'gpt-4o',
   maxAttempts: Number(process.env.MAX_ATTEMPTS || '3'),
   runsDir: process.env.RUNS_DIR || './runs',
   mockAI: process.env.MOCK_AI === 'true' || false,
@@ -179,6 +193,7 @@ export const config = {
 - `repo_path` существует и является git-репозиторием (проверка `.git`)
 - `base_branch` default: `'main'`
 - `context_files` существуют в `repo_path`
+- `checks` валидируются как массив объектов `{ command, args }`
 
 ### 4.4. `src/state-manager.ts`
 
@@ -193,7 +208,8 @@ runs/
     ├── summary.md
     ├── attempt-1/
     │   ├── kimi-output.json
-    │   ├── files-before/       # backup затронутых файлов
+    │   ├── patch-manifest.json  # backup-метаданные
+    │   ├── files-before/        # backup затронутых файлов
     │   ├── build.log
     │   └── review.json
     ├── attempt-2/
@@ -211,15 +227,20 @@ runs/
 ### 4.5. `src/git-manager.ts`
 
 **Методы:**
-- `ensureClean(repoPath): void` — проверяет `git status --porcelain`. Если не чисто — бросает ошибку.
+- `ensureClean(repoPath): void` — проверяет `git status --porcelain`. Если не чисто — бросает ошибку. **Никаких автоматических `git clean` или `git restore`.**
 - `checkoutBranch(repoPath, baseBranch, newBranch): void` — `git checkout -b {newBranch} origin/{baseBranch}` или из локальной `baseBranch`.
+- `checkoutExistingBranch(repoPath, branch): void` — `git checkout {branch}`. Используется при `resume`.
+- `branchExists(repoPath, branch): boolean` — `git branch --list {branch}`.
 - `getCurrentDiff(repoPath): string` — `git diff HEAD`.
-- `getDiffStat(repoPath): DiffStat` — `git diff --stat`.
+- `getDiffNumstat(repoPath): DiffStat` — `git diff --numstat`. Парсит вывод для подсчёта insertions/deletions. **Binary файлы отклоняются guardrails.**
 - `commit(repoPath, message): void` — `git add -A && git commit -m "..."`. Вызывается **только** если `guardrails.auto_commit === true`.
-- `restoreClean(repoPath): void` — `git restore .` + `git clean -fd` (только для ensureClean перед стартом, не для отката попытки).
+- `listChangedFiles(repoPath): string[]` — `git diff --name-only`.
 
 **Правила:**
 - Перед стартом — `ensureClean`. Если грязно — STOP.
+- **Resume logic:**
+  - Новый запуск (`state === null`): `branchExists(work_branch)` → если существует, STOP и спросить человека; иначе `checkoutBranch(base_branch, work_branch)`.
+  - Resume (`state !== null`): `checkoutExistingBranch(work_branch)`.
 - Никакого `git push`.
 - Commit — только при `auto_commit: true`.
 
@@ -227,7 +248,7 @@ runs/
 
 **Методы:**
 - `validateFileList(files, guardrails): ValidationResult` — deny priority, allow default-deny.
-- `validateDiffSize(diffStat, maxLines): ValidationResult`.
+- `validateDiffSize(diffStat, maxLines): ValidationResult` — считает insertions + deletions > maxLines. **Если есть binaryFiles → reject.**
 - `validateTestsPresent(changedFiles, requireTests): ValidationResult`.
 
 **Поведение:** любой fail → attempt помечается `failed_guardrails`, причина пишется в state, оркестратор останавливается.
@@ -236,7 +257,10 @@ runs/
 
 **Метод:** `build(task: Task): ContextPackage`
 
-Логика: читает `task.context_files` из `repo_path`, дополнительно подтягивает `package.json` целевого проекта.
+Логика:
+- Читает все `task.context_files` из `repo_path`.
+- Дополнительно подтягивает `package.json` целевого проекта (для понимания стека).
+- **Перечитывает файлы перед каждой новой попыткой** — если предыдущая попытка изменила файлы, но build упал, Kimi получит актуальные версии.
 
 ### 4.8. `src/ai-client.ts`
 
@@ -254,7 +278,7 @@ async function askKimi(
 ```
 
 - `openai` SDK с `baseURL: config.kimiBaseURL`, `apiKey: config.kimiApiKey`.
-- model: `kimi-k2.6`.
+- model: `config.kimiModel`.
 - Temperature: `0.1`.
 - System prompt: `prompts/coder.md`.
 - Парсинг ответа: извлечь JSON из markdown-блока, `JSON.parse()`, валидировать по `KimiOutput`.
@@ -272,7 +296,7 @@ async function askReviewer(
 ```
 
 - Chat Completions с `response_format: { type: 'json_schema', schema: ... }`.
-- model: `gpt-4o` или `gpt-5.5`.
+- model: `config.openaiReviewModel`.
 - Temperature: `0`.
 - System prompt: `prompts/reviewer.md`.
 - При `config.mockAI === true` — использовать `mockReviewer()` из `src/mocks/mock-reviewer.ts`.
@@ -283,14 +307,24 @@ async function askReviewer(
 
 **Логика:**
 1. Для каждого файла в `kimiOutput.files`:
-   - Проверить path traversal (не выход за `repoPath`).
+   - **Path traversal защита:**
+     - Запретить absolute paths (`path.isAbsolute`).
+     - Запретить `..`.
+     - Проверить `path.resolve(repoPath, file.path)`, что итоговый путь начинается с `repoPath` (с учётом Windows paths).
    - Проверить guardrails (`validateFileList`).
    - Сделать backup в `attempt-N/files-before/{relative_path}`.
+   - Записать в `patch-manifest.json`: `{ path, existedBefore: boolean, backupPath }`.
    - Перезаписать файл (создать директории через `mkdir -p`).
-2. Если хоть один файл не прошёл guardrails:
-   - Восстановить все затронутые файлы из backup.
+2. Если хоть один файл не прошёл guardrails или path traversal:
+   - Вызвать `rollback(repoPath, manifest)`.
    - Вернуть `{ ok: false, reason }`.
 3. Если всё ок — вернуть `{ ok: true, changedFiles }`.
+
+**Rollback:**
+- Читает `patch-manifest.json`.
+- Для каждой записи:
+  - Если `existedBefore === true` — копировать из `backupPath` обратно.
+  - Если `existedBefore === false` — удалить созданный файл.
 
 **Безопасность:** никаких `git apply`, `rm -rf`, `exec` с пользовательскими путями. Только перезапись файлов.
 
@@ -298,7 +332,8 @@ async function askReviewer(
 
 **Метод:** `runChecks(repoPath, checks): RunResult`
 
-- Последовательный запуск через `execSync` с `stdio: 'pipe'`.
+- Последовательный запуск через `spawnSync` / `execFileSync` с массивом аргументов.
+- Команды берутся из `Check.command` + `Check.args`, не из строки.
 - Если команда падает — стоп, возвращаем логи всех выполненных шагов + `failedStep`.
 - Логи сохраняются в `attempt-N/build.log`.
 
@@ -351,25 +386,27 @@ START: npx tsx src/cli.ts run {taskId} [--mock]
 ▼ [StateManager] → load state.json
 │   exists + approved/failed_guardrails/rejected → EXIT
 │   exists + другой статус → resume с текущего этапа
-│   нет → init new state, checkout work_branch от base_branch
-│
-▼ [ContextBuilder] → собирает context_files + package.json
+│   нет → init new state
+│         [GitManager] → new: checkout -b work_branch from base_branch
+│                     → resume: checkout existing work_branch
 │
 ▼ LOOP (maxAttempts):
+│   ├─→ [ContextBuilder] → перечитывает context_files (актуальные версии)
+│   │
 │   ├─→ [Kimi Coder] → context + feedback
 │   │       ├─ mock? → mockKimi()
 │   │       └─ real? → API call
 │   │
 │   ▼
 │   [PatchEngine] → backup → apply files → guardrails pre-check
-│       fail → restore backup → state.failed_guardrails → STOP
+│       fail → rollback via manifest → state.failed_guardrails → STOP
 │   │
 │   ▼
-│   [GitManager] → git diff --stat
+│   [GitManager] → git diff --numstat
 │   │
 │   ▼
-│   [Guardrails] → validateDiffSize, validateTestsPresent
-│       fail → restore backup → state.failed_guardrails → STOP
+│   [Guardrails] → validateDiffSize (binary = reject), validateTestsPresent
+│       fail → rollback via manifest → state.failed_guardrails → STOP
 │   │
 │   ▼
 │   [Runner] → npm run lint/build/test...
@@ -418,8 +455,10 @@ tasks:
       - "src/app/api/contact/route.ts"
       - "src/lib/validation.ts"
     checks:
-      - "npm run lint"
-      - "npm run build"
+      - command: "npm"
+        args: ["run", "lint"]
+      - command: "npm"
+        args: ["run", "build"]
     guardrails:
       allow_modify:
         - "src/components/ContactForm.tsx"
@@ -502,6 +541,8 @@ npx tsx src/cli.ts reset contact-phone-validation
 
 Это позволяет прогнать весь pipeline локально до подключения реальных ключей.
 
+**Первый кодовый этап — только mock mode.** Реальные API не подключаются.
+
 ---
 
 ## 9. Что НЕ входит в MVP
@@ -523,8 +564,9 @@ npx tsx src/cli.ts reset contact-phone-validation
 
 1. **Deny by default.** Если `allow_modify` указан — всё остальное запрещено.
 2. **Guardrails перед применением.** Проверять до перезаписи файлов.
-3. **Guardrails после diff.** Проверить `git diff --stat` на объём.
-4. **Никаких destructive операций.** Нет `rm -rf`, нет `git push`, нет `git merge`.
-5. **Backup перед patch.** `PatchEngine` делает backup в `attempt-N/files-before/`.
+3. **Guardrails после diff.** Проверить `git diff --numstat` на объём + отклонить binary файлы.
+4. **Никаких destructive операций.** Нет `rm -rf` (кроме удаления новых файлов при rollback), нет `git push`, нет `git merge`, нет `git clean -fd`.
+5. **Backup перед patch.** `PatchEngine` делает backup в `attempt-N/files-before/` и ведёт `patch-manifest.json`.
 6. **State — единственный источник правды.** Всегда можно восстановить, что происходило.
-7. **Path traversal защита.** Никаких `../../../etc/passwd`.
+7. **Path traversal защита.** Никаких `../../../etc/passwd`, absolute paths запрещены.
+8. **Rollback корректный.** Если файл существовал — восстановить из backup. Если создан новый — удалить.

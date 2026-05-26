@@ -40,6 +40,7 @@ AI Orchestrator — автономный Node.js CLI-инструмент (TypeS
 - **Никакого `git push`, `git merge`, работы с `main` напрямую.**
 - **Никаких destructive файловых операций:** нет `rm -rf`, нет `fs.rmdir` без проверок.
 - **Никаких `eval`, `new Function`, `child_process.exec` с пользовательскими строками.**
+  - Для git и runner использовать `spawnSync` / `execFileSync` с массивом аргументов.
 - **Не менять логику guardrails:** всегда deny-by-default, всегда проверка до и после.
 - **Не добавлять в MVP:** Web UI, GitHub Actions, auto-push, auto-merge, Telegram/Slack, RAG.
 - **Не писать код вне `src/`** (кроме конфигурационных файлов в корне).
@@ -75,8 +76,8 @@ AI Orchestrator — автономный Node.js CLI-инструмент (TypeS
 - Ветка: создаём `work_branch` от `base_branch`.
 - Commit: только если `guardrails.auto_commit === true`.
 - Никакого push/merge.
-- Rollback внутри attempt: через backup в `attempt-N/files-before/`, а не через `git reset --soft`.
-- `git restore .` + `git clean -fd` используется только для ensureClean перед стартом.
+- Rollback внутри attempt: через backup в `attempt-N/files-before/` + `patch-manifest.json`, а не через `git reset --soft`.
+- `ensureClean` только **проверяет** статус. Никакого автоматического `git restore .` или `git clean -fd`.
 
 ---
 
@@ -84,13 +85,13 @@ AI Orchestrator — автономный Node.js CLI-инструмент (TypeS
 
 ### Kimi (Coder)
 - Endpoint: `https://api.moonshot.cn/v1` (default) или env `KIMI_BASE_URL`.
-- Model: `kimi-k2.6`.
+- Model: `config.kimiModel` (default: `kimi-k2.6`).
 - Temperature: `0.1`.
 - Парсинг: всегда извлекай JSON из markdown-блока, валидируй по `KimiOutput`.
 - Если parse fail — пиши сырой ответ в `attempt-N/kimi-raw.md` и возвращай ошибку.
 
 ### OpenAI (Reviewer)
-- Model: `gpt-4o` или `gpt-5.5`.
+- Model: `config.openaiReviewModel` (default: `gpt-4o` или `gpt-5.5`).
 - Temperature: `0`.
 - Structured Output: `response_format: { type: 'json_schema', schema: ... }`.
 - Всегда возвращает `ReviewVerdict`.

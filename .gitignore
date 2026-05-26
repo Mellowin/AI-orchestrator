@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
@@ -13,9 +12,8 @@ build/
 runs/
 
 # Environment
-.env
-.env.local
-.env.*.local
+.env*
+!.env.example
 
 # Logs
 *.log
