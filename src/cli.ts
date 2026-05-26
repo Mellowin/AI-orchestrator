@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { loadTask } from './task-loader.js';
-import { loadState, saveState, initState } from './state-manager.js';
+import { loadState, saveState, initState, getRunDir } from './state-manager.js';
 import { buildContext } from './context-builder.js';
 import { validateFileList } from './guardrails.js';
 import { runChecks } from './runner.js';
@@ -41,6 +41,38 @@ if (command === 'status') {
       console.log(`Attempt: ${state.current_attempt}`);
       console.log(`Branch: ${state.branch}`);
       console.log(`Updated: ${state.updated_at}`);
+
+      if (state.last_logs) {
+        const lines = state.last_logs.split('\n');
+        const trimmed = lines.slice(-20).join('\n');
+        console.log('Last logs:');
+        console.log(trimmed);
+      } else {
+        console.log('Last logs: none');
+      }
+
+      const runDir = getRunDir(taskId);
+      let attempts: string[] = [];
+      if (existsSync(runDir)) {
+        const entries = readdirSync(runDir, { withFileTypes: true });
+        attempts = entries
+          .filter((e) => e.isDirectory() && /^attempt-\d+$/.test(e.name))
+          .map((e) => e.name)
+          .sort((a, b) => {
+            const numA = parseInt(a.replace('attempt-', ''), 10);
+            const numB = parseInt(b.replace('attempt-', ''), 10);
+            return numA - numB;
+          });
+      }
+
+      if (attempts.length > 0) {
+        console.log('Attempts:');
+        for (const attempt of attempts) {
+          console.log(`  - ${attempt}`);
+        }
+      } else {
+        console.log('Attempts: none');
+      }
     }
     process.exit(0);
   } catch (err) {
