@@ -5,6 +5,7 @@ import {
   getWorkingTreeDiffStat,
   prepareWorkBranch,
 } from './git-manager.js';
+import { config } from './config.js';
 import { parseKimiOutputJson } from './kimi-output-validator.js';
 import { applyFileUpdates, rollbackFileUpdates } from './patch-engine.js';
 import {
@@ -50,6 +51,22 @@ export function runMockApplyFlow(
 
   try {
     state = loadState(task.id) ?? initState(task);
+
+    if (state.current_attempt >= config.maxAttempts) {
+      const maxLogs = `Max attempts reached: ${state.current_attempt}/${config.maxAttempts}\n`;
+      state.status = 'failed_max_attempts';
+      state.last_logs = maxLogs;
+      state.updated_at = new Date().toISOString();
+      try {
+        saveState(task.id, state);
+      } catch (stateErr) {
+        const stateMessage =
+          stateErr instanceof Error ? stateErr.message : String(stateErr);
+        return { success: false, logs: maxLogs + `State save failed: ${stateMessage}\n` };
+      }
+      return { success: false, logs: maxLogs };
+    }
+
     state.current_attempt += 1;
     attemptNum = state.current_attempt;
     state.status = 'running';
