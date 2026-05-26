@@ -1,0 +1,96 @@
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import type { FileUpdate, PatchManifestEntry } from './types.js';
+
+function validateUpdatePath(filePath: string, repoPath: string): void {
+  if (!filePath || filePath.length === 0) {
+    throw new Error('Update path must not be empty');
+  }
+  if (isAbsolute(filePath)) {
+    throw new Error(`Absolute paths are not allowed: ${filePath}`);
+  }
+  if (filePath.includes('..')) {
+    throw new Error(`Path traversal detected: ${filePath}`);
+  }
+  if (filePath.includes('\\')) {
+    throw new Error(`Backslash not allowed, use unix paths: ${filePath}`);
+  }
+
+  const resolvedFile = resolve(repoPath, filePath);
+  const resolvedRepo = resolve(repoPath);
+  const rel = relative(resolvedRepo, resolvedFile);
+
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`File path escapes repo_path: ${filePath}`);
+  }
+}
+
+export function applyFileUpdates(
+  repoPath: string,
+  updates: FileUpdate[],
+  runDir: string
+): PatchManifestEntry[] {
+  const manifest: PatchManifestEntry[] = [];
+  const backupDir = join(runDir, 'backup');
+
+  if (!existsSync(backupDir)) {
+    mkdirSync(backupDir, { recursive: true });
+  }
+
+  for (const update of updates) {
+    validateUpdatePath(update.path, repoPath);
+
+    const fullPath = resolve(repoPath, update.path);
+    const existedBefore = existsSync(fullPath);
+    const backupPath = join(backupDir, encodeURIComponent(update.path));
+
+    if (existedBefore) {
+      const backupParent = dirname(backupPath);
+      if (!existsSync(backupParent)) {
+        mkdirSync(backupParent, { recursive: true });
+      }
+      copyFileSync(fullPath, backupPath);
+    }
+
+    const parentDir = dirname(fullPath);
+    if (!existsSync(parentDir)) {
+      mkdirSync(parentDir, { recursive: true });
+    }
+
+    writeFileSync(fullPath, update.content, 'utf-8');
+
+    manifest.push({
+      path: update.path,
+      existedBefore,
+      backupPath: existedBefore ? backupPath : '',
+    });
+  }
+
+  return manifest;
+}
+
+export function rollbackFileUpdates(
+  repoPath: string,
+  manifest: PatchManifestEntry[]
+): void {
+  for (let i = manifest.length - 1; i >= 0; i--) {
+    const entry = manifest[i];
+    const fullPath = resolve(repoPath, entry.path);
+
+    if (entry.existedBefore) {
+      if (existsSync(entry.backupPath)) {
+        copyFileSync(entry.backupPath, fullPath);
+      }
+    } else {
+      if (existsSync(fullPath)) {
+        unlinkSync(fullPath);
+      }
+    }
+  }
+}
