@@ -1,0 +1,24 @@
+tasks:
+  - id: demo-task
+    title: "Demo task for bootstrap"
+    repo_path: "."
+    base_branch: "main"
+    work_branch: "ai/demo-task"
+    goal: "Add a simple console log to demonstrate the orchestrator pipeline."
+    context_files:
+      - "package.json"
+      - "tsconfig.json"
+    checks:
+      - command: "npm"
+        args: ["run", "build"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
