@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState, getRunDir } from './state-manager.js';
@@ -21,7 +21,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -279,6 +279,29 @@ if (command === 'attempt') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[attempt] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'context') {
+  try {
+    const task = loadTask('tasks.yaml', taskId);
+    const context = buildContext(task);
+
+    const runDir = getRunDir(taskId);
+    if (!existsSync(runDir)) {
+      mkdirSync(runDir, { recursive: true });
+    }
+    const outPath = join(runDir, 'context-package.json');
+    writeFileSync(outPath, JSON.stringify(context, null, 2), 'utf-8');
+
+    console.log(`[context] Task: ${taskId}`);
+    console.log(`[context] Files: ${context.files.length}`);
+    console.log(`[context] Written: ${outPath}`);
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[context] Error: ${message}`);
     process.exit(1);
   }
 }
