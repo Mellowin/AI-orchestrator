@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, isAbsolute, relative } from 'node:path';
 import YAML from 'yaml';
 import type { Task, Check, Guardrails } from './types.js';
 
@@ -145,6 +145,25 @@ function expectObject(
   return val;
 }
 
+function validateContextFilePath(file: string, repoPath: string): string {
+  if (isAbsolute(file)) {
+    throw new Error(`Absolute paths are not allowed in context_files: ${file}`);
+  }
+  if (file.includes('..')) {
+    throw new Error(`Path traversal detected in context_files: ${file}`);
+  }
+
+  const resolvedFile = resolve(repoPath, file);
+  const resolvedRepo = resolve(repoPath);
+  const rel = relative(resolvedRepo, resolvedFile);
+
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`context_file escapes repo_path: ${file}`);
+  }
+
+  return resolvedFile;
+}
+
 function validateTask(task: Task): void {
   const resolvedRepo = resolve(task.repo_path);
   if (!existsSync(resolvedRepo)) {
@@ -158,7 +177,7 @@ function validateTask(task: Task): void {
   }
 
   for (const file of task.context_files) {
-    const filePath = join(resolvedRepo, file);
+    const filePath = validateContextFilePath(file, resolvedRepo);
     if (!existsSync(filePath)) {
       throw new Error(`context_file does not exist: ${file}`);
     }

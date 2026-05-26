@@ -1,13 +1,27 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+function validateMaxAttempts(raw: string | undefined): number {
+  const defaultValue = 3;
+  if (raw === undefined || raw.trim() === '') {
+    return defaultValue;
+  }
+  const num = Number(raw);
+  if (!Number.isInteger(num) || num < 1 || num > 10) {
+    throw new Error(
+      `Invalid MAX_ATTEMPTS: "${raw}". Must be an integer between 1 and 10.`
+    );
+  }
+  return num;
+}
+
 export const config = {
   openaiApiKey: process.env.OPENAI_API_KEY,
   kimiApiKey: process.env.KIMI_API_KEY,
   kimiBaseURL: process.env.KIMI_BASE_URL || 'https://api.moonshot.cn/v1',
   kimiModel: process.env.KIMI_MODEL || 'kimi-k2.6',
   openaiReviewModel: process.env.OPENAI_REVIEW_MODEL || 'gpt-4o',
-  maxAttempts: Number(process.env.MAX_ATTEMPTS || '3'),
+  maxAttempts: validateMaxAttempts(process.env.MAX_ATTEMPTS),
   runsDir: process.env.RUNS_DIR || './runs',
   mockAI: process.env.MOCK_AI === 'true' || false,
 };
