@@ -21,6 +21,23 @@ import {
 } from './state-manager.js';
 import type { PatchManifestEntry, RunState, Task } from './types.js';
 
+function saveAttemptArtifact(
+  taskId: string,
+  attempt: number,
+  filename: string,
+  data: string,
+  logs: string
+): string {
+  if (attempt <= 0) return logs;
+  try {
+    writeAttemptFile(taskId, attempt, filename, data);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return logs + `Attempt artifact save failed: ${filename}: ${msg}\n`;
+  }
+  return logs;
+}
+
 export function runMockApplyFlow(
   task: Task,
   rawKimiJson: string
@@ -39,27 +56,24 @@ export function runMockApplyFlow(
     saveState(task.id, state);
 
     initAttemptDir(task.id, attemptNum);
-    try {
-      writeAttemptFile(task.id, attemptNum, 'raw-kimi-output.json', rawKimiJson);
-    } catch (artifactErr) {
-      const msg = artifactErr instanceof Error ? artifactErr.message : String(artifactErr);
-      logs += `Attempt artifact save failed: raw-kimi-output.json: ${msg}\n`;
-    }
+    logs = saveAttemptArtifact(
+      task.id,
+      attemptNum,
+      'raw-kimi-output.json',
+      rawKimiJson,
+      logs
+    );
 
     const kimiOutput = parseKimiOutputJson(rawKimiJson);
     logs += 'KimiOutput parsed successfully\n';
 
-    try {
-      writeAttemptFile(
-        task.id,
-        attemptNum,
-        'parsed-kimi-output.json',
-        JSON.stringify(kimiOutput, null, 2)
-      );
-    } catch (artifactErr) {
-      const msg = artifactErr instanceof Error ? artifactErr.message : String(artifactErr);
-      logs += `Attempt artifact save failed: parsed-kimi-output.json: ${msg}\n`;
-    }
+    logs = saveAttemptArtifact(
+      task.id,
+      attemptNum,
+      'parsed-kimi-output.json',
+      JSON.stringify(kimiOutput, null, 2),
+      logs
+    );
 
     const updatePaths = kimiOutput.files.map((f) => f.path);
     const preApplyResult = validateFileList(updatePaths, task.guardrails);
@@ -76,17 +90,13 @@ export function runMockApplyFlow(
     manifest = applyFileUpdates(task.repo_path, kimiOutput.files, runDir);
     logs += `Applied ${manifest.length} file(s)\n`;
 
-    try {
-      writeAttemptFile(
-        task.id,
-        attemptNum,
-        'patch-manifest.json',
-        JSON.stringify(manifest, null, 2)
-      );
-    } catch (artifactErr) {
-      const msg = artifactErr instanceof Error ? artifactErr.message : String(artifactErr);
-      logs += `Attempt artifact save failed: patch-manifest.json: ${msg}\n`;
-    }
+    logs = saveAttemptArtifact(
+      task.id,
+      attemptNum,
+      'patch-manifest.json',
+      JSON.stringify(manifest, null, 2),
+      logs
+    );
 
     const changedFiles = getChangedFiles(task.repo_path);
     const diffStat = getWorkingTreeDiffStat(task.repo_path);
@@ -124,12 +134,7 @@ export function runMockApplyFlow(
 
     logs += 'All checks passed\n';
 
-    try {
-      writeAttemptFile(task.id, attemptNum, 'logs.txt', logs);
-    } catch (artifactErr) {
-      const msg = artifactErr instanceof Error ? artifactErr.message : String(artifactErr);
-      logs += `Attempt artifact save failed: logs.txt: ${msg}\n`;
-    }
+    logs = saveAttemptArtifact(task.id, attemptNum, 'logs.txt', logs, logs);
 
     state.status = 'approved';
     state.last_logs = logs;
@@ -152,14 +157,7 @@ export function runMockApplyFlow(
       }
     }
 
-    if (attemptNum > 0) {
-      try {
-        writeAttemptFile(task.id, attemptNum, 'logs.txt', logs);
-      } catch (artifactErr) {
-        const msg = artifactErr instanceof Error ? artifactErr.message : String(artifactErr);
-        logs += `Attempt artifact save failed: logs.txt: ${msg}\n`;
-      }
-    }
+    logs = saveAttemptArtifact(task.id, attemptNum, 'logs.txt', logs, logs);
 
     if (state) {
       try {
