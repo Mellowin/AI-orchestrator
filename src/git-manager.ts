@@ -50,7 +50,7 @@ function validateBranchName(branch: string): void {
   }
 }
 
-function git(repoPath: string, args: string[]): string {
+function gitRaw(repoPath: string, args: string[]): string {
   const result = spawnSync('git', args, {
     cwd: repoPath,
     shell: false,
@@ -67,7 +67,11 @@ function git(repoPath: string, args: string[]): string {
       `git ${args.join(' ')} exited with code ${result.status}`;
     throw new Error(err);
   }
-  return result.stdout.trim();
+  return result.stdout;
+}
+
+function git(repoPath: string, args: string[]): string {
+  return gitRaw(repoPath, args).trim();
 }
 
 export function ensureClean(repoPath: string): void {
@@ -140,7 +144,7 @@ export function getChangedFiles(repoPath: string): string[] {
 
 export function getCurrentDiff(repoPath: string): string {
   validateRepoPath(repoPath);
-  return git(repoPath, ['diff', '--no-ext-diff']);
+  return gitRaw(repoPath, ['diff', '--no-ext-diff']);
 }
 
 export function getDiffStat(repoPath: string): DiffStat {
@@ -161,16 +165,17 @@ export function getDiffStat(repoPath: string): DiffStat {
     if (parts.length < 3) continue;
 
     const [insStr, delStr, filePath] = parts;
+    files.push(filePath);
 
     if (insStr === '-' || delStr === '-') {
       binaryFiles.push(filePath);
-    } else {
-      const ins = parseInt(insStr, 10);
-      const del = parseInt(delStr, 10);
-      if (!isNaN(ins)) insertions += ins;
-      if (!isNaN(del)) deletions += del;
-      files.push(filePath);
+      continue;
     }
+
+    const ins = parseInt(insStr, 10);
+    const del = parseInt(delStr, 10);
+    if (!isNaN(ins)) insertions += ins;
+    if (!isNaN(del)) deletions += del;
   }
 
   return { files, insertions, deletions, binaryFiles };
