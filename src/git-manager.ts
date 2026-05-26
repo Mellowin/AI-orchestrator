@@ -96,6 +96,13 @@ export function branchExists(repoPath: string, branch: string): boolean {
       encoding: 'utf-8',
     }
   );
+
+  if (result.error) {
+    throw new Error(
+      `Git command failed: git rev-parse --verify refs/heads/${branch} — ${result.error.message}`
+    );
+  }
+
   return result.status === 0;
 }
 
