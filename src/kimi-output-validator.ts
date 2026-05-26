@@ -1,3 +1,4 @@
+import { isAbsolute } from 'node:path';
 import type { KimiOutput } from './types.js';
 
 function isObject(val: unknown): val is Record<string, unknown> {
@@ -14,8 +15,11 @@ function validatePath(path: string, index: number): void {
       `KimiOutput.files[${index}].path must be a non-empty string`
     );
   }
-  if (path.startsWith('/')) {
+  if (isAbsolute(path)) {
     throw new Error(`Absolute paths are not allowed: ${path}`);
+  }
+  if (path.includes(':')) {
+    throw new Error(`Colons are not allowed in repo-relative paths: ${path}`);
   }
   if (path.includes('..')) {
     throw new Error(`Path traversal detected: ${path}`);
