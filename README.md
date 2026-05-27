@@ -130,6 +130,21 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
    npx tsx src/cli.ts attempt demo-task 1
    ```
 
+> Mock workflow does not require `--allow-real-ai`.
+
+### C. Real Kimi opt-in (advanced, requires valid API key)
+
+Use only when you have valid credentials and intend to make a real API request:
+
+```bash
+export AI_PROVIDER=kimi
+export KIMI_API_KEY=...
+export KIMI_MODEL=kimi-k2.6
+npx tsx src/cli.ts ai-generate demo-task --allow-real-ai
+```
+
+> ⚠️ This performs a real HTTP request to the Kimi API. Do not use without valid credentials and intent.
+
 ---
 
 ## Current safety limits
@@ -149,7 +164,7 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 
 - **`KimiClient.generate` is implemented at the client level** — performs real HTTP calls to the Kimi API, but is not wired into the CLI workflow yet.
 - **OpenAI reviewer is not wired yet** — the review pipeline (`gpt-4o` / `gpt-5.5`) is not connected.
-- **`ai-generate` supports only `AI_PROVIDER=mock`** — attempting to use `AI_PROVIDER=kimi` will fail with a clear error.
+- **`ai-generate` blocks real AI providers by default** — `AI_PROVIDER=kimi` requires explicit `--allow-real-ai` flag. Mock mode works without it.
 - **`ai-apply` delegates to `runMockApplyFlow`** — it reads `runs/{taskId}/ai-output.json`, pre-validates it, and passes it to the existing mock apply pipeline.
 - **No auto push, no merge, no reset, no clean** — these operations are explicitly prohibited by the safety rules.
 

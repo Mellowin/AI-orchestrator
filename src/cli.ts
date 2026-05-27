@@ -390,13 +390,14 @@ if (command === 'validate-output') {
 
 if (command === 'ai-generate') {
   try {
+    const allowRealAI = args.includes('--allow-real-ai');
     const task = loadTask('tasks.yaml', taskId);
     const context = buildContext(task);
     const prompt = buildKimiPrompt(context);
 
-    if (config.ai.provider !== 'mock') {
+    if (config.ai.provider !== 'mock' && !allowRealAI) {
       console.error(
-        '[ai-generate] Error: ai-generate currently supports only AI_PROVIDER=mock'
+        '[ai-generate] Error: real AI providers require --allow-real-ai'
       );
       process.exit(1);
     }
