@@ -98,6 +98,11 @@ export function parseKimiOutputJson(raw: string): KimiOutput {
       throw new Error('Invalid Kimi JSON output: empty fenced block');
     }
 
+    const firstLine = lines[0];
+    if (firstLine !== '```' && firstLine !== '```json') {
+      throw new Error('Invalid Kimi JSON output: unsupported fenced block language');
+    }
+
     const lastLine = lines[lines.length - 1];
     if (lastLine !== '```') {
       throw new Error('Invalid Kimi JSON output: malformed fenced block');

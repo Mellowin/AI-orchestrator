@@ -39,4 +39,14 @@ describe('kimi-output-validator', () => {
     const raw = '```json\n{"mode":"file_update","files":[{"path":"src/a.ts","content":"x"}]}\n```\n\nDone';
     assert.throws(() => parseKimiOutputJson(raw), /Invalid Kimi JSON output/);
   });
+
+  test('rejects fenced block with non-json language', () => {
+    const raw = '```typescript\n{"mode":"file_update","files":[{"path":"src/a.ts","content":"x"}]}\n```';
+    assert.throws(() => parseKimiOutputJson(raw), /Invalid Kimi JSON output/);
+  });
+
+  test('rejects fenced block with json extra text', () => {
+    const raw = '```json extra\n{"mode":"file_update","files":[{"path":"src/a.ts","content":"x"}]}\n```';
+    assert.throws(() => parseKimiOutputJson(raw), /Invalid Kimi JSON output/);
+  });
 });
