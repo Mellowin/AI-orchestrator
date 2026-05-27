@@ -109,76 +109,82 @@ function runAiApply(taskId: string, cwd: string): { status: number; stdout: stri
 describe('cli ai-apply', () => {
   test('fails when ai-output.json is missing', () => {
     const { taskId, cwd, runsDir, repoPath, cleanup } = createApplyEnv();
-    const runTaskDir = join(runsDir, taskId);
-    if (existsSync(runTaskDir)) {
-      rmSync(runTaskDir, { recursive: true });
+    try {
+      const runTaskDir = join(runsDir, taskId);
+      if (existsSync(runTaskDir)) {
+        rmSync(runTaskDir, { recursive: true });
+      }
+
+      const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+      const result = runAiApply(taskId, cwd);
+
+      assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stderr.includes('ai-output.json not found. Run ai-generate first.'),
+        `Expected missing file message, got stderr: ${result.stderr}`
+      );
+      assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage, 'package.json should not change');
+      assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
+      assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
+    } finally {
+      cleanup();
     }
-
-    const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
-    const result = runAiApply(taskId, cwd);
-
-    assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
-    assert(
-      result.stderr.includes('ai-output.json not found. Run ai-generate first.'),
-      `Expected missing file message, got stderr: ${result.stderr}`
-    );
-    assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage, 'package.json should not change');
-    assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
-    assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
-
-    cleanup();
   });
 
   test('fails guardrails for denied path before apply', () => {
     const { taskId, cwd, runsDir, repoPath, cleanup } = createApplyEnv();
-    writeAiOutput(
-      taskId,
-      runsDir,
-      '{"mode":"file_update","files":[{"path":".env","content":"SECRET=1"}]}'
-    );
+    try {
+      writeAiOutput(
+        taskId,
+        runsDir,
+        '{"mode":"file_update","files":[{"path":".env","content":"SECRET=1"}]}'
+      );
 
-    const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
-    const result = runAiApply(taskId, cwd);
+      const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+      const result = runAiApply(taskId, cwd);
 
-    assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
-    assert(
-      result.stderr.includes('[ai-apply] Guardrails failed'),
-      `Expected guardrails failed, got stderr: ${result.stderr}`
-    );
-    assert(!existsSync(join(repoPath, '.env')), '.env should not be created');
-    assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage, 'package.json should not change');
-    assert(!existsSync(join(runsDir, taskId, 'attempt-1')), 'attempt-1 should not exist');
-
-    cleanup();
+      assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stderr.includes('[ai-apply] Guardrails failed'),
+        `Expected guardrails failed, got stderr: ${result.stderr}`
+      );
+      assert(!existsSync(join(repoPath, '.env')), '.env should not be created');
+      assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage, 'package.json should not change');
+      assert(!existsSync(join(runsDir, taskId, 'attempt-1')), 'attempt-1 should not exist');
+    } finally {
+      cleanup();
+    }
   });
 
   test('succeeds for valid file_update', () => {
     const { taskId, cwd, runsDir, repoPath, cleanup } = createApplyEnv();
-    writeAiOutput(
-      taskId,
-      runsDir,
-      JSON.stringify({
-        mode: 'file_update',
-        files: [
-          {
-            path: 'package.json',
-            content: '{ "name": "ai-apply-test", "version": "1.0.0" }\n',
-          },
-        ],
-      })
-    );
+    try {
+      writeAiOutput(
+        taskId,
+        runsDir,
+        JSON.stringify({
+          mode: 'file_update',
+          files: [
+            {
+              path: 'package.json',
+              content: '{ "name": "ai-apply-test", "version": "1.0.0" }\n',
+            },
+          ],
+        })
+      );
 
-    const result = runAiApply(taskId, cwd);
+      const result = runAiApply(taskId, cwd);
 
-    assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
-    assert(result.stdout.includes('[ai-apply] Success'), `Expected Success, got stdout: ${result.stdout}`);
-    assert(
-      readFileSync(join(repoPath, 'package.json'), 'utf-8').includes('"name": "ai-apply-test"'),
-      'package.json should be updated'
-    );
-    assert(existsSync(join(runsDir, taskId, 'attempt-1')), 'attempt-1 should exist');
-    assert(existsSync(join(runsDir, taskId, 'state.json')), 'state.json should exist');
-
-    cleanup();
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[ai-apply] Success'), `Expected Success, got stdout: ${result.stdout}`);
+      assert(
+        readFileSync(join(repoPath, 'package.json'), 'utf-8').includes('"name": "ai-apply-test"'),
+        'package.json should be updated'
+      );
+      assert(existsSync(join(runsDir, taskId, 'attempt-1')), 'attempt-1 should exist');
+      assert(existsSync(join(runsDir, taskId, 'state.json')), 'state.json should exist');
+    } finally {
+      cleanup();
+    }
   });
 });
