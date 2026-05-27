@@ -45,57 +45,66 @@ function cleanOutput(): void {
 describe('cli ai-generate', () => {
   test('mock provider works without flag', () => {
     cleanOutput();
-    const result = runAiGenerate([], {
-      AI_PROVIDER: 'mock',
-      MOCK_AI_RESPONSE: '{"mode":"file_update","files":[]}',
-    });
-    assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
-    assert(existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')), 'ai-output.json should exist');
-    cleanOutput();
+    try {
+      const result = runAiGenerate([], {
+        AI_PROVIDER: 'mock',
+        MOCK_AI_RESPONSE: '{"mode":"file_update","files":[]}',
+      });
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')), 'ai-output.json should exist');
+    } finally {
+      cleanOutput();
+    }
   });
 
   test('kimi provider without flag is blocked before real HTTP', () => {
     cleanOutput();
-    const result = runAiGenerate([], {
-      AI_PROVIDER: 'kimi',
-      KIMI_API_KEY: 'x',
-      KIMI_MODEL: 'kimi-k2.6',
-    });
-    assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
-    assert(
-      result.stderr.includes('real AI providers require --allow-real-ai'),
-      `Expected blocker message, got stderr: ${result.stderr}`
-    );
-    assert(!existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')), 'ai-output.json should not exist');
-    cleanOutput();
+    try {
+      const result = runAiGenerate([], {
+        AI_PROVIDER: 'kimi',
+        KIMI_API_KEY: 'x',
+        KIMI_MODEL: 'kimi-k2.6',
+      });
+      assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stderr.includes('real AI providers require --allow-real-ai'),
+        `Expected blocker message, got stderr: ${result.stderr}`
+      );
+      assert(!existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')), 'ai-output.json should not exist');
+    } finally {
+      cleanOutput();
+    }
   });
 
   test('kimi provider with --allow-real-ai reaches client path without real HTTP', () => {
     cleanOutput();
-    const result = runAiGenerate(['--allow-real-ai'], {
-      AI_PROVIDER: 'kimi',
-      KIMI_API_KEY: 'x',
-      KIMI_MODEL: 'kimi-k2.6',
-      KIMI_BASE_URL: 'not-a-url',
-    });
-    assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
-    assert(
-      !result.stderr.includes('real AI providers require --allow-real-ai'),
-      `Should pass CLI guard, got stderr: ${result.stderr}`
-    );
-    assert(
-      result.stderr.includes('[ai-generate] Error:'),
-      `Should show ai-generate error, got stderr: ${result.stderr}`
-    );
-    const hasFetchError =
-      result.stderr.includes('Failed to parse URL') ||
-      result.stderr.includes('Invalid URL') ||
-      result.stderr.includes('fetch failed');
-    assert(
-      hasFetchError,
-      `Should fail on invalid URL before real HTTP, got stderr: ${result.stderr}`
-    );
-    assert(!existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')), 'ai-output.json should not exist');
-    cleanOutput();
+    try {
+      const result = runAiGenerate(['--allow-real-ai'], {
+        AI_PROVIDER: 'kimi',
+        KIMI_API_KEY: 'x',
+        KIMI_MODEL: 'kimi-k2.6',
+        KIMI_BASE_URL: 'not-a-url',
+      });
+      assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        !result.stderr.includes('real AI providers require --allow-real-ai'),
+        `Should pass CLI guard, got stderr: ${result.stderr}`
+      );
+      assert(
+        result.stderr.includes('[ai-generate] Error:'),
+        `Should show ai-generate error, got stderr: ${result.stderr}`
+      );
+      const hasFetchError =
+        result.stderr.includes('Failed to parse URL') ||
+        result.stderr.includes('Invalid URL') ||
+        result.stderr.includes('fetch failed');
+      assert(
+        hasFetchError,
+        `Should fail on invalid URL before real HTTP, got stderr: ${result.stderr}`
+      );
+      assert(!existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')), 'ai-output.json should not exist');
+    } finally {
+      cleanOutput();
+    }
   });
 });
