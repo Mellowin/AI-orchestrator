@@ -32,5 +32,9 @@ Thumbs.db
 # Testing
 coverage/
 
+# Fixture git repos
+fixtures/**/.git/
+fixtures/**/origin.git/
+
 tmp/
 .tmp/
