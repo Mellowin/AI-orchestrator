@@ -7,6 +7,7 @@ import { runMockApplyFlow } from '../src/mock-apply-flow.js';
 import { join } from 'node:path';
 
 const FIXTURE_REPO = join(process.cwd(), 'fixtures', 'repo');
+const ORIGIN_REPO = join(process.cwd(), 'fixtures', 'origin.git');
 const RUN_DIR = join(process.cwd(), 'runs', 'test-task');
 
 function git(args: string[]): void {
@@ -17,7 +18,6 @@ function git(args: string[]): void {
     timeout: 15000,
   });
   if (result.status !== 0 && result.status !== null) {
-    // ignore "branch not found" errors during cleanup
     if (args[0] === 'branch' && args[1] === '-D' && result.stderr.includes('not found')) {
       return;
     }
@@ -25,20 +25,48 @@ function git(args: string[]): void {
   }
 }
 
+function setupFixtureRepo(): void {
+  if (!existsSync(join(FIXTURE_REPO, '.git'))) {
+    git(['init']);
+    git(['add', '.']);
+    git(['commit', '-m', 'init']);
+    git(['branch', '-m', 'main']);
+  }
+
+  if (!existsSync(ORIGIN_REPO)) {
+    const result = spawnSync('git', ['init', '--bare', ORIGIN_REPO], {
+      encoding: 'utf-8',
+      shell: false,
+      timeout: 15000,
+    });
+    if (result.status !== 0) {
+      throw new Error(`git init --bare failed: ${result.stderr}`);
+    }
+  }
+
+  const remoteResult = spawnSync('git', ['remote'], {
+    cwd: FIXTURE_REPO,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  if (!remoteResult.stdout.includes('origin')) {
+    git(['remote', 'add', 'origin', ORIGIN_REPO]);
+    git(['push', '-u', 'origin', 'main']);
+  }
+}
+
 function cleanupFixture(): void {
-  // Switch back to main and delete work branch
+  setupFixtureRepo();
   git(['checkout', 'main']);
   try {
     git(['branch', '-D', 'ai/test-task']);
   } catch {
     // ignore if branch doesn't exist
   }
-  // Remove untracked files left by apply
   const helloFile = join(FIXTURE_REPO, 'src', 'hello.ts');
   if (existsSync(helloFile)) {
     rmSync(helloFile);
   }
-  // Clean up runs
   if (existsSync(RUN_DIR)) {
     rmSync(RUN_DIR, { recursive: true });
   }
