@@ -1,5 +1,7 @@
 # AI Orchestrator
 
+![CI](https://github.com/Mellowin/AI-orchestrator/actions/workflows/ci.yml/badge.svg?branch=feature/mvp-skeleton)
+
 Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `tasks.yaml`, prepares context for AI models, validates outputs, applies safe patches, runs checks, and persists state in `runs/`.
 
 > **Status:** MVP skeleton. Real Kimi/OpenAI API integration is not wired yet.
