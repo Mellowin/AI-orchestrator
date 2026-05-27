@@ -1,6 +1,7 @@
 import type { AIClient } from './ai-client.js';
 import { createMockAIClient } from './ai-client.js';
 import { createKimiClient, type KimiClientOptions } from './kimi-client.js';
+import type { AIConfig } from './config.js';
 
 export type AIProvider = 'mock' | 'kimi';
 
@@ -26,5 +27,28 @@ export function createAIClient(options: CreateAIClientOptions): AIClient {
   }
 
   const exhaustiveCheck: never = options.provider;
+  throw new Error(`Unsupported AI provider: ${exhaustiveCheck}`);
+}
+
+export function createAIClientFromConfig(aiConfig: AIConfig): AIClient {
+  if (aiConfig.provider === 'mock') {
+    return createAIClient({
+      provider: 'mock',
+      mockResponse: aiConfig.mockResponse,
+    });
+  }
+
+  if (aiConfig.provider === 'kimi') {
+    return createAIClient({
+      provider: 'kimi',
+      kimi: {
+        apiKey: aiConfig.kimiApiKey,
+        model: aiConfig.kimiModel,
+        baseUrl: aiConfig.kimiBaseUrl,
+      },
+    });
+  }
+
+  const exhaustiveCheck: never = aiConfig.provider;
   throw new Error(`Unsupported AI provider: ${exhaustiveCheck}`);
 }
