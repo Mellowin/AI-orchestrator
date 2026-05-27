@@ -63,14 +63,6 @@ function createValidateEnv(): {
   };
 }
 
-function writeAiOutput(runsDir: string, content: string): void {
-  const dir = join(runsDir, 'validate-task');
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  writeFileSync(join(dir, 'ai-output.json'), content, 'utf-8');
-}
-
 function runAiValidate(taskId: string, cwd: string): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(
     `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ai-validate ${taskId}`,
