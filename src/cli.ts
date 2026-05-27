@@ -16,6 +16,8 @@ import {
 import { parseKimiOutputJson } from './kimi-output-validator.js';
 import { buildKimiPrompt } from './prompt-builder.js';
 import { runMockApplyFlow } from './mock-apply-flow.js';
+import { config } from './config.js';
+import { createAIClientFromConfig } from './ai-client-factory.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -23,7 +25,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -374,6 +376,40 @@ if (command === 'validate-output') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[validate-output] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'ai-generate') {
+  try {
+    const task = loadTask('tasks.yaml', taskId);
+    const context = buildContext(task);
+    const prompt = buildKimiPrompt(context);
+
+    if (config.ai.provider !== 'mock') {
+      console.error(
+        '[ai-generate] Error: ai-generate currently supports only AI_PROVIDER=mock'
+      );
+      process.exit(1);
+    }
+
+    const client = createAIClientFromConfig(config.ai);
+    const output = await client.generate(prompt);
+
+    const runDir = getRunDir(taskId);
+    if (!existsSync(runDir)) {
+      mkdirSync(runDir, { recursive: true });
+    }
+    const outPath = join(runDir, 'ai-output.json');
+    writeFileSync(outPath, output, 'utf-8');
+
+    console.log(`[ai-generate] Task: ${taskId}`);
+    console.log(`[ai-generate] Provider: ${config.ai.provider}`);
+    console.log(`[ai-generate] Written: ${outPath}`);
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[ai-generate] Error: ${message}`);
     process.exit(1);
   }
 }
