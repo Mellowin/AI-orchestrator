@@ -14,10 +14,22 @@ import {
   getDiffStat,
 } from './git-manager.js';
 import { parseKimiOutputJson } from './kimi-output-validator.js';
+import type { KimiOutput } from './types.js';
 import { buildKimiPrompt } from './prompt-builder.js';
 import { runMockApplyFlow } from './mock-apply-flow.js';
 import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
+
+function validateKimiOutputForTask(raw: string, taskId: string): KimiOutput {
+  const kimiOutput = parseKimiOutputJson(raw);
+  const task = loadTask('tasks.yaml', taskId);
+  const updatePaths = kimiOutput.files.map((f) => f.path);
+  const guardrailsResult = validateFileList(updatePaths, task.guardrails);
+  if (!guardrailsResult.ok) {
+    throw new Error(`Guardrails failed: ${guardrailsResult.reason}`);
+  }
+  return kimiOutput;
+}
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -355,7 +367,7 @@ if (command === 'validate-output') {
     }
 
     const rawJson = readFileSync(jsonPath, 'utf-8');
-    const kimiOutput = parseKimiOutputJson(rawJson);
+    const kimiOutput = validateKimiOutputForTask(rawJson, taskId);
 
     console.log(`[validate-output] Task: ${taskId}`);
     console.log('[validate-output] Valid Kimi output');
@@ -363,19 +375,15 @@ if (command === 'validate-output') {
     for (const file of kimiOutput.files) {
       console.log(`  - ${file.path}`);
     }
-
-    const task = loadTask('tasks.yaml', taskId);
-    const updatePaths = kimiOutput.files.map((f) => f.path);
-    const guardrailsResult = validateFileList(updatePaths, task.guardrails);
-    if (!guardrailsResult.ok) {
-      console.error(`[validate-output] Guardrails failed: ${guardrailsResult.reason}`);
-      process.exit(1);
-    }
     console.log('[validate-output] Guardrails: ok');
     process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[validate-output] Error: ${message}`);
+    if (message.startsWith('Guardrails failed:')) {
+      console.error(`[validate-output] ${message}`);
+    } else {
+      console.error(`[validate-output] Error: ${message}`);
+    }
     process.exit(1);
   }
 }
@@ -430,16 +438,7 @@ if (command === 'ai-validate') {
     }
 
     const raw = readFileSync(outputPath, 'utf-8');
-    const kimiOutput = parseKimiOutputJson(raw);
-    const task = loadTask('tasks.yaml', taskId);
-    const updatePaths = kimiOutput.files.map((f) => f.path);
-    const guardrailsResult = validateFileList(updatePaths, task.guardrails);
-    if (!guardrailsResult.ok) {
-      console.error(
-        `[ai-validate] Guardrails failed: ${guardrailsResult.reason}`
-      );
-      process.exit(1);
-    }
+    const kimiOutput = validateKimiOutputForTask(raw, taskId);
 
     console.log(`[ai-validate] Task: ${taskId}`);
     console.log('[ai-validate] Valid AI output');
@@ -451,7 +450,11 @@ if (command === 'ai-validate') {
     process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[ai-validate] Error: ${message}`);
+    if (message.startsWith('Guardrails failed:')) {
+      console.error(`[ai-validate] ${message}`);
+    } else {
+      console.error(`[ai-validate] Error: ${message}`);
+    }
     process.exit(1);
   }
 }
