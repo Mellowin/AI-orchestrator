@@ -15,6 +15,42 @@ function validateMaxAttempts(raw: string | undefined): number {
   return num;
 }
 
+export type AIProvider = 'mock' | 'kimi';
+
+export interface AIConfig {
+  provider: AIProvider;
+  mockResponse: string;
+  kimiApiKey: string;
+  kimiModel: string;
+  kimiBaseUrl: string;
+}
+
+function validateAIProvider(value: string | undefined): AIProvider {
+  if (value === undefined || value.trim() === '') {
+    return 'mock';
+  }
+  if (value === 'mock' || value === 'kimi') {
+    return value;
+  }
+  throw new Error('AI_PROVIDER must be one of: mock, kimi');
+}
+
+function validateRequiredWhenKimi(
+  provider: AIProvider,
+  value: string | undefined,
+  name: string
+): string {
+  if (provider === 'kimi') {
+    if (value === undefined || value.trim() === '') {
+      throw new Error(`${name} is required when AI_PROVIDER=kimi`);
+    }
+    return value;
+  }
+  return value ?? '';
+}
+
+const aiProvider = validateAIProvider(process.env.AI_PROVIDER);
+
 export const config = {
   openaiApiKey: process.env.OPENAI_API_KEY,
   kimiApiKey: process.env.KIMI_API_KEY,
@@ -24,6 +60,13 @@ export const config = {
   maxAttempts: validateMaxAttempts(process.env.MAX_ATTEMPTS),
   runsDir: process.env.RUNS_DIR || './runs',
   mockAI: process.env.MOCK_AI === 'true' || false,
+  ai: {
+    provider: aiProvider,
+    mockResponse: process.env.MOCK_AI_RESPONSE ?? '{"mode":"file_update","files":[]}',
+    kimiApiKey: validateRequiredWhenKimi(aiProvider, process.env.KIMI_API_KEY, 'KIMI_API_KEY'),
+    kimiModel: validateRequiredWhenKimi(aiProvider, process.env.KIMI_MODEL, 'KIMI_MODEL'),
+    kimiBaseUrl: process.env.KIMI_BASE_URL ?? 'https://api.moonshot.ai/v1',
+  } as AIConfig,
 };
 
 export function validateConfig(): void {
