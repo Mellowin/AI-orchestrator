@@ -84,62 +84,68 @@ function runAiValidate(taskId: string, cwd: string): { status: number; stdout: s
 describe('cli ai-validate', () => {
   test('succeeds for valid ai-output.json', () => {
     const { taskId, cwd, runsDir, cleanup } = createValidateEnv();
-    const runTaskDir = join(runsDir, taskId);
-    mkdirSync(runTaskDir, { recursive: true });
-    writeFileSync(
-      join(runTaskDir, 'ai-output.json'),
-      '{"mode":"file_update","files":[{"path":"src/main.ts","content":"x"}]}',
-      'utf-8'
-    );
+    try {
+      const runTaskDir = join(runsDir, taskId);
+      mkdirSync(runTaskDir, { recursive: true });
+      writeFileSync(
+        join(runTaskDir, 'ai-output.json'),
+        '{"mode":"file_update","files":[{"path":"src/main.ts","content":"x"}]}',
+        'utf-8'
+      );
 
-    const result = runAiValidate(taskId, cwd);
-    assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
-    assert(result.stdout.includes('[ai-validate] Valid AI output'), `Expected Valid AI output, got stdout: ${result.stdout}`);
-    assert(result.stdout.includes('[ai-validate] Guardrails: ok'), `Expected Guardrails: ok, got stdout: ${result.stdout}`);
-    assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
-    assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
-
-    cleanup();
+      const result = runAiValidate(taskId, cwd);
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[ai-validate] Valid AI output'), `Expected Valid AI output, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('[ai-validate] Guardrails: ok'), `Expected Guardrails: ok, got stdout: ${result.stdout}`);
+      assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
+      assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
+    } finally {
+      cleanup();
+    }
   });
 
   test('fails when ai-output.json is missing', () => {
     const { taskId, cwd, runsDir, cleanup } = createValidateEnv();
-    const runTaskDir = join(runsDir, taskId);
-    if (existsSync(runTaskDir)) {
-      rmSync(runTaskDir, { recursive: true });
+    try {
+      const runTaskDir = join(runsDir, taskId);
+      if (existsSync(runTaskDir)) {
+        rmSync(runTaskDir, { recursive: true });
+      }
+
+      const result = runAiValidate(taskId, cwd);
+      assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stderr.includes('ai-output.json not found. Run ai-generate first.'),
+        `Expected missing file message, got stderr: ${result.stderr}`
+      );
+      assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
+      assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
+    } finally {
+      cleanup();
     }
-
-    const result = runAiValidate(taskId, cwd);
-    assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
-    assert(
-      result.stderr.includes('ai-output.json not found. Run ai-generate first.'),
-      `Expected missing file message, got stderr: ${result.stderr}`
-    );
-    assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
-    assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
-
-    cleanup();
   });
 
   test('fails guardrails for denied path', () => {
     const { taskId, cwd, runsDir, cleanup } = createValidateEnv();
-    const runTaskDir = join(runsDir, taskId);
-    mkdirSync(runTaskDir, { recursive: true });
-    writeFileSync(
-      join(runTaskDir, 'ai-output.json'),
-      '{"mode":"file_update","files":[{"path":".env","content":"SECRET=1"}]}',
-      'utf-8'
-    );
+    try {
+      const runTaskDir = join(runsDir, taskId);
+      mkdirSync(runTaskDir, { recursive: true });
+      writeFileSync(
+        join(runTaskDir, 'ai-output.json'),
+        '{"mode":"file_update","files":[{"path":".env","content":"SECRET=1"}]}',
+        'utf-8'
+      );
 
-    const result = runAiValidate(taskId, cwd);
-    assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
-    assert(
-      result.stderr.includes('[ai-validate] Guardrails failed'),
-      `Expected guardrails failed, got stderr: ${result.stderr}`
-    );
-    assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
-    assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
-
-    cleanup();
+      const result = runAiValidate(taskId, cwd);
+      assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stderr.includes('[ai-validate] Guardrails failed'),
+        `Expected guardrails failed, got stderr: ${result.stderr}`
+      );
+      assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
+      assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
+    } finally {
+      cleanup();
+    }
   });
 });
