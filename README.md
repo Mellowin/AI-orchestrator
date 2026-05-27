@@ -26,7 +26,9 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 
 4. **Paste the prompt into Kimi manually** and wait for the JSON response.
 
-5. **Save Kimi response as a JSON file**, for example:
+5. **Save Kimi response as a JSON file**
+
+   Bash:
    ```bash
    cat > tmp/kimi-output.json << 'EOF'
    {
@@ -40,6 +42,24 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
      "notes": "Added a simple console log"
    }
    EOF
+   ```
+
+   Windows PowerShell:
+   ```powershell
+   New-Item -ItemType Directory -Force tmp | Out-Null
+
+   @'
+   {
+     "mode": "file_update",
+     "files": [
+       {
+         "path": "src/index.ts",
+         "content": "console.log('hello from AI');`n"
+       }
+     ],
+     "notes": "Added a simple console log"
+   }
+   '@ | Set-Content -Encoding UTF8 tmp/kimi-output.json
    ```
 
 6. **Validate the output** (parse + guardrails check, no repo changes)
