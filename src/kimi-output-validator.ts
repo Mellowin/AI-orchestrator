@@ -84,12 +84,42 @@ export function validateKimiOutput(value: unknown): KimiOutput {
 }
 
 export function parseKimiOutputJson(raw: string): KimiOutput {
+  const trimmed = raw.trim();
+
+  let jsonText: string;
+
+  if (trimmed.startsWith('```')) {
+    if (!trimmed.endsWith('```')) {
+      throw new Error('Invalid Kimi JSON output: fenced block not closed');
+    }
+
+    const lines = trimmed.split('\n');
+    if (lines.length < 2) {
+      throw new Error('Invalid Kimi JSON output: empty fenced block');
+    }
+
+    const lastLine = lines[lines.length - 1];
+    if (lastLine !== '```') {
+      throw new Error('Invalid Kimi JSON output: malformed fenced block');
+    }
+
+    const middleLines = lines.slice(1, -1);
+    if (middleLines.some(line => line === '```' || line.startsWith('```'))) {
+      throw new Error('Invalid Kimi JSON output: multiple fenced blocks');
+    }
+
+    jsonText = middleLines.join('\n');
+  } else {
+    jsonText = trimmed;
+  }
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(jsonText);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Invalid Kimi JSON output: ${message}`);
   }
+
   return validateKimiOutput(parsed);
 }
