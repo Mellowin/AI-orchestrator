@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, rmSync, mkdirSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 function runAiGenerate(
