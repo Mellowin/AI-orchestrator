@@ -6,7 +6,9 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 
 ---
 
-## Manual MVP workflow
+## Current MVP workflow
+
+### A. Manual Kimi JSON workflow
 
 1. **Export context**
    ```bash
@@ -82,6 +84,47 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
    npx tsx src/cli.ts attempt demo-task 1
    ```
 
+### B. Mock AI workflow
+
+1. **Set mock provider**
+   ```bash
+   export AI_PROVIDER=mock
+   export MOCK_AI_RESPONSE='{"mode":"file_update","files":[]}'
+   ```
+
+   Windows PowerShell:
+   ```powershell
+   $env:AI_PROVIDER = 'mock'
+   $env:MOCK_AI_RESPONSE = '{"mode":"file_update","files":[]}'
+   ```
+
+2. **Generate AI output**
+   ```bash
+   npx tsx src/cli.ts ai-generate demo-task
+   ```
+   Writes `runs/demo-task/ai-output.json`.
+
+3. **Validate the generated output**
+   ```bash
+   npx tsx src/cli.ts ai-validate demo-task
+   ```
+
+4. **Apply the validated output**
+   ```bash
+   npx tsx src/cli.ts ai-apply demo-task
+   ```
+   Delegates to `runMockApplyFlow` — handles state, attempts, patch, checks, and rollback.
+
+5. **Check status**
+   ```bash
+   npx tsx src/cli.ts status demo-task
+   ```
+
+6. **Inspect attempt artifacts**
+   ```bash
+   npx tsx src/cli.ts attempt demo-task 1
+   ```
+
 ---
 
 ## Current safety limits
@@ -91,9 +134,19 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 - **No merge** — the orchestrator never merges branches.
 - **No reset/clean** — no destructive git operations (`git reset`, `git clean`) are performed.
 - **Work happens on `task.work_branch`** — `prepareWorkBranch` creates or resumes the dedicated work branch, never touching `main` directly.
-- **Output is validated before apply** — `validate-output` checks JSON schema and guardrails without writing to disk.
+- **Output is validated before apply** — `validate-output` and `ai-validate` check JSON schema and guardrails without writing to disk.
 - **Attempts are limited by `MAX_ATTEMPTS`** — default is `3`. Exceeding it returns `failed_max_attempts`.
 - **Artifacts are saved in `runs/{taskId}/attempt-{n}/`** — each attempt gets its own directory with `raw-kimi-output.json`, `parsed-kimi-output.json`, `patch-manifest.json`, and `logs.txt`.
+
+---
+
+## Current AI limitations
+
+- **Real Kimi API is not implemented yet** — `KimiClient` exists only as a skeleton. `generate()` throws "not implemented yet".
+- **OpenAI reviewer is not wired yet** — the review pipeline (`gpt-4o` / `gpt-5.5`) is not connected.
+- **`ai-generate` supports only `AI_PROVIDER=mock`** — attempting to use `AI_PROVIDER=kimi` will fail with a clear error.
+- **`ai-apply` delegates to `runMockApplyFlow`** — it reads `runs/{taskId}/ai-output.json`, pre-validates it, and passes it to the existing mock apply pipeline.
+- **No auto push, no merge, no reset, no clean** — these operations are explicitly prohibited by the safety rules.
 
 ---
 
@@ -109,6 +162,9 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 | `prompt <taskId>` | Export ready-to-send Kimi prompt to `runs/{taskId}/kimi-prompt.md` |
 | `validate-output <taskId> <jsonPath>` | Validate Kimi JSON output without applying patches |
 | `mock-apply <taskId> <jsonPath>` | Full mock pipeline: apply → guardrails → checks → rollback on failure |
+| `ai-generate <taskId>` | Build prompt, call mock AI, save output to `runs/{taskId}/ai-output.json` |
+| `ai-validate <taskId>` | Read and validate `runs/{taskId}/ai-output.json` |
+| `ai-apply <taskId>` | Apply validated `ai-output.json` via `runMockApplyFlow` |
 | `attempt <taskId> <n>` | Inspect artifacts of a specific attempt |
 
 ---
@@ -118,7 +174,10 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 Copy `.env.example` to `.env` and set:
 
 ```bash
+AI_PROVIDER=mock
+MOCK_AI_RESPONSE={"mode":"file_update","files":[]}
 KIMI_API_KEY=...
+KIMI_MODEL=moonshot-v1-8k
 OPENAI_API_KEY=...
 # Optional:
 MAX_ATTEMPTS=3
