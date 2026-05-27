@@ -21,7 +21,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -302,6 +302,64 @@ if (command === 'context') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[context] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+function maxConsecutiveBackticks(content: string): number {
+  let max = 0;
+  let current = 0;
+  for (const char of content) {
+    if (char === '`') {
+      current++;
+      max = Math.max(max, current);
+    } else {
+      current = 0;
+    }
+  }
+  return max;
+}
+
+function wrapInCodeFence(content: string): string {
+  const needed = Math.max(3, maxConsecutiveBackticks(content) + 1);
+  const fence = '`'.repeat(needed);
+  return `${fence}text\n${content}\n${fence}`;
+}
+
+if (command === 'prompt') {
+  try {
+    const task = loadTask('tasks.yaml', taskId);
+    const context = buildContext(task);
+
+    const runDir = getRunDir(taskId);
+    if (!existsSync(runDir)) {
+      mkdirSync(runDir, { recursive: true });
+    }
+
+    const contextPath = join(runDir, 'context-package.json');
+    writeFileSync(contextPath, JSON.stringify(context, null, 2), 'utf-8');
+
+    const promptPath = join(runDir, 'kimi-prompt.md');
+    const constraintsSection =
+      context.constraints.length > 0
+        ? context.constraints.map((c) => `- ${c}`).join('\n')
+        : '- No additional constraints';
+
+    const filesSection = context.files
+      .map((f) => `## ${f.path}\n\n${wrapInCodeFence(f.content)}`)
+      .join('\n\n');
+
+    const prompt = `# Task\n\n${context.task_summary}\n\n# Goal\n\n${context.goal}\n\n# Constraints\n\n${constraintsSection}\n\n# Files\n\n${filesSection}\n\n# Required output format\n\nReturn ONLY valid JSON.\n\nUse exactly this schema:\n\n\`\`\`json\n{\n  "mode": "file_update",\n  "files": [\n    {\n      "path": "relative/path/from/repo",\n      "content": "full file content after changes"\n    }\n  ],\n  "notes": "short optional note"\n}\n\`\`\`\n\nRules:\n\n* Do not include markdown outside JSON.\n* Do not modify files outside allowed scope.\n* Return full file content, not diffs.\n* Do not invent files unless required by the task.\n* Do not include comments explaining the JSON.\n`;
+
+    writeFileSync(promptPath, prompt, 'utf-8');
+
+    console.log(`[prompt] Task: ${taskId}`);
+    console.log(`[prompt] Files: ${context.files.length}`);
+    console.log(`[prompt] Written: ${promptPath}`);
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[prompt] Error: ${message}`);
     process.exit(1);
   }
 }
