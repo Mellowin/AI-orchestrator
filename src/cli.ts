@@ -13,6 +13,7 @@ import {
   getChangedFiles,
   getDiffStat,
 } from './git-manager.js';
+import { parseKimiOutputJson } from './kimi-output-validator.js';
 import { runMockApplyFlow } from './mock-apply-flow.js';
 
 const args = process.argv.slice(2);
@@ -21,7 +22,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -360,6 +361,47 @@ if (command === 'prompt') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[prompt] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'validate-output') {
+  const jsonPath = args[2];
+  if (!jsonPath) {
+    console.error('Usage: npx tsx src/cli.ts validate-output <taskId> <jsonPath>');
+    process.exit(1);
+  }
+  try {
+    if (!existsSync(jsonPath)) {
+      throw new Error(`jsonPath does not exist: ${jsonPath}`);
+    }
+    const stats = statSync(jsonPath);
+    if (!stats.isFile()) {
+      throw new Error(`jsonPath is not a file: ${jsonPath}`);
+    }
+
+    const rawJson = readFileSync(jsonPath, 'utf-8');
+    const kimiOutput = parseKimiOutputJson(rawJson);
+
+    console.log(`[validate-output] Task: ${taskId}`);
+    console.log('[validate-output] Valid Kimi output');
+    console.log(`[validate-output] Files: ${kimiOutput.files.length}`);
+    for (const file of kimiOutput.files) {
+      console.log(`  - ${file.path}`);
+    }
+
+    const task = loadTask('tasks.yaml', taskId);
+    const updatePaths = kimiOutput.files.map((f) => f.path);
+    const guardrailsResult = validateFileList(updatePaths, task.guardrails);
+    if (!guardrailsResult.ok) {
+      console.error(`[validate-output] Guardrails failed: ${guardrailsResult.reason}`);
+      process.exit(1);
+    }
+    console.log('[validate-output] Guardrails: ok');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[validate-output] Error: ${message}`);
     process.exit(1);
   }
 }
