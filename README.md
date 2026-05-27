@@ -162,7 +162,7 @@ npx tsx src/cli.ts ai-generate demo-task --allow-real-ai
 
 ## Current AI limitations
 
-- **`KimiClient.generate` is implemented at the client level** — performs real HTTP calls to the Kimi API, but is not wired into the CLI workflow yet.
+- **Real Kimi HTTP is opt-in only** — `KimiClient.generate` is implemented, but `ai-generate` requires explicit `--allow-real-ai` before making a real API request.
 - **OpenAI reviewer is not wired yet** — the review pipeline (`gpt-4o` / `gpt-5.5`) is not connected.
 - **`ai-generate` blocks real AI providers by default** — `AI_PROVIDER=kimi` requires explicit `--allow-real-ai` flag. Mock mode works without it.
 - **`ai-apply` delegates to `runMockApplyFlow`** — it reads `runs/{taskId}/ai-output.json`, pre-validates it, and passes it to the existing mock apply pipeline.
