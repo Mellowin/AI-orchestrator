@@ -69,4 +69,33 @@ describe('cli ai-generate', () => {
     assert(!existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')), 'ai-output.json should not exist');
     cleanOutput();
   });
+
+  test('kimi provider with --allow-real-ai reaches client path without real HTTP', () => {
+    cleanOutput();
+    const result = runAiGenerate(['--allow-real-ai'], {
+      AI_PROVIDER: 'kimi',
+      KIMI_API_KEY: 'x',
+      KIMI_MODEL: 'kimi-k2.6',
+      KIMI_BASE_URL: 'not-a-url',
+    });
+    assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
+    assert(
+      !result.stderr.includes('real AI providers require --allow-real-ai'),
+      `Should pass CLI guard, got stderr: ${result.stderr}`
+    );
+    assert(
+      result.stderr.includes('[ai-generate] Error:'),
+      `Should show ai-generate error, got stderr: ${result.stderr}`
+    );
+    const hasFetchError =
+      result.stderr.includes('Failed to parse URL') ||
+      result.stderr.includes('Invalid URL') ||
+      result.stderr.includes('fetch failed');
+    assert(
+      hasFetchError,
+      `Should fail on invalid URL before real HTTP, got stderr: ${result.stderr}`
+    );
+    assert(!existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')), 'ai-output.json should not exist');
+    cleanOutput();
+  });
 });
