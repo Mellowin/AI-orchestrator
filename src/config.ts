@@ -50,32 +50,35 @@ function validateRequiredWhenKimi(
 }
 
 const aiProvider = validateAIProvider(process.env.AI_PROVIDER);
+const aiKimiBaseUrl = process.env.KIMI_BASE_URL ?? 'https://api.moonshot.ai/v1';
+const aiKimiApiKey = validateRequiredWhenKimi(aiProvider, process.env.KIMI_API_KEY, 'KIMI_API_KEY');
+const aiKimiModel = validateRequiredWhenKimi(aiProvider, process.env.KIMI_MODEL, 'KIMI_MODEL');
 
 export const config = {
   openaiApiKey: process.env.OPENAI_API_KEY,
-  kimiApiKey: process.env.KIMI_API_KEY,
-  kimiBaseURL: process.env.KIMI_BASE_URL || 'https://api.moonshot.cn/v1',
-  kimiModel: process.env.KIMI_MODEL || 'kimi-k2.6',
+  kimiApiKey: aiKimiApiKey,
+  kimiBaseURL: aiKimiBaseUrl,
+  kimiModel: aiKimiModel,
   openaiReviewModel: process.env.OPENAI_REVIEW_MODEL || 'gpt-4o',
   maxAttempts: validateMaxAttempts(process.env.MAX_ATTEMPTS),
   runsDir: process.env.RUNS_DIR || './runs',
-  mockAI: process.env.MOCK_AI === 'true' || false,
+  mockAI: aiProvider === 'mock',
   ai: {
     provider: aiProvider,
     mockResponse: process.env.MOCK_AI_RESPONSE ?? '{"mode":"file_update","files":[]}',
-    kimiApiKey: validateRequiredWhenKimi(aiProvider, process.env.KIMI_API_KEY, 'KIMI_API_KEY'),
-    kimiModel: validateRequiredWhenKimi(aiProvider, process.env.KIMI_MODEL, 'KIMI_MODEL'),
-    kimiBaseUrl: process.env.KIMI_BASE_URL ?? 'https://api.moonshot.ai/v1',
+    kimiApiKey: aiKimiApiKey,
+    kimiModel: aiKimiModel,
+    kimiBaseUrl: aiKimiBaseUrl,
   } as AIConfig,
 };
 
 export function validateConfig(): void {
-  if (!config.mockAI) {
-    if (!config.kimiApiKey) {
-      throw new Error('Missing KIMI_API_KEY. Set MOCK_AI=true to skip.');
+  if (config.ai.provider === 'kimi') {
+    if (!config.ai.kimiApiKey) {
+      throw new Error('KIMI_API_KEY is required when AI_PROVIDER=kimi');
     }
-    if (!config.openaiApiKey) {
-      throw new Error('Missing OPENAI_API_KEY. Set MOCK_AI=true to skip.');
+    if (!config.ai.kimiModel) {
+      throw new Error('KIMI_MODEL is required when AI_PROVIDER=kimi');
     }
   }
 }
