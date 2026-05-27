@@ -37,7 +37,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-apply> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -454,6 +454,47 @@ if (command === 'ai-validate') {
       console.error(`[ai-validate] ${message}`);
     } else {
       console.error(`[ai-validate] Error: ${message}`);
+    }
+    process.exit(1);
+  }
+}
+
+if (command === 'ai-apply') {
+  try {
+    const outputPath = join(getRunDir(taskId), 'ai-output.json');
+    if (!existsSync(outputPath)) {
+      console.error(
+        '[ai-apply] Error: ai-output.json not found. Run ai-generate first.'
+      );
+      process.exit(1);
+    }
+    const stats = statSync(outputPath);
+    if (!stats.isFile()) {
+      console.error('[ai-apply] Error: ai-output.json is not a file');
+      process.exit(1);
+    }
+
+    const raw = readFileSync(outputPath, 'utf-8');
+    validateKimiOutputForTask(raw, taskId);
+
+    const task = loadTask('tasks.yaml', taskId);
+    const result = runMockApplyFlow(task, raw);
+
+    if (result.success) {
+      console.log('[ai-apply] Success');
+      console.log(result.logs);
+      process.exit(0);
+    } else {
+      console.error('[ai-apply] Failed');
+      console.error(result.logs);
+      process.exit(1);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.startsWith('Guardrails failed:')) {
+      console.error(`[ai-apply] ${message}`);
+    } else {
+      console.error(`[ai-apply] Error: ${message}`);
     }
     process.exit(1);
   }
