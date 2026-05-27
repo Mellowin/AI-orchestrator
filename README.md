@@ -4,10 +4,11 @@
 
 Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `tasks.yaml`, prepares context for AI models, validates outputs, applies safe patches, runs checks, and persists state in `runs/`.
 
-> **Status:** MVP skeleton. Real Kimi/OpenAI API integration is not wired yet.
+> **Status:** MVP skeleton. Real Kimi generation is wired as explicit opt-in via `--allow-real-ai`; OpenAI reviewer is not wired yet.
 > Supported workflows:
 > - Manual Kimi JSON workflow (copy prompt to Kimi, save response, validate and apply).
 > - Mock AI workflow via `AI_PROVIDER=mock` (`ai-generate` → `ai-validate` → `ai-apply`).
+> - Real Kimi generation via `AI_PROVIDER=kimi` + `--allow-real-ai` (`ai-generate` only; validate/apply remain local).
 
 ---
 
