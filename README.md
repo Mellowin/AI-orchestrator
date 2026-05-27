@@ -54,7 +54,7 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
      "files": [
        {
          "path": "src/index.ts",
-         "content": "console.log('hello from AI');`n"
+         "content": "console.log('hello from AI');\n"
        }
      ],
      "notes": "Added a simple console log"
