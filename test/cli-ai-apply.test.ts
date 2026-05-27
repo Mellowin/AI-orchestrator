@@ -187,4 +187,28 @@ describe('cli ai-apply', () => {
       cleanup();
     }
   });
+
+  test('ai-apply succeeds for fenced json file_update', () => {
+    const { taskId, cwd, runsDir, repoPath, cleanup } = createApplyEnv();
+    try {
+      writeAiOutput(
+        taskId,
+        runsDir,
+        '```json\n{"mode":"file_update","files":[{"path":"package.json","content":"{ \\"name\\": \\"ai-apply-fenced-test\\", \\"version\\": \\"1.0.0\\" }\\n"}]}\n```'
+      );
+
+      const result = runAiApply(taskId, cwd);
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[ai-apply] Success'), `Expected Success, got stdout: ${result.stdout}`);
+      assert(
+        readFileSync(join(repoPath, 'package.json'), 'utf-8').includes('"name": "ai-apply-fenced-test"'),
+        'package.json should be updated'
+      );
+      assert(existsSync(join(runsDir, taskId, 'attempt-1')), 'attempt-1 should exist');
+      assert(existsSync(join(runsDir, taskId, 'state.json')), 'state.json should exist');
+    } finally {
+      cleanup();
+    }
+  });
 });

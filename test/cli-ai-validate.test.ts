@@ -148,4 +148,26 @@ describe('cli ai-validate', () => {
       cleanup();
     }
   });
+
+  test('ai-validate succeeds for fenced json ai-output', () => {
+    const { taskId, cwd, runsDir, cleanup } = createValidateEnv();
+    try {
+      const runTaskDir = join(runsDir, taskId);
+      mkdirSync(runTaskDir, { recursive: true });
+      writeFileSync(
+        join(runTaskDir, 'ai-output.json'),
+        '```json\n{"mode":"file_update","files":[{"path":"src/main.ts","content":"x"}]}\n```',
+        'utf-8'
+      );
+
+      const result = runAiValidate(taskId, cwd);
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[ai-validate] Valid AI output'), `Expected Valid AI output, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('[ai-validate] Guardrails: ok'), `Expected Guardrails: ok, got stdout: ${result.stdout}`);
+      assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
+      assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
+    } finally {
+      cleanup();
+    }
+  });
 });
