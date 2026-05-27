@@ -25,7 +25,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -410,6 +410,48 @@ if (command === 'ai-generate') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[ai-generate] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'ai-validate') {
+  try {
+    const outputPath = join(getRunDir(taskId), 'ai-output.json');
+    if (!existsSync(outputPath)) {
+      console.error(
+        '[ai-validate] Error: ai-output.json not found. Run ai-generate first.'
+      );
+      process.exit(1);
+    }
+    const stats = statSync(outputPath);
+    if (!stats.isFile()) {
+      console.error('[ai-validate] Error: ai-output.json is not a file');
+      process.exit(1);
+    }
+
+    const raw = readFileSync(outputPath, 'utf-8');
+    const kimiOutput = parseKimiOutputJson(raw);
+    const task = loadTask('tasks.yaml', taskId);
+    const updatePaths = kimiOutput.files.map((f) => f.path);
+    const guardrailsResult = validateFileList(updatePaths, task.guardrails);
+    if (!guardrailsResult.ok) {
+      console.error(
+        `[ai-validate] Guardrails failed: ${guardrailsResult.reason}`
+      );
+      process.exit(1);
+    }
+
+    console.log(`[ai-validate] Task: ${taskId}`);
+    console.log('[ai-validate] Valid AI output');
+    console.log(`[ai-validate] Files: ${kimiOutput.files.length}`);
+    for (const file of kimiOutput.files) {
+      console.log(`  - ${file.path}`);
+    }
+    console.log('[ai-validate] Guardrails: ok');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[ai-validate] Error: ${message}`);
     process.exit(1);
   }
 }
