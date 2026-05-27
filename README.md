@@ -145,7 +145,7 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 
 ## Current AI limitations
 
-- **Real Kimi API is not implemented yet** — `KimiClient` exists only as a skeleton. `generate()` throws "not implemented yet".
+- **`KimiClient.generate` is implemented at the client level** — performs real HTTP calls to the Kimi API, but is not wired into the CLI workflow yet.
 - **OpenAI reviewer is not wired yet** — the review pipeline (`gpt-4o` / `gpt-5.5`) is not connected.
 - **`ai-generate` supports only `AI_PROVIDER=mock`** — attempting to use `AI_PROVIDER=kimi` will fail with a clear error.
 - **`ai-apply` delegates to `runMockApplyFlow`** — it reads `runs/{taskId}/ai-output.json`, pre-validates it, and passes it to the existing mock apply pipeline.
