@@ -2,37 +2,13 @@ import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { resolveBackupPath } from '../src/backup-path.js';
+import { createTempTasksFile } from './helpers/temp-tasks-file.js';
 
 const TASK_ID = 'ai-generate-test-task';
 
-function createTempTasksFile(taskId: string): string {
-  const tmpDir = join(process.cwd(), 'tmp');
-  if (!existsSync(tmpDir)) mkdirSync(tmpDir);
-  const tmpTasks = join(tmpDir, `tasks-ai-generate-${Date.now()}.yaml`);
-  writeFileSync(
-    tmpTasks,
-    `tasks:
-  - id: ${taskId}
-    title: Test task
-    description: test
-    goal: Test goal
-    repo_path: .
-    base_branch: main
-    work_branch: ai/${taskId}
-    context_files: []
-    guardrails:
-      allow_modify: []
-      max_lines_changed: 100
-    checks:
-      - command: echo
-        args: ["ok"]
-`,
-    'utf-8'
-  );
-  return tmpTasks;
-}
+
 
 function runAiGenerate(
   taskId: string,
@@ -75,7 +51,7 @@ function cleanOutput(taskId: string): void {
 
 describe('cli ai-generate', () => {
   test('mock provider works without flag', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-generate', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const result = runAiGenerate(TASK_ID, [], {
@@ -87,12 +63,12 @@ describe('cli ai-generate', () => {
       assert(existsSync(join(process.cwd(), 'runs', TASK_ID, 'ai-output.json')), 'ai-output.json should exist');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 
   test('kimi provider without flag is blocked before real HTTP', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-generate', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const result = runAiGenerate(TASK_ID, [], {
@@ -109,12 +85,12 @@ describe('cli ai-generate', () => {
       assert(!existsSync(join(process.cwd(), 'runs', TASK_ID, 'ai-output.json')), 'ai-output.json should not exist');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 
   test('kimi provider with --allow-real-ai reaches client path without real HTTP', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-generate', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const result = runAiGenerate(TASK_ID, ['--allow-real-ai'], {
@@ -144,12 +120,12 @@ describe('cli ai-generate', () => {
       assert(!existsSync(join(process.cwd(), 'runs', TASK_ID, 'ai-output.json')), 'ai-output.json should not exist');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 
   test('creates backup when ai-output.json already exists', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-generate', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const runDir = join(process.cwd(), 'runs', TASK_ID);
@@ -185,12 +161,12 @@ describe('cli ai-generate', () => {
       assert.strictEqual(newContent, '{"mode":"file_update","files":[]}', 'New output should be written');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 
   test('does not create backup when ai-output.json does not exist', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-generate', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const result = runAiGenerate(TASK_ID, [], {
@@ -209,7 +185,7 @@ describe('cli ai-generate', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 

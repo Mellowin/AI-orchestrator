@@ -2,36 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { createTempTasksFile } from './helpers/temp-tasks-file.js';
 
 const TASK_ID = 'ai-run-test-task';
 
-function createTempTasksFile(taskId: string): string {
-  const tmpDir = join(process.cwd(), 'tmp');
-  if (!existsSync(tmpDir)) mkdirSync(tmpDir);
-  const tmpTasks = join(tmpDir, `tasks-ai-run-${Date.now()}.yaml`);
-  writeFileSync(
-    tmpTasks,
-    `tasks:
-  - id: ${taskId}
-    title: Test task
-    description: test
-    goal: Test goal
-    repo_path: .
-    base_branch: main
-    work_branch: ai/${taskId}
-    context_files: []
-    guardrails:
-      allow_modify: []
-      max_lines_changed: 100
-    checks:
-      - command: echo
-        args: ["ok"]
-`,
-    'utf-8'
-  );
-  return tmpTasks;
-}
+
 
 function runAiRun(
   taskId: string,
@@ -74,7 +50,7 @@ function cleanOutput(taskId: string): void {
 
 describe('cli ai-run', () => {
   test('runs generate validate preview in mock mode', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-run', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const result = runAiRun(TASK_ID, [], {
@@ -105,12 +81,12 @@ describe('cli ai-run', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 
   test('stops when generated output is invalid', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-run', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const result = runAiRun(TASK_ID, [], {
@@ -130,12 +106,12 @@ describe('cli ai-run', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 
   test('does not run ai-apply', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-run', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const result = runAiRun(TASK_ID, [], {
@@ -158,12 +134,12 @@ describe('cli ai-run', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 
   test('ai-run prints backup path when existing ai-output is backed up', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-run', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const runDir = join(process.cwd(), 'runs', TASK_ID);
@@ -193,12 +169,12 @@ describe('cli ai-run', () => {
       assert.strictEqual(backupContent, '{"old":"content"}', 'Backup should contain old content');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 
   test('respects TASKS_FILE', () => {
-    const tmpTasks = createTempTasksFile(TASK_ID);
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-run', taskId: TASK_ID });
     cleanOutput(TASK_ID);
     try {
       const result = runAiRun(TASK_ID, [], {
@@ -213,7 +189,7 @@ describe('cli ai-run', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(tmpTasks)) rmSync(tmpTasks);
+      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
     }
   });
 });
