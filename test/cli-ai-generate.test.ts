@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 function runAiGenerate(
@@ -103,6 +103,51 @@ describe('cli ai-generate', () => {
         `Should fail on invalid URL before real HTTP, got stderr: ${result.stderr}`
       );
       assert(!existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')), 'ai-output.json should not exist');
+    } finally {
+      cleanOutput();
+    }
+  });
+
+  test('creates backup when ai-output.json already exists', () => {
+    cleanOutput();
+    try {
+      const runDir = join(process.cwd(), 'runs', 'demo-task');
+      mkdirSync(runDir, { recursive: true });
+      writeFileSync(join(runDir, 'ai-output.json'), '{"old":"content"}', 'utf-8');
+
+      const result = runAiGenerate([], {
+        AI_PROVIDER: 'mock',
+        MOCK_AI_RESPONSE: '{"mode":"file_update","files":[]}',
+      });
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(existsSync(join(runDir, 'ai-output.json')), 'ai-output.json should exist');
+
+      const files = readdirSync(runDir);
+      const backups = files.filter((f) => f.startsWith('ai-output.backup-') && f.endsWith('.json'));
+      assert.strictEqual(backups.length, 1, `Expected exactly one backup file, got: ${JSON.stringify(files)}`);
+
+      const backupContent = readFileSync(join(runDir, backups[0]!), 'utf-8');
+      assert.strictEqual(backupContent, '{"old":"content"}', 'Backup should contain old content');
+
+      const newContent = readFileSync(join(runDir, 'ai-output.json'), 'utf-8');
+      assert.strictEqual(newContent, '{"mode":"file_update","files":[]}', 'New output should be written');
+    } finally {
+      cleanOutput();
+    }
+  });
+
+  test('does not create backup when ai-output.json does not exist', () => {
+    cleanOutput();
+    try {
+      const result = runAiGenerate([], {
+        AI_PROVIDER: 'mock',
+        MOCK_AI_RESPONSE: '{"mode":"file_update","files":[]}',
+      });
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      const runDir = join(process.cwd(), 'runs', 'demo-task');
+      const files = readdirSync(runDir);
+      const backups = files.filter((f) => f.startsWith('ai-output.backup-') && f.endsWith('.json'));
+      assert.strictEqual(backups.length, 0, `Expected no backup files, got: ${JSON.stringify(files)}`);
     } finally {
       cleanOutput();
     }

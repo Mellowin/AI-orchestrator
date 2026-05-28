@@ -420,6 +420,12 @@ if (command === 'ai-generate') {
       mkdirSync(runDir, { recursive: true });
     }
     const outPath = join(runDir, 'ai-output.json');
+    if (existsSync(outPath)) {
+      const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+      const backupPath = join(runDir, `ai-output.backup-${timestamp}.json`);
+      const oldContent = readFileSync(outPath, 'utf-8');
+      writeFileSync(backupPath, oldContent, 'utf-8');
+    }
     writeFileSync(outPath, output, 'utf-8');
 
     console.log(`[ai-generate] Task: ${taskId}`);
