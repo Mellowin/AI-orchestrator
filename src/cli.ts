@@ -19,6 +19,7 @@ import { buildKimiPrompt } from './prompt-builder.js';
 import { runMockApplyFlow } from './mock-apply-flow.js';
 import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
+import { resolveBackupPath } from './backup-path.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -421,8 +422,7 @@ if (command === 'ai-generate') {
     }
     const outPath = join(runDir, 'ai-output.json');
     if (existsSync(outPath)) {
-      const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-      const backupPath = join(runDir, `ai-output.backup-${timestamp}.json`);
+      const backupPath = resolveBackupPath(runDir, new Date());
       const oldContent = readFileSync(outPath, 'utf-8');
       writeFileSync(backupPath, oldContent, 'utf-8');
     }
