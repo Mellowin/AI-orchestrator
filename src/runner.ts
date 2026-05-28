@@ -20,6 +20,17 @@ function validateCheck(check: Check): { ok: boolean } {
 export function runChecks(repoPath: string, checks: Check[]): RunResult {
   let logs = '';
 
+  const env = { ...process.env };
+  delete env.TASKS_FILE;
+  delete env.AI_PROVIDER;
+  delete env.MOCK_AI_RESPONSE;
+  delete env.KIMI_API_KEY;
+  delete env.KIMI_MODEL;
+  delete env.KIMI_BASE_URL;
+  delete env.KIMI_USER_AGENT;
+  delete env.OPENAI_API_KEY;
+  delete env.MOCK_AI;
+
   for (const check of checks) {
     const validation = validateCheck(check);
     if (!validation.ok) {
@@ -30,6 +41,7 @@ export function runChecks(repoPath: string, checks: Check[]): RunResult {
       cwd: repoPath,
       shell: false,
       encoding: 'utf-8',
+      env,
     });
 
     if (result.stdout) {
