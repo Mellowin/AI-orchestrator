@@ -10,6 +10,8 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 > - Mock AI workflow via `AI_PROVIDER=mock` (`ai-generate` → `ai-validate` → `ai-preview` → `ai-apply`).
 > - Real Kimi generation via `AI_PROVIDER=kimi` + `--allow-real-ai` (`ai-generate` only; validate/apply remain local).
 
+Use ai-preview before ai-apply to inspect proposed changes.
+
 ---
 
 ## Current MVP workflow
