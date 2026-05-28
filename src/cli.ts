@@ -42,13 +42,91 @@ function validateKimiOutputForTask(raw: string, taskId: string): KimiOutput {
   return kimiOutput;
 }
 
+async function executeAiGenerate(taskId: string, allowRealAI: boolean): Promise<void> {
+  const task = loadTask(getTasksFilePath(), taskId);
+  const context = buildContext(task);
+  const prompt = buildKimiPrompt(context);
+
+  if (config.ai.provider !== 'mock' && !allowRealAI) {
+    throw new Error('real AI providers require --allow-real-ai');
+  }
+
+  const client = createAIClientFromConfig(config.ai);
+  const output = await client.generate(prompt);
+
+  const runDir = getRunDir(taskId);
+  if (!existsSync(runDir)) {
+    mkdirSync(runDir, { recursive: true });
+  }
+  const outPath = join(runDir, 'ai-output.json');
+  if (existsSync(outPath)) {
+    const backupPath = resolveBackupPath(runDir, new Date());
+    const oldContent = readFileSync(outPath, 'utf-8');
+    writeFileSync(backupPath, oldContent, 'utf-8');
+  }
+  writeFileSync(outPath, output, 'utf-8');
+}
+
+function executeAiValidate(taskId: string): KimiOutput {
+  const outputPath = join(getRunDir(taskId), 'ai-output.json');
+  if (!existsSync(outputPath)) {
+    throw new Error('ai-output.json not found. Run ai-generate first.');
+  }
+  if (!statSync(outputPath).isFile()) {
+    throw new Error('ai-output.json is not a file');
+  }
+  const raw = readFileSync(outputPath, 'utf-8');
+  return validateKimiOutputForTask(raw, taskId);
+}
+
+function executeAiPreview(taskId: string): { filesCount: number; notes?: string } {
+  const outputPath = join(getRunDir(taskId), 'ai-output.json');
+  if (!existsSync(outputPath)) {
+    throw new Error('ai-output.json not found. Run ai-generate first.');
+  }
+  if (!statSync(outputPath).isFile()) {
+    throw new Error('ai-output.json is not a file');
+  }
+  const raw = readFileSync(outputPath, 'utf-8');
+  const kimiOutput = validateKimiOutputForTask(raw, taskId);
+  const task = loadTask(getTasksFilePath(), taskId);
+
+  if (kimiOutput.files.length > 0) {
+    validateProposedFileLineDeltas(
+      task.repo_path,
+      kimiOutput.files,
+      task.guardrails.max_lines_changed
+    );
+
+    for (const file of kimiOutput.files) {
+      const filePath = join(task.repo_path, file.path);
+      const fileExists = existsSync(filePath);
+      let currentLines = 0;
+      if (fileExists) {
+        currentLines = countLines(readFileSync(filePath, 'utf-8'));
+      }
+      const proposedLines = countLines(file.content);
+      const delta = proposedLines - currentLines;
+      const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
+
+      console.log(`  - ${file.path}`);
+      console.log(`    exists: ${fileExists ? 'yes' : 'no'}`);
+      console.log(`    current lines: ${currentLines}`);
+      console.log(`    proposed lines: ${proposedLines}`);
+      console.log(`    delta: ${deltaStr}`);
+    }
+  }
+
+  return { filesCount: kimiOutput.files.length, notes: kimiOutput.notes };
+}
+
 const args = process.argv.slice(2);
 const command = args[0];
 const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -402,35 +480,10 @@ if (command === 'validate-output') {
 if (command === 'ai-generate') {
   try {
     const allowRealAI = args.includes('--allow-real-ai');
-    const task = loadTask(getTasksFilePath(), taskId);
-    const context = buildContext(task);
-    const prompt = buildKimiPrompt(context);
-
-    if (config.ai.provider !== 'mock' && !allowRealAI) {
-      console.error(
-        '[ai-generate] Error: real AI providers require --allow-real-ai'
-      );
-      process.exit(1);
-    }
-
-    const client = createAIClientFromConfig(config.ai);
-    const output = await client.generate(prompt);
-
-    const runDir = getRunDir(taskId);
-    if (!existsSync(runDir)) {
-      mkdirSync(runDir, { recursive: true });
-    }
-    const outPath = join(runDir, 'ai-output.json');
-    if (existsSync(outPath)) {
-      const backupPath = resolveBackupPath(runDir, new Date());
-      const oldContent = readFileSync(outPath, 'utf-8');
-      writeFileSync(backupPath, oldContent, 'utf-8');
-    }
-    writeFileSync(outPath, output, 'utf-8');
-
+    await executeAiGenerate(taskId, allowRealAI);
     console.log(`[ai-generate] Task: ${taskId}`);
     console.log(`[ai-generate] Provider: ${config.ai.provider}`);
-    console.log(`[ai-generate] Written: ${outPath}`);
+    console.log(`[ai-generate] Written: ${join(getRunDir(taskId), 'ai-output.json')}`);
     process.exitCode = 0;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -441,21 +494,7 @@ if (command === 'ai-generate') {
 
 if (command === 'ai-validate') {
   try {
-    const outputPath = join(getRunDir(taskId), 'ai-output.json');
-    if (!existsSync(outputPath)) {
-      console.error(
-        '[ai-validate] Error: ai-output.json not found. Run ai-generate first.'
-      );
-      process.exit(1);
-    }
-    const stats = statSync(outputPath);
-    if (!stats.isFile()) {
-      console.error('[ai-validate] Error: ai-output.json is not a file');
-      process.exit(1);
-    }
-
-    const raw = readFileSync(outputPath, 'utf-8');
-    const kimiOutput = validateKimiOutputForTask(raw, taskId);
+    const kimiOutput = executeAiValidate(taskId);
 
     console.log(`[ai-validate] Task: ${taskId}`);
     console.log('[ai-validate] Valid AI output');
@@ -486,59 +525,16 @@ if (command === 'ai-validate') {
 
 if (command === 'ai-preview') {
   try {
-    const outputPath = join(getRunDir(taskId), 'ai-output.json');
-    if (!existsSync(outputPath)) {
-      console.error(
-        '[ai-preview] Error: ai-output.json not found. Run ai-generate first.'
-      );
-      process.exit(1);
-    }
-    const stats = statSync(outputPath);
-    if (!stats.isFile()) {
-      console.error('[ai-preview] Error: ai-output.json is not a file');
-      process.exit(1);
-    }
-
-    const raw = readFileSync(outputPath, 'utf-8');
-    const kimiOutput = validateKimiOutputForTask(raw, taskId);
-    const task = loadTask(getTasksFilePath(), taskId);
-
     console.log(`[ai-preview] Task: ${taskId}`);
-    console.log(`[ai-preview] Files: ${kimiOutput.files.length}`);
-    if (kimiOutput.files.length === 0) {
+    const previewResult = executeAiPreview(taskId);
+    console.log(`[ai-preview] Files: ${previewResult.filesCount}`);
+    if (previewResult.filesCount === 0) {
       console.log('[ai-preview] No file changes proposed');
-      if (kimiOutput.notes) {
-        console.log(`[ai-preview] Notes: ${kimiOutput.notes}`);
+      if (previewResult.notes) {
+        console.log(`[ai-preview] Notes: ${previewResult.notes}`);
       }
-      process.exit(0);
     }
-
-    validateProposedFileLineDeltas(
-      task.repo_path,
-      kimiOutput.files,
-      task.guardrails.max_lines_changed
-    );
-
-    for (const file of kimiOutput.files) {
-      const filePath = join(task.repo_path, file.path);
-      const fileExists = existsSync(filePath);
-      let currentLines = 0;
-      if (fileExists) {
-        const content = readFileSync(filePath, 'utf-8');
-        currentLines = countLines(content);
-      }
-      const proposedLines = countLines(file.content);
-      const delta = proposedLines - currentLines;
-      const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
-
-      console.log(`  - ${file.path}`);
-      console.log(`    exists: ${fileExists ? 'yes' : 'no'}`);
-      console.log(`    current lines: ${currentLines}`);
-      console.log(`    proposed lines: ${proposedLines}`);
-      console.log(`    delta: ${deltaStr}`);
-    }
-
-    process.exit(0);
+    process.exitCode = 0;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.startsWith('Guardrails failed:')) {
@@ -546,6 +542,38 @@ if (command === 'ai-preview') {
     } else {
       console.error(`[ai-preview] Error: ${message}`);
     }
+    process.exit(1);
+  }
+}
+
+if (command === 'ai-run') {
+  try {
+    const allowRealAI = args.includes('--allow-real-ai');
+    console.log(`[ai-run] Task: ${taskId}`);
+
+    console.log(`[ai-run] Step 1/3: ai-generate`);
+    await executeAiGenerate(taskId, allowRealAI);
+    console.log(`[ai-run] ai-generate: ok`);
+
+    console.log(`[ai-run] Step 2/3: ai-validate`);
+    executeAiValidate(taskId);
+    console.log(`[ai-run] ai-validate: ok`);
+
+    console.log(`[ai-run] Step 3/3: ai-preview`);
+    const previewResult = executeAiPreview(taskId);
+    if (previewResult.filesCount === 0) {
+      console.log('[ai-run] No file changes proposed');
+      if (previewResult.notes) {
+        console.log(`[ai-run] Notes: ${previewResult.notes}`);
+      }
+    }
+    console.log(`[ai-run] ai-preview: ok`);
+
+    console.log(`[ai-run] Done. Review preview output, then run ai-apply manually if acceptable.`);
+    process.exitCode = 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[ai-run] Error: ${message}`);
     process.exit(1);
   }
 }

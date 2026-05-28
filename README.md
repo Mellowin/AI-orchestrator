@@ -129,11 +129,11 @@ This remains an MVP skeleton, not production-ready automation.
    $env:MOCK_AI_RESPONSE = '{"mode":"file_update","files":[]}'
    ```
 
-2. **Generate AI output**
+2. **Run preview pipeline (generate → validate → preview)**
    ```bash
-   npx tsx src/cli.ts ai-generate demo-task
+   npx tsx src/cli.ts ai-run demo-task
    ```
-   Writes `runs/demo-task/ai-output.json`.
+   Safe preview that does not apply changes. Review output, then run `ai-apply` manually.
 
 3. **Validate the generated output**
    ```bash
@@ -166,7 +166,7 @@ Use only when you have valid credentials and intend to make a real API request:
 export AI_PROVIDER=kimi
 export KIMI_API_KEY=...
 export KIMI_MODEL=kimi-k2.6
-npx tsx src/cli.ts ai-generate demo-task --allow-real-ai
+npx tsx src/cli.ts ai-run demo-task --allow-real-ai
 ```
 
 > ⚠️ This performs a real HTTP request to the Kimi API. Do not use without valid credentials and intent.
@@ -218,6 +218,7 @@ npx tsx src/cli.ts ai-generate demo-task --allow-real-ai
 | `ai-generate <taskId>` | Build prompt, call mock AI, save output to `runs/{taskId}/ai-output.json` |
 | `ai-validate <taskId>` | Read and validate `runs/{taskId}/ai-output.json` |
 | `ai-preview <taskId>` | Preview proposed file changes without writing to disk |
+| `ai-run <taskId>` | Run generate → validate → preview safely (no auto-apply) |
 | `ai-apply <taskId>` | Apply validated `ai-output.json` via `runMockApplyFlow` |
 | `attempt <taskId> <n>` | Inspect artifacts of a specific attempt |
 
