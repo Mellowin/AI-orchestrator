@@ -146,6 +146,13 @@ npx tsx src/cli.ts ai-generate demo-task --allow-real-ai
 
 > ⚠️ This performs a real HTTP request to the Kimi API. Do not use without valid credentials and intent.
 
+#### Real Kimi troubleshooting
+
+- `429 Too Many Requests` with a message like `insufficient balance`, `exceeded_current_quota_error`, or `suspended due to insufficient balance` means the request reached the Moonshot/Kimi API, but the account cannot generate because billing/quota is not available.
+- This is **not** an orchestrator code failure. Recharge or check billing on the Moonshot platform, then rerun the command.
+- If `ai-generate` fails, `runs/{taskId}/ai-output.json` is **not** created.
+- Do **not** run `ai-apply` unless `ai-validate` succeeds.
+
 ---
 
 ## Current safety limits
