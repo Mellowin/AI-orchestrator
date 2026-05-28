@@ -421,7 +421,7 @@ if (command === 'ai-generate') {
     console.log(`[ai-generate] Task: ${taskId}`);
     console.log(`[ai-generate] Provider: ${config.ai.provider}`);
     console.log(`[ai-generate] Written: ${outPath}`);
-    process.exit(0);
+    process.exitCode = 0;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[ai-generate] Error: ${message}`);
@@ -566,5 +566,7 @@ if (command === 'ai-apply') {
   }
 }
 
-console.error(`Unknown command: ${command}`);
-process.exit(1);
+if (process.exitCode === undefined) {
+  console.error(`Unknown command: ${command}`);
+  process.exit(1);
+}
