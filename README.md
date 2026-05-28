@@ -210,6 +210,8 @@ KIMI_MODEL=moonshot-v1-8k
 OPENAI_API_KEY=...
 # Optional:
 MAX_ATTEMPTS=3
+# TASKS_FILE is optional; use it to point to a custom task YAML file for local smoke tests.
+# Defaults to tasks.yaml.
 # KIMI_USER_AGENT is optional and can be set for provider-specific compatibility
 # when your endpoint requires a custom User-Agent.
 ```

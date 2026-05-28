@@ -26,9 +26,13 @@ function countLines(text: string): number {
   return text.endsWith('\n') ? lines.length - 1 : lines.length;
 }
 
+function getTasksFilePath(): string {
+  return process.env.TASKS_FILE?.trim() || 'tasks.yaml';
+}
+
 function validateKimiOutputForTask(raw: string, taskId: string): KimiOutput {
   const kimiOutput = parseKimiOutputJson(raw);
-  const task = loadTask('tasks.yaml', taskId);
+  const task = loadTask(getTasksFilePath(), taskId);
   const updatePaths = kimiOutput.files.map((f) => f.path);
   const guardrailsResult = validateFileList(updatePaths, task.guardrails);
   if (!guardrailsResult.ok) {
@@ -50,7 +54,7 @@ if (!command || !taskId) {
 
 if (command === 'status') {
   try {
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
     const state = loadState(taskId);
 
     console.log(`[status] Task: ${taskId}`);
@@ -107,7 +111,7 @@ if (command === 'status') {
 
 if (command === 'git-check') {
   try {
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
     const exists = branchExists(task.repo_path, task.work_branch);
     ensureClean(task.repo_path);
     const current = getCurrentBranch(task.repo_path);
@@ -129,7 +133,7 @@ if (command === 'git-check') {
 
 if (command === 'git-diff') {
   try {
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
     const changed = getChangedFiles(task.repo_path);
     const stat = getDiffStat(task.repo_path);
 
@@ -161,7 +165,7 @@ if (command === 'mock-apply') {
       throw new Error(`jsonPath is not a file: ${jsonPath}`);
     }
 
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
     const rawJson = readFileSync(jsonPath, 'utf-8');
     const result = runMockApplyFlow(task, rawJson);
 
@@ -183,7 +187,7 @@ if (command === 'mock-apply') {
 
 if (command === 'run') {
   try {
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
     let state = loadState(taskId);
 
     if (!state) {
@@ -307,7 +311,7 @@ if (command === 'attempt') {
 
 if (command === 'context') {
   try {
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
     const context = buildContext(task);
 
     const runDir = getRunDir(taskId);
@@ -330,7 +334,7 @@ if (command === 'context') {
 
 if (command === 'prompt') {
   try {
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
     const context = buildContext(task);
 
     const runDir = getRunDir(taskId);
@@ -397,7 +401,7 @@ if (command === 'validate-output') {
 if (command === 'ai-generate') {
   try {
     const allowRealAI = args.includes('--allow-real-ai');
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
     const context = buildContext(task);
     const prompt = buildKimiPrompt(context);
 
@@ -491,7 +495,7 @@ if (command === 'ai-preview') {
 
     const raw = readFileSync(outputPath, 'utf-8');
     const kimiOutput = validateKimiOutputForTask(raw, taskId);
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
 
     console.log(`[ai-preview] Task: ${taskId}`);
     console.log(`[ai-preview] Files: ${kimiOutput.files.length}`);
@@ -566,7 +570,7 @@ if (command === 'ai-apply') {
       process.exit(0);
     }
 
-    const task = loadTask('tasks.yaml', taskId);
+    const task = loadTask(getTasksFilePath(), taskId);
     const result = runMockApplyFlow(task, raw);
 
     if (result.success) {
