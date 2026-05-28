@@ -263,4 +263,34 @@ describe('mock-apply-flow', () => {
 
     cleanup();
   });
+
+  test('rejects destructive proposed file shrink before apply', () => {
+    const { taskFilePath, taskId, repoPath, cleanup } = createTempFixtureRepo();
+
+    // Create a committed file with 200 lines
+    const largeContent = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+    writeFileSync(join(repoPath, 'src', 'large-file.ts'), largeContent, 'utf-8');
+    commitAll(repoPath, 'add large file');
+
+    const task = loadTask(taskFilePath, taskId);
+    const rawJson = JSON.stringify({
+      mode: 'file_update',
+      files: [{ path: 'src/large-file.ts', content: 'console.log("x");\n' }],
+    });
+    const originalContent = readFileSync(join(repoPath, 'src', 'large-file.ts'), 'utf-8');
+    const result = runMockApplyFlow(task, rawJson);
+
+    assert.strictEqual(result.success, false);
+    assert(result.logs.includes('Proposed file line delta too large'), `Got logs: ${result.logs}`);
+    assert.strictEqual(
+      readFileSync(join(repoPath, 'src', 'large-file.ts'), 'utf-8'),
+      originalContent,
+      'large-file.ts should not be modified'
+    );
+
+    const state = readState(taskId);
+    assert.strictEqual(state.status, 'failed');
+
+    cleanup();
+  });
 });

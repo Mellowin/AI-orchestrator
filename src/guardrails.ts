@@ -1,4 +1,5 @@
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import type { DiffStat, Guardrails, ValidationResult } from './types.js';
 
 function patternToRegExp(pattern: string): RegExp {
@@ -111,4 +112,40 @@ export function validateTestsPresent(
   }
 
   return { ok: true };
+}
+
+function countLines(text: string): number {
+  if (text.length === 0) return 0;
+  const lines = text.split('\n');
+  return text.endsWith('\n') ? lines.length - 1 : lines.length;
+}
+
+export function validateProposedFileLineDeltas(
+  repoPath: string,
+  files: Array<{ path: string; content: string }>,
+  maxLinesChanged?: number
+): void {
+  if (maxLinesChanged === undefined) {
+    return;
+  }
+
+  for (const file of files) {
+    if (isAbsolute(file.path)) {
+      throw new Error(`Absolute path not allowed: ${file.path}`);
+    }
+    if (file.path.includes('..')) {
+      throw new Error(`Path traversal not allowed: ${file.path}`);
+    }
+
+    const filePath = join(repoPath, file.path);
+    const currentLines = existsSync(filePath) ? countLines(readFileSync(filePath, 'utf-8')) : 0;
+    const proposedLines = countLines(file.content);
+    const delta = proposedLines - currentLines;
+
+    if (Math.abs(delta) > maxLinesChanged) {
+      throw new Error(
+        `Guardrails failed: Proposed file line delta too large: ${file.path} (${delta} lines, max ${maxLinesChanged})`
+      );
+    }
+  }
 }

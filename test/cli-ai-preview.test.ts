@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 let counter = 0;
@@ -192,6 +192,70 @@ describe('cli ai-preview', () => {
         `Expected guardrails failed, got stderr: ${result.stderr}`
       );
       assert(!existsSync(join(repoPath, '.env')), '.env should not be created');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('ai-preview fails for destructive file shrink', () => {
+    const { taskId, cwd, runsDir, repoPath, cleanup } = createPreviewEnv();
+    try {
+      // Override tasks.yaml with stricter max_lines_changed
+      const tasksYaml = `tasks:
+  - id: ${taskId}
+    title: "Preview test task"
+    repo_path: "."
+    base_branch: "main"
+    work_branch: "ai/${taskId}"
+    goal: "Test preview"
+    context_files:
+      - "package.json"
+    checks: []
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 2
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`;
+      writeFileSync(join(cwd, 'tasks.yaml'), tasksYaml, 'utf-8');
+
+      const runTaskDir = join(runsDir, taskId);
+      mkdirSync(runTaskDir, { recursive: true });
+      writeFileSync(
+        join(runTaskDir, 'ai-output.json'),
+        JSON.stringify({
+          mode: 'file_update',
+          files: [
+            { path: 'package.json', content: '{"name":"shrunk","version":"1.0.0"}' },
+          ],
+        }),
+        'utf-8'
+      );
+
+      const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+      const result = runAiPreview(taskId, cwd);
+      assert.strictEqual(result.status, 1, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stderr.includes('[ai-preview] Guardrails failed'),
+        `Expected guardrails failed, got stderr: ${result.stderr}`
+      );
+      assert(
+        result.stderr.includes('Proposed file line delta too large'),
+        `Expected delta message, got stderr: ${result.stderr}`
+      );
+      assert.strictEqual(
+        readFileSync(join(repoPath, 'package.json'), 'utf-8'),
+        originalPackage,
+        'package.json should not be modified'
+      );
+      assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
+      assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
     } finally {
       cleanup();
     }

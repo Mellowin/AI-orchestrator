@@ -12,6 +12,7 @@ import {
   validateDiffSize,
   validateFileList,
   validateTestsPresent,
+  validateProposedFileLineDeltas,
 } from './guardrails.js';
 import { runChecks } from './runner.js';
 import {
@@ -100,6 +101,13 @@ export function runMockApplyFlow(
       throw new Error(preApplyResult.reason);
     }
     logs += 'Pre-apply guardrails passed\n';
+
+    validateProposedFileLineDeltas(
+      task.repo_path,
+      kimiOutput.files,
+      task.guardrails.max_lines_changed
+    );
+    logs += 'Pre-apply line delta guardrails passed\n';
 
     ensureClean(task.repo_path);
     logs += 'Working tree is clean\n';

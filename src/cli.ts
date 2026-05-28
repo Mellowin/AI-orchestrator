@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState, getRunDir } from './state-manager.js';
 import { buildContext } from './context-builder.js';
-import { validateFileList } from './guardrails.js';
+import { validateFileList, validateProposedFileLineDeltas } from './guardrails.js';
 import { runChecks } from './runner.js';
 import {
   ensureClean,
@@ -484,6 +484,12 @@ if (command === 'ai-preview') {
     const raw = readFileSync(outputPath, 'utf-8');
     const kimiOutput = validateKimiOutputForTask(raw, taskId);
     const task = loadTask('tasks.yaml', taskId);
+
+    validateProposedFileLineDeltas(
+      task.repo_path,
+      kimiOutput.files,
+      task.guardrails.max_lines_changed
+    );
 
     console.log(`[ai-preview] Task: ${taskId}`);
     console.log(`[ai-preview] Files: ${kimiOutput.files.length}`);
