@@ -42,7 +42,7 @@ function validateKimiOutputForTask(raw: string, taskId: string): KimiOutput {
   return kimiOutput;
 }
 
-async function executeAiGenerate(taskId: string, allowRealAI: boolean): Promise<void> {
+async function executeAiGenerate(taskId: string, allowRealAI: boolean): Promise<{ outputPath: string; backupPath?: string }> {
   const task = loadTask(getTasksFilePath(), taskId);
   const context = buildContext(task);
   const prompt = buildKimiPrompt(context);
@@ -59,12 +59,14 @@ async function executeAiGenerate(taskId: string, allowRealAI: boolean): Promise<
     mkdirSync(runDir, { recursive: true });
   }
   const outPath = join(runDir, 'ai-output.json');
+  let backupPath: string | undefined;
   if (existsSync(outPath)) {
-    const backupPath = resolveBackupPath(runDir, new Date());
+    backupPath = resolveBackupPath(runDir, new Date());
     const oldContent = readFileSync(outPath, 'utf-8');
     writeFileSync(backupPath, oldContent, 'utf-8');
   }
   writeFileSync(outPath, output, 'utf-8');
+  return { outputPath: outPath, backupPath };
 }
 
 function executeAiValidate(taskId: string): KimiOutput {
@@ -480,10 +482,13 @@ if (command === 'validate-output') {
 if (command === 'ai-generate') {
   try {
     const allowRealAI = args.includes('--allow-real-ai');
-    await executeAiGenerate(taskId, allowRealAI);
+    const result = await executeAiGenerate(taskId, allowRealAI);
     console.log(`[ai-generate] Task: ${taskId}`);
     console.log(`[ai-generate] Provider: ${config.ai.provider}`);
-    console.log(`[ai-generate] Written: ${join(getRunDir(taskId), 'ai-output.json')}`);
+    console.log(`[ai-generate] Written: ${result.outputPath}`);
+    if (result.backupPath) {
+      console.log(`[ai-generate] Backup: ${result.backupPath}`);
+    }
     process.exitCode = 0;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -552,8 +557,11 @@ if (command === 'ai-run') {
     console.log(`[ai-run] Task: ${taskId}`);
 
     console.log(`[ai-run] Step 1/3: ai-generate`);
-    await executeAiGenerate(taskId, allowRealAI);
+    const generateResult = await executeAiGenerate(taskId, allowRealAI);
     console.log(`[ai-run] ai-generate: ok`);
+    if (generateResult.backupPath) {
+      console.log(`[ai-run] Backup: ${generateResult.backupPath}`);
+    }
 
     console.log(`[ai-run] Step 2/3: ai-validate`);
     executeAiValidate(taskId);

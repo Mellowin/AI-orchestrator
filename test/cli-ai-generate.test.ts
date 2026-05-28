@@ -128,6 +128,15 @@ describe('cli ai-generate', () => {
       assert.strictEqual(backups.length, 1, `Expected exactly one backup file, got: ${JSON.stringify(files)}`);
       assert.match(backups[0]!, /^ai-output\.backup-\d{8}-\d{6}(?:-\d+)?\.json$/);
 
+      assert(
+        result.stdout.includes('[ai-generate] Backup:'),
+        `Expected backup log in stdout, got: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('ai-output.backup-'),
+        `Expected backup filename in stdout, got: ${result.stdout}`
+      );
+
       const backupContent = readFileSync(join(runDir, backups[0]!), 'utf-8');
       assert.strictEqual(backupContent, '{"old":"content"}', 'Backup should contain old content');
 
@@ -150,6 +159,10 @@ describe('cli ai-generate', () => {
       const files = readdirSync(runDir);
       const backups = files.filter((f) => f.startsWith('ai-output.backup-') && f.endsWith('.json'));
       assert.strictEqual(backups.length, 0, `Expected no backup files, got: ${JSON.stringify(files)}`);
+      assert(
+        !result.stdout.includes('[ai-generate] Backup:'),
+        `Should not log backup when no prior file exists, got stdout: ${result.stdout}`
+      );
     } finally {
       cleanOutput();
     }
