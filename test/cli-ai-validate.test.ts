@@ -170,4 +170,28 @@ describe('cli ai-validate', () => {
       cleanup();
     }
   });
+
+  test('ai-validate succeeds for empty files array', () => {
+    const { taskId, cwd, runsDir, cleanup } = createValidateEnv();
+    try {
+      const runTaskDir = join(runsDir, taskId);
+      mkdirSync(runTaskDir, { recursive: true });
+      writeFileSync(
+        join(runTaskDir, 'ai-output.json'),
+        '{"mode":"file_update","files":[],"notes":"Cannot safely modify files because the request is unclear"}',
+        'utf-8'
+      );
+
+      const result = runAiValidate(taskId, cwd);
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[ai-validate] Files: 0'), `Expected Files: 0, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('[ai-validate] No file changes proposed'), `Expected No file changes proposed, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('[ai-validate] Notes:'), `Expected Notes, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('[ai-validate] Guardrails: ok'), `Expected Guardrails: ok, got stdout: ${result.stdout}`);
+      assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
+      assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
+    } finally {
+      cleanup();
+    }
+  });
 });

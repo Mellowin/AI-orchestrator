@@ -293,4 +293,32 @@ describe('mock-apply-flow', () => {
 
     cleanup();
   });
+
+  test('succeeds as no-op for empty files array', () => {
+    const { taskFilePath, taskId, repoPath, cleanup } = createTempFixtureRepo();
+    const task = loadTask(taskFilePath, taskId);
+    const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+    const rawJson = JSON.stringify({
+      mode: 'file_update',
+      files: [],
+      notes: 'Cannot safely modify files because the request is unclear',
+    });
+    const result = runMockApplyFlow(task, rawJson);
+
+    assert.strictEqual(result.success, true, `Expected success, got logs: ${result.logs}`);
+    assert(result.logs.includes('No file changes proposed'), `Got logs: ${result.logs}`);
+    assert(result.logs.includes('Notes:'), `Got logs: ${result.logs}`);
+
+    const state = readState(taskId);
+    assert.strictEqual(state.status, 'approved');
+    assert.strictEqual(state.current_attempt, 1);
+
+    assert.strictEqual(
+      readFileSync(join(repoPath, 'package.json'), 'utf-8'),
+      originalPackage,
+      'package.json should not be modified'
+    );
+
+    cleanup();
+  });
 });

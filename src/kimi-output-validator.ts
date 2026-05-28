@@ -44,10 +44,6 @@ export function validateKimiOutput(value: unknown): KimiOutput {
     throw new Error('KimiOutput.files must be an array');
   }
 
-  if (value.files.length === 0) {
-    throw new Error('KimiOutput.files must not be empty');
-  }
-
   const seen = new Set<string>();
   const files: { path: string; content: string }[] = [];
 

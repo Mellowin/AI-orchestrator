@@ -450,6 +450,14 @@ if (command === 'ai-validate') {
     console.log(`[ai-validate] Task: ${taskId}`);
     console.log('[ai-validate] Valid AI output');
     console.log(`[ai-validate] Files: ${kimiOutput.files.length}`);
+    if (kimiOutput.files.length === 0) {
+      console.log('[ai-validate] No file changes proposed');
+      if (kimiOutput.notes) {
+        console.log(`[ai-validate] Notes: ${kimiOutput.notes}`);
+      }
+      console.log('[ai-validate] Guardrails: ok');
+      process.exit(0);
+    }
     for (const file of kimiOutput.files) {
       console.log(`  - ${file.path}`);
     }
@@ -485,14 +493,21 @@ if (command === 'ai-preview') {
     const kimiOutput = validateKimiOutputForTask(raw, taskId);
     const task = loadTask('tasks.yaml', taskId);
 
+    console.log(`[ai-preview] Task: ${taskId}`);
+    console.log(`[ai-preview] Files: ${kimiOutput.files.length}`);
+    if (kimiOutput.files.length === 0) {
+      console.log('[ai-preview] No file changes proposed');
+      if (kimiOutput.notes) {
+        console.log(`[ai-preview] Notes: ${kimiOutput.notes}`);
+      }
+      process.exit(0);
+    }
+
     validateProposedFileLineDeltas(
       task.repo_path,
       kimiOutput.files,
       task.guardrails.max_lines_changed
     );
-
-    console.log(`[ai-preview] Task: ${taskId}`);
-    console.log(`[ai-preview] Files: ${kimiOutput.files.length}`);
 
     for (const file of kimiOutput.files) {
       const filePath = join(task.repo_path, file.path);
@@ -541,7 +556,15 @@ if (command === 'ai-apply') {
     }
 
     const raw = readFileSync(outputPath, 'utf-8');
-    validateKimiOutputForTask(raw, taskId);
+    const kimiOutput = validateKimiOutputForTask(raw, taskId);
+
+    if (kimiOutput.files.length === 0) {
+      console.log('[ai-apply] No file changes proposed');
+      if (kimiOutput.notes) {
+        console.log(`[ai-apply] Notes: ${kimiOutput.notes}`);
+      }
+      process.exit(0);
+    }
 
     const task = loadTask('tasks.yaml', taskId);
     const result = runMockApplyFlow(task, raw);

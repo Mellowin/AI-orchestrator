@@ -211,4 +211,27 @@ describe('cli ai-apply', () => {
       cleanup();
     }
   });
+
+  test('ai-apply no-ops for empty files array', () => {
+    const { taskId, cwd, runsDir, repoPath, cleanup } = createApplyEnv();
+    try {
+      writeAiOutput(
+        taskId,
+        runsDir,
+        '{"mode":"file_update","files":[],"notes":"Cannot safely modify files because the request is unclear"}'
+      );
+
+      const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+      const result = runAiApply(taskId, cwd);
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[ai-apply] No file changes proposed'), `Expected No file changes proposed, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('[ai-apply] Notes:'), `Expected Notes, got stdout: ${result.stdout}`);
+      assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage, 'package.json should not change');
+      assert(!existsSync(join(runsDir, taskId, 'state.json')), 'state.json should not exist');
+      assert(!existsSync(join(runsDir, taskId, 'attempt-1')), 'attempt-1 should not exist');
+    } finally {
+      cleanup();
+    }
+  });
 });

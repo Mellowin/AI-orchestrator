@@ -94,6 +94,19 @@ export function runMockApplyFlow(
       logs
     );
 
+    if (kimiOutput.files.length === 0) {
+      logs += 'No file changes proposed\n';
+      if (kimiOutput.notes) {
+        logs += `Notes: ${kimiOutput.notes}\n`;
+      }
+      logs = saveAttemptArtifact(task.id, attemptNum, 'logs.txt', logs, logs);
+      state.status = 'approved';
+      state.last_logs = logs;
+      state.updated_at = new Date().toISOString();
+      saveState(task.id, state);
+      return { success: true, logs };
+    }
+
     const updatePaths = kimiOutput.files.map((f) => f.path);
     const preApplyResult = validateFileList(updatePaths, task.guardrails);
     if (!preApplyResult.ok) {

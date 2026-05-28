@@ -260,4 +260,29 @@ describe('cli ai-preview', () => {
       cleanup();
     }
   });
+
+  test('ai-preview succeeds for empty files array', () => {
+    const { taskId, cwd, runsDir, repoPath, cleanup } = createPreviewEnv();
+    try {
+      const runTaskDir = join(runsDir, taskId);
+      mkdirSync(runTaskDir, { recursive: true });
+      writeFileSync(
+        join(runTaskDir, 'ai-output.json'),
+        '{"mode":"file_update","files":[],"notes":"Cannot safely modify files because the request is unclear"}',
+        'utf-8'
+      );
+
+      const result = runAiPreview(taskId, cwd);
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[ai-preview] Files: 0'), `Expected Files: 0, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('[ai-preview] No file changes proposed'), `Expected No file changes proposed, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('[ai-preview] Notes:'), `Expected Notes, got stdout: ${result.stdout}`);
+      assert(!existsSync(join(runTaskDir, 'state.json')), 'state.json should not exist');
+      assert(!existsSync(join(runTaskDir, 'attempt-1')), 'attempt-1 should not exist');
+      const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+      assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage, 'package.json should not be modified');
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -49,4 +49,12 @@ describe('kimi-output-validator', () => {
     const raw = '```json extra\n{"mode":"file_update","files":[{"path":"src/a.ts","content":"x"}]}\n```';
     assert.throws(() => parseKimiOutputJson(raw), /Invalid Kimi JSON output/);
   });
+
+  test('accepts empty files array', () => {
+    const raw = '{"mode":"file_update","files":[],"notes":"Cannot safely modify files because ..."}';
+    const result = parseKimiOutputJson(raw);
+    assert.strictEqual(result.mode, 'file_update');
+    assert.strictEqual(result.files.length, 0);
+    assert.strictEqual(result.notes, 'Cannot safely modify files because ...');
+  });
 });
