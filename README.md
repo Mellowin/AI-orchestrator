@@ -12,6 +12,29 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 
 Use ai-preview before ai-apply to inspect proposed changes.
 
+## Verified real Kimi E2E smoke
+
+The real Kimi path has been verified through a full local E2E smoke:
+
+- `ai-generate`
+- `ai-validate`
+- `ai-preview`
+- `ai-apply`
+- `typecheck`
+- `build`
+- `test`
+
+The verified smoke used a small README-only change, applied it on a work branch, passed checks, committed it, opened a PR, and merged it back into `feature/mvp-skeleton`.
+
+Verified safety behavior:
+
+- `files: []` is accepted as a valid no-op for unclear or unsafe tasks.
+- Destructive file shrink is blocked by line-delta guardrails.
+- Failed checks trigger rollback.
+- Post-apply changed files are checked against guardrails.
+
+This remains an MVP skeleton, not production-ready automation.
+
 ---
 
 ## Current MVP workflow
