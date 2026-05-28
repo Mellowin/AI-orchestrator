@@ -5,6 +5,7 @@ export interface KimiClientOptions {
   model: string;
   baseUrl?: string;
   fetchFn?: typeof fetch;
+  userAgent?: string;
 }
 
 function isObject(val: unknown): val is Record<string, unknown> {
@@ -54,12 +55,17 @@ export class KimiClient implements AIClient {
     ).replace(/\/$/, '');
     const url = `${baseUrl}/chat/completions`;
 
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.options.apiKey}`,
+      'Content-Type': 'application/json',
+    };
+    if (this.options.userAgent) {
+      headers['User-Agent'] = this.options.userAgent;
+    }
+
     const response = await (this.options.fetchFn ?? fetch)(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.options.apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         model: this.options.model,
         messages: [{ role: 'user', content: prompt }],

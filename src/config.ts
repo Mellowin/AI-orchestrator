@@ -23,6 +23,7 @@ export interface AIConfig {
   kimiApiKey: string;
   kimiModel: string;
   kimiBaseUrl: string;
+  kimiUserAgent: string;
 }
 
 function validateAIProvider(value: string | undefined): AIProvider {
@@ -53,12 +54,14 @@ const aiProvider = validateAIProvider(process.env.AI_PROVIDER);
 const aiKimiBaseUrl = process.env.KIMI_BASE_URL ?? 'https://api.moonshot.ai/v1';
 const aiKimiApiKey = validateRequiredWhenKimi(aiProvider, process.env.KIMI_API_KEY, 'KIMI_API_KEY');
 const aiKimiModel = validateRequiredWhenKimi(aiProvider, process.env.KIMI_MODEL, 'KIMI_MODEL');
+const aiKimiUserAgent = process.env.KIMI_USER_AGENT ?? '';
 
 export const config = {
   openaiApiKey: process.env.OPENAI_API_KEY,
   kimiApiKey: aiKimiApiKey,
   kimiBaseURL: aiKimiBaseUrl,
   kimiModel: aiKimiModel,
+  kimiUserAgent: aiKimiUserAgent,
   openaiReviewModel: process.env.OPENAI_REVIEW_MODEL || 'gpt-4o',
   maxAttempts: validateMaxAttempts(process.env.MAX_ATTEMPTS),
   runsDir: process.env.RUNS_DIR || './runs',
@@ -69,6 +72,7 @@ export const config = {
     kimiApiKey: aiKimiApiKey,
     kimiModel: aiKimiModel,
     kimiBaseUrl: aiKimiBaseUrl,
+    kimiUserAgent: aiKimiUserAgent,
   } as AIConfig,
 };
 

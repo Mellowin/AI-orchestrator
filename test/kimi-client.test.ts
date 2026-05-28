@@ -53,6 +53,35 @@ describe('KimiClient', () => {
     await assert.rejects(async () => client.generate('hello'), /Kimi API request failed: 401/);
   });
 
+  test('sends custom User-Agent when provided', async () => {
+    let receivedHeaders: Record<string, string> = {};
+
+    const fakeFetch = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      receivedHeaders = {};
+      if (init?.headers) {
+        const h = init.headers as Record<string, string>;
+        for (const [k, v] of Object.entries(h)) {
+          receivedHeaders[k] = v;
+        }
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'ok' } }],
+        }),
+        { status: 200, statusText: 'OK', headers: { 'Content-Type': 'application/json' } }
+      );
+    };
+
+    const client = new KimiClient({
+      apiKey: 'x',
+      model: 'kimi-k2.6',
+      fetchFn: fakeFetch,
+      userAgent: 'AI-Orchestrator-Test/1.0',
+    });
+    await client.generate('hello');
+    assert.strictEqual(receivedHeaders['User-Agent'], 'AI-Orchestrator-Test/1.0');
+  });
+
   test('invalid response shape', async () => {
     const fakeFetch = async (): Promise<Response> => {
       return new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } });

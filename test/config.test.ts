@@ -24,6 +24,7 @@ console.log(JSON.stringify({
   mockAI: config.mockAI,
   kimiApiKey: config.kimiApiKey,
   kimiModel: config.kimiModel,
+  kimiUserAgent: config.ai.kimiUserAgent,
 }));
 `, 'utf-8');
 
@@ -42,6 +43,7 @@ console.log(JSON.stringify({
   return {
     status: result.status ?? 1,
     stderr: result.stderr || '',
+    stdout: result.stdout || '',
   };
 }
 
@@ -74,5 +76,17 @@ describe('config', () => {
       KIMI_MODEL: 'moonshot-v1-8k',
     });
     assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+  });
+
+  test('kimi provider reads optional user agent', () => {
+    const env = {
+      AI_PROVIDER: 'kimi',
+      KIMI_API_KEY: 'x',
+      KIMI_MODEL: 'moonshot-v1-8k',
+      KIMI_USER_AGENT: 'AI-Orchestrator-Test/1.0',
+    };
+    const result = runValidateConfig(env);
+    assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+    assert(result.stdout.includes('AI-Orchestrator-Test/1.0'), `Expected user agent in output, got: ${result.stdout}`);
   });
 });

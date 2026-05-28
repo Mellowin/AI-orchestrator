@@ -45,6 +45,7 @@ export function createAIClientFromConfig(aiConfig: AIConfig): AIClient {
         apiKey: aiConfig.kimiApiKey,
         model: aiConfig.kimiModel,
         baseUrl: aiConfig.kimiBaseUrl,
+        userAgent: aiConfig.kimiUserAgent || undefined,
       },
     });
   }
