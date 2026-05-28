@@ -7,7 +7,7 @@ Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `task
 > **Status:** MVP skeleton. Real Kimi generation is wired as explicit opt-in via `--allow-real-ai`; OpenAI reviewer is not wired yet.
 > Supported workflows:
 > - Manual Kimi JSON workflow (copy prompt to Kimi, save response, validate and apply).
-> - Mock AI workflow via `AI_PROVIDER=mock` (`ai-generate` → `ai-validate` → `ai-apply`).
+> - Mock AI workflow via `AI_PROVIDER=mock` (`ai-generate` → `ai-validate` → `ai-preview` → `ai-apply`).
 > - Real Kimi generation via `AI_PROVIDER=kimi` + `--allow-real-ai` (`ai-generate` only; validate/apply remain local).
 
 ---
@@ -192,6 +192,7 @@ npx tsx src/cli.ts ai-generate demo-task --allow-real-ai
 | `mock-apply <taskId> <jsonPath>` | Full mock pipeline: apply → guardrails → checks → rollback on failure |
 | `ai-generate <taskId>` | Build prompt, call mock AI, save output to `runs/{taskId}/ai-output.json` |
 | `ai-validate <taskId>` | Read and validate `runs/{taskId}/ai-output.json` |
+| `ai-preview <taskId>` | Preview proposed file changes without writing to disk |
 | `ai-apply <taskId>` | Apply validated `ai-output.json` via `runMockApplyFlow` |
 | `attempt <taskId> <n>` | Inspect artifacts of a specific attempt |
 

@@ -20,6 +20,12 @@ import { runMockApplyFlow } from './mock-apply-flow.js';
 import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 
+function countLines(text: string): number {
+  if (text.length === 0) return 0;
+  const lines = text.split('\n');
+  return text.endsWith('\n') ? lines.length - 1 : lines.length;
+}
+
 function validateKimiOutputForTask(raw: string, taskId: string): KimiOutput {
   const kimiOutput = parseKimiOutputJson(raw);
   const task = loadTask('tasks.yaml', taskId);
@@ -37,7 +43,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-apply> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -455,6 +461,59 @@ if (command === 'ai-validate') {
       console.error(`[ai-validate] ${message}`);
     } else {
       console.error(`[ai-validate] Error: ${message}`);
+    }
+    process.exit(1);
+  }
+}
+
+if (command === 'ai-preview') {
+  try {
+    const outputPath = join(getRunDir(taskId), 'ai-output.json');
+    if (!existsSync(outputPath)) {
+      console.error(
+        '[ai-preview] Error: ai-output.json not found. Run ai-generate first.'
+      );
+      process.exit(1);
+    }
+    const stats = statSync(outputPath);
+    if (!stats.isFile()) {
+      console.error('[ai-preview] Error: ai-output.json is not a file');
+      process.exit(1);
+    }
+
+    const raw = readFileSync(outputPath, 'utf-8');
+    const kimiOutput = validateKimiOutputForTask(raw, taskId);
+    const task = loadTask('tasks.yaml', taskId);
+
+    console.log(`[ai-preview] Task: ${taskId}`);
+    console.log(`[ai-preview] Files: ${kimiOutput.files.length}`);
+
+    for (const file of kimiOutput.files) {
+      const filePath = join(task.repo_path, file.path);
+      const fileExists = existsSync(filePath);
+      let currentLines = 0;
+      if (fileExists) {
+        const content = readFileSync(filePath, 'utf-8');
+        currentLines = countLines(content);
+      }
+      const proposedLines = countLines(file.content);
+      const delta = proposedLines - currentLines;
+      const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
+
+      console.log(`  - ${file.path}`);
+      console.log(`    exists: ${fileExists ? 'yes' : 'no'}`);
+      console.log(`    current lines: ${currentLines}`);
+      console.log(`    proposed lines: ${proposedLines}`);
+      console.log(`    delta: ${deltaStr}`);
+    }
+
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.startsWith('Guardrails failed:')) {
+      console.error(`[ai-preview] ${message}`);
+    } else {
+      console.error(`[ai-preview] Error: ${message}`);
     }
     process.exit(1);
   }
