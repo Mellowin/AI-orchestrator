@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 function runAiRun(
