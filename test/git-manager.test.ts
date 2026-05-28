@@ -50,7 +50,6 @@ describe('git-manager', () => {
       assert(changed.includes('README.md'), `Expected README.md in changed files, got: ${JSON.stringify(changed)}`);
       assert(changed.includes('src/new-file.ts'), `Expected src/new-file.ts in changed files, got: ${JSON.stringify(changed)}`);
       assert(!changed.includes('EADME.md'), `Must NOT contain EADME.md (trim bug), got: ${JSON.stringify(changed)}`);
-      assert(!changed.includes('EADME.md'), `Must NOT contain EADME.md (trim bug), got: ${JSON.stringify(changed)}`);
     } finally {
       rmSync(repoPath, { recursive: true, force: true });
     }
