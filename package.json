@@ -6,7 +6,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "dev": "tsx src/cli.ts",
-    "test": "tsx --test --test-concurrency=1"
+    "test": "tsx --test"
   },
   "dependencies": {
     "cross-spawn": "^7.0.6",

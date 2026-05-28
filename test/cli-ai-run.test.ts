@@ -4,7 +4,37 @@ import assert from 'node:assert';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+const TASK_ID = 'ai-run-test-task';
+
+function createTempTasksFile(taskId: string): string {
+  const tmpDir = join(process.cwd(), 'tmp');
+  if (!existsSync(tmpDir)) mkdirSync(tmpDir);
+  const tmpTasks = join(tmpDir, `tasks-ai-run-${Date.now()}.yaml`);
+  writeFileSync(
+    tmpTasks,
+    `tasks:
+  - id: ${taskId}
+    title: Test task
+    description: test
+    goal: Test goal
+    repo_path: .
+    base_branch: main
+    work_branch: ai/${taskId}
+    context_files: []
+    guardrails:
+      allow_modify: []
+      max_lines_changed: 100
+    checks:
+      - command: echo
+        args: ["ok"]
+`,
+    'utf-8'
+  );
+  return tmpTasks;
+}
+
 function runAiRun(
+  taskId: string,
   extraArgs: string[] = [],
   envOverrides: Record<string, string> = {}
 ): { status: number; stdout: string; stderr: string } {
@@ -19,7 +49,7 @@ function runAiRun(
   Object.assign(env, envOverrides);
 
   const result = spawnSync(
-    `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ai-run demo-task ${extraArgs.join(' ')}`,
+    `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ai-run ${taskId} ${extraArgs.join(' ')}`,
     {
       cwd: process.cwd(),
       env,
@@ -35,8 +65,8 @@ function runAiRun(
   };
 }
 
-function cleanOutput(): void {
-  const dir = join(process.cwd(), 'runs', 'demo-task');
+function cleanOutput(taskId: string): void {
+  const dir = join(process.cwd(), 'runs', taskId);
   if (existsSync(dir)) {
     rmSync(dir, { recursive: true });
   }
@@ -44,11 +74,13 @@ function cleanOutput(): void {
 
 describe('cli ai-run', () => {
   test('runs generate validate preview in mock mode', () => {
-    cleanOutput();
+    const tmpTasks = createTempTasksFile(TASK_ID);
+    cleanOutput(TASK_ID);
     try {
-      const result = runAiRun([], {
+      const result = runAiRun(TASK_ID, [], {
         AI_PROVIDER: 'mock',
         MOCK_AI_RESPONSE: '{"mode":"file_update","files":[]}',
+        TASKS_FILE: tmpTasks,
       });
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
       assert(
@@ -68,20 +100,23 @@ describe('cli ai-run', () => {
         `Expected manual apply message, got stdout: ${result.stdout}`
       );
       assert(
-        existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')),
+        existsSync(join(process.cwd(), 'runs', TASK_ID, 'ai-output.json')),
         'ai-output.json should exist'
       );
     } finally {
-      cleanOutput();
+      cleanOutput(TASK_ID);
+      if (existsSync(tmpTasks)) rmSync(tmpTasks);
     }
   });
 
   test('stops when generated output is invalid', () => {
-    cleanOutput();
+    const tmpTasks = createTempTasksFile(TASK_ID);
+    cleanOutput(TASK_ID);
     try {
-      const result = runAiRun([], {
+      const result = runAiRun(TASK_ID, [], {
         AI_PROVIDER: 'mock',
         MOCK_AI_RESPONSE: 'not-json',
+        TASKS_FILE: tmpTasks,
       });
       assert.notStrictEqual(result.status, 0, `Expected failure, got stderr: ${result.stderr}`);
       const combined = result.stdout + result.stderr;
@@ -94,19 +129,22 @@ describe('cli ai-run', () => {
         `Preview should not run after validation failure`
       );
     } finally {
-      cleanOutput();
+      cleanOutput(TASK_ID);
+      if (existsSync(tmpTasks)) rmSync(tmpTasks);
     }
   });
 
   test('does not run ai-apply', () => {
-    cleanOutput();
+    const tmpTasks = createTempTasksFile(TASK_ID);
+    cleanOutput(TASK_ID);
     try {
-      const result = runAiRun([], {
+      const result = runAiRun(TASK_ID, [], {
         AI_PROVIDER: 'mock',
         MOCK_AI_RESPONSE: '{"mode":"file_update","files":[]}',
+        TASKS_FILE: tmpTasks,
       });
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
-      const runDir = join(process.cwd(), 'runs', 'demo-task');
+      const runDir = join(process.cwd(), 'runs', TASK_ID);
       assert(
         !existsSync(join(runDir, 'state.json')),
         'state.json should not exist (apply was not run)'
@@ -119,20 +157,23 @@ describe('cli ai-run', () => {
         `Expected no attempt folders, got: ${JSON.stringify(attempts)}`
       );
     } finally {
-      cleanOutput();
+      cleanOutput(TASK_ID);
+      if (existsSync(tmpTasks)) rmSync(tmpTasks);
     }
   });
 
   test('ai-run prints backup path when existing ai-output is backed up', () => {
-    cleanOutput();
+    const tmpTasks = createTempTasksFile(TASK_ID);
+    cleanOutput(TASK_ID);
     try {
-      const runDir = join(process.cwd(), 'runs', 'demo-task');
+      const runDir = join(process.cwd(), 'runs', TASK_ID);
       mkdirSync(runDir, { recursive: true });
       writeFileSync(join(runDir, 'ai-output.json'), '{"old":"content"}', 'utf-8');
 
-      const result = runAiRun([], {
+      const result = runAiRun(TASK_ID, [], {
         AI_PROVIDER: 'mock',
         MOCK_AI_RESPONSE: '{"mode":"file_update","files":[]}',
+        TASKS_FILE: tmpTasks,
       });
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
       assert(
@@ -151,49 +192,27 @@ describe('cli ai-run', () => {
       const backupContent = readFileSync(join(runDir, backups[0]!), 'utf-8');
       assert.strictEqual(backupContent, '{"old":"content"}', 'Backup should contain old content');
     } finally {
-      cleanOutput();
+      cleanOutput(TASK_ID);
+      if (existsSync(tmpTasks)) rmSync(tmpTasks);
     }
   });
 
   test('respects TASKS_FILE', () => {
-    cleanOutput();
-    const tmpDir = join(process.cwd(), 'tmp');
-    if (!existsSync(tmpDir)) mkdirSync(tmpDir);
-    const tmpTasks = join(tmpDir, `tasks-ai-run-${Date.now()}.yaml`);
-    writeFileSync(
-      tmpTasks,
-      `tasks:
-  - id: demo-task
-    title: Test task
-    description: test
-    goal: Test goal
-    repo_path: .
-    base_branch: main
-    work_branch: ai/demo-task
-    context_files: []
-    guardrails:
-      allow_modify: []
-      max_lines_changed: 100
-    checks:
-      - command: echo
-        args: ["ok"]
-`,
-      'utf-8'
-    );
-
+    const tmpTasks = createTempTasksFile(TASK_ID);
+    cleanOutput(TASK_ID);
     try {
-      const result = runAiRun([], {
+      const result = runAiRun(TASK_ID, [], {
         AI_PROVIDER: 'mock',
         MOCK_AI_RESPONSE: '{"mode":"file_update","files":[]}',
         TASKS_FILE: tmpTasks,
       });
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
       assert(
-        existsSync(join(process.cwd(), 'runs', 'demo-task', 'ai-output.json')),
+        existsSync(join(process.cwd(), 'runs', TASK_ID, 'ai-output.json')),
         'ai-output.json should exist'
       );
     } finally {
-      cleanOutput();
+      cleanOutput(TASK_ID);
       if (existsSync(tmpTasks)) rmSync(tmpTasks);
     }
   });
