@@ -73,11 +73,21 @@ function runAiPreview(
   taskId: string,
   cwd: string
 ): { status: number; stdout: string; stderr: string } {
+  const env = { ...process.env };
+  delete env.AI_PROVIDER;
+  delete env.MOCK_AI_RESPONSE;
+  delete env.KIMI_API_KEY;
+  delete env.KIMI_MODEL;
+  delete env.KIMI_BASE_URL;
+  delete env.KIMI_USER_AGENT;
+  delete env.OPENAI_API_KEY;
+  delete env.MOCK_AI;
+
   const result = spawnSync(
     `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ai-preview ${taskId}`,
     {
       cwd,
-      env: process.env,
+      env,
       encoding: 'utf-8',
       shell: true,
       timeout: 15000,
