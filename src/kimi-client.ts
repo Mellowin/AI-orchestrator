@@ -59,8 +59,9 @@ export class KimiClient implements AIClient {
       Authorization: `Bearer ${this.options.apiKey}`,
       'Content-Type': 'application/json',
     };
-    if (this.options.userAgent) {
-      headers['User-Agent'] = this.options.userAgent;
+    const userAgent = this.options.userAgent?.trim();
+    if (userAgent) {
+      headers['User-Agent'] = userAgent;
     }
 
     const response = await (this.options.fetchFn ?? fetch)(url, {
