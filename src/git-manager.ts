@@ -142,7 +142,7 @@ export function getChangedFiles(repoPath: string): string[] {
   ]);
   return output
     .split('\n')
-    .map((s) => s.trim())
+    .map((s) => s.trimEnd())
     .filter((s) => s.length > 0)
     .map((s) => {
       const withoutPrefix = s.slice(3);
