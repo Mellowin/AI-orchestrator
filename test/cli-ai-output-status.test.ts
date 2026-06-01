@@ -6,9 +6,7 @@ import { join } from 'node:path';
 
 const TASK_ID = 'ai-output-status-test-task';
 
-function runAiOutputStatus(
-  taskId: string
-): { status: number; stdout: string; stderr: string } {
+function getCleanEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   delete env.AI_PROVIDER;
   delete env.MOCK_AI_RESPONSE;
@@ -17,12 +15,15 @@ function runAiOutputStatus(
   delete env.KIMI_BASE_URL;
   delete env.OPENAI_API_KEY;
   delete env.MOCK_AI;
+  return env;
+}
 
+function runCli(args: string[]): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(
-    `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ai-output-status ${taskId}`,
+    `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ${args.join(' ')}`,
     {
       cwd: process.cwd(),
-      env,
+      env: getCleanEnv(),
       encoding: 'utf-8',
       shell: true,
       timeout: 15000,
@@ -35,6 +36,12 @@ function runAiOutputStatus(
   };
 }
 
+function runAiOutputStatus(
+  taskId: string
+): { status: number; stdout: string; stderr: string } {
+  return runCli(['ai-output-status', taskId]);
+}
+
 function cleanOutput(taskId: string): void {
   const dir = join(process.cwd(), 'runs', taskId);
   if (existsSync(dir)) {
@@ -43,6 +50,16 @@ function cleanOutput(taskId: string): void {
 }
 
 describe('cli ai-output-status', () => {
+  test('usage includes ai-output-status', () => {
+    const result = runCli([]);
+    assert.notStrictEqual(result.status, 0, `Expected failure, got stderr: ${result.stderr}`);
+    assert(result.stderr.includes('Usage:'), `Expected Usage in stderr, got: ${result.stderr}`);
+    assert(
+      result.stderr.includes('ai-output-status'),
+      `Expected ai-output-status in usage, got: ${result.stderr}`
+    );
+  });
+
   test('reports missing output', () => {
     cleanOutput(TASK_ID);
     try {
