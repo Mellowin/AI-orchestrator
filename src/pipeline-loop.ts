@@ -206,6 +206,18 @@ export function runPipelineLoop(
       state.last_logs = logs;
       state.updated_at = new Date().toISOString();
       saveState(task.id, state);
+
+      if (manifest.length > 0) {
+        try {
+          rollbackFileUpdates(task.repo_path, manifest);
+          logs += 'Rollback completed\n';
+        } catch (rollbackErr) {
+          const rollbackMessage =
+            rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+          logs += `Rollback failed: ${rollbackMessage}\n`;
+        }
+      }
+
       return { success: false, logs };
     }
 

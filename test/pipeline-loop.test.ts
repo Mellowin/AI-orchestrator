@@ -122,95 +122,143 @@ function needsChangesVerdict(): string {
   });
 }
 
+function rejectVerdict(): string {
+  return JSON.stringify({
+    verdict: 'reject',
+    critical_issues: ['Security vulnerability'],
+    requested_changes: [],
+    summary_for_human: 'Cannot approve due to security issue',
+  });
+}
+
 describe('pipeline-loop', () => {
   test('approve path: patch applied, state approved, review saved', () => {
     const { taskFilePath, taskId, repoPath, cleanup } = createTempFixtureRepo();
-    const task = loadTask(taskFilePath, taskId);
-    const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+    try {
+      const task = loadTask(taskFilePath, taskId);
+      const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
 
-    const coderOutput = JSON.stringify({
-      mode: 'file_update',
-      files: [{ path: 'src/hello.ts', content: "export const hello = 'world';\n" }],
-    });
+      const coderOutput = JSON.stringify({
+        mode: 'file_update',
+        files: [{ path: 'src/hello.ts', content: "export const hello = 'world';\n" }],
+      });
 
-    const result = runPipelineLoop(task, coderOutput, approveVerdict());
+      const result = runPipelineLoop(task, coderOutput, approveVerdict());
 
-    assert.strictEqual(result.success, true, `Expected success, got logs: ${result.logs}`);
-    assert(result.logs.includes('Review approved'), `Got logs: ${result.logs}`);
+      assert.strictEqual(result.success, true, `Expected success, got logs: ${result.logs}`);
+      assert(result.logs.includes('Review approved'), `Got logs: ${result.logs}`);
 
-    const state = readState(taskId);
-    assert.strictEqual(state.status, 'approved');
-    assert.strictEqual(state.current_attempt, 1);
-    assert.ok(state.last_review, 'last_review should be saved');
-    assert.strictEqual(state.last_review?.verdict, 'approve');
+      const state = readState(taskId);
+      assert.strictEqual(state.status, 'approved');
+      assert.strictEqual(state.current_attempt, 1);
+      assert.ok(state.last_review, 'last_review should be saved');
+      assert.strictEqual(state.last_review?.verdict, 'approve');
 
-    // Patch should remain applied
-    assert(
-      existsSync(join(repoPath, 'src', 'hello.ts')),
-      'hello.ts should exist after approved patch'
-    );
+      // Patch should remain applied
+      assert(
+        existsSync(join(repoPath, 'src', 'hello.ts')),
+        'hello.ts should exist after approved patch'
+      );
 
-    // Original package.json should be untouched
-    assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage);
-
-    cleanup();
+      // Original package.json should be untouched
+      assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage);
+    } finally {
+      cleanup();
+    }
   });
 
   test('needs_changes path: patch rolled back, state reviewing, review saved', () => {
     const { taskFilePath, taskId, repoPath, cleanup } = createTempFixtureRepo();
-    const task = loadTask(taskFilePath, taskId);
-    const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+    try {
+      const task = loadTask(taskFilePath, taskId);
+      const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
 
-    const coderOutput = JSON.stringify({
-      mode: 'file_update',
-      files: [{ path: 'src/hello.ts', content: "export const hello = 'world';\n" }],
-    });
+      const coderOutput = JSON.stringify({
+        mode: 'file_update',
+        files: [{ path: 'src/hello.ts', content: "export const hello = 'world';\n" }],
+      });
 
-    const result = runPipelineLoop(task, coderOutput, needsChangesVerdict());
+      const result = runPipelineLoop(task, coderOutput, needsChangesVerdict());
 
-    assert.strictEqual(result.success, false, `Expected failure, got logs: ${result.logs}`);
-    assert(result.logs.includes('Review requested changes'), `Got logs: ${result.logs}`);
-    assert(result.logs.includes('Rollback completed'), `Got logs: ${result.logs}`);
+      assert.strictEqual(result.success, false, `Expected failure, got logs: ${result.logs}`);
+      assert(result.logs.includes('Review requested changes'), `Got logs: ${result.logs}`);
+      assert(result.logs.includes('Rollback completed'), `Got logs: ${result.logs}`);
 
-    const state = readState(taskId);
-    // 'reviewing' is the closest existing safe status for "review completed, more work needed"
-    assert.strictEqual(state.status, 'reviewing');
-    assert.strictEqual(state.current_attempt, 1);
-    assert.ok(state.last_review, 'last_review should be saved');
-    assert.strictEqual(state.last_review?.verdict, 'needs_changes');
+      const state = readState(taskId);
+      // 'reviewing' is the closest existing safe status for "review completed, more work needed"
+      assert.strictEqual(state.status, 'reviewing');
+      assert.strictEqual(state.current_attempt, 1);
+      assert.ok(state.last_review, 'last_review should be saved');
+      assert.strictEqual(state.last_review?.verdict, 'needs_changes');
 
-    // Patch should be rolled back
-    assert(!existsSync(join(repoPath, 'src', 'hello.ts')), 'hello.ts should not exist after rollback');
+      // Patch should be rolled back
+      assert(!existsSync(join(repoPath, 'src', 'hello.ts')), 'hello.ts should not exist after rollback');
 
-    // Original package.json should be untouched
-    assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage);
+      // Original package.json should be untouched
+      assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage);
+    } finally {
+      cleanup();
+    }
+  });
 
-    cleanup();
+  test('reject path: patch rolled back, state rejected, review saved', () => {
+    const { taskFilePath, taskId, repoPath, cleanup } = createTempFixtureRepo();
+    try {
+      const task = loadTask(taskFilePath, taskId);
+      const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+
+      const coderOutput = JSON.stringify({
+        mode: 'file_update',
+        files: [{ path: 'src/hello.ts', content: "export const hello = 'world';\n" }],
+      });
+
+      const result = runPipelineLoop(task, coderOutput, rejectVerdict());
+
+      assert.strictEqual(result.success, false, `Expected failure, got logs: ${result.logs}`);
+      assert(result.logs.includes('Review rejected'), `Got logs: ${result.logs}`);
+      assert(result.logs.includes('Rollback completed'), `Got logs: ${result.logs}`);
+
+      const state = readState(taskId);
+      assert.strictEqual(state.status, 'rejected');
+      assert.strictEqual(state.current_attempt, 1);
+      assert.ok(state.last_review, 'last_review should be saved');
+      assert.strictEqual(state.last_review?.verdict, 'reject');
+
+      // Patch should be rolled back
+      assert(!existsSync(join(repoPath, 'src', 'hello.ts')), 'hello.ts should not exist after rollback');
+
+      // Original package.json should be untouched
+      assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage);
+    } finally {
+      cleanup();
+    }
   });
 
   test('invalid reviewer JSON fails clearly and rolls back', () => {
     const { taskFilePath, taskId, repoPath, cleanup } = createTempFixtureRepo();
-    const task = loadTask(taskFilePath, taskId);
-    const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
+    try {
+      const task = loadTask(taskFilePath, taskId);
+      const originalPackage = readFileSync(join(repoPath, 'package.json'), 'utf-8');
 
-    const coderOutput = JSON.stringify({
-      mode: 'file_update',
-      files: [{ path: 'src/hello.ts', content: "export const hello = 'world';\n" }],
-    });
+      const coderOutput = JSON.stringify({
+        mode: 'file_update',
+        files: [{ path: 'src/hello.ts', content: "export const hello = 'world';\n" }],
+      });
 
-    const result = runPipelineLoop(task, coderOutput, 'not-valid-json');
+      const result = runPipelineLoop(task, coderOutput, 'not-valid-json');
 
-    assert.strictEqual(result.success, false);
-    assert(result.logs.includes('Invalid reviewer JSON output'), `Got logs: ${result.logs}`);
-    assert(result.logs.includes('Rollback completed'), `Got logs: ${result.logs}`);
+      assert.strictEqual(result.success, false);
+      assert(result.logs.includes('Invalid reviewer JSON output'), `Got logs: ${result.logs}`);
+      assert(result.logs.includes('Rollback completed'), `Got logs: ${result.logs}`);
 
-    const state = readState(taskId);
-    assert.strictEqual(state.status, 'failed_guardrails');
+      const state = readState(taskId);
+      assert.strictEqual(state.status, 'failed_guardrails');
 
-    // Patch should be rolled back
-    assert(!existsSync(join(repoPath, 'src', 'hello.ts')), 'hello.ts should not exist after rollback');
-    assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage);
-
-    cleanup();
+      // Patch should be rolled back
+      assert(!existsSync(join(repoPath, 'src', 'hello.ts')), 'hello.ts should not exist after rollback');
+      assert.strictEqual(readFileSync(join(repoPath, 'package.json'), 'utf-8'), originalPackage);
+    } finally {
+      cleanup();
+    }
   });
 });
