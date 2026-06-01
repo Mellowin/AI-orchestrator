@@ -13,7 +13,7 @@ import {
   getChangedFiles,
   getDiffStat,
 } from './git-manager.js';
-import { parseKimiOutputJson } from './kimi-output-validator.js';
+import { parseKimiOutputJson, validateKimiOutput } from './kimi-output-validator.js';
 import type { KimiOutput } from './types.js';
 import { buildKimiPrompt } from './prompt-builder.js';
 import { runMockApplyFlow } from './mock-apply-flow.js';
@@ -128,7 +128,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -631,6 +631,68 @@ if (command === 'ai-apply') {
     } else {
       console.error(`[ai-apply] Error: ${message}`);
     }
+    process.exit(1);
+  }
+}
+
+if (command === 'ai-output-status') {
+  try {
+    const runDir = getRunDir(taskId);
+    const outPath = join(runDir, 'ai-output.json');
+
+    console.log(`[ai-output-status] Task: ${taskId}`);
+
+    let backups: string[] = [];
+    if (existsSync(runDir)) {
+      backups = readdirSync(runDir)
+        .filter((f) => f.startsWith('ai-output.backup-') && f.endsWith('.json'))
+        .sort((a, b) => a.localeCompare(b));
+    }
+
+    if (!existsSync(outPath)) {
+      console.log('[ai-output-status] Output: missing');
+      console.log(`[ai-output-status] Backups: ${backups.length}`);
+      if (backups.length > 0) {
+        for (const b of backups) {
+          console.log(`  - ${b}`);
+        }
+      }
+      process.exit(1);
+    }
+
+    const raw = readFileSync(outPath, 'utf-8');
+    console.log('[ai-output-status] Output: present');
+
+    let kimiOutput: KimiOutput | undefined;
+    let errorMessage: string | undefined;
+    try {
+      kimiOutput = parseKimiOutputJson(raw);
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : String(err);
+    }
+
+    if (kimiOutput) {
+      console.log('[ai-output-status] Valid: yes');
+      console.log(`[ai-output-status] Files: ${kimiOutput.files.length}`);
+      if (kimiOutput.notes) {
+        console.log(`[ai-output-status] Notes: ${kimiOutput.notes}`);
+      }
+    } else {
+      console.log('[ai-output-status] Valid: no');
+      console.log(`[ai-output-status] Error: ${errorMessage}`);
+    }
+
+    console.log(`[ai-output-status] Backups: ${backups.length}`);
+    if (backups.length > 0) {
+      for (const b of backups) {
+        console.log(`  - ${b}`);
+      }
+    }
+
+    process.exitCode = kimiOutput ? 0 : 1;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[ai-output-status] Error: ${message}`);
     process.exit(1);
   }
 }
