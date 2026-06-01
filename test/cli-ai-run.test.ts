@@ -108,6 +108,68 @@ describe('cli ai-run', () => {
     }
   });
 
+  test('stops when ai-generate requires allow-real-ai', () => {
+    const tmpTasks = createTempTasksFile({ prefix: 'ai-run', taskId: TASK_ID });
+    cleanOutput(TASK_ID);
+    try {
+      const result = runAiRun(TASK_ID, [], {
+        AI_PROVIDER: 'kimi',
+        KIMI_API_KEY: 'x',
+        KIMI_MODEL: 'kimi-k2.6',
+        TASKS_FILE: tmpTasks,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stdout.includes('[ai-run] Task:'),
+        `Expected task log, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-run] Step 1/3: ai-generate'),
+        `Expected step 1 log, got stdout: ${result.stdout}`
+      );
+      assert(
+        !result.stdout.includes('[ai-run] ai-generate: ok'),
+        `Should not show ai-generate ok after failure, got stdout: ${result.stdout}`
+      );
+      assert(
+        !result.stdout.includes('[ai-run] Step 2/3: ai-validate'),
+        `Validate should not run after generate failure, got stdout: ${result.stdout}`
+      );
+      assert(
+        !result.stdout.includes('[ai-run] Step 3/3: ai-preview'),
+        `Preview should not run after generate failure, got stdout: ${result.stdout}`
+      );
+      assert(
+        !result.stdout.includes('[ai-run] Done.'),
+        `Should not show Done after failure, got stdout: ${result.stdout}`
+      );
+      const combined = result.stdout + result.stderr;
+      assert(
+        combined.includes('real AI providers require --allow-real-ai'),
+        `Expected allow-real-ai message, got: ${combined}`
+      );
+      const runDir = join(process.cwd(), 'runs', TASK_ID);
+      assert(
+        !existsSync(join(runDir, 'ai-output.json')),
+        'ai-output.json should not exist'
+      );
+      assert(
+        !existsSync(join(runDir, 'state.json')),
+        'state.json should not exist'
+      );
+      const entries = existsSync(runDir) ? readdirSync(runDir) : [];
+      const attempts = entries.filter((e) => e.startsWith('attempt-'));
+      assert.strictEqual(
+        attempts.length,
+        0,
+        `Expected no attempt folders, got: ${JSON.stringify(attempts)}`
+      );
+    } finally {
+      cleanOutput(TASK_ID);
+      cleanTempTasksFile(tmpTasks);
+    }
+  });
+
   test('does not run ai-apply', () => {
     const tmpTasks = createTempTasksFile({ prefix: 'ai-run', taskId: TASK_ID });
     cleanOutput(TASK_ID);
