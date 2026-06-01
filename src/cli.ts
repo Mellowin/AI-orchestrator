@@ -20,7 +20,7 @@ import { runMockApplyFlow } from './mock-apply-flow.js';
 import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
-import { buildAgentPlan, parseAgentOnceArgs } from './agent-plan.js';
+import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-plan.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -709,14 +709,15 @@ if (command === 'ai-output-status') {
 
 if (command === 'agent-once') {
   const extra = args.slice(2);
+  let mode: AgentPlanMode;
   try {
-    parseAgentOnceArgs(extra);
+    ({ mode } = parseAgentOnceArgs(extra));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[agent-once] Error: ${message}`);
     process.exit(1);
   }
-  const plan = buildAgentPlan(taskId);
+  const plan = buildAgentPlan(taskId, mode);
   console.log(`[agent-once] Task: ${plan.taskId}`);
   console.log(`[agent-once] Mode: ${plan.mode}`);
   console.log(`[agent-once] Status: ${plan.status}`);
