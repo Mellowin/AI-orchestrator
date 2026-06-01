@@ -708,8 +708,14 @@ if (command === 'ai-output-status') {
 }
 
 if (command === 'agent-once') {
+  const flag = args[2];
+  if (flag !== undefined && flag !== '--dry-run') {
+    console.error(`[agent-once] Error: Unsupported flag: ${flag}`);
+    process.exit(1);
+  }
   const plan = buildAgentPlan(taskId);
   console.log(`[agent-once] Task: ${plan.taskId}`);
+  console.log(`[agent-once] Mode: ${plan.mode}`);
   console.log(`[agent-once] Status: ${plan.status}`);
   console.log('[agent-once] Steps:');
   for (let i = 0; i < plan.steps.length; i++) {

@@ -54,6 +54,10 @@ describe('cli agent-once', () => {
         `Expected task header, got stdout: ${result.stdout}`
       );
       assert(
+        result.stdout.includes('[agent-once] Mode: dry-run'),
+        `Expected dry-run mode, got stdout: ${result.stdout}`
+      );
+      assert(
         result.stdout.includes('[agent-once] Status: planned'),
         `Expected planned status, got stdout: ${result.stdout}`
       );
@@ -95,5 +99,43 @@ describe('cli agent-once', () => {
       result.stderr.includes('agent-once'),
       `Expected agent-once in usage, got: ${result.stderr}`
     );
+  });
+
+  test('supports explicit dry-run flag', () => {
+    cleanOutput(TASK_ID);
+    try {
+      const result = runCli(['agent-once', TASK_ID, '--dry-run']);
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(
+        result.stdout.includes('[agent-once] Mode: dry-run'),
+        `Expected dry-run mode, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[agent-once] No actions executed yet.'),
+        `Expected no-actions message, got stdout: ${result.stdout}`
+      );
+    } finally {
+      cleanOutput(TASK_ID);
+    }
+  });
+
+  test('rejects unsupported flags', () => {
+    cleanOutput(TASK_ID);
+    const runDir = join(process.cwd(), 'runs', TASK_ID);
+    try {
+      const result = runCli(['agent-once', TASK_ID, '--execute']);
+      assert.notStrictEqual(result.status, 0, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stderr.includes('[agent-once] Error:'),
+        `Expected error prefix, got stderr: ${result.stderr}`
+      );
+      assert(
+        result.stderr.includes('Unsupported flag: --execute'),
+        `Expected unsupported flag message, got stderr: ${result.stderr}`
+      );
+      assert(!existsSync(runDir), `Expected run directory to not exist: ${runDir}`);
+    } finally {
+      cleanOutput(TASK_ID);
+    }
   });
 });

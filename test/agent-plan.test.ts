@@ -3,10 +3,11 @@ import assert from 'node:assert';
 import { buildAgentPlan } from '../src/agent-plan.js';
 
 describe('buildAgentPlan', () => {
-  test('returns correct plan for demo-task', () => {
+  test('returns correct plan for demo-task with default mode', () => {
     const plan = buildAgentPlan('demo-task');
     assert.strictEqual(plan.taskId, 'demo-task');
     assert.strictEqual(plan.status, 'planned');
+    assert.strictEqual(plan.mode, 'dry-run');
     assert.strictEqual(plan.actionsExecuted, false);
     assert.strictEqual(plan.message, 'No actions executed yet.');
     assert.deepStrictEqual(plan.steps, [
@@ -17,5 +18,11 @@ describe('buildAgentPlan', () => {
       'commit',
       'review',
     ]);
+  });
+
+  test('returns correct plan with explicit dry-run mode', () => {
+    const plan = buildAgentPlan('demo-task', 'dry-run');
+    assert.strictEqual(plan.taskId, 'demo-task');
+    assert.strictEqual(plan.mode, 'dry-run');
   });
 });
