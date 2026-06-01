@@ -2,12 +2,12 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `7b8eb1183078f71b28fb075b8d542b820444035e`
+**Last verified:** `6171e3aabb26b2a17e01d20c46701ebc481fd9d8`
 
 ## Test metrics
 
-- **Total tests:** 278
-- **Total suites:** 35
+- **Total tests:** 280
+- **Total suites:** 36
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -25,7 +25,7 @@
 | AI output validator | `test/kimi-output-validator.test.ts`, `test/ai-response-parser.test.ts` | JSON parsing, fenced blocks, schema validation, unsafe paths |
 | Reviewer output validator | `test/reviewer-output-validator.test.ts` | approve / needs_changes / reject, strict schema validation, fenced JSON parsing, secret-safe errors |
 | Runner | `test/runner.test.ts` | Exit codes, stdout/stderr, secret env cleanup, command validation |
-| CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override |
+| CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override, pipeline-loop with MOCK_AI_RESPONSE / MOCK_REVIEWER_RESPONSE |
 | Pipeline loop | `test/pipeline-loop.test.ts` | approve keeps patch, needs_changes rolls back, reject rolls back, invalid reviewer JSON rolls back |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
@@ -40,10 +40,11 @@
 
 ## Known limitation
 
-- **Minimal pipeline loop exists as a public function (`runPipelineLoop`), but it is not yet exposed through a dedicated CLI command.** It does not yet run a full multi-attempt Coder → Reviewer → Coder retry loop from real AI providers.
+- **Minimal pipeline loop is exposed through CLI (`pipeline-loop <taskId>`), but only with mock inputs (`MOCK_AI_RESPONSE` + `MOCK_REVIEWER_RESPONSE`).** Full real-provider multi-attempt Coder → Reviewer → Coder retry loop is still not implemented.
 
 ## Next recommended work
 
-1. Add CLI entrypoint for the minimal pipeline loop using mock provider only.
-2. Add CLI tests for approve / needs_changes paths if practical.
-3. Keep no real API calls, no push, no merge.
+1. Add `needs_changes` CLI test for `pipeline-loop` if still missing.
+2. Optionally add `reject` CLI test for `pipeline-loop`.
+3. Plan real-provider loop wiring only after mock CLI paths are stable.
+4. Keep no real API calls, no push, no merge.
