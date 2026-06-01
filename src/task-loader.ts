@@ -94,6 +94,13 @@ function parseChecks(raw: unknown): Check[] {
   });
 }
 
+export function parseTaskObject(input: unknown): Task {
+  if (!isObject(input)) {
+    throw new Error('Expected task input to be an object');
+  }
+  return parseTask(input);
+}
+
 function parseGuardrails(raw: Record<string, unknown>): Guardrails {
   const allow_modify =
     raw.allow_modify === undefined
@@ -104,7 +111,10 @@ function parseGuardrails(raw: Record<string, unknown>): Guardrails {
     raw.max_lines_changed === undefined
       ? undefined
       : expectNumber(raw, 'max_lines_changed');
-  const require_tests = expectBoolean(raw, 'require_tests', false);
+  const require_tests =
+    raw.require_tests === undefined
+      ? undefined
+      : expectBoolean(raw, 'require_tests');
   const auto_commit = expectBoolean(raw, 'auto_commit', false);
   const auto_push = expectBoolean(raw, 'auto_push', false);
   const auto_merge = expectBoolean(raw, 'auto_merge', false);
