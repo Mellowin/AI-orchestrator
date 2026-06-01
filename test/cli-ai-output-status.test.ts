@@ -225,6 +225,56 @@ describe('cli ai-output-status', () => {
     }
   });
 
+  test('reports invalid output schema', () => {
+    cleanOutput(TASK_ID);
+    try {
+      const runDir = join(process.cwd(), 'runs', TASK_ID);
+      mkdirSync(runDir, { recursive: true });
+      writeFileSync(
+        join(runDir, 'ai-output.json'),
+        '{"mode":"wrong","files":[]}',
+        'utf-8'
+      );
+
+      const result = runAiOutputStatus(TASK_ID);
+      assert.notStrictEqual(result.status, 0, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stdout.includes('[ai-output-status] Output: present'),
+        `Expected present output, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-output-status] Valid: no'),
+        `Expected valid no, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-output-status] Error:'),
+        `Expected error, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('Invalid KimiOutput mode'),
+        `Expected mode error, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-output-status] Backups: 0'),
+        `Expected 0 backups, got stdout: ${result.stdout}`
+      );
+      assert(
+        !result.stdout.includes('[ai-output-status] Files:'),
+        `Should not show Files when invalid, got stdout: ${result.stdout}`
+      );
+      assert(
+        !result.stdout.includes('[ai-output-status] Paths:'),
+        `Should not show Paths when invalid, got stdout: ${result.stdout}`
+      );
+      assert(
+        !result.stdout.includes('[ai-output-status] Notes:'),
+        `Should not show Notes when invalid, got stdout: ${result.stdout}`
+      );
+    } finally {
+      cleanOutput(TASK_ID);
+    }
+  });
+
   test('does not require task config', () => {
     cleanOutput(TASK_ID);
     try {
