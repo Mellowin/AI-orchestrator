@@ -138,4 +138,44 @@ describe('cli agent-once', () => {
       cleanOutput(TASK_ID);
     }
   });
+
+  test('rejects multiple flags', () => {
+    cleanOutput(TASK_ID);
+    const runDir = join(process.cwd(), 'runs', TASK_ID);
+    try {
+      const result = runCli(['agent-once', TASK_ID, '--dry-run', '--execute']);
+      assert.notStrictEqual(result.status, 0, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stderr.includes('[agent-once] Error:'),
+        `Expected error prefix, got stderr: ${result.stderr}`
+      );
+      assert(
+        result.stderr.includes('Unsupported flag: --dry-run --execute'),
+        `Expected unsupported flags message, got stderr: ${result.stderr}`
+      );
+      assert(!existsSync(runDir), `Expected run directory to not exist: ${runDir}`);
+    } finally {
+      cleanOutput(TASK_ID);
+    }
+  });
+
+  test('rejects extra positional argument', () => {
+    cleanOutput(TASK_ID);
+    const runDir = join(process.cwd(), 'runs', TASK_ID);
+    try {
+      const result = runCli(['agent-once', TASK_ID, 'extra']);
+      assert.notStrictEqual(result.status, 0, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stderr.includes('[agent-once] Error:'),
+        `Expected error prefix, got stderr: ${result.stderr}`
+      );
+      assert(
+        result.stderr.includes('Unsupported flag: extra'),
+        `Expected unsupported argument message, got stderr: ${result.stderr}`
+      );
+      assert(!existsSync(runDir), `Expected run directory to not exist: ${runDir}`);
+    } finally {
+      cleanOutput(TASK_ID);
+    }
+  });
 });

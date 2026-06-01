@@ -708,9 +708,9 @@ if (command === 'ai-output-status') {
 }
 
 if (command === 'agent-once') {
-  const flag = args[2];
-  if (flag !== undefined && flag !== '--dry-run') {
-    console.error(`[agent-once] Error: Unsupported flag: ${flag}`);
+  const extra = args.slice(2);
+  if (extra.length > 1 || (extra.length === 1 && extra[0] !== '--dry-run')) {
+    console.error(`[agent-once] Error: Unsupported flag: ${extra.join(' ')}`);
     process.exit(1);
   }
   const plan = buildAgentPlan(taskId);
