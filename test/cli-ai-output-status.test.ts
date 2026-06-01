@@ -145,6 +145,74 @@ describe('cli ai-output-status', () => {
     }
   });
 
+  test('reports valid fenced output', () => {
+    cleanOutput(TASK_ID);
+    try {
+      const runDir = join(process.cwd(), 'runs', TASK_ID);
+      mkdirSync(runDir, { recursive: true });
+      writeFileSync(
+        join(runDir, 'ai-output.json'),
+        '```json\n{"mode":"file_update","files":[{"path":"README.md","content":"x"}],"notes":"fenced"}\n```',
+        'utf-8'
+      );
+
+      const result = runAiOutputStatus(TASK_ID);
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(
+        result.stdout.includes('[ai-output-status] Output: present'),
+        `Expected present output, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-output-status] Valid: yes'),
+        `Expected valid yes, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-output-status] Files: 1'),
+        `Expected 1 file, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-output-status] Notes: fenced'),
+        `Expected notes, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-output-status] Backups: 0'),
+        `Expected 0 backups, got stdout: ${result.stdout}`
+      );
+    } finally {
+      cleanOutput(TASK_ID);
+    }
+  });
+
+  test('reports missing output with backups', () => {
+    cleanOutput(TASK_ID);
+    try {
+      const runDir = join(process.cwd(), 'runs', TASK_ID);
+      mkdirSync(runDir, { recursive: true });
+      writeFileSync(join(runDir, 'ai-output.backup-20240115-093045.json'), '{"old":"content"}', 'utf-8');
+
+      const result = runAiOutputStatus(TASK_ID);
+      assert.notStrictEqual(result.status, 0, `Expected failure, got stderr: ${result.stderr}`);
+      assert(
+        result.stdout.includes('[ai-output-status] Output: missing'),
+        `Expected missing output, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-output-status] Backups: 1'),
+        `Expected 1 backup, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('ai-output.backup-20240115-093045.json'),
+        `Expected backup filename, got stdout: ${result.stdout}`
+      );
+      assert(
+        !result.stdout.includes('[ai-output-status] Valid:'),
+        `Should not show Valid when output is missing, got stdout: ${result.stdout}`
+      );
+    } finally {
+      cleanOutput(TASK_ID);
+    }
+  });
+
   test('does not require task config', () => {
     cleanOutput(TASK_ID);
     try {
