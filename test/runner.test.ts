@@ -1,5 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
+import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { runChecks } from '../src/runner.js';
 import type { Check } from '../src/types.js';
 
@@ -51,13 +54,18 @@ describe('runner', () => {
   });
 
   test('runChecks stops after the first failed check', () => {
-    let secondRan = false;
-    const result = runChecks(process.cwd(), [
-      { command: 'node', args: ['-e', 'process.exit(1)'] },
-      { command: 'node', args: ['-e', 'secondRan = true'] },
-    ]);
-    assert.strictEqual(result.success, false);
-    assert.strictEqual(secondRan, false);
+    const tmpDir = mkdtempSync(join(tmpdir(), 'runner-stop-'));
+    const markerFile = join(tmpDir, 'second-ran.txt');
+    try {
+      const result = runChecks(process.cwd(), [
+        { command: 'node', args: ['-e', 'process.exit(1)'] },
+        { command: 'node', args: ['-e', `require('fs').writeFileSync('${markerFile.replace(/\\/g, '\\\\')}', 'x', 'utf-8')`] },
+      ]);
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(existsSync(markerFile), false, 'Second check should not have run');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   test('runChecks includes stdout in logs', () => {
