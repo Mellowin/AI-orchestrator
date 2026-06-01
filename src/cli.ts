@@ -20,6 +20,7 @@ import { runMockApplyFlow } from './mock-apply-flow.js';
 import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
+import { buildAgentPlan } from './agent-plan.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -707,16 +708,14 @@ if (command === 'ai-output-status') {
 }
 
 if (command === 'agent-once') {
-  console.log(`[agent-once] Task: ${taskId}`);
-  console.log('[agent-once] Status: planned');
+  const plan = buildAgentPlan(taskId);
+  console.log(`[agent-once] Task: ${plan.taskId}`);
+  console.log(`[agent-once] Status: ${plan.status}`);
   console.log('[agent-once] Steps:');
-  console.log('  1. ai-run');
-  console.log('  2. ai-output-status');
-  console.log('  3. ai-apply');
-  console.log('  4. checks');
-  console.log('  5. commit');
-  console.log('  6. review');
-  console.log('[agent-once] No actions executed yet.');
+  for (let i = 0; i < plan.steps.length; i++) {
+    console.log(`  ${i + 1}. ${plan.steps[i]}`);
+  }
+  console.log(`[agent-once] ${plan.message}`);
   process.exitCode = 0;
 }
 
