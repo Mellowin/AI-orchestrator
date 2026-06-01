@@ -234,6 +234,7 @@ npx tsx src/cli.ts ai-run demo-task --allow-real-ai
 | `ai-run <taskId>` | Run generate → validate → preview safely (no auto-apply) |
 | `ai-apply <taskId>` | Apply validated `ai-output.json` via `runMockApplyFlow` |
 | `ai-output-status <taskId>` | Inspect current AI output, file paths and backups without applying changes |
+| `agent-once <taskId>` | Print planned one-task agent loop steps without executing actions |
 | `attempt <taskId> <n>` | Inspect artifacts of a specific attempt |
 
 ---
