@@ -1,6 +1,10 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { parseTaskObject } from '../src/task-loader.js';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import YAML from 'yaml';
+import { parseTaskObject, loadTask } from '../src/task-loader.js';
 import type { Task } from '../src/types.js';
 
 function makeValidTask(): Record<string, unknown> {
@@ -102,5 +106,202 @@ describe('parseTaskObject', () => {
     const raw = makeValidTask();
     delete raw.id;
     assert.throws(() => parseTaskObject(raw), /Expected "id" to be a string/);
+  });
+});
+
+function createTempSetup(taskOverrides?: Partial<Record<string, unknown>>): {
+  tasksFile: string;
+  repoDir: string;
+  cleanup: () => void;
+} {
+  const tempDir = mkdtempSync(join(tmpdir(), 'task-loader-test-'));
+  const repoDir = join(tempDir, 'repo');
+  mkdirSync(repoDir, { recursive: true });
+  mkdirSync(join(repoDir, '.git'), { recursive: true });
+  mkdirSync(join(repoDir, 'src'), { recursive: true });
+  writeFileSync(join(repoDir, 'src', 'index.ts'), 'export const x = 1;', 'utf-8');
+
+  const task = {
+    id: 'test-task',
+    title: 'Test Task',
+    repo_path: repoDir,
+    work_branch: 'ai/test-task',
+    goal: 'Test goal',
+    context_files: ['src/index.ts'],
+    checks: [{ command: 'npm', args: ['run', 'lint'] }],
+    guardrails: {
+      deny_modify: ['.env'],
+      auto_commit: false,
+      auto_push: false,
+      auto_merge: false,
+    },
+    ...taskOverrides,
+  };
+
+  const tasksFile = join(tempDir, 'tasks.yaml');
+  writeFileSync(tasksFile, YAML.stringify({ tasks: [task] }), 'utf-8');
+
+  return {
+    tasksFile,
+    repoDir,
+    cleanup: () => rmSync(tempDir, { recursive: true }),
+  };
+}
+
+describe('loadTask', () => {
+  test('reads tasks.yaml and returns matching task', () => {
+    const { tasksFile, cleanup } = createTempSetup();
+    try {
+      const task = loadTask(tasksFile, 'test-task');
+      assert.strictEqual(task.id, 'test-task');
+      assert.strictEqual(task.title, 'Test Task');
+      assert.strictEqual(task.goal, 'Test goal');
+      assert.strictEqual(task.base_branch, 'main');
+      assert.deepStrictEqual(task.context_files, ['src/index.ts']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('throws when tasks.yaml does not exist', () => {
+    assert.throws(
+      () => loadTask(join(tmpdir(), 'nonexistent-tasks.yaml'), 'test-task'),
+      /tasks\.yaml not found/
+    );
+  });
+
+  test('throws when YAML missing tasks array', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'task-loader-test-'));
+    const tasksFile = join(tempDir, 'tasks.yaml');
+    writeFileSync(tasksFile, 'foo: bar\n', 'utf-8');
+    try {
+      assert.throws(() => loadTask(tasksFile, 'test-task'), /Invalid tasks\.yaml: missing tasks array/);
+    } finally {
+      rmSync(tempDir, { recursive: true });
+    }
+  });
+
+  test('throws when taskId not found', () => {
+    const { tasksFile, cleanup } = createTempSetup();
+    try {
+      assert.throws(
+        () => loadTask(tasksFile, 'missing-task'),
+        /Task "missing-task" not found/
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('validates repo_path exists', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'task-loader-test-'));
+    const repoDir = join(tempDir, 'repo');
+    mkdirSync(repoDir, { recursive: true });
+    mkdirSync(join(repoDir, '.git'), { recursive: true });
+    mkdirSync(join(repoDir, 'src'), { recursive: true });
+    writeFileSync(join(repoDir, 'src', 'index.ts'), '', 'utf-8');
+
+    const tasksFile = join(tempDir, 'tasks.yaml');
+    const task = {
+      id: 'test-task',
+      title: 'Test',
+      repo_path: join(tempDir, 'nonexistent'),
+      work_branch: 'ai/test',
+      goal: 'g',
+      context_files: [],
+      checks: [],
+      guardrails: { deny_modify: [], auto_commit: false, auto_push: false, auto_merge: false },
+    };
+    writeFileSync(tasksFile, YAML.stringify({ tasks: [task] }), 'utf-8');
+    try {
+      assert.throws(() => loadTask(tasksFile, 'test-task'), /repo_path does not exist/);
+    } finally {
+      rmSync(tempDir, { recursive: true });
+    }
+  });
+
+  test('validates repo_path is a git repository', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'task-loader-test-'));
+    const repoDir = join(tempDir, 'repo');
+    mkdirSync(repoDir, { recursive: true });
+    // intentionally no .git folder
+    mkdirSync(join(repoDir, 'src'), { recursive: true });
+    writeFileSync(join(repoDir, 'src', 'index.ts'), '', 'utf-8');
+
+    const tasksFile = join(tempDir, 'tasks.yaml');
+    const task = {
+      id: 'test-task',
+      title: 'Test',
+      repo_path: repoDir,
+      work_branch: 'ai/test',
+      goal: 'g',
+      context_files: ['src/index.ts'],
+      checks: [],
+      guardrails: { deny_modify: [], auto_commit: false, auto_push: false, auto_merge: false },
+    };
+    writeFileSync(tasksFile, YAML.stringify({ tasks: [task] }), 'utf-8');
+    try {
+      assert.throws(() => loadTask(tasksFile, 'test-task'), /repo_path is not a git repository/);
+    } finally {
+      rmSync(tempDir, { recursive: true });
+    }
+  });
+
+  test('validates context_files exist', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'task-loader-test-'));
+    const repoDir = join(tempDir, 'repo');
+    mkdirSync(repoDir, { recursive: true });
+    mkdirSync(join(repoDir, '.git'), { recursive: true });
+    // intentionally no src/index.ts
+
+    const tasksFile = join(tempDir, 'tasks.yaml');
+    writeFileSync(
+      tasksFile,
+      `tasks:\n  - id: test-task\n    title: Test\n    repo_path: ${repoDir}\n    work_branch: ai/test\n    goal: g\n    context_files: [src/index.ts]\n    checks: []\n    guardrails:\n      deny_modify: []\n      auto_commit: false\n      auto_push: false\n      auto_merge: false\n`,
+      'utf-8'
+    );
+    try {
+      assert.throws(() => loadTask(tasksFile, 'test-task'), /context_file does not exist/);
+    } finally {
+      rmSync(tempDir, { recursive: true });
+    }
+  });
+
+  test('rejects absolute context_files', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'task-loader-test-'));
+    const repoDir = join(tempDir, 'repo');
+    mkdirSync(repoDir, { recursive: true });
+    mkdirSync(join(repoDir, '.git'), { recursive: true });
+
+    const tasksFile = join(tempDir, 'tasks.yaml');
+    writeFileSync(
+      tasksFile,
+      `tasks:\n  - id: test-task\n    title: Test\n    repo_path: ${repoDir}\n    work_branch: ai/test\n    goal: g\n    context_files: ["/etc/passwd"]\n    checks: []\n    guardrails:\n      deny_modify: []\n      auto_commit: false\n      auto_push: false\n      auto_merge: false\n`,
+      'utf-8'
+    );
+    try {
+      assert.throws(() => loadTask(tasksFile, 'test-task'), /Absolute paths are not allowed/);
+    } finally {
+      rmSync(tempDir, { recursive: true });
+    }
+  });
+
+  test('rejects path traversal in context_files', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'task-loader-test-'));
+    const repoDir = join(tempDir, 'repo');
+    mkdirSync(repoDir, { recursive: true });
+    mkdirSync(join(repoDir, '.git'), { recursive: true });
+
+    const tasksFile = join(tempDir, 'tasks.yaml');
+    writeFileSync(
+      tasksFile,
+      `tasks:\n  - id: test-task\n    title: Test\n    repo_path: ${repoDir}\n    work_branch: ai/test\n    goal: g\n    context_files: ["../secret.ts"]\n    checks: []\n    guardrails:\n      deny_modify: []\n      auto_commit: false\n      auto_push: false\n      auto_merge: false\n`,
+      'utf-8'
+    );
+    try {
+      assert.throws(() => loadTask(tasksFile, 'test-task'), /Path traversal detected/);
+    } finally {
+      rmSync(tempDir, { recursive: true });
+    }
   });
 });
