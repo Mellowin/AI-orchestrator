@@ -39,6 +39,19 @@ This remains an MVP skeleton, not production-ready automation.
 
 ## Current MVP workflow
 
+### Recommended safe flow
+
+```bash
+npx tsx src/cli.ts ai-run <taskId>
+npx tsx src/cli.ts ai-apply <taskId>
+```
+
+- `ai-run <taskId>` runs `ai-generate → ai-validate → ai-preview`
+- It stops on the first failure
+- It does **not** run `ai-apply`
+- Review preview output before running `ai-apply`
+- `ai-apply` remains a separate manual step
+
 ### A. Manual Kimi JSON workflow
 
 1. **Export context**
