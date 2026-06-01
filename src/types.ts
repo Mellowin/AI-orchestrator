@@ -19,7 +19,7 @@ export interface Guardrails {
   allow_modify?: string[];
   deny_modify: string[];
   max_lines_changed?: number;
-  require_tests: boolean;
+  require_tests?: boolean;
   auto_commit: boolean;
   auto_push: boolean;
   auto_merge: boolean;
@@ -27,14 +27,12 @@ export interface Guardrails {
 
 export type RunStatus =
   | 'pending'
-  | 'running'
   | 'coding'
   | 'patching'
   | 'running_checks'
   | 'reviewing'
   | 'approved'
   | 'rejected'
-  | 'failed'
   | 'failed_guardrails'
   | 'failed_max_attempts';
 

@@ -21,7 +21,6 @@ describe('types contracts', () => {
     const check: Check = { command: 'npm', args: ['run', 'lint'] };
     const guardrails: Guardrails = {
       deny_modify: ['.env', '.env.*'],
-      require_tests: false,
       auto_commit: false,
       auto_push: false,
       auto_merge: false,
@@ -122,17 +121,15 @@ describe('types contracts', () => {
   test('all RunStatus variants are assignable', () => {
     const statuses: RunStatus[] = [
       'pending',
-      'running',
       'coding',
       'patching',
       'running_checks',
       'reviewing',
       'approved',
       'rejected',
-      'failed',
       'failed_guardrails',
       'failed_max_attempts',
     ];
-    assert.strictEqual(statuses.length, 11);
+    assert.strictEqual(statuses.length, 9);
   });
 });

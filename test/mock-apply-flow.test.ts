@@ -124,7 +124,7 @@ describe('mock-apply-flow', () => {
     assert(result.logs.includes('Invalid Kimi JSON output'), `Got logs: ${result.logs}`);
 
     const state = readState(taskId);
-    assert.strictEqual(state.status, 'failed');
+    assert.strictEqual(state.status, 'failed_guardrails');
     assert.strictEqual(state.current_attempt, 1);
 
     cleanup();
@@ -144,7 +144,7 @@ describe('mock-apply-flow', () => {
     assert(result.logs.includes('Pre-apply guardrails failed'), `Got logs: ${result.logs}`);
 
     const state = readState(taskId);
-    assert.strictEqual(state.status, 'failed');
+    assert.strictEqual(state.status, 'failed_guardrails');
 
     // Ensure no repo mutation happened
     assert.strictEqual(
@@ -170,7 +170,7 @@ describe('mock-apply-flow', () => {
     assert(result.logs.includes('Rollback completed'), `Got logs: ${result.logs}`);
 
     const state = readState(taskId);
-    assert.strictEqual(state.status, 'failed');
+    assert.strictEqual(state.status, 'failed_guardrails');
     assert.strictEqual(state.current_attempt, 1);
 
     assert.strictEqual(
@@ -193,7 +193,7 @@ describe('mock-apply-flow', () => {
       join(runDir, 'state.json'),
       JSON.stringify({
         task_id: taskId,
-        status: 'failed',
+        status: 'failed_guardrails',
         current_attempt: 3,
         branch: 'ai/test-task',
         repo_path: task.repo_path,
@@ -259,7 +259,7 @@ describe('mock-apply-flow', () => {
     assert(result.logs.includes('Working tree is not clean'), `Got logs: ${result.logs}`);
 
     const state = readState(taskId);
-    assert.strictEqual(state.status, 'failed');
+    assert.strictEqual(state.status, 'failed_guardrails');
 
     cleanup();
   });
@@ -289,7 +289,7 @@ describe('mock-apply-flow', () => {
     );
 
     const state = readState(taskId);
-    assert.strictEqual(state.status, 'failed');
+    assert.strictEqual(state.status, 'failed_guardrails');
 
     cleanup();
   });

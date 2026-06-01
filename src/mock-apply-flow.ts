@@ -70,7 +70,7 @@ export function runMockApplyFlow(
 
     state.current_attempt += 1;
     attemptNum = state.current_attempt;
-    state.status = 'running';
+    state.status = 'patching';
     state.updated_at = new Date().toISOString();
     saveState(task.id, state);
 
@@ -163,7 +163,7 @@ export function runMockApplyFlow(
 
     const testsResult = validateTestsPresent(
       changedFiles,
-      task.guardrails.require_tests
+      task.guardrails.require_tests ?? false
     );
     if (!testsResult.ok) {
       logs += `Guardrails tests failed: ${testsResult.reason}\n`;
@@ -205,7 +205,7 @@ export function runMockApplyFlow(
 
     if (state) {
       try {
-        state.status = 'failed';
+        state.status = 'failed_guardrails';
         state.last_logs = logs;
         state.updated_at = new Date().toISOString();
         saveState(task.id, state);

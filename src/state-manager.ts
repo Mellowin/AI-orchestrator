@@ -11,14 +11,12 @@ import { config } from './config.js';
 
 const VALID_STATUSES: RunStatus[] = [
   'pending',
-  'running',
   'coding',
   'patching',
   'running_checks',
   'reviewing',
   'approved',
   'rejected',
-  'failed',
   'failed_guardrails',
   'failed_max_attempts',
 ];
