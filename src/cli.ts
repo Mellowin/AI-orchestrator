@@ -674,6 +674,12 @@ if (command === 'ai-output-status') {
     if (kimiOutput) {
       console.log('[ai-output-status] Valid: yes');
       console.log(`[ai-output-status] Files: ${kimiOutput.files.length}`);
+      if (kimiOutput.files.length > 0) {
+        console.log('[ai-output-status] Paths:');
+        for (const file of kimiOutput.files) {
+          console.log(`  - ${file.path}`);
+        }
+      }
       if (kimiOutput.notes) {
         console.log(`[ai-output-status] Notes: ${kimiOutput.notes}`);
       }

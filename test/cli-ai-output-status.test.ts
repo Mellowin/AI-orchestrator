@@ -68,7 +68,7 @@ describe('cli ai-output-status', () => {
       mkdirSync(runDir, { recursive: true });
       writeFileSync(
         join(runDir, 'ai-output.json'),
-        '{"mode":"file_update","files":[{"path":"README.md","content":"x"}],"notes":"ok"}',
+        '{"mode":"file_update","files":[{"path":"README.md","content":"x"},{"path":"src/main.ts","content":"y"}],"notes":"ok"}',
         'utf-8'
       );
       writeFileSync(join(runDir, 'ai-output.backup-20240115-093046.json'), '{"old":"content2"}', 'utf-8');
@@ -85,8 +85,20 @@ describe('cli ai-output-status', () => {
         `Expected valid yes, got stdout: ${result.stdout}`
       );
       assert(
-        result.stdout.includes('[ai-output-status] Files: 1'),
-        `Expected 1 file, got stdout: ${result.stdout}`
+        result.stdout.includes('[ai-output-status] Files: 2'),
+        `Expected 2 files, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[ai-output-status] Paths:'),
+        `Expected Paths, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('  - README.md'),
+        `Expected README.md path, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('  - src/main.ts'),
+        `Expected src/main.ts path, got stdout: ${result.stdout}`
       );
       assert(
         result.stdout.includes('[ai-output-status] Notes: ok'),
@@ -229,6 +241,10 @@ describe('cli ai-output-status', () => {
       assert(
         result.stdout.includes('[ai-output-status] Valid: yes'),
         `Expected valid yes, got stdout: ${result.stdout}`
+      );
+      assert(
+        !result.stdout.includes('[ai-output-status] Paths:'),
+        `Should not show Paths when files is empty, got stdout: ${result.stdout}`
       );
     } finally {
       cleanOutput(TASK_ID);
