@@ -17,6 +17,7 @@ import { parseKimiOutputJson } from './kimi-output-validator.js';
 import type { KimiOutput } from './types.js';
 import { buildKimiPrompt } from './prompt-builder.js';
 import { runMockApplyFlow } from './mock-apply-flow.js';
+import { runPipelineLoop } from './pipeline-loop.js';
 import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
@@ -129,7 +130,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -727,6 +728,39 @@ if (command === 'agent-once') {
   }
   console.log(`[agent-once] ${plan.message}`);
   process.exitCode = 0;
+}
+
+if (command === 'pipeline-loop') {
+  try {
+    const mockAiResponse = process.env.MOCK_AI_RESPONSE;
+    const mockReviewerResponse = process.env.MOCK_REVIEWER_RESPONSE;
+
+    if (!mockAiResponse) {
+      console.error('[pipeline-loop] Error: MOCK_AI_RESPONSE env var is required');
+      process.exit(1);
+    }
+    if (!mockReviewerResponse) {
+      console.error('[pipeline-loop] Error: MOCK_REVIEWER_RESPONSE env var is required');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+    const result = runPipelineLoop(task, mockAiResponse, mockReviewerResponse);
+
+    if (result.success) {
+      console.log('[pipeline-loop] Success');
+      console.log(result.logs);
+      process.exit(0);
+    } else {
+      console.error('[pipeline-loop] Failed');
+      console.error(result.logs);
+      process.exit(1);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[pipeline-loop] Error: ${message}`);
+    process.exit(1);
+  }
 }
 
 if (process.exitCode === undefined) {
