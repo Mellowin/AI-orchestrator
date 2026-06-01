@@ -13,7 +13,7 @@ import {
   getChangedFiles,
   getDiffStat,
 } from './git-manager.js';
-import { parseKimiOutputJson, validateKimiOutput } from './kimi-output-validator.js';
+import { parseKimiOutputJson } from './kimi-output-validator.js';
 import type { KimiOutput } from './types.js';
 import { buildKimiPrompt } from './prompt-builder.js';
 import { runMockApplyFlow } from './mock-apply-flow.js';

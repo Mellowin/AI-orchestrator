@@ -71,8 +71,8 @@ describe('cli ai-output-status', () => {
         '{"mode":"file_update","files":[{"path":"README.md","content":"x"}],"notes":"ok"}',
         'utf-8'
       );
-      writeFileSync(join(runDir, 'ai-output.backup-20240115-093045.json'), '{"old":"content1"}', 'utf-8');
       writeFileSync(join(runDir, 'ai-output.backup-20240115-093046.json'), '{"old":"content2"}', 'utf-8');
+      writeFileSync(join(runDir, 'ai-output.backup-20240115-093045.json'), '{"old":"content1"}', 'utf-8');
 
       const result = runAiOutputStatus(TASK_ID);
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
@@ -104,6 +104,12 @@ describe('cli ai-output-status', () => {
         result.stdout.includes('ai-output.backup-20240115-093046.json'),
         `Expected backup 2, got stdout: ${result.stdout}`
       );
+
+      const first = result.stdout.indexOf('ai-output.backup-20240115-093045.json');
+      const second = result.stdout.indexOf('ai-output.backup-20240115-093046.json');
+      assert.notStrictEqual(first, -1, 'First backup should appear in stdout');
+      assert.notStrictEqual(second, -1, 'Second backup should appear in stdout');
+      assert(first < second, 'Backups should be sorted ascending by filename');
     } finally {
       cleanOutput(TASK_ID);
     }
