@@ -2,12 +2,12 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `34dc4c055b3cc0aa708a97ccc2612ad666f9ea89`
+**Last verified:** `7b8eb1183078f71b28fb075b8d542b820444035e`
 
 ## Test metrics
 
-- **Total tests:** 274
-- **Total suites:** 34
+- **Total tests:** 278
+- **Total suites:** 35
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -26,6 +26,7 @@
 | Reviewer output validator | `test/reviewer-output-validator.test.ts` | approve / needs_changes / reject, strict schema validation, fenced JSON parsing, secret-safe errors |
 | Runner | `test/runner.test.ts` | Exit codes, stdout/stderr, secret env cleanup, command validation |
 | CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override |
+| Pipeline loop | `test/pipeline-loop.test.ts` | approve keeps patch, needs_changes rolls back, reject rolls back, invalid reviewer JSON rolls back |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
@@ -39,10 +40,10 @@
 
 ## Known limitation
 
-- **Reviewer parser exists, but full Coder → Reviewer → Coder loop is not wired yet.** `validateReviewVerdict` and `parseReviewerOutputJson` are implemented and tested, but the pipeline does not yet use them in an iterative review loop.
+- **Minimal pipeline loop exists as a public function (`runPipelineLoop`), but it is not yet exposed through a dedicated CLI command.** It does not yet run a full multi-attempt Coder → Reviewer → Coder retry loop from real AI providers.
 
 ## Next recommended work
 
-1. Wire reviewer parser into the real pipeline loop (Coder → Reviewer → Coder iterations with mock responses).
-2. Add focused pipeline-loop tests with mock coder/reviewer responses.
+1. Add CLI entrypoint for the minimal pipeline loop using mock provider only.
+2. Add CLI tests for approve / needs_changes paths if practical.
 3. Keep no real API calls, no push, no merge.
