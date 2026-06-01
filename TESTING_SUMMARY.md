@@ -2,11 +2,11 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `6171e3aabb26b2a17e01d20c46701ebc481fd9d8`
+**Last verified:** `dd61cf57a3df9535ff5ca41a0682d8a3a8ef631b`
 
 ## Test metrics
 
-- **Total tests:** 280
+- **Total tests:** 282
 - **Total suites:** 36
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
@@ -25,8 +25,9 @@
 | AI output validator | `test/kimi-output-validator.test.ts`, `test/ai-response-parser.test.ts` | JSON parsing, fenced blocks, schema validation, unsafe paths |
 | Reviewer output validator | `test/reviewer-output-validator.test.ts` | approve / needs_changes / reject, strict schema validation, fenced JSON parsing, secret-safe errors |
 | Runner | `test/runner.test.ts` | Exit codes, stdout/stderr, secret env cleanup, command validation |
-| CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override, pipeline-loop with MOCK_AI_RESPONSE / MOCK_REVIEWER_RESPONSE |
+| CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override, pipeline-loop approve / needs_changes / reject / missing reviewer response |
 | Pipeline loop | `test/pipeline-loop.test.ts` | approve keeps patch, needs_changes rolls back, reject rolls back, invalid reviewer JSON rolls back |
+| Pipeline loop CLI | `test/cli-pipeline-loop.test.ts` | approve success, needs_changes failure + rollback, reject failure + rollback, missing MOCK_REVIEWER_RESPONSE |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
@@ -44,7 +45,6 @@
 
 ## Next recommended work
 
-1. Add `needs_changes` CLI test for `pipeline-loop` if still missing.
-2. Optionally add `reject` CLI test for `pipeline-loop`.
-3. Plan real-provider loop wiring only after mock CLI paths are stable.
-4. Keep no real API calls, no push, no merge.
+1. Start planning real-provider wiring behind explicit opt-in (never default).
+2. Keep mock mode as default for tests and local development.
+3. Keep no push, no merge, no main touch.
