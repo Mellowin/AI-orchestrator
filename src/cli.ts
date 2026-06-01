@@ -130,7 +130,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -759,6 +759,30 @@ if (command === 'pipeline-loop') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[pipeline-loop] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'real-provider-plan') {
+  try {
+    const task = loadTask(getTasksFilePath(), taskId);
+
+    console.log(`[real-provider-plan] Task: ${taskId}`);
+    console.log(`[real-provider-plan] Repo path: ${task.repo_path}`);
+    console.log(`[real-provider-plan] Base branch: ${task.base_branch}`);
+    console.log(`[real-provider-plan] Work branch: ${task.work_branch}`);
+    console.log(`[real-provider-plan] Checks count: ${task.checks.length}`);
+    console.log(`[real-provider-plan] Max attempts: ${config.maxAttempts}`);
+    console.log('[real-provider-plan] ---');
+    console.log('[real-provider-plan] WARNING: No real API call was made.');
+    console.log('[real-provider-plan] WARNING: No patch was applied.');
+    console.log('[real-provider-plan] WARNING: No push, no merge, no main branch touch.');
+    console.log('[real-provider-plan] This is a planning dry-run only.');
+
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-provider-plan] Error: ${message}`);
     process.exit(1);
   }
 }
