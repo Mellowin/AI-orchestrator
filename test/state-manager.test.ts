@@ -1,7 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   getRunDir,
   getStatePath,
@@ -14,13 +15,6 @@ import {
 import type { Task, RunState } from '../src/types.js';
 
 const TASK_ID = 'state-manager-test-task';
-
-function cleanRunDir(taskId: string): void {
-  const dir = getRunDir(taskId);
-  if (existsSync(dir)) {
-    rmSync(dir, { recursive: true });
-  }
-}
 
 function makeTask(): Task {
   return {
@@ -56,79 +50,91 @@ function makeState(overrides?: Partial<RunState>): RunState {
 }
 
 describe('state-manager', () => {
+  function createTempRunsDir(): string {
+    return mkdtempSync(join(tmpdir(), 'state-manager-test-'));
+  }
+
   test('getRunDir returns expected path', () => {
-    const dir = getRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
+    const dir = getRunDir(TASK_ID, tempRuns);
     assert(dir.includes(TASK_ID), `Expected path to include taskId, got: ${dir}`);
+    rmSync(tempRuns, { recursive: true });
   });
 
   test('getStatePath returns expected path', () => {
-    const path = getStatePath(TASK_ID);
+    const tempRuns = createTempRunsDir();
+    const path = getStatePath(TASK_ID, tempRuns);
     assert(path.endsWith('state.json'), `Expected path to end with state.json, got: ${path}`);
+    rmSync(tempRuns, { recursive: true });
   });
 
   test('loadState returns null when state file does not exist', () => {
-    cleanRunDir(TASK_ID);
-    const state = loadState(TASK_ID);
-    assert.strictEqual(state, null);
+    const tempRuns = createTempRunsDir();
+    try {
+      const state = loadState(TASK_ID, tempRuns);
+      assert.strictEqual(state, null);
+    } finally {
+      rmSync(tempRuns, { recursive: true });
+    }
   });
 
   test('saveState creates runs dir and state.json', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
       const state = makeState();
-      saveState(TASK_ID, state);
-      assert(existsSync(getStatePath(TASK_ID)), 'Expected state.json to exist');
+      saveState(TASK_ID, state, tempRuns);
+      assert(existsSync(getStatePath(TASK_ID, tempRuns)), 'Expected state.json to exist');
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 
   test('saved state can be read back exactly', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
       const state = makeState({ status: 'coding', current_attempt: 2 });
-      saveState(TASK_ID, state);
-      const loaded = loadState(TASK_ID);
+      saveState(TASK_ID, state, tempRuns);
+      const loaded = loadState(TASK_ID, tempRuns);
       assert.notStrictEqual(loaded, null);
       assert.strictEqual(loaded!.task_id, TASK_ID);
       assert.strictEqual(loaded!.status, 'coding');
       assert.strictEqual(loaded!.current_attempt, 2);
       assert.strictEqual(loaded!.branch, 'ai/test-task');
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 
   test('loadState throws on invalid JSON', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
-      const runDir = getRunDir(TASK_ID);
+      const runDir = getRunDir(TASK_ID, tempRuns);
       mkdirSync(runDir, { recursive: true });
-      writeFileSync(getStatePath(TASK_ID), 'not-json', 'utf-8');
-      assert.throws(() => loadState(TASK_ID), /Unexpected token/);
+      writeFileSync(getStatePath(TASK_ID, tempRuns), 'not-json', 'utf-8');
+      assert.throws(() => loadState(TASK_ID, tempRuns), /Unexpected token/);
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 
   test('loadState throws on invalid status', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
       const state = makeState({ status: 'invalid_status' as unknown as RunState['status'] });
-      saveState(TASK_ID, state);
-      assert.throws(() => loadState(TASK_ID), /Invalid state\.json: unknown status "invalid_status"/);
+      saveState(TASK_ID, state, tempRuns);
+      assert.throws(() => loadState(TASK_ID, tempRuns), /Invalid state\.json: unknown status "invalid_status"/);
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 
   test('loadState throws on missing required field', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
-      const runDir = getRunDir(TASK_ID);
+      const runDir = getRunDir(TASK_ID, tempRuns);
       mkdirSync(runDir, { recursive: true });
       writeFileSync(
-        getStatePath(TASK_ID),
+        getStatePath(TASK_ID, tempRuns),
         JSON.stringify({
           task_id: TASK_ID,
           status: 'pending',
@@ -137,20 +143,20 @@ describe('state-manager', () => {
         }),
         'utf-8'
       );
-      assert.throws(() => loadState(TASK_ID), /Invalid state\.json: missing or invalid "branch"/);
+      assert.throws(() => loadState(TASK_ID, tempRuns), /Invalid state\.json: missing or invalid "branch"/);
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 
   test('loadState throws on task_id mismatch', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
       const state = makeState({ task_id: 'other-task' });
-      saveState(TASK_ID, state);
-      assert.throws(() => loadState(TASK_ID), /task_id mismatch/);
+      saveState(TASK_ID, state, tempRuns);
+      assert.throws(() => loadState(TASK_ID, tempRuns), /task_id mismatch/);
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 
@@ -167,50 +173,50 @@ describe('state-manager', () => {
   });
 
   test('initAttemptDir creates directory and returns path', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
-      const dir = initAttemptDir(TASK_ID, 1);
+      const dir = initAttemptDir(TASK_ID, 1, tempRuns);
       assert(existsSync(dir), 'Expected attempt dir to exist');
       assert(dir.includes('attempt-1'), `Expected path to include attempt-1, got: ${dir}`);
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 
   test('writeAttemptFile writes file inside attempt dir', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
-      writeAttemptFile(TASK_ID, 1, 'test.txt', 'hello');
-      const attemptDir = initAttemptDir(TASK_ID, 1);
+      writeAttemptFile(TASK_ID, 1, 'test.txt', 'hello', tempRuns);
+      const attemptDir = initAttemptDir(TASK_ID, 1, tempRuns);
       const filePath = join(attemptDir, 'test.txt');
       assert(existsSync(filePath), 'Expected file to exist');
       assert.strictEqual(readFileSync(filePath, 'utf-8'), 'hello');
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 
   test('writeAttemptFile rejects absolute filename', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
       assert.throws(
-        () => writeAttemptFile(TASK_ID, 1, '/etc/passwd', 'x'),
+        () => writeAttemptFile(TASK_ID, 1, '/etc/passwd', 'x', tempRuns),
         /Absolute paths are not allowed/
       );
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 
   test('writeAttemptFile rejects path traversal in filename', () => {
-    cleanRunDir(TASK_ID);
+    const tempRuns = createTempRunsDir();
     try {
       assert.throws(
-        () => writeAttemptFile(TASK_ID, 1, '../secret.txt', 'x'),
+        () => writeAttemptFile(TASK_ID, 1, '../secret.txt', 'x', tempRuns),
         /Invalid filename/
       );
     } finally {
-      cleanRunDir(TASK_ID);
+      rmSync(tempRuns, { recursive: true });
     }
   });
 });

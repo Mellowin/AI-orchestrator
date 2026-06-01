@@ -32,14 +32,14 @@ function validateTaskId(taskId: string): void {
   }
 }
 
-export function getRunDir(taskId: string): string {
+export function getRunDir(taskId: string, runsDir?: string): string {
   validateTaskId(taskId);
-  return resolve(config.runsDir, taskId);
+  return resolve(runsDir ?? config.runsDir, taskId);
 }
 
-export function getStatePath(taskId: string): string {
+export function getStatePath(taskId: string, runsDir?: string): string {
   validateTaskId(taskId);
-  return join(getRunDir(taskId), 'state.json');
+  return join(getRunDir(taskId, runsDir), 'state.json');
 }
 
 function isObject(val: unknown): val is Record<string, unknown> {
@@ -82,9 +82,9 @@ function validateRunState(state: unknown): void {
   }
 }
 
-export function loadState(taskId: string): RunState | null {
+export function loadState(taskId: string, runsDir?: string): RunState | null {
   validateTaskId(taskId);
-  const statePath = getStatePath(taskId);
+  const statePath = getStatePath(taskId, runsDir);
   if (!existsSync(statePath)) {
     return null;
   }
@@ -102,14 +102,14 @@ export function loadState(taskId: string): RunState | null {
   return parsed as RunState;
 }
 
-export function saveState(taskId: string, state: RunState): void {
+export function saveState(taskId: string, state: RunState, runsDir?: string): void {
   validateTaskId(taskId);
-  const runDir = getRunDir(taskId);
+  const runDir = getRunDir(taskId, runsDir);
   if (!existsSync(runDir)) {
     mkdirSync(runDir, { recursive: true });
   }
 
-  const statePath = getStatePath(taskId);
+  const statePath = getStatePath(taskId, runsDir);
   const tmpPath = `${statePath}.tmp`;
   const data = JSON.stringify(state, null, 2);
 
@@ -130,9 +130,9 @@ export function initState(task: Task): RunState {
   };
 }
 
-export function initAttemptDir(taskId: string, attempt: number): string {
+export function initAttemptDir(taskId: string, attempt: number, runsDir?: string): string {
   validateTaskId(taskId);
-  const attemptDir = join(getRunDir(taskId), `attempt-${attempt}`);
+  const attemptDir = join(getRunDir(taskId, runsDir), `attempt-${attempt}`);
   if (!existsSync(attemptDir)) {
     mkdirSync(attemptDir, { recursive: true });
   }
@@ -143,7 +143,8 @@ export function writeAttemptFile(
   taskId: string,
   attempt: number,
   filename: string,
-  data: string
+  data: string,
+  runsDir?: string
 ): void {
   validateTaskId(taskId);
   if (isAbsolute(filename)) {
@@ -153,7 +154,7 @@ export function writeAttemptFile(
     throw new Error(`Invalid filename: ${filename}`);
   }
 
-  const attemptDir = initAttemptDir(taskId, attempt);
+  const attemptDir = initAttemptDir(taskId, attempt, runsDir);
   const filePath = join(attemptDir, filename);
   writeFileSync(filePath, data, 'utf-8');
 }
