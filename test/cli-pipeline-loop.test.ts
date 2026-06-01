@@ -177,6 +177,36 @@ describe('cli pipeline-loop', () => {
     }
   });
 
+  test('reject path with mock responses fails and rolls back', () => {
+    const { taskId, cwd, repoPath, cleanup } = createPipelineEnv();
+    try {
+      const coderOutput = JSON.stringify({
+        mode: 'file_update',
+        files: [{ path: 'src/hello.ts', content: "export const hello = 'world';\n" }],
+      });
+      const reviewerOutput = JSON.stringify({
+        verdict: 'reject',
+        critical_issues: ['Security vulnerability'],
+        requested_changes: [],
+        summary_for_human: 'Cannot approve due to security issue',
+      });
+
+      const result = runCli(['pipeline-loop', taskId], cwd, {
+        MOCK_AI_RESPONSE: coderOutput,
+        MOCK_REVIEWER_RESPONSE: reviewerOutput,
+      });
+
+      assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
+      assert(result.stderr.includes('[pipeline-loop] Failed'), `Expected Failed, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('Review rejected'), `Expected Review rejected, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('Rollback completed'), `Expected Rollback completed, got stderr: ${result.stderr}`);
+
+      assert(!existsSync(join(repoPath, 'src', 'hello.ts')), 'hello.ts should not exist after rollback');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('missing MOCK_REVIEWER_RESPONSE fails clearly', () => {
     const { taskId, cwd, cleanup } = createPipelineEnv();
     try {
