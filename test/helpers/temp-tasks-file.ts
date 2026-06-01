@@ -1,5 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
+export function cleanTempTasksFile(tmpTasks: string): void {
+  const dir = dirname(tmpTasks);
+  if (existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 export function createTempTasksFile(options: {
   prefix: string;

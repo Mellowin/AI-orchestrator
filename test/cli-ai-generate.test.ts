@@ -2,18 +2,11 @@ import { spawnSync } from 'node:child_process';
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { resolveBackupPath } from '../src/backup-path.js';
-import { createTempTasksFile } from './helpers/temp-tasks-file.js';
+import { createTempTasksFile, cleanTempTasksFile } from './helpers/temp-tasks-file.js';
 
 const TASK_ID = 'ai-generate-test-task';
-
-function cleanTempTasksFile(tmpTasks: string): void {
-  const dir = dirname(tmpTasks);
-  if (existsSync(dir)) {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
 
 function runAiGenerate(
   taskId: string,
