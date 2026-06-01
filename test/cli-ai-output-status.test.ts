@@ -53,6 +53,10 @@ describe('cli ai-output-status', () => {
         `Expected missing output, got stdout: ${result.stdout}`
       );
       assert(
+        result.stdout.includes(`[ai-output-status] Path: runs/${TASK_ID}/ai-output.json`),
+        `Expected path, got stdout: ${result.stdout}`
+      );
+      assert(
         result.stdout.includes('[ai-output-status] Backups: 0'),
         `Expected 0 backups, got stdout: ${result.stdout}`
       );
@@ -79,6 +83,10 @@ describe('cli ai-output-status', () => {
       assert(
         result.stdout.includes('[ai-output-status] Output: present'),
         `Expected present output, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes(`[ai-output-status] Path: runs/${TASK_ID}/ai-output.json`),
+        `Expected path, got stdout: ${result.stdout}`
       );
       assert(
         result.stdout.includes('[ai-output-status] Valid: yes'),
@@ -139,6 +147,10 @@ describe('cli ai-output-status', () => {
       assert(
         result.stdout.includes('[ai-output-status] Output: present'),
         `Expected present output, got stdout: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes(`[ai-output-status] Path: runs/${TASK_ID}/ai-output.json`),
+        `Expected path, got stdout: ${result.stdout}`
       );
       assert(
         result.stdout.includes('[ai-output-status] Valid: no'),

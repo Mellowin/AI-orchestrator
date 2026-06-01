@@ -651,6 +651,7 @@ if (command === 'ai-output-status') {
 
     if (!existsSync(outPath)) {
       console.log('[ai-output-status] Output: missing');
+      console.log(`[ai-output-status] Path: runs/${taskId}/ai-output.json`);
       console.log(`[ai-output-status] Backups: ${backups.length}`);
       if (backups.length > 0) {
         for (const b of backups) {
@@ -662,6 +663,7 @@ if (command === 'ai-output-status') {
 
     const raw = readFileSync(outPath, 'utf-8');
     console.log('[ai-output-status] Output: present');
+    console.log(`[ai-output-status] Path: runs/${taskId}/ai-output.json`);
 
     let kimiOutput: KimiOutput | undefined;
     let errorMessage: string | undefined;
