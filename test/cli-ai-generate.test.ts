@@ -8,7 +8,12 @@ import { createTempTasksFile } from './helpers/temp-tasks-file.js';
 
 const TASK_ID = 'ai-generate-test-task';
 
-
+function cleanTempTasksFile(tmpTasks: string): void {
+  const dir = dirname(tmpTasks);
+  if (existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function runAiGenerate(
   taskId: string,
@@ -63,7 +68,7 @@ describe('cli ai-generate', () => {
       assert(existsSync(join(process.cwd(), 'runs', TASK_ID, 'ai-output.json')), 'ai-output.json should exist');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 
@@ -85,7 +90,7 @@ describe('cli ai-generate', () => {
       assert(!existsSync(join(process.cwd(), 'runs', TASK_ID, 'ai-output.json')), 'ai-output.json should not exist');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 
@@ -120,7 +125,7 @@ describe('cli ai-generate', () => {
       assert(!existsSync(join(process.cwd(), 'runs', TASK_ID, 'ai-output.json')), 'ai-output.json should not exist');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 
@@ -161,7 +166,7 @@ describe('cli ai-generate', () => {
       assert.strictEqual(newContent, '{"mode":"file_update","files":[]}', 'New output should be written');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 
@@ -185,7 +190,7 @@ describe('cli ai-generate', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 

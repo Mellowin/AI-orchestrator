@@ -7,7 +7,12 @@ import { createTempTasksFile } from './helpers/temp-tasks-file.js';
 
 const TASK_ID = 'ai-run-test-task';
 
-
+function cleanTempTasksFile(tmpTasks: string): void {
+  const dir = dirname(tmpTasks);
+  if (existsSync(dir)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 function runAiRun(
   taskId: string,
@@ -81,7 +86,7 @@ describe('cli ai-run', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 
@@ -106,7 +111,7 @@ describe('cli ai-run', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 
@@ -134,7 +139,7 @@ describe('cli ai-run', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 
@@ -169,7 +174,7 @@ describe('cli ai-run', () => {
       assert.strictEqual(backupContent, '{"old":"content"}', 'Backup should contain old content');
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 
@@ -189,7 +194,7 @@ describe('cli ai-run', () => {
       );
     } finally {
       cleanOutput(TASK_ID);
-      if (existsSync(dirname(tmpTasks))) rmSync(dirname(tmpTasks), { recursive: true, force: true });
+      cleanTempTasksFile(tmpTasks);
     }
   });
 });
