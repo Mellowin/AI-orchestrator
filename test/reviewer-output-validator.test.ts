@@ -65,6 +65,22 @@ describe('reviewer-output-validator', () => {
       );
     });
 
+    test('does not leak secret in verdict field', () => {
+      const secret = 'sk-test-secret-abc123';
+      try {
+        validateReviewVerdict({
+          verdict: secret,
+          critical_issues: [],
+          requested_changes: [],
+          summary_for_human: 'x',
+        });
+        assert.fail('Expected error');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        assert.ok(!message.includes(secret), 'Error must not contain secret from verdict field');
+      }
+    });
+
     test('rejects non-array critical_issues', () => {
       assert.throws(
         () =>

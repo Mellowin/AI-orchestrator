@@ -23,7 +23,7 @@ export function validateReviewVerdict(value: unknown): ReviewVerdict {
 
   if (!isValidVerdict(value.verdict)) {
     throw new Error(
-      `Invalid ReviewVerdict.verdict: expected one of ${VALID_VERDICTS.join(', ')}, got "${String(value.verdict)}"`
+      `Invalid ReviewVerdict.verdict: expected one of ${VALID_VERDICTS.join(', ')}`
     );
   }
 
