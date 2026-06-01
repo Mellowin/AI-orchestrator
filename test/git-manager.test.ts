@@ -18,7 +18,11 @@ import {
 
 function createTempGitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'git-manager-test-'));
-  spawnSync('git', ['init'], { cwd: dir, encoding: 'utf-8' });
+  const initResult = spawnSync('git', ['init', '-b', 'main'], { cwd: dir, encoding: 'utf-8' });
+  if (initResult.status !== 0) {
+    spawnSync('git', ['init'], { cwd: dir, encoding: 'utf-8' });
+    spawnSync('git', ['branch', '-M', 'main'], { cwd: dir, encoding: 'utf-8' });
+  }
   spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf-8' });
   spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf-8' });
   writeFileSync(join(dir, 'README.md'), '# Hello', 'utf-8');
