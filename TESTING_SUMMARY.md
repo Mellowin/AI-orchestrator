@@ -2,12 +2,12 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `9585378765581debd77f878feafc32fcf80fd5df`
+**Last verified:** `34dc4c055b3cc0aa708a97ccc2612ad666f9ea89`
 
 ## Test metrics
 
-- **Total tests:** 249
-- **Total suites:** 31
+- **Total tests:** 274
+- **Total suites:** 34
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -23,6 +23,7 @@
 | ContextBuilder | `test/context-builder.test.ts` | File reading, metadata, empty context, path guards |
 | AI Client | `test/ai-client.test.ts`, `test/kimi-client.test.ts` | Mock client, factory, config mapping, fake fetch, no secret leak |
 | AI output validator | `test/kimi-output-validator.test.ts`, `test/ai-response-parser.test.ts` | JSON parsing, fenced blocks, schema validation, unsafe paths |
+| Reviewer output validator | `test/reviewer-output-validator.test.ts` | approve / needs_changes / reject, strict schema validation, fenced JSON parsing, secret-safe errors |
 | Runner | `test/runner.test.ts` | Exit codes, stdout/stderr, secret env cleanup, command validation |
 | CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
@@ -38,12 +39,10 @@
 
 ## Known limitation
 
-- **Reviewer parser is not implemented yet.** `ReviewVerdict` type exists in `src/types.ts`, but there is no `validateReviewVerdict` or similar parser. Therefore:
-  - No reviewer contract tests exist.
-  - The pipeline does not yet validate reviewer responses.
+- **Reviewer parser exists, but full Coder → Reviewer → Coder loop is not wired yet.** `validateReviewVerdict` and `parseReviewerOutputJson` are implemented and tested, but the pipeline does not yet use them in an iterative review loop.
 
 ## Next recommended work
 
-1. Implement `validateReviewVerdict` parser in `src/`.
-2. Add focused reviewer contract tests (`test/reviewer-parser.test.ts`).
-3. Only after the parser is strict, add a real pipeline loop that wires Coder → Reviewer → Coder iterations.
+1. Wire reviewer parser into the real pipeline loop (Coder → Reviewer → Coder iterations with mock responses).
+2. Add focused pipeline-loop tests with mock coder/reviewer responses.
+3. Keep no real API calls, no push, no merge.
