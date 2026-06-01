@@ -10,6 +10,13 @@ export interface AgentPlan {
   message: string;
 }
 
+export function parseAgentOnceArgs(extraArgs: string[]): { mode: AgentPlanMode } {
+  if (extraArgs.length > 1 || (extraArgs.length === 1 && extraArgs[0] !== '--dry-run')) {
+    throw new Error(`Unsupported flag: ${extraArgs.join(' ')}`);
+  }
+  return { mode: 'dry-run' };
+}
+
 export function buildAgentPlan(taskId: string, mode: AgentPlanMode = 'dry-run'): AgentPlan {
   return {
     taskId,

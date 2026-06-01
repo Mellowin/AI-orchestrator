@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseAgentOnceArgs } from '../src/agent-plan.js';
 
 const TASK_ID = 'agent-once-test-task';
 
@@ -177,5 +178,32 @@ describe('cli agent-once', () => {
     } finally {
       cleanOutput(TASK_ID);
     }
+  });
+});
+
+describe('parseAgentOnceArgs', () => {
+  test('returns dry-run for no extra args', () => {
+    const result = parseAgentOnceArgs([]);
+    assert.strictEqual(result.mode, 'dry-run');
+  });
+
+  test('returns dry-run for explicit --dry-run', () => {
+    const result = parseAgentOnceArgs(['--dry-run']);
+    assert.strictEqual(result.mode, 'dry-run');
+  });
+
+  test('throws for unsupported flag', () => {
+    assert.throws(() => parseAgentOnceArgs(['--execute']), /Unsupported flag: --execute/);
+  });
+
+  test('throws for multiple flags', () => {
+    assert.throws(
+      () => parseAgentOnceArgs(['--dry-run', '--execute']),
+      /Unsupported flag: --dry-run --execute/
+    );
+  });
+
+  test('throws for extra positional argument', () => {
+    assert.throws(() => parseAgentOnceArgs(['extra']), /Unsupported flag: extra/);
   });
 });
