@@ -7,7 +7,7 @@ import {
   normalizeProviderCallResult,
   normalizeProviderCallError,
 } from '../src/provider-call.js';
-import type { ProviderCallInput } from '../src/provider-call.js';
+import type { ProviderCallInput, FetchFn } from '../src/provider-call.js';
 
 describe('provider-call', () => {
   test('mock provider returns expected response', async () => {
@@ -50,18 +50,334 @@ describe('provider-call', () => {
     assert.strictEqual(result.text, 'no network');
   });
 
-  test('real provider placeholder throws not implemented yet', async () => {
-    const realFn = createRealProviderCall();
+  test('createRealProviderCall requires provider kimi', () => {
+    assert.throws(
+      () =>
+        createRealProviderCall({
+          provider: 'openai' as 'kimi',
+          apiKey: 'sk-test',
+          baseUrl: 'https://api.example.com',
+          fetchFn: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+        }),
+      /Unsupported provider: openai/
+    );
+  });
+
+  test('createRealProviderCall missing apiKey throws', () => {
+    assert.throws(
+      () =>
+        createRealProviderCall({
+          provider: 'kimi',
+          apiKey: '',
+          baseUrl: 'https://api.example.com',
+          fetchFn: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+        }),
+      /apiKey is required/
+    );
+  });
+
+  test('createRealProviderCall uses injected fake fetch, no network', async () => {
+    let called = false;
+    const fakeFetch: FetchFn = async (_url, _init) => {
+      called = true;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'fake response' } }],
+        }),
+      };
+    };
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+    });
+
     const input: ProviderCallInput = {
+      role: 'coder',
+      prompt: 'write hello',
+      model: 'kimi-k2.6',
+      provider: 'kimi',
+    };
+
+    const result = await realFn(input);
+    assert.strictEqual(called, true);
+    assert.strictEqual(result.text, 'fake response');
+  });
+
+  test('createRealProviderCall sends Authorization Bearer header to fake fetch', async () => {
+    let authHeader: string | undefined;
+    const fakeFetch: FetchFn = async (_url, init) => {
+      authHeader = init?.headers?.['Authorization'];
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'ok' } }],
+        }),
+      };
+    };
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-secret123',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+    });
+
+    await realFn({
       role: 'coder',
       prompt: 'test',
       model: 'kimi-k2.6',
       provider: 'kimi',
+    });
+
+    assert.strictEqual(authHeader, 'Bearer sk-secret123');
+  });
+
+  test('createRealProviderCall sends prompt and model in JSON body', async () => {
+    let bodyStr: string | undefined;
+    const fakeFetch: FetchFn = async (_url, init) => {
+      bodyStr = init?.body;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'ok' } }],
+        }),
+      };
     };
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+      model: 'custom-model',
+    });
+
+    await realFn({
+      role: 'reviewer',
+      prompt: 'review this',
+      model: 'kimi-k2.6',
+      provider: 'kimi',
+    });
+
+    assert(bodyStr);
+    const body = JSON.parse(bodyStr);
+    assert.strictEqual(body.model, 'custom-model');
+    assert.strictEqual(body.messages[0].role, 'user');
+    assert.strictEqual(body.messages[0].content, 'review this');
+  });
+
+  test('createRealProviderCall parses successful fake Kimi response into ProviderCallResult', async () => {
+    const fakeFetch: FetchFn = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: '  parsed result  ' } }],
+      }),
+    });
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+    });
+
+    const result = await realFn({
+      role: 'coder',
+      prompt: 'test',
+      model: 'kimi-k2.6',
+      provider: 'kimi',
+    });
+
+    assert.strictEqual(result.text, 'parsed result');
+    assert.strictEqual(result.role, 'coder');
+    assert.strictEqual(result.provider, 'kimi');
+    assert.strictEqual(result.model, 'kimi-k2.6');
+  });
+
+  test('createRealProviderCall preserves role/provider/model from input', async () => {
+    const fakeFetch: FetchFn = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: 'ok' } }],
+      }),
+    });
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+    });
+
+    const result = await realFn({
+      role: 'reviewer',
+      prompt: 'review',
+      model: 'gpt-4o',
+      provider: 'openai',
+    });
+
+    assert.strictEqual(result.role, 'reviewer');
+    assert.strictEqual(result.provider, 'openai');
+    assert.strictEqual(result.model, 'gpt-4o');
+  });
+
+  test('createRealProviderCall trims response text via normalizeProviderCallResult', async () => {
+    const fakeFetch: FetchFn = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: '\n\n  trimmed  \n\n' } }],
+      }),
+    });
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+    });
+
+    const result = await realFn({
+      role: 'coder',
+      prompt: 'test',
+      model: 'kimi-k2.6',
+      provider: 'kimi',
+    });
+
+    assert.strictEqual(result.text, 'trimmed');
+  });
+
+  test('createRealProviderCall non-OK fake response throws safe error and does not leak apiKey', async () => {
+    const fakeFetch: FetchFn = async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: 'Unauthorized' }),
+    });
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-leaked-secret',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+    });
+
     await assert.rejects(
-      async () => realFn(input),
-      /real provider call is not implemented yet/
+      async () =>
+        realFn({
+          role: 'coder',
+          prompt: 'test',
+          model: 'kimi-k2.6',
+          provider: 'kimi',
+        }),
+      (err: Error) => {
+        assert(err.message.includes('Provider returned status 401'));
+        assert(!err.message.includes('sk-leaked-secret'));
+        assert(!err.message.includes('Bearer'));
+        return true;
+      }
     );
+  });
+
+  test('createRealProviderCall malformed fake response throws clear error', async () => {
+    const fakeFetch: FetchFn = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: 'not-an-array' }),
+    });
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+    });
+
+    await assert.rejects(
+      async () =>
+        realFn({
+          role: 'coder',
+          prompt: 'test',
+          model: 'kimi-k2.6',
+          provider: 'kimi',
+        }),
+      /Invalid response: missing choices/
+    );
+  });
+
+  test('createRealProviderCall does not read env vars', async () => {
+    const originalKey = process.env.KIMI_API_KEY;
+    process.env.KIMI_API_KEY = 'env-key-should-not-be-used';
+    try {
+      let usedKey: string | undefined;
+      const fakeFetch: FetchFn = async (_url, init) => {
+        usedKey = init?.headers?.['Authorization'];
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            choices: [{ message: { content: 'ok' } }],
+          }),
+        };
+      };
+
+      const realFn = createRealProviderCall({
+        provider: 'kimi',
+        apiKey: 'explicit-key',
+        baseUrl: 'https://api.example.com',
+        fetchFn: fakeFetch,
+      });
+
+      await realFn({
+        role: 'coder',
+        prompt: 'test',
+        model: 'kimi-k2.6',
+        provider: 'kimi',
+      });
+
+      assert.strictEqual(usedKey, 'Bearer explicit-key');
+    } finally {
+      if (originalKey === undefined) {
+        delete process.env.KIMI_API_KEY;
+      } else {
+        process.env.KIMI_API_KEY = originalKey;
+      }
+    }
+  });
+
+  test('createRealProviderCall is pure: no file mutation', async () => {
+    const fakeFetch: FetchFn = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: 'ok' } }],
+      }),
+    });
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+    });
+
+    const result = await realFn({
+      role: 'coder',
+      prompt: 'test',
+      model: 'kimi-k2.6',
+      provider: 'kimi',
+    });
+
+    assert.strictEqual(result.text, 'ok');
+    // No filesystem side effects to verify; function only calls injected fetchFn
   });
 
   test('buildProviderCallInput creates coder input correctly', () => {

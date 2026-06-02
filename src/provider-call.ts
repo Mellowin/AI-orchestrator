@@ -114,8 +114,79 @@ export function createMockProviderCall(responseText: string): ProviderCallFn {
   };
 }
 
-export function createRealProviderCall(): ProviderCallFn {
-  return async (): Promise<ProviderCallResult> => {
-    throw new Error('real provider call is not implemented yet');
+export type FetchFn = (
+  url: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string }
+) => Promise<{
+  ok: boolean;
+  status: number;
+  json(): Promise<unknown>;
+}>;
+
+export interface CreateRealProviderCallOptions {
+  provider: 'kimi';
+  apiKey: string;
+  baseUrl: string;
+  fetchFn: FetchFn;
+  model?: string;
+}
+
+export function createRealProviderCall(options: CreateRealProviderCallOptions): ProviderCallFn {
+  if (options.provider !== 'kimi') {
+    throw new Error(`Unsupported provider: ${options.provider}`);
+  }
+  if (typeof options.apiKey !== 'string' || options.apiKey.length === 0) {
+    throw new Error('apiKey is required');
+  }
+
+  return async (input: ProviderCallInput): Promise<ProviderCallResult> => {
+    const response = await options.fetchFn(`${options.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${options.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: options.model || input.model,
+        messages: [{ role: 'user', content: input.prompt }],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Provider returned status ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (typeof data !== 'object' || data === null) {
+      throw new Error('Invalid response: expected object');
+    }
+
+    const d = data as Record<string, unknown>;
+    const choices = d.choices;
+    if (!Array.isArray(choices) || choices.length === 0) {
+      throw new Error('Invalid response: missing choices');
+    }
+
+    const firstChoice = choices[0];
+    if (typeof firstChoice !== 'object' || firstChoice === null) {
+      throw new Error('Invalid response: malformed choice');
+    }
+
+    const message = (firstChoice as Record<string, unknown>).message;
+    if (typeof message !== 'object' || message === null) {
+      throw new Error('Invalid response: missing message');
+    }
+
+    const content = (message as Record<string, unknown>).content;
+    if (typeof content !== 'string') {
+      throw new Error('Invalid response: missing content');
+    }
+
+    return normalizeProviderCallResult({
+      role: input.role,
+      text: content,
+      provider: input.provider,
+      model: input.model,
+    });
   };
 }
