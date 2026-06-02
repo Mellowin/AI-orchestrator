@@ -827,12 +827,26 @@ if (command === 'provider-preview') {
       process.exit(1);
     }
 
+    let role: string = 'coder';
+    const roleIdx = args.indexOf('--role');
+    if (roleIdx !== -1 && args[roleIdx + 1]) {
+      role = args[roleIdx + 1];
+    }
+
+    if (role !== 'coder' && role !== 'reviewer') {
+      console.error('[provider-preview] Error: Invalid role: expected coder or reviewer');
+      console.error('[provider-preview] No real API call was made');
+      console.error('[provider-preview] No patch was applied');
+      console.error('[provider-preview] No git mutation was performed');
+      process.exit(1);
+    }
+
     const task = loadTask(getTasksFilePath(), taskId);
     const context = buildContext(task);
     const prompt = buildKimiPrompt(context);
 
     const mockProviderCall = createMockProviderCall(mockResponse);
-    const providerInput = buildProviderCallInput('coder', prompt, 'mock', 'mock-model');
+    const providerInput = buildProviderCallInput(role, prompt, 'mock', 'mock-model');
     const result = await mockProviderCall(providerInput);
     const normalizedResult = normalizeProviderCallResult(result);
 

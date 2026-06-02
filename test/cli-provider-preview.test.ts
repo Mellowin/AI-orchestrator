@@ -222,4 +222,52 @@ describe('cli provider-preview', () => {
       cleanup();
     }
   });
+
+  test('--role coder prints Role: coder', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['provider-preview', taskId, '--role', 'coder'], {
+        TASKS_FILE: tasksFilePath,
+        MOCK_PROVIDER_RESPONSE: 'coder response',
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[provider-preview] Role: coder'), `Expected role coder, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('--role reviewer prints Role: reviewer', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['provider-preview', taskId, '--role', 'reviewer'], {
+        TASKS_FILE: tasksFilePath,
+        MOCK_PROVIDER_RESPONSE: 'reviewer response',
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[provider-preview] Role: reviewer'), `Expected role reviewer, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('invalid role fails safely with safety messages', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['provider-preview', taskId, '--role', 'admin'], {
+        TASKS_FILE: tasksFilePath,
+        MOCK_PROVIDER_RESPONSE: 'mock',
+      });
+
+      assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
+      assert(result.stderr.includes('Invalid role: expected coder or reviewer'), `Expected invalid role error, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No real API call was made'), `Expected API safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No patch was applied'), `Expected patch safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No git mutation was performed'), `Expected git safety message, got stderr: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
 });
