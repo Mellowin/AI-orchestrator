@@ -7,7 +7,7 @@
 | `provider-preview` | Mock-only. Uses `createMockProviderCall(MOCK_PROVIDER_RESPONSE)`. No real API calls. |
 | `real-provider-plan` | Dry-run only. Prints plan, loads task, validates config. No API, no patch, no git mutation. |
 | `real-provider-run` | Refusal stub. Requires `ALLOW_REAL_PROVIDER_RUN=true` and still refuses because execution is not implemented. |
-| `createRealProviderCall()` | Throws `real provider call is not implemented yet`. No network code exists. |
+| `createRealProviderCall()` | Implemented for `provider: 'kimi'`. Accepts `apiKey`, `baseUrl`, injected `fetchFn`, optional `model`. Sends POST to `/chat/completions` with `Authorization: Bearer` header, parses `choices[0].message.content`, normalizes via `normalizeProviderCallResult`. Not wired to CLI or runtime execution. Tests use fake fetch only. |
 | `buildProviderCallInput` | Pure builder. Validates role/prompt/provider/model. No env reads, no network. |
 | `normalizeProviderCallResult` | Pure normalizer. Trims whitespace, preserves newlines, validates shape. |
 | `normalizeProviderCallError` | Pure error normalizer. Redacts secrets, detects retryable errors, no stack leak. |
@@ -36,10 +36,23 @@ The following rules are non-negotiable for every phase:
 Execution will open in small, reversible phases. No phase may be skipped.
 
 ### Phase 1: Real provider call only, no patch/git
-- Implement `createRealProviderCall()` for Kimi (and later OpenAI).
-- Call the real API, normalize the result with `normalizeProviderCallResult`, print the raw response.
+**Status: abstraction and tests complete. Not wired to CLI/runtime yet.**
+
+- ✅ Implement `createRealProviderCall()` for Kimi with injected `fetchFn`.
+- ✅ Validate `provider === 'kimi'` and non-empty `apiKey` at factory time.
+- ✅ Send POST to `/chat/completions` with `Authorization: Bearer {apiKey}`, `Content-Type: application/json`, body containing `model` and `messages: [{role: 'user', content: prompt}]`.
+- ✅ Parse `choices[0].message.content` from response.
+- ✅ Normalize result via `normalizeProviderCallResult` before returning.
+- ✅ Non-OK HTTP throws safe Error without leaking `apiKey`.
+- ✅ Malformed response throws clear Error.
+- ✅ Tests use fake fetch only — no real network, no real API keys.
 - **No file updates.** No patch engine. No git branch creation.
 - Goal: prove API integration, prompt formatting, and error handling in isolation.
+
+**Next hardening before CLI wiring:**
+- Validate `baseUrl` (non-empty string, no trailing slash issues).
+- Validate `fetchFn` (callable function).
+- Document timeout/retry strategy as pure helpers if needed.
 
 ### Phase 2: Parse provider output only, no patch/git
 - Feed the real response through `parseKimiOutputJson` / `parseReviewerOutputJson`.
