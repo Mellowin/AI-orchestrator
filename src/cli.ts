@@ -22,7 +22,7 @@ import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
 import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-plan.js';
-import { createMockProviderCall, buildProviderCallInput, normalizeProviderCallResult } from './provider-call.js';
+import { createMockProviderCall, buildProviderCallInput, normalizeProviderCallResult, normalizeProviderCallError } from './provider-call.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -849,8 +849,11 @@ if (command === 'provider-preview') {
 
     process.exit(0);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[provider-preview] Error: ${message}`);
+    const info = normalizeProviderCallError(err);
+    console.error(`[provider-preview] Error: ${info.message}`);
+    console.error('[provider-preview] No real API call was made');
+    console.error('[provider-preview] No patch was applied');
+    console.error('[provider-preview] No git mutation was performed');
     process.exit(1);
   }
 }

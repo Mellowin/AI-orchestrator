@@ -169,7 +169,7 @@ describe('cli provider-preview', () => {
     }
   });
 
-  test('missing MOCK_PROVIDER_RESPONSE fails clearly', () => {
+  test('missing MOCK_PROVIDER_RESPONSE fails clearly with safety messages', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['provider-preview', taskId], {
@@ -186,7 +186,7 @@ describe('cli provider-preview', () => {
     }
   });
 
-  test('missing task fails clearly', () => {
+  test('missing task fails clearly without stack trace leak', () => {
     const { tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['provider-preview', 'nonexistent-task'], {
@@ -196,6 +196,10 @@ describe('cli provider-preview', () => {
 
       assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
       assert(result.stderr.includes('[provider-preview] Error:'), `Expected error prefix, got stderr: ${result.stderr}`);
+      assert(!result.stderr.includes('at '), `Stderr should not contain stack trace, got: ${result.stderr}`);
+      assert(result.stderr.includes('No real API call was made'), `Expected API safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No patch was applied'), `Expected patch safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No git mutation was performed'), `Expected git safety message, got stderr: ${result.stderr}`);
     } finally {
       cleanup();
     }
