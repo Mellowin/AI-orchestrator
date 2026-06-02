@@ -175,17 +175,41 @@ Properties:
 - **Not wired to CLI.**
 - **Real repo apply remains disabled.**
 
-### 8.2 Next Recommended Step — Stage 4.1 Dry-Run Command
+### 8.2 Completed — `buildRealRepoApplyDryRunSummary(input)`
 
-Plan and add tests for a `real-repo-apply-dry-run <taskId>` CLI command:
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/real-repo-apply-dry-run.ts`
+- **Tests:** `test/real-repo-apply-dry-run.test.ts`
 
-- **No file writes.**
-- **No provider call.** Uses env-provided raw response (e.g. `REAL_REPO_PROVIDER_RESPONSE`).
-- Reuses `parseKimiOutputJson`, `validateFileList`, `validateProposedFileLineDeltas`.
-- Uses `validateRealRepoApplySafety` to print safety check results.
+A pure helper function that builds a normalized dry-run summary:
+
+- Trims `taskId`, `currentBranch`, `workBranch`, and file paths.
+- Preserves file order unchanged.
+- Validates inputs: rejects empty strings, rejects duplicate file paths after trimming, rejects non-finite `lineDelta` (NaN, Infinity).
+- Includes safety messages: `No files were modified`, `No commit was made`, `No push was performed`, `No merge was performed`, `Real repo apply is dry-run only`.
+
+Properties:
+- 100% pure: no fs, no git commands, no child_process, no env reads, no network, no API keys, no state writes.
+- Unit-tested in isolation (14 tests).
+- **Not wired to CLI.**
+- **Real repo apply remains disabled.**
+
+### 8.3 Next Recommended Step — Stage 4.1 Dry-Run CLI Command
+
+Add a `real-repo-apply-dry-run <taskId>` CLI command:
+
+- **Read-only command** — must not write files, commit, push, merge, or touch `main`.
+- **No provider call** — uses env-provided raw response (e.g. `REAL_REPO_PROVIDER_RESPONSE`).
+- Reuses existing pure helpers:
+  - `parseKimiOutputJson` — parse raw provider output.
+  - `validateFileList` — guardrails on file list.
+  - `validateProposedFileLineDeltas` — guardrails on line deltas.
+  - `validateRealRepoApplySafety` — print safety check results.
+  - `buildRealRepoApplyDryRunSummary` — build and print summary.
 - Prints proposed target files, line deltas, and safety verdict.
-- Output must include safety messages: `No files were modified`, `No commit was made`, `No push was performed`.
-- Behind `ALLOW_REAL_REPO_APPLY` is **not required** for dry-run; dry-run is always safe because it does not write.
+- Output must include all safety messages from `buildRealRepoApplyDryRunSummary`.
+- **Does not require `ALLOW_REAL_REPO_APPLY`** because it writes nothing; dry-run is always safe.
+- No network, no API keys, no state writes.
 
 ---
 
