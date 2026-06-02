@@ -22,7 +22,7 @@ import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
 import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-plan.js';
-import { createMockProviderCall, buildProviderCallInput } from './provider-call.js';
+import { createMockProviderCall, buildProviderCallInput, normalizeProviderCallResult } from './provider-call.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -834,13 +834,14 @@ if (command === 'provider-preview') {
     const mockProviderCall = createMockProviderCall(mockResponse);
     const providerInput = buildProviderCallInput('coder', prompt, 'mock', 'mock-model');
     const result = await mockProviderCall(providerInput);
+    const normalizedResult = normalizeProviderCallResult(result);
 
     console.log(`[provider-preview] Task: ${taskId}`);
-    console.log(`[provider-preview] Provider: ${result.provider}`);
-    console.log(`[provider-preview] Model: ${result.model}`);
-    console.log(`[provider-preview] Role: ${result.role}`);
+    console.log(`[provider-preview] Provider: ${normalizedResult.provider}`);
+    console.log(`[provider-preview] Model: ${normalizedResult.model}`);
+    console.log(`[provider-preview] Role: ${normalizedResult.role}`);
     console.log(`[provider-preview] Response:`);
-    console.log(result.text);
+    console.log(normalizedResult.text);
     console.log('[provider-preview] ---');
     console.log('[provider-preview] No real API call was made');
     console.log('[provider-preview] No patch was applied');

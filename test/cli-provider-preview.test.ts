@@ -136,6 +136,39 @@ describe('cli provider-preview', () => {
     }
   });
 
+  test('trims leading and trailing whitespace from mock response', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const mockResponse = '  trimmed response  ';
+      const result = runCli(['provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        MOCK_PROVIDER_RESPONSE: mockResponse,
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('trimmed response'), `Expected trimmed text, got stdout: ${result.stdout}`);
+      assert(!result.stdout.includes('  trimmed response  '), `Expected trimmed text without surrounding spaces, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('preserves internal newlines in mock response', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const mockResponse = 'line1\nline2\nline3';
+      const result = runCli(['provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        MOCK_PROVIDER_RESPONSE: mockResponse,
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('line1\nline2\nline3'), `Expected internal newlines preserved, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
   test('missing MOCK_PROVIDER_RESPONSE fails clearly', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
