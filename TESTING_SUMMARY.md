@@ -70,6 +70,3 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 2. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
 3. Keep mock mode as default for tests and local development.
 4. Keep no push, no merge, no main touch.
-2. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
-3. Keep mock mode as default for tests and local development.
-4. Keep no push, no merge, no main touch.
