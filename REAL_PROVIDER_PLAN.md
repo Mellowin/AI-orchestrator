@@ -5,6 +5,7 @@
 | Component | Status |
 |-----------|--------|
 | `provider-preview` | Mock-only. Uses `createMockProviderCall(MOCK_PROVIDER_RESPONSE)`. No real API calls. |
+| `real-provider-preview` | Implemented behind `ALLOW_REAL_PROVIDER_RUN=true`. Requires `KIMI_API_KEY` + `KIMI_BASE_URL`, optional `KIMI_MODEL`. `KIMI_FAKE_RESPONSE` test seam creates injected fake fetchFn. Production path uses `globalThis.fetch`. Read-only: no patch, no git, no state mutation. Tests/CI use fake response only. |
 | `real-provider-plan` | Dry-run only. Prints plan, loads task, validates config. No API, no patch, no git mutation. |
 | `real-provider-run` | Refusal stub. Requires `ALLOW_REAL_PROVIDER_RUN=true` and still refuses because execution is not implemented. |
 | `createRealProviderCall()` | Implemented for `provider: 'kimi'`. Accepts `apiKey`, `baseUrl`, injected `fetchFn`, optional `model`. Sends POST to `/chat/completions` with `Authorization: Bearer` header, parses `choices[0].message.content`, normalizes via `normalizeProviderCallResult`. Not wired to CLI or runtime execution. Tests use fake fetch only. |
@@ -56,7 +57,7 @@ Execution will open in small, reversible phases. No phase may be skipped.
 - ✅ Implement `getProviderRetryDecision()` pure helper with exponential backoff (1000ms / 2000ms / 4000ms, max 3 retries). Not wired yet.
 
 ### Phase 1 CLI preview contract
-**Status: documented. Implementation not yet started.**
+**Status: implemented with fake-response test seam.**
 
 Command: `real-provider-preview <taskId>`
 
@@ -66,13 +67,18 @@ Command: `real-provider-preview <taskId>`
 **Required env/config inputs:**
 - `KIMI_API_KEY` — non-empty string.
 - `KIMI_BASE_URL` — non-empty string starting with `http://` or `https://`.
-- `KIMI_MODEL` — optional. Falls back to task default or a safe default.
+- `KIMI_MODEL` — optional. Falls back to `kimi-k2.6`.
+
+**Fake-response test seam:**
+- `KIMI_FAKE_RESPONSE` env var creates an injected fake `fetchFn` that returns an OpenAI-compatible response.
+- Tests and CI use this seam exclusively. No real network calls in automated tests.
+- Production path uses `globalThis.fetch` when the fake seam is not active.
 
 **Behavior (read-only, no mutation):**
 1. Load task from `tasks.yaml`.
 2. Build context and prompt read-only (same as `provider-preview`).
 3. Build `ProviderCallInput` via `buildProviderCallInput`.
-4. Create real provider call via `createRealProviderCall` with `apiKey`, `baseUrl`, `fetchFn: globalThis.fetch`.
+4. Create real provider call via `createRealProviderCall` with `apiKey`, `baseUrl`, `fetchFn`.
 5. Call provider, normalize result via `normalizeProviderCallResult`.
 6. Print raw normalized provider text to stdout.
 7. Print safety messages: no patch applied, no git mutation, no state change.
@@ -91,13 +97,13 @@ Command: `real-provider-preview <taskId>`
 - Every failure path prints safety messages.
 
 **Testing rules:**
-- CLI tests must use injectable fake fetch or mock provider — no real network.
+- CLI tests use `KIMI_FAKE_RESPONSE` seam — no real network.
 - CI must not call real network.
 - No real API keys in tests.
 
-**Explicit disclaimer:**
-- This contract is documentation only. The `real-provider-preview` command does not exist in `src/cli.ts` yet.
-- Real Kimi API has not been called by tests or CI.
+**Real API usage:**
+- Real Kimi API calls are possible only manually with opt-in (`ALLOW_REAL_PROVIDER_RUN=true`) and valid env vars.
+- Tests and CI never call the real API.
 
 ### Phase 2: Parse provider output only, no patch/git
 - Feed the real response through `parseKimiOutputJson` / `parseReviewerOutputJson`.
