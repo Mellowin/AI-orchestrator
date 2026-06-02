@@ -2,7 +2,7 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `5fc8f8b29ef95e1251b8c76ef18243e58a489a7f`
+**Last verified:** `7269178418e2af5eacdfa47ea13edf37ddffae04`
 
 ## Test metrics
 
@@ -32,6 +32,7 @@
 | Provider preview CLI | `test/cli-provider-preview.test.ts` | Mock provider-call output preview with MOCK_PROVIDER_RESPONSE, uses `buildProviderCallInput` + `createMockProviderCall` + `normalizeProviderCallResult`, `normalizeProviderCallError` in failure path, trimmed response output, internal newlines preserved, no stack trace leak, safety messages on failure, missing env error, missing task error, no file mutation, `--role coder|reviewer` flag with validation |
 | Real provider preview CLI | `test/cli-real-provider-preview.test.ts` | `real-provider-preview <taskId>` behind `ALLOW_REAL_PROVIDER_RUN=true`, requires `KIMI_API_KEY` + `KIMI_BASE_URL`, optional `KIMI_MODEL`, `KIMI_FAKE_RESPONSE` test seam creates injected fake fetchFn (OpenAI-compatible response), production path uses `globalThis.fetch`, parse-only mode: parses provider response via `parseKimiOutputJson`, validates file list with `validateFileList`, validates proposed line deltas with `validateProposedFileLineDeltas`, prints proposed file summary with line deltas and `[new]` tag, guardrails verdict (`PASS`/`REJECTED`), read-only (no patch/git/state mutation), `normalizeProviderCallError` in failure path, no stack trace leak, no apiKey leak, safety messages on success and failure, no file mutation |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
+| Sandbox apply preview | `REAL_PROVIDER_PLAN.md` | Phase 3 contract documented: `sandbox-apply-preview <taskId>` — temp repo only, no real repo mutation, parse → guardrails → apply in sandbox → checks → rollback on failure. Docs-only; implementation not started. |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
 ## Safety guarantees
@@ -54,6 +55,7 @@
 - **`normalizeProviderCallError` exists as a pure error normalizer.** Accepts Error/string/unknown, trims message, detects retryable cases (timeout, rate limit, temporarily unavailable, ECONNRESET, ETIMEDOUT), redacts sk-/Bearer tokens, never leaks stack traces. No env reads, no network, no file mutation.
 - **`provider-preview <taskId>` uses only mock provider-call.** It loads task, builds context/prompt read-only, creates input via `buildProviderCallInput`, calls `createMockProviderCall(MOCK_PROVIDER_RESPONSE)`, normalizes result via `normalizeProviderCallResult`, prints output. Catch path normalizes errors via `normalizeProviderCallError` with safety messages. No real API call, no patch, no git mutation, no task state mutation.
 - **`real-provider-preview <taskId>` is implemented behind `ALLOW_REAL_PROVIDER_RUN=true`.** Requires `KIMI_API_KEY` + `KIMI_BASE_URL`, optional `KIMI_MODEL`. `KIMI_FAKE_RESPONSE` test seam creates injected fake fetchFn for tests/CI. Production path uses `globalThis.fetch`. Parse-only preview: load task → build context/prompt → `createRealProviderCall` → normalize → `parseKimiOutputJson` → `validateFileList` → `validateProposedFileLineDeltas` → print proposed diff summary. No patch, no git mutation, no state mutation. Tests/CI use fake response only — no real network calls.
+- **`sandbox-apply-preview <taskId>` contract exists as docs only.** Documented in `REAL_PROVIDER_PLAN.md` Phase 3. Describes temp-repo-only apply flow: parse → guardrails → sandbox patch → checks → rollback on failure. Real repo remains read-only. Implementation not started.
 
 ## Real provider execution plan
 
@@ -61,7 +63,7 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 
 ## Next recommended work
 
-1. Sandbox apply preview: apply validated patch to temp repo / test fixture only, run checks, do not touch real repo yet.
+1. Implement `sandbox-apply-preview <taskId>` using temp repo / test fixture only — apply patch, run checks, rollback on failure. Real repo must remain untouched.
 2. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
 3. Keep mock mode as default for tests and local development.
 4. Keep no push, no merge, no main touch.

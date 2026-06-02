@@ -117,13 +117,56 @@ Command: `real-provider-preview <taskId>`
 - **Still no state mutation.** No `state.json` write.
 
 ### Phase 3: Guarded apply in temp repo / test fixture
-**Status: not started.**
+**Status: contract documented. Implementation not started.**
 
-- Apply the validated patch to a temporary git repository (a test fixture or clone).
-- Run configured checks (`runChecks`) in the temp repo.
-- Rollback if checks fail or reviewer rejects.
-- Goal: prove the full Coder → Patch → Checks → Reviewer loop in a sandbox.
-- **No real repo apply yet.** The target `repo_path` from `tasks.yaml` is still read-only.
+Command: `sandbox-apply-preview <taskId>` (future CLI command)
+
+**Goal:** prove the full Coder → Patch → Checks loop in an isolated sandbox without touching the real repository.
+
+**Required behavior (future implementation):**
+1. Load task from `tasks.yaml`.
+2. Obtain provider output (from existing parse-only flow, cached response, or test fixture).
+3. Parse output via `parseKimiOutputJson`.
+4. Validate file list via `validateFileList(task.guardrails)`.
+5. Validate proposed line deltas via `validateProposedFileLineDeltas(task.repo_path, files, task.guardrails.max_lines_changed)`.
+6. Create an isolated temporary git repository (copy/clone of real repo or fresh fixture).
+7. Apply patch **only inside the temp repo** via `applyFileUpdates`.
+8. Run configured checks (`runChecks`) inside the temp repo.
+9. Print apply/check result (success or failure with step).
+10. Delete temp repo on completion, or print temp path for inspection in debug mode.
+
+**Strict safety boundaries:**
+- **No patch to real `task.repo_path`.** The real repository is never modified.
+- **No git mutation in real repo.** No branch create, no commit, no push, no merge in the real repo.
+- **No state mutation.** No `state.json` write.
+- **No push.** Never runs `git push`.
+- **No merge.** Never runs `git merge`.
+- **No main touch.** The `main` branch in the real repo is never checked out, modified, or reset.
+- **No real repo branch creation.** Work branches are created only inside the temp repo if needed.
+- **No real repo commit.** Commits happen only inside the temp repo if needed.
+
+**Failure behavior:**
+- Malformed provider output → fail safely before any file operation.
+- Guardrails rejection → fail safely before temp repo creation.
+- Patch apply failure → rollback temp repo only via `rollbackFileUpdates`, then fail.
+- Checks failure → rollback temp repo only, then fail.
+- No stack traces in CLI `stderr`.
+- No API key leaks.
+- Safety messages always printed: `No patch was applied to real repo`, `No git mutation was performed in real repo`, `No state mutation was performed`.
+
+**Testing rules:**
+- Tests must use temp directories only (`mkdtempSync`).
+- Tests must not touch the real repository.
+- Tests must not call real network.
+- Tests must not require API keys.
+- Tests must assert real repo files remain unchanged.
+- Tests must assert no real repo git branch is created.
+- Tests must assert no `runs/{task_id}/state.json` is written.
+
+**Explicit disclaimer:**
+- Phase 3 implementation is **not started**.
+- The current system still only has parse-only preview (`real-provider-preview`).
+- Real repo apply remains forbidden until Phase 4.
 
 ### Phase 4: Real repo apply behind opt-in
 - Move the temp-repo flow to the real `repo_path` from `tasks.yaml`.
