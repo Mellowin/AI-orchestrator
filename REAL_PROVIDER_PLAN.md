@@ -14,6 +14,7 @@
 | `getProviderRetryDecision()` | Pure helper. Exponential backoff retry policy (attempt 1→1000ms, 2→2000ms, 3→4000ms, 4+→no retry). Non-retryable → no retry immediately. Not wired to `createRealProviderCall` or CLI yet. |
 | `createSandboxRepoCopy()` | Pure helper. Creates isolated temp copy of source repo, excludes `.git`, `node_modules`, `runs`, `.env`, `.env.*`. No git commands, no state write. Not wired to CLI. |
 | `applyToSandboxRepo()` | Pure helper. Applies validated `FileUpdate[]` inside sandbox only, delegates to patch-engine for apply/rollback/path validation. No git mutation, no state write. Not wired to CLI. |
+| `runSandboxApplyFlow()` | Pure helper. Orchestrates parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Checks run only in sandbox path. Real repo untouched. No state write. Not wired to CLI. |
 | `normalizeProviderCallError` | Pure error normalizer. Redacts secrets, detects retryable errors, no stack leak. |
 
 ## 2. Explicit opt-in rules
@@ -123,6 +124,7 @@ Command: `real-provider-preview <taskId>`
 
 - ✅ Implement `createSandboxRepoCopy(sourceRepoPath, sandboxRoot)` — isolated temp copy with exclusions.
 - ✅ Implement `applyToSandboxRepo(sandboxRepoPath, files)` — sandbox-scoped apply with rollback via patch-engine.
+- ✅ Implement `runSandboxApplyFlow({task, rawProviderText, sandboxRoot})` — orchestrates parse → guardrails → sandbox copy → sandbox apply → checks → cleanup/rollback. Not wired to CLI.
 
 Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemented)
 
@@ -140,6 +142,13 @@ Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemente
 9. Print apply/check result (success or failure with step).
 10. Rollback via returned `rollback()` on failure, or cleanup temp repo on success.
 
+**Current helper-only status:**
+- `runSandboxApplyFlow` implements steps 3–10 as a pure helper.
+- Checks run only in the sandbox path; the real repo path is never passed to `runChecks`.
+- The real repository remains untouched; sandbox copy is cleaned up on both success and failure.
+- No `state.json` is written by the helper.
+- No CLI command exists yet for this flow.
+
 **Strict safety boundaries:**
 - **No patch to real `task.repo_path`.** The real repository is never modified.
 - **No git mutation in real repo.** No branch create, no commit, no push, no merge in the real repo.
@@ -149,6 +158,7 @@ Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemente
 - **No main touch.** The `main` branch in the real repo is never checked out, modified, or reset.
 - **No real repo branch creation.** Work branches are created only inside the temp repo if needed.
 - **No real repo commit.** Commits happen only inside the temp repo if needed.
+- **Checks run in sandbox only.** `runChecks` receives the sandbox path, never the real `repo_path`.
 
 **Failure behavior:**
 - Malformed provider output → fail safely before any file operation.
@@ -169,7 +179,7 @@ Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemente
 - Tests must assert no `runs/{task_id}/state.json` is written.
 
 **Explicit disclaimer:**
-- Phase 3 helpers (`createSandboxRepoCopy`, `applyToSandboxRepo`) are implemented but **not wired to CLI**.
+- Phase 3 helpers (`createSandboxRepoCopy`, `applyToSandboxRepo`, `runSandboxApplyFlow`) are implemented but **not wired to CLI**.
 - `sandbox-apply-preview <taskId>` CLI command does **not exist**.
 - The current system still only has parse-only preview (`real-provider-preview`) at CLI level.
 - Real repo apply remains forbidden until Phase 4.
@@ -179,6 +189,13 @@ Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemente
 - Require `ALLOW_REAL_PROVIDER_RUN=true`.
 - Create `work_branch`, apply patch, run checks, run reviewer.
 - Rollback on any failure. Human reviews `summary.md` before deciding to push manually.
+
+## Next recommended work
+
+1. Implement `sandbox-apply-preview <taskId>` CLI command using `runSandboxApplyFlow`.
+2. Still no real repo apply; still no push/merge/main touch.
+3. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
+4. Keep mock mode as default for tests and local development.
 
 ## 5. Failure handling
 

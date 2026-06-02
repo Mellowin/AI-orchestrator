@@ -2,12 +2,12 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `897b310287f0d486539a4c47f4e989269f68e40f`
+**Last verified:** `656821e1990184c4aafd185f4cf26d410f963af9`
 
 ## Test metrics
 
-- **Total tests:** 405
-- **Total suites:** 43
+- **Total tests:** 420
+- **Total suites:** 44
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -34,6 +34,7 @@
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
 | Sandbox repo copy | `test/sandbox-repo.test.ts` | `createSandboxRepoCopy` creates isolated temp copy of source repo, validates source exists and is git repo, validates sandboxRoot, copies files recursively, excludes `.git`, `node_modules`, `runs`, `.env`, `.env.*`, returns `{sandboxRepoPath, cleanup}`. No git commands, no branch creation, no state write, no source mutation. |
 | Sandbox apply | `test/sandbox-apply.test.ts` | `applyToSandboxRepo` applies validated `FileUpdate[]` only inside sandbox repo, delegates to `applyFileUpdates`/`rollbackFileUpdates` with sandbox-scoped runDir, supports overwrite existing / create new / nested dirs, auto-rollback on failure mid-apply, explicit rollback restores overwritten files and removes newly created ones. Path validation via patch-engine (absolute, traversal, backslash, empty, duplicates). No git mutation, no state write, no real repo touch. Not wired to CLI yet. |
+| Sandbox apply flow | `test/sandbox-apply-flow.test.ts` | `runSandboxApplyFlow` orchestrates: parse raw provider text via `parseKimiOutputJson` → validate file list via `validateFileList` → validate line deltas via `validateProposedFileLineDeltas` → create sandbox copy via `createSandboxRepoCopy` → apply in sandbox via `applyToSandboxRepo` → run checks via `runChecks` in sandbox path → cleanup on success, or rollback + cleanup on failure. Tests cover success path, real repo isolation, sandbox cleanup, parse failure, guardrails failure, line-delta failure, check failure with rollback/cleanup, apply failure with cleanup, checks run in sandbox not real repo, no state write, no git mutation, logs include major steps, no network/API keys. Not wired to CLI yet. |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
 ## Safety guarantees
@@ -58,7 +59,8 @@
 - **`real-provider-preview <taskId>` is implemented behind `ALLOW_REAL_PROVIDER_RUN=true`.** Requires `KIMI_API_KEY` + `KIMI_BASE_URL`, optional `KIMI_MODEL`. `KIMI_FAKE_RESPONSE` test seam creates injected fake fetchFn for tests/CI. Production path uses `globalThis.fetch`. Parse-only preview: load task → build context/prompt → `createRealProviderCall` → normalize → `parseKimiOutputJson` → `validateFileList` → `validateProposedFileLineDeltas` → print proposed diff summary. No patch, no git mutation, no state mutation. Tests/CI use fake response only — no real network calls.
 - **`createSandboxRepoCopy` exists as a pure helper.** Creates isolated temp copy of source repo, excludes sensitive directories, no git commands, no state write. Not wired to CLI.
 - **`applyToSandboxRepo` exists as a pure helper.** Applies validated `FileUpdate[]` inside sandbox only, delegates to patch-engine for apply/rollback/path validation. Not wired to CLI.
-- **`sandbox-apply-preview <taskId>` CLI command is not implemented.** Only helper bricks (`createSandboxRepoCopy`, `applyToSandboxRepo`) exist. Real repo remains read-only.
+- **`runSandboxApplyFlow` exists as a pure helper.** Orchestrates the full sandbox pipeline: parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Runs checks only in sandbox path. Real repo remains untouched. No state write. Not wired to CLI.
+- **`sandbox-apply-preview <taskId>` CLI command is not implemented.** Only helper bricks (`createSandboxRepoCopy`, `applyToSandboxRepo`, `runSandboxApplyFlow`) exist. Real repo remains read-only.
 
 ## Real provider execution plan
 
@@ -66,7 +68,7 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 
 ## Next recommended work
 
-1. Implement sandbox apply orchestration helper that combines: parse → guardrails → sandbox copy → sandbox apply → run checks → rollback/cleanup. Still no CLI wiring if one more safe layer is needed first.
+1. Implement `sandbox-apply-preview <taskId>` CLI command using `runSandboxApplyFlow`. Still no real repo apply. Still no push, no merge, no main touch.
 2. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
 3. Keep mock mode as default for tests and local development.
 4. Keep no push, no merge, no main touch.
