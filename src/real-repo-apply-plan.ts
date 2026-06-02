@@ -43,6 +43,9 @@ function validatePath(path: string, context: string): string | null {
   if (trimmed.startsWith('/')) {
     return `${context} is absolute: ${trimmed}`;
   }
+  if (/^[A-Za-z]:\//.test(trimmed)) {
+    return `${context} is absolute: ${trimmed}`;
+  }
   const parts = trimmed.split('/');
   for (const part of parts) {
     if (part === '..') {

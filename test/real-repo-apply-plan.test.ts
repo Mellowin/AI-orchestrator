@@ -152,6 +152,33 @@ describe('buildRealRepoApplyPlan', () => {
     assert(result.reason.includes('absolute'));
   });
 
+  test('rejects Windows absolute path C:/temp/file.ts', () => {
+    const result = buildRealRepoApplyPlan(
+      makeInput({ files: [{ path: 'C:/temp/file.ts', content: 'x' }] })
+    );
+    assert.strictEqual(result.ok, false);
+    if (result.ok) return;
+    assert(result.reason.includes('absolute'));
+  });
+
+  test('rejects Windows absolute path c:/Users/test/file.ts', () => {
+    const result = buildRealRepoApplyPlan(
+      makeInput({ files: [{ path: 'c:/Users/test/file.ts', content: 'x' }] })
+    );
+    assert.strictEqual(result.ok, false);
+    if (result.ok) return;
+    assert(result.reason.includes('absolute'));
+  });
+
+  test('rejects Windows absolute path inside existingPaths', () => {
+    const result = buildRealRepoApplyPlan(
+      makeInput({ existingPaths: ['D:/repo/file.ts'] })
+    );
+    assert.strictEqual(result.ok, false);
+    if (result.ok) return;
+    assert(result.reason.includes('absolute'));
+  });
+
   test('rejects path traversal with `..`', () => {
     const result = buildRealRepoApplyPlan(
       makeInput({ files: [{ path: '../secret.ts', content: 'x' }] })
