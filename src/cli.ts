@@ -775,6 +775,9 @@ if (command === 'real-provider-run') {
       process.exit(1);
     }
 
+    // Validate task exists before refusing (contracts check)
+    loadTask(getTasksFilePath(), taskId);
+
     // Even with opt-in, execution is not implemented yet
     console.error('[real-provider-run] Error: real-provider execution is not implemented yet');
     console.error('[real-provider-run] No API call was made');

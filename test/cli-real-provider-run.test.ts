@@ -144,4 +144,19 @@ describe('cli real-provider-run', () => {
       cleanup();
     }
   });
+
+  test('fails clearly with opt-in when task does not exist', () => {
+    const { tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-provider-run', 'nonexistent-task'], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+      });
+
+      assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
+      assert(result.stderr.includes('[real-provider-run] Error:'), `Expected error prefix, got stderr: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
 });
