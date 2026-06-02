@@ -1150,10 +1150,11 @@ if (command === 'real-repo-apply-dry-run') {
 
     const lineDeltas = kimiOutput.files.map((f) => {
       const filePath = join(task.repo_path, f.path);
-      const oldContent = existsSync(filePath) ? readFileSync(filePath, 'utf-8') : '';
+      const fileExists = existsSync(filePath);
+      const oldContent = fileExists ? readFileSync(filePath, 'utf-8') : '';
       const oldLines = countLines(oldContent);
       const newLines = countLines(f.content);
-      return { path: f.path, lineDelta: newLines - oldLines, isNew: oldContent === '' };
+      return { path: f.path, lineDelta: newLines - oldLines, isNew: !fileExists };
     });
 
     const summary = buildRealRepoApplyDryRunSummary({

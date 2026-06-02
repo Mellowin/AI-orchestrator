@@ -527,4 +527,96 @@ describe('cli real-repo-apply-dry-run', () => {
       cleanup();
     }
   });
+
+  test('existing empty file shows isNew=false', () => {
+    const id = `${Date.now()}-${counter++}`;
+    const taskId = `dryrun-empty-${id}`;
+    const tmpBase = join(process.cwd(), 'tmp');
+    if (!existsSync(tmpBase)) {
+      mkdirSync(tmpBase);
+    }
+    const tmpDir = mkdtempSync(join(tmpBase, `dryrun-empty-${id}-`));
+    const repoPath = join(tmpDir, 'repo');
+    mkdirSync(repoPath);
+
+    writeFileSync(join(repoPath, 'README.md'), '# hello\n', 'utf-8');
+    writeFileSync(join(repoPath, 'empty.md'), '', 'utf-8');
+
+    spawnSync('git', ['init'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['add', '.'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['branch', '-m', 'main'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['checkout', '-b', `ai/${taskId}`], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+
+    const tasksFilePath = join(tmpDir, 'tasks.yaml');
+    writeFileSync(
+      tasksFilePath,
+      `tasks:
+  - id: ${taskId}
+    title: "Dry run empty file test"
+    repo_path: "${repoPath.replace(/\\/g, '/')}"
+    base_branch: "main"
+    work_branch: "ai/${taskId}"
+    goal: "Test goal"
+    context_files:
+      - "README.md"
+      - "empty.md"
+    checks:
+      - command: "node"
+        args: ["-e", "process.exit(0)"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`,
+      'utf-8'
+    );
+
+    try {
+      const result = runCli(['real-repo-apply-dry-run', taskId], {
+        TASKS_FILE: tasksFilePath,
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'empty.md', content: 'now has content\n' },
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `stderr: ${result.stderr}`);
+      assert(
+        result.stdout.includes('empty.md'),
+        `Expected empty.md in stdout, got: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('isNew=false'),
+        `Expected isNew=false for existing empty file, got: ${result.stdout}`
+      );
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
