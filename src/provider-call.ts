@@ -16,6 +16,27 @@ export interface ProviderCallResult {
 
 export type ProviderCallFn = (input: ProviderCallInput) => Promise<ProviderCallResult>;
 
+export function buildProviderCallInput(
+  role: string,
+  prompt: string,
+  provider: string,
+  model: string
+): ProviderCallInput {
+  if (role !== 'coder' && role !== 'reviewer') {
+    throw new Error('Invalid role: expected coder or reviewer');
+  }
+  if (typeof prompt !== 'string' || prompt.length === 0) {
+    throw new Error('Invalid prompt: expected non-empty string');
+  }
+  if (typeof provider !== 'string' || provider.length === 0) {
+    throw new Error('Invalid provider: expected non-empty string');
+  }
+  if (typeof model !== 'string' || model.length === 0) {
+    throw new Error('Invalid model: expected non-empty string');
+  }
+  return { role, prompt, provider, model };
+}
+
 export function createMockProviderCall(responseText: string): ProviderCallFn {
   return async (input: ProviderCallInput): Promise<ProviderCallResult> => {
     return {
