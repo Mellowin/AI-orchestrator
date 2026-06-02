@@ -2,12 +2,12 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `dd61cf57a3df9535ff5ca41a0682d8a3a8ef631b`
+**Last verified:** `0753dfb0be205923b5b2cd91ac886fd70c6d04c9`
 
 ## Test metrics
 
-- **Total tests:** 282
-- **Total suites:** 36
+- **Total tests:** 284
+- **Total suites:** 37
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -25,7 +25,7 @@
 | AI output validator | `test/kimi-output-validator.test.ts`, `test/ai-response-parser.test.ts` | JSON parsing, fenced blocks, schema validation, unsafe paths |
 | Reviewer output validator | `test/reviewer-output-validator.test.ts` | approve / needs_changes / reject, strict schema validation, fenced JSON parsing, secret-safe errors |
 | Runner | `test/runner.test.ts` | Exit codes, stdout/stderr, secret env cleanup, command validation |
-| CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override, pipeline-loop approve / needs_changes / reject / missing reviewer response |
+| CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override, pipeline-loop approve / needs_changes / reject / missing reviewer response, real-provider-plan dry-run safeguard |
 | Pipeline loop | `test/pipeline-loop.test.ts` | approve keeps patch, needs_changes rolls back, reject rolls back, invalid reviewer JSON rolls back |
 | Pipeline loop CLI | `test/cli-pipeline-loop.test.ts` | approve success, needs_changes failure + rollback, reject failure + rollback, missing MOCK_REVIEWER_RESPONSE |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
@@ -42,9 +42,11 @@
 ## Known limitation
 
 - **Minimal pipeline loop is exposed through CLI (`pipeline-loop <taskId>`), but only with mock inputs (`MOCK_AI_RESPONSE` + `MOCK_REVIEWER_RESPONSE`).** Full real-provider multi-attempt Coder → Reviewer → Coder retry loop is still not implemented.
+- **`real-provider-plan` exists as a dry-run safeguard, but real-provider execution is not yet implemented.** It only prints a plan without calling APIs, applying patches, or touching git.
 
 ## Next recommended work
 
-1. Start planning real-provider wiring behind explicit opt-in (never default).
-2. Keep mock mode as default for tests and local development.
-3. Keep no push, no merge, no main touch.
+1. Design explicit opt-in config/flag for real-provider execution.
+2. Add tests that default behavior refuses real-provider execution without opt-in.
+3. Keep mock mode as default for tests and local development.
+4. Keep no push, no merge, no main touch.
