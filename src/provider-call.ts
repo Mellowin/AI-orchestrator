@@ -66,6 +66,43 @@ export function normalizeProviderCallResult(result: unknown): ProviderCallResult
   return { role, text: text.trim(), provider, model };
 }
 
+export interface ProviderCallErrorInfo {
+  message: string;
+  isRetryable: boolean;
+}
+
+export function normalizeProviderCallError(error: unknown): ProviderCallErrorInfo {
+  let rawMessage: string;
+
+  if (error instanceof Error) {
+    rawMessage = error.message;
+  } else if (typeof error === 'string') {
+    rawMessage = error;
+  } else {
+    rawMessage = 'Unknown provider call error';
+  }
+
+  // Redact obvious secret-like values
+  let message = rawMessage
+    .replace(/sk-[^\s]*/g, '[REDACTED]')
+    .replace(/Bearer\s+[^\s]*/gi, 'Bearer [REDACTED]')
+    .trim();
+
+  if (message.length === 0) {
+    message = 'Unknown provider call error';
+  }
+
+  const lower = message.toLowerCase();
+  const isRetryable =
+    lower.includes('timeout') ||
+    lower.includes('rate limit') ||
+    lower.includes('temporarily unavailable') ||
+    lower.includes('econnreset') ||
+    lower.includes('etimedout');
+
+  return { message, isRetryable };
+}
+
 export function createMockProviderCall(responseText: string): ProviderCallFn {
   return async (input: ProviderCallInput): Promise<ProviderCallResult> => {
     return {
