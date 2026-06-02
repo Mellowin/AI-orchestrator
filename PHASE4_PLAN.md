@@ -1,6 +1,6 @@
 # Phase 4 Real Repo Apply Plan
 
-**Status:** planning only  
+**Status:** Stage 4.1 implemented, stages 4.2–4.4 pending  
 **Branch:** `feature/mvp-skeleton`  
 **Audited baseline:** `7ebfe43a765527dea7f92544ebc151f163fd694a`
 
@@ -33,13 +33,18 @@ All real-repo operations require explicit environment opt-ins. Defaults are deny
 
 ## 3. Proposed Stage Breakdown
 
-### Stage 4.1 — Dry-Run Command
+### Stage 4.1 — Dry-Run Command ✅
 
-- Create a CLI command (e.g., `real-repo-apply-dry-run <taskId>`).
+- **CLI command:** `real-repo-apply-dry-run <taskId>` implemented in `src/cli.ts`.
 - **No file writes.**
-- Load task, parse provider output, run guardrails.
-- Print proposed target files, line deltas, and safety check results.
-- Output must include safety messages: `No files were modified`, `No commit was made`, `No push was performed`.
+- Load task, parse provider output (`REAL_REPO_PROVIDER_RESPONSE` env), run guardrails.
+- Validate safety via `validateRealRepoApplySafety` (clean tree, non-main branch, branch match, auto_commit/push/merge all false).
+- Build summary via `buildRealRepoApplyDryRunSummary`.
+- Print proposed target files, line deltas, guardrails verdict, safety verdict, and safety messages.
+- Existing empty files correctly reported as `isNew=false` (fixed from `oldContent === ''` to `!fileExists`).
+- **Does not require `ALLOW_REAL_REPO_APPLY`.**
+- No provider call, no network, no API keys, no state writes, no git mutations.
+- Tests: `test/cli-real-repo-apply-dry-run.test.ts` (15 tests).
 
 ### Stage 4.2 — Real Repo Apply (Non-Main Work Branch Only)
 
@@ -108,7 +113,8 @@ These invariants must hold across all Stage 4.x implementations:
 
 **New building block needed:**
 
-- `validateRealRepoApplySafety(task, repoStatus)` — pure helper that validates all preconditions before any write.
+- `validateRealRepoApplySafety(task, repoStatus)` — pure helper that validates all preconditions before any write. ✅ Implemented and wired to `real-repo-apply-dry-run` CLI.
+- `buildRealRepoApplyDryRunSummary(input)` — pure helper that builds normalized dry-run summary with safety messages. ✅ Implemented and wired to `real-repo-apply-dry-run` CLI.
 
 ---
 
@@ -172,8 +178,8 @@ Properties:
 - Returns `ValidationResult` (`{ ok: boolean; reason?: string }`).
 - 100% pure: no fs, no git commands, no child_process, no env reads, no network, no API keys, no state writes.
 - Unit-tested in isolation (13 tests).
-- **Not wired to CLI.**
-- **Real repo apply remains disabled.**
+- **Wired to `real-repo-apply-dry-run` CLI.**
+- **Real repo apply remains disabled for writes.**
 
 ### 8.2 Completed — `buildRealRepoApplyDryRunSummary(input)`
 
@@ -191,25 +197,48 @@ A pure helper function that builds a normalized dry-run summary:
 Properties:
 - 100% pure: no fs, no git commands, no child_process, no env reads, no network, no API keys, no state writes.
 - Unit-tested in isolation (14 tests).
-- **Not wired to CLI.**
-- **Real repo apply remains disabled.**
+- **Wired to `real-repo-apply-dry-run` CLI.**
+- **Real repo apply remains disabled for writes.**
 
-### 8.3 Next Recommended Step — Stage 4.1 Dry-Run CLI Command
+### 8.3 Completed — `real-repo-apply-dry-run <taskId>` CLI command
 
-Add a `real-repo-apply-dry-run <taskId>` CLI command:
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`
+- **Tests:** `test/cli-real-repo-apply-dry-run.test.ts`
 
-- **Read-only command** — must not write files, commit, push, merge, or touch `main`.
-- **No provider call** — uses env-provided raw response (e.g. `REAL_REPO_PROVIDER_RESPONSE`).
-- Reuses existing pure helpers:
-  - `parseKimiOutputJson` — parse raw provider output.
-  - `validateFileList` — guardrails on file list.
-  - `validateProposedFileLineDeltas` — guardrails on line deltas.
-  - `validateRealRepoApplySafety` — print safety check results.
-  - `buildRealRepoApplyDryRunSummary` — build and print summary.
-- Prints proposed target files, line deltas, and safety verdict.
-- Output must include all safety messages from `buildRealRepoApplyDryRunSummary`.
-- **Does not require `ALLOW_REAL_REPO_APPLY`** because it writes nothing; dry-run is always safe.
-- No network, no API keys, no state writes.
+A read-only CLI command that:
+
+- Loads task from `tasks.yaml`.
+- Reads raw provider output from `REAL_REPO_PROVIDER_RESPONSE` env var.
+- Parses via `parseKimiOutputJson`.
+- Validates file list via `validateFileList`.
+- Validates line deltas via `validateProposedFileLineDeltas`.
+- Validates safety via `validateRealRepoApplySafety` (clean tree, non-main branch, branch match, auto_commit/push/merge all false).
+- Builds summary via `buildRealRepoApplyDryRunSummary`.
+- Prints task/branch/guardrails verdict/safety verdict/files/safety messages.
+- Existing empty files correctly reported as `isNew=false` (fixed from `oldContent === ''` to `!fileExists`).
+- **Does not require `ALLOW_REAL_REPO_APPLY`.**
+- No file writes, no patch apply, no state creation, no API calls, no git mutations.
+
+Properties:
+- 15 CLI tests covering success, missing env, parse failure, guardrails failure, all safety failures (dirty tree, main branch, work_branch main, branch mismatch, auto_commit/push/merge not false), no file mutation, no state write, existing empty file isNew fix.
+- **Wired to CLI.**
+- **Real repo apply remains disabled for writes.**
+
+### 8.4 Next Recommended Step — Stage 4.2 Planning / Audit
+
+**Do not start real repo apply implementation yet.**
+
+Before any real repo file write (Stage 4.2), define exact boundaries:
+
+- **Failure boundaries:** What happens on parse failure, guardrails failure, safety failure, apply failure, check failure? Where does the pipeline stop? What is the minimum rollback surface?
+- **Rollback boundaries:** Can `rollbackFileUpdates` safely restore real repo files mid-attempt? What is the backup strategy for real repo? Is `runs/{task_id}/attempt-N/files-before/` sufficient?
+- **State boundaries:** When (if ever) should `saveState` be called during real repo apply? Should state reflect `patching` before apply, or only after successful checks? What happens to state on rollback?
+- **Branch boundaries:** Confirm `prepareWorkBranch` logic for real repo (create vs resume). Confirm no checkout of `main` at any point.
+- **Opt-in boundaries:** Confirm `ALLOW_REAL_REPO_APPLY` is checked before any `applyFileUpdates` call, not after guardrails.
+- **Human-in-the-loop boundaries:** Define exactly when human review is required and when the pipeline can auto-retry (needs_changes loop is currently mock-only).
+
+Deliverable: a short audit/plan document (or update to this file) with Stage 4.2 decision record before writing any Stage 4.2 runtime code.
 
 ---
 
@@ -217,8 +246,8 @@ Add a `real-repo-apply-dry-run <taskId>` CLI command:
 
 | Check | Status |
 |-------|--------|
-| Phase 4 is planning only | Confirmed |
-| No runtime code changes | Confirmed |
-| Real repo apply remains disabled | Confirmed |
+| Phase 4 Stage 4.1 implemented | ✅ |
+| No real repo writes in Stage 4.1 | Confirmed |
+| Real repo apply (write) remains disabled | Confirmed |
 | No push / no merge / no main touch | Confirmed |
 | Opt-in flags defined | Confirmed |
