@@ -84,12 +84,12 @@ describe('validateRealRepoApplySafety', () => {
   test('rejects work_branch main', () => {
     const result = validateRealRepoApplySafety(
       safeTask('main'),
-      safeRepoStatus('main')
+      { isClean: true, currentBranch: 'ai/test-task' }
     );
     assert.strictEqual(result.ok, false);
-    assert(
-      (result as { ok: false; reason: string }).reason.includes('main')
-    );
+    const reason = (result as { ok: false; reason: string }).reason;
+    assert(reason.includes('work_branch'));
+    assert(reason.includes('main'));
   });
 
   test('rejects when current branch does not equal work_branch', () => {
