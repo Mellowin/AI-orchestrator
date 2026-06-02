@@ -135,7 +135,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -1189,6 +1189,16 @@ if (command === 'real-repo-apply-dry-run') {
     console.error('[real-repo-apply-dry-run] No merge was performed');
     process.exit(1);
   }
+}
+
+if (command === 'real-repo-apply') {
+  console.error('[real-repo-apply] real-repo-apply is not implemented yet');
+  console.error('[real-repo-apply] No files were modified');
+  console.error('[real-repo-apply] No commit was made');
+  console.error('[real-repo-apply] No push was performed');
+  console.error('[real-repo-apply] No merge was performed');
+  console.error('[real-repo-apply] Real repo apply remains disabled');
+  process.exit(1);
 }
 
 if (process.exitCode === undefined) {
