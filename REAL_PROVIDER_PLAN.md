@@ -10,6 +10,7 @@
 | `createRealProviderCall()` | Implemented for `provider: 'kimi'`. Accepts `apiKey`, `baseUrl`, injected `fetchFn`, optional `model`. Sends POST to `/chat/completions` with `Authorization: Bearer` header, parses `choices[0].message.content`, normalizes via `normalizeProviderCallResult`. Not wired to CLI or runtime execution. Tests use fake fetch only. |
 | `buildProviderCallInput` | Pure builder. Validates role/prompt/provider/model. No env reads, no network. |
 | `normalizeProviderCallResult` | Pure normalizer. Trims whitespace, preserves newlines, validates shape. |
+| `getProviderRetryDecision()` | Pure helper. Exponential backoff retry policy (attempt 1→1000ms, 2→2000ms, 3→4000ms, 4+→no retry). Non-retryable → no retry immediately. Not wired to `createRealProviderCall` or CLI yet. |
 | `normalizeProviderCallError` | Pure error normalizer. Redacts secrets, detects retryable errors, no stack leak. |
 
 ## 2. Explicit opt-in rules
@@ -52,7 +53,12 @@ Execution will open in small, reversible phases. No phase may be skipped.
 **Next hardening before CLI wiring:**
 - ✅ Validate `baseUrl` (non-empty string, starts with `http://` or `https://`, trailing slash normalization).
 - ✅ Validate `fetchFn` (callable function).
-- Document timeout/retry strategy as pure helpers if needed.
+- ✅ Implement `getProviderRetryDecision()` pure helper with exponential backoff (1000ms / 2000ms / 4000ms, max 3 retries). Not wired yet.
+
+**Next recommended phase before CLI wiring:**
+- Design safe CLI preview for real provider call behind `ALLOW_REAL_PROVIDER_RUN=true`.
+- Still no patch, no git mutation, no state change.
+- Goal: let user see raw provider response in terminal before any file updates.
 
 ### Phase 2: Parse provider output only, no patch/git
 - Feed the real response through `parseKimiOutputJson` / `parseReviewerOutputJson`.
