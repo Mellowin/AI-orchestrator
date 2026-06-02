@@ -50,8 +50,8 @@ Execution will open in small, reversible phases. No phase may be skipped.
 - Goal: prove API integration, prompt formatting, and error handling in isolation.
 
 **Next hardening before CLI wiring:**
-- Validate `baseUrl` (non-empty string, no trailing slash issues).
-- Validate `fetchFn` (callable function).
+- ✅ Validate `baseUrl` (non-empty string, starts with `http://` or `https://`, trailing slash normalization).
+- ✅ Validate `fetchFn` (callable function).
 - Document timeout/retry strategy as pure helpers if needed.
 
 ### Phase 2: Parse provider output only, no patch/git
