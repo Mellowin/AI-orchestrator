@@ -22,7 +22,7 @@ import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
 import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-plan.js';
-import { createMockProviderCall } from './provider-call.js';
+import { createMockProviderCall, buildProviderCallInput } from './provider-call.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -832,12 +832,8 @@ if (command === 'provider-preview') {
     const prompt = buildKimiPrompt(context);
 
     const mockProviderCall = createMockProviderCall(mockResponse);
-    const result = await mockProviderCall({
-      role: 'coder',
-      prompt,
-      provider: 'mock',
-      model: 'mock-model',
-    });
+    const providerInput = buildProviderCallInput('coder', prompt, 'mock', 'mock-model');
+    const result = await mockProviderCall(providerInput);
 
     console.log(`[provider-preview] Task: ${taskId}`);
     console.log(`[provider-preview] Provider: ${result.provider}`);
