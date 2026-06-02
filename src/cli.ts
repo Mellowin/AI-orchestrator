@@ -130,7 +130,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -759,6 +759,31 @@ if (command === 'pipeline-loop') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[pipeline-loop] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'real-provider-run') {
+  try {
+    const allowRealProvider = process.env.ALLOW_REAL_PROVIDER_RUN;
+
+    if (allowRealProvider !== 'true') {
+      console.error('[real-provider-run] Error: real-provider execution requires ALLOW_REAL_PROVIDER_RUN=true');
+      console.error('[real-provider-run] No API call was made');
+      console.error('[real-provider-run] No patch was applied');
+      console.error('[real-provider-run] No push / no merge / no main touch');
+      process.exit(1);
+    }
+
+    // Even with opt-in, execution is not implemented yet
+    console.error('[real-provider-run] Error: real-provider execution is not implemented yet');
+    console.error('[real-provider-run] No API call was made');
+    console.error('[real-provider-run] No patch was applied');
+    console.error('[real-provider-run] No push / no merge / no main touch');
+    process.exit(1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-provider-run] Error: ${message}`);
     process.exit(1);
   }
 }
