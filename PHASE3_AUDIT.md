@@ -2,7 +2,9 @@
 
 **Audit date:** 2026-06-02
 **Branch:** `feature/mvp-skeleton`
-**HEAD:** `a827640a2dc3afc5f93aac5f94371c190f4d4d0f`
+**Audited code baseline:** `7ebfe43a765527dea7f92544ebc151f163fd694a`
+**Audit report commit:** see the commit containing this file
+**Reason:** the report commit cannot contain its own final hash because Git commit hashes depend on file content
 **Scope:** Sandbox apply preview (Phase 3) — `src/cli.ts`, `src/sandbox-apply-flow.ts`, `src/sandbox-repo.ts`, `src/sandbox-apply.ts`, `src/runner.ts`, `src/guardrails.ts`, `src/patch-engine.ts`, plus associated tests.
 
 ---
@@ -11,14 +13,16 @@
 
 | # | Item | Value |
 |---|------|-------|
-| 1 | `git rev-parse HEAD` | `a827640a2dc3afc5f93aac5f94371c190f4d4d0f` |
-| 2 | Changed files | `PHASE3_AUDIT.md` (1 file changed, 242 insertions) |
+| 1 | `Audited code baseline` | `7ebfe43a765527dea7f92544ebc151f163fd694a` |
+| 2 | Changed files | `PHASE3_AUDIT.md` (metadata fix only) |
 | 3 | `npm run typecheck` | PASS (`tsc --noEmit`, strict, zero errors) |
 | 4 | `npm run build` | PASS (`tsc`, ES Modules, NodeNext, zero errors) |
 | 5 | `npm test` | **439 tests / 45 suites — all passing** |
 | 6 | `git status --short` | clean (empty output) |
 | 7 | CI status | **success** — [Run #144](https://github.com/Mellowin/AI-orchestrator/actions/runs/26832565257) |
 | 8 | Push confirmed | Yes — pushed to `origin feature/mvp-skeleton` |
+
+> **Note:** This audit verifies the Phase 3 code/doc state up to `7ebfe43a765527dea7f92544ebc151f163fd694a`. Later commits only update the audit report metadata unless stated otherwise.
 
 ---
 
