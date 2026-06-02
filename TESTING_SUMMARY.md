@@ -2,7 +2,7 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `be21d0e5f025713c7286d16e80a331839d5a69ba`
+**Last verified:** `853418eb92f839dd8eb8cf6c69c892a7d5c4c868`
 
 ## Test metrics
 
@@ -52,10 +52,13 @@
 - **`normalizeProviderCallError` exists as a pure error normalizer.** Accepts Error/string/unknown, trims message, detects retryable cases (timeout, rate limit, temporarily unavailable, ECONNRESET, ETIMEDOUT), redacts sk-/Bearer tokens, never leaks stack traces. No env reads, no network, no file mutation.
 - **`provider-preview <taskId>` uses only mock provider-call.** It loads task, builds context/prompt read-only, creates input via `buildProviderCallInput`, calls `createMockProviderCall(MOCK_PROVIDER_RESPONSE)`, normalizes result via `normalizeProviderCallResult`, prints output. Catch path normalizes errors via `normalizeProviderCallError` with safety messages. No real API call, no patch, no git mutation, no task state mutation.
 
+## Real provider execution plan
+
+See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls safely.
+
 ## Next recommended work
 
-1. Start designing real-provider execution plan docs.
-2. Do not wire real provider execution yet.
-3. Keep real provider call disabled behind `ALLOW_REAL_PROVIDER_RUN=true`.
-4. Keep mock mode as default for tests and local development.
-5. Keep no push, no merge, no main touch.
+1. Implement Phase 1 (real provider call only, no patch/git) only after plan is accepted.
+2. Keep real provider call disabled behind `ALLOW_REAL_PROVIDER_RUN=true`.
+3. Keep mock mode as default for tests and local development.
+4. Keep no push, no merge, no main touch.
