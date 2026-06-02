@@ -12,9 +12,10 @@
 | `buildProviderCallInput` | Pure builder. Validates role/prompt/provider/model. No env reads, no network. |
 | `normalizeProviderCallResult` | Pure normalizer. Trims whitespace, preserves newlines, validates shape. |
 | `getProviderRetryDecision()` | Pure helper. Exponential backoff retry policy (attempt 1→1000ms, 2→2000ms, 3→4000ms, 4+→no retry). Non-retryable → no retry immediately. Not wired to `createRealProviderCall` or CLI yet. |
-| `createSandboxRepoCopy()` | Pure helper. Creates isolated temp copy of source repo, excludes `.git`, `node_modules`, `runs`, `.env`, `.env.*`. No git commands, no state write. Not wired to CLI. |
-| `applyToSandboxRepo()` | Pure helper. Applies validated `FileUpdate[]` inside sandbox only, delegates to patch-engine for apply/rollback/path validation. No git mutation, no state write. Not wired to CLI. |
-| `runSandboxApplyFlow()` | Pure helper. Orchestrates parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Checks run only in sandbox path. Real repo untouched. No state write. Not wired to CLI. |
+| `createSandboxRepoCopy()` | Pure helper. Creates isolated temp copy of source repo, excludes `.git`, `node_modules`, `runs`, `.env`, `.env.*`. No git commands, no state write. Wired to `sandbox-apply-preview` CLI. |
+| `applyToSandboxRepo()` | Pure helper. Applies validated `FileUpdate[]` inside sandbox only, delegates to patch-engine for apply/rollback/path validation. No git mutation, no state write. Wired to `sandbox-apply-preview` CLI. |
+| `runSandboxApplyFlow()` | Pure helper. Orchestrates parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Checks run only in sandbox path. Real repo untouched. No state write. Wired to `sandbox-apply-preview` CLI. |
+| `sandbox-apply-preview` | Implemented behind `ALLOW_SANDBOX_APPLY_PREVIEW=true`. Requires `SANDBOX_PROVIDER_RESPONSE` + `SANDBOX_ROOT`. Uses `runSandboxApplyFlow`. No real provider call, no network, no API keys, no real repo mutation, no state write. |
 | `normalizeProviderCallError` | Pure error normalizer. Redacts secrets, detects retryable errors, no stack leak. |
 
 ## 2. Explicit opt-in rules
@@ -120,13 +121,14 @@ Command: `real-provider-preview <taskId>`
 - **Still no state mutation.** No `state.json` write.
 
 ### Phase 3: Guarded apply in temp repo / test fixture
-**Status: helpers implemented. CLI command not implemented yet.**
+**Status: helpers and CLI command implemented.**
 
 - ✅ Implement `createSandboxRepoCopy(sourceRepoPath, sandboxRoot)` — isolated temp copy with exclusions.
 - ✅ Implement `applyToSandboxRepo(sandboxRepoPath, files)` — sandbox-scoped apply with rollback via patch-engine.
-- ✅ Implement `runSandboxApplyFlow({task, rawProviderText, sandboxRoot})` — orchestrates parse → guardrails → sandbox copy → sandbox apply → checks → cleanup/rollback. Not wired to CLI.
+- ✅ Implement `runSandboxApplyFlow({task, rawProviderText, sandboxRoot})` — orchestrates parse → guardrails → sandbox copy → sandbox apply → checks → cleanup/rollback.
+- ✅ Implement `sandbox-apply-preview <taskId>` CLI command.
 
-Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemented)
+Command: `sandbox-apply-preview <taskId>`
 
 **Goal:** prove the full Coder → Patch → Checks loop in an isolated sandbox without touching the real repository.
 
@@ -142,12 +144,14 @@ Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemente
 9. Print apply/check result (success or failure with step).
 10. Rollback via returned `rollback()` on failure, or cleanup temp repo on success.
 
-**Current helper-only status:**
-- `runSandboxApplyFlow` implements steps 3–10 as a pure helper.
+**Current CLI status:**
+- `sandbox-apply-preview <taskId>` is implemented behind `ALLOW_SANDBOX_APPLY_PREVIEW=true`.
+- It requires `SANDBOX_PROVIDER_RESPONSE` (raw provider text) and `SANDBOX_ROOT` (temp directory path) env vars.
+- It does **not** call real providers (no Kimi/OpenAI API calls).
+- It delegates to `runSandboxApplyFlow`, which implements steps 3–10.
 - Checks run only in the sandbox path; the real repo path is never passed to `runChecks`.
 - The real repository remains untouched; sandbox copy is cleaned up on both success and failure.
-- No `state.json` is written by the helper.
-- No CLI command exists yet for this flow.
+- No `state.json` is written.
 
 **Strict safety boundaries:**
 - **No patch to real `task.repo_path`.** The real repository is never modified.
@@ -179,9 +183,8 @@ Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemente
 - Tests must assert no `runs/{task_id}/state.json` is written.
 
 **Explicit disclaimer:**
-- Phase 3 helpers (`createSandboxRepoCopy`, `applyToSandboxRepo`, `runSandboxApplyFlow`) are implemented but **not wired to CLI**.
-- `sandbox-apply-preview <taskId>` CLI command does **not exist**.
-- The current system still only has parse-only preview (`real-provider-preview`) at CLI level.
+- Phase 3 helpers (`createSandboxRepoCopy`, `applyToSandboxRepo`, `runSandboxApplyFlow`) are implemented and **wired to `sandbox-apply-preview` CLI**.
+- `sandbox-apply-preview <taskId>` uses env-provided provider response (`SANDBOX_PROVIDER_RESPONSE`), not a real provider call.
 - Real repo apply remains forbidden until Phase 4.
 
 ### Phase 4: Real repo apply behind opt-in
@@ -192,10 +195,11 @@ Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemente
 
 ## Next recommended work
 
-1. Implement `sandbox-apply-preview <taskId>` CLI command using `runSandboxApplyFlow`.
-2. Still no real repo apply; still no push/merge/main touch.
-3. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
-4. Keep mock mode as default for tests and local development.
+1. Polish `sandbox-apply-preview` output/error typing if needed.
+2. Prepare Phase 4 plan only after human review.
+3. Still no real repo apply; still no push/merge/main touch.
+4. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
+5. Keep mock mode as default for tests and local development.
 
 ## 5. Failure handling
 
