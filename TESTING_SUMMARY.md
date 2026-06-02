@@ -2,7 +2,7 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `49b581c3e7e44dc4925946aea3c6f526afaa71fb`
+**Last verified:** `4b8b39cc91e8edc58338499781e3a38a9d02c894`
 
 ## Test metrics
 
@@ -29,7 +29,7 @@
 | Pipeline loop | `test/pipeline-loop.test.ts` | approve keeps patch, needs_changes rolls back, reject rolls back, invalid reviewer JSON rolls back |
 | Pipeline loop CLI | `test/cli-pipeline-loop.test.ts` | approve success, needs_changes failure + rollback, reject failure + rollback, missing MOCK_REVIEWER_RESPONSE |
 | Provider call | `test/provider-call.test.ts` | Mock provider returns deterministic result, preserves role/provider/model, no network, real placeholder refusal, `buildProviderCallInput` validates role/prompt/provider/model, runtime invalid-role guard, pure function (no env/network/file mutation), `normalizeProviderCallResult` trims whitespace/preserves internal newlines, validates object/role/text/provider/model at runtime, `normalizeProviderCallError` handles Error/string/unknown input, retryable detection (timeout/rate limit/ECONNRESET/ETIMEDOUT), redacts sk-/Bearer tokens, no stack trace leak |
-| Provider preview CLI | `test/cli-provider-preview.test.ts` | Mock provider-call output preview with MOCK_PROVIDER_RESPONSE, uses `buildProviderCallInput` + `createMockProviderCall` + `normalizeProviderCallResult`, trimmed response output, internal newlines preserved, missing env error, missing task error, no file mutation |
+| Provider preview CLI | `test/cli-provider-preview.test.ts` | Mock provider-call output preview with MOCK_PROVIDER_RESPONSE, uses `buildProviderCallInput` + `createMockProviderCall` + `normalizeProviderCallResult`, `normalizeProviderCallError` in failure path, trimmed response output, internal newlines preserved, no stack trace leak, safety messages on failure, missing env error, missing task error, no file mutation |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
@@ -50,14 +50,13 @@
 - **`buildProviderCallInput` exists as a pure builder.** Validates role (`coder|reviewer`), prompt, provider, model. No env reads, no network, no file mutation.
 - **`normalizeProviderCallResult` exists as a pure normalizer.** Trims leading/trailing whitespace, preserves internal newlines, validates object/role/text/provider/model at runtime. No env reads, no network, no file mutation.
 - **`normalizeProviderCallError` exists as a pure error normalizer.** Accepts Error/string/unknown, trims message, detects retryable cases (timeout, rate limit, temporarily unavailable, ECONNRESET, ETIMEDOUT), redacts sk-/Bearer tokens, never leaks stack traces. No env reads, no network, no file mutation.
-- **`provider-preview <taskId>` uses only mock provider-call.** It loads task, builds context/prompt read-only, creates input via `buildProviderCallInput`, calls `createMockProviderCall(MOCK_PROVIDER_RESPONSE)`, normalizes result via `normalizeProviderCallResult`, prints output. No real API call, no patch, no git mutation, no task state mutation.
+- **`provider-preview <taskId>` uses only mock provider-call.** It loads task, builds context/prompt read-only, creates input via `buildProviderCallInput`, calls `createMockProviderCall(MOCK_PROVIDER_RESPONSE)`, normalizes result via `normalizeProviderCallResult`, prints output. Catch path normalizes errors via `normalizeProviderCallError` with safety messages. No real API call, no patch, no git mutation, no task state mutation.
 
 ## Next recommended work
 
-1. Wire `normalizeProviderCallError` into `provider-preview` error handling for safe local mock/provider errors.
-2. Keep `provider-preview` mock-only.
-3. Add tests for safe error output.
-4. Do not wire real provider execution yet.
-5. Keep real provider call disabled behind `ALLOW_REAL_PROVIDER_RUN=true`.
-6. Keep mock mode as default for tests and local development.
-7. Keep no push, no merge, no main touch.
+1. Add a tiny mock-only provider-preview role flag (coder|reviewer) if it does not broaden scope.
+2. Or start designing real-provider execution plan docs.
+3. Do not wire real provider execution yet.
+4. Keep real provider call disabled behind `ALLOW_REAL_PROVIDER_RUN=true`.
+5. Keep mock mode as default for tests and local development.
+6. Keep no push, no merge, no main touch.
