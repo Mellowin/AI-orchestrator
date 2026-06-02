@@ -2,11 +2,11 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `cd85ac237c7f0535dad39a8b21699a464b3ce449`
+**Last verified:** `465ef7c1a476ee86fda5a636e3df09f7d6cb15c5`
 
 ## Test metrics
 
-- **Total tests:** 295
+- **Total tests:** 302
 - **Total suites:** 40
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
@@ -28,7 +28,7 @@
 | CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override, pipeline-loop approve / needs_changes / reject / missing reviewer response, real-provider-plan dry-run safeguard, real-provider-run refusal with task validation after opt-in, provider-preview mock-only output preview |
 | Pipeline loop | `test/pipeline-loop.test.ts` | approve keeps patch, needs_changes rolls back, reject rolls back, invalid reviewer JSON rolls back |
 | Pipeline loop CLI | `test/cli-pipeline-loop.test.ts` | approve success, needs_changes failure + rollback, reject failure + rollback, missing MOCK_REVIEWER_RESPONSE |
-| Provider call | `test/provider-call.test.ts` | Mock provider returns deterministic result, preserves role/provider/model, no network, real placeholder refusal |
+| Provider call | `test/provider-call.test.ts` | Mock provider returns deterministic result, preserves role/provider/model, no network, real placeholder refusal, `buildProviderCallInput` validates role/prompt/provider/model, runtime invalid-role guard, pure function (no env/network/file mutation) |
 | Provider preview CLI | `test/cli-provider-preview.test.ts` | Mock provider-call output preview with MOCK_PROVIDER_RESPONSE, missing env error, missing task error, no file mutation |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
@@ -47,13 +47,15 @@
 - **`real-provider-plan` exists as a dry-run safeguard, but real-provider execution is not yet implemented.** It only prints a plan without calling APIs, applying patches, or touching git.
 - **`real-provider-run` exists as a safe refusal stub.** Without `ALLOW_REAL_PROVIDER_RUN=true` it refuses; even with opt-in it still refuses because execution is not implemented. No API call, no patch, no push, no merge, no main touch.
 - **Provider-call abstraction exists (`src/provider-call.ts`), but real provider call is not implemented.** `createRealProviderCall()` throws `real provider call is not implemented yet`. Mock provider is deterministic and never touches network or API keys.
+- **`buildProviderCallInput` exists as a pure builder.** Validates role (`coder|reviewer`), prompt, provider, model. No env reads, no network, no file mutation.
 - **`provider-preview <taskId>` uses only mock provider-call.** It loads task, builds context/prompt read-only, calls `createMockProviderCall(MOCK_PROVIDER_RESPONSE)`, prints output. No real API call, no patch, no git mutation, no task state mutation.
 
 ## Next recommended work
 
-1. Add a provider-call input builder function that creates `ProviderCallInput` from task/context.
-2. Keep it pure and non-mutating.
-3. Test it before wiring any real provider execution.
-4. Keep real provider call disabled behind `ALLOW_REAL_PROVIDER_RUN=true`.
-5. Keep mock mode as default for tests and local development.
-6. Keep no push, no merge, no main touch.
+1. Wire `buildProviderCallInput` into `provider-preview` to replace manual input object construction.
+2. Keep `provider-preview` mock-only.
+3. Add tests that `provider-preview` uses the builder output.
+4. Do not wire real provider execution yet.
+5. Keep real provider call disabled behind `ALLOW_REAL_PROVIDER_RUN=true`.
+6. Keep mock mode as default for tests and local development.
+7. Keep no push, no merge, no main touch.
