@@ -6,6 +6,7 @@ import {
   buildProviderCallInput,
   normalizeProviderCallResult,
   normalizeProviderCallError,
+  getProviderRetryDecision,
 } from '../src/provider-call.js';
 import type { ProviderCallInput, FetchFn } from '../src/provider-call.js';
 
@@ -378,6 +379,57 @@ describe('provider-call', () => {
 
     assert.strictEqual(result.text, 'ok');
     // No filesystem side effects to verify; function only calls injected fetchFn
+  });
+
+  test('getProviderRetryDecision non-retryable returns no retry and 0 delay', () => {
+    const decision = getProviderRetryDecision({ message: 'validation error', isRetryable: false }, 1);
+    assert.strictEqual(decision.shouldRetry, false);
+    assert.strictEqual(decision.delayMs, 0);
+  });
+
+  test('getProviderRetryDecision attempt < 1 throws', () => {
+    assert.throws(
+      () => getProviderRetryDecision({ message: 'timeout', isRetryable: true }, 0),
+      /attempt must be >= 1/
+    );
+  });
+
+  test('getProviderRetryDecision retryable attempt 1 returns 1000', () => {
+    const decision = getProviderRetryDecision({ message: 'timeout', isRetryable: true }, 1);
+    assert.strictEqual(decision.shouldRetry, true);
+    assert.strictEqual(decision.delayMs, 1000);
+  });
+
+  test('getProviderRetryDecision retryable attempt 2 returns 2000', () => {
+    const decision = getProviderRetryDecision({ message: 'timeout', isRetryable: true }, 2);
+    assert.strictEqual(decision.shouldRetry, true);
+    assert.strictEqual(decision.delayMs, 2000);
+  });
+
+  test('getProviderRetryDecision retryable attempt 3 returns 4000', () => {
+    const decision = getProviderRetryDecision({ message: 'timeout', isRetryable: true }, 3);
+    assert.strictEqual(decision.shouldRetry, true);
+    assert.strictEqual(decision.delayMs, 4000);
+  });
+
+  test('getProviderRetryDecision retryable attempt 4 returns no retry and 0 delay', () => {
+    const decision = getProviderRetryDecision({ message: 'timeout', isRetryable: true }, 4);
+    assert.strictEqual(decision.shouldRetry, false);
+    assert.strictEqual(decision.delayMs, 0);
+  });
+
+  test('getProviderRetryDecision retryable attempt 10 returns no retry and 0 delay', () => {
+    const decision = getProviderRetryDecision({ message: 'timeout', isRetryable: true }, 10);
+    assert.strictEqual(decision.shouldRetry, false);
+    assert.strictEqual(decision.delayMs, 0);
+  });
+
+  test('getProviderRetryDecision is pure and deterministic', () => {
+    const errorInfo = { message: 'timeout', isRetryable: true };
+    const a = getProviderRetryDecision(errorInfo, 2);
+    const b = getProviderRetryDecision(errorInfo, 2);
+    assert.deepStrictEqual(a, b);
+    assert.strictEqual(a.delayMs, 2000);
   });
 
   test('createRealProviderCall empty baseUrl throws', () => {

@@ -103,6 +103,28 @@ export function normalizeProviderCallError(error: unknown): ProviderCallErrorInf
   return { message, isRetryable };
 }
 
+export interface ProviderRetryDecision {
+  shouldRetry: boolean;
+  delayMs: number;
+}
+
+export function getProviderRetryDecision(
+  errorInfo: ProviderCallErrorInfo,
+  attempt: number
+): ProviderRetryDecision {
+  if (attempt < 1) {
+    throw new Error('attempt must be >= 1');
+  }
+  if (!errorInfo.isRetryable) {
+    return { shouldRetry: false, delayMs: 0 };
+  }
+  if (attempt >= 4) {
+    return { shouldRetry: false, delayMs: 0 };
+  }
+  const delayMs = 1000 * Math.pow(2, attempt - 1);
+  return { shouldRetry: true, delayMs };
+}
+
 export function createMockProviderCall(responseText: string): ProviderCallFn {
   return async (input: ProviderCallInput): Promise<ProviderCallResult> => {
     return {
