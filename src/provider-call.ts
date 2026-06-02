@@ -37,6 +37,35 @@ export function buildProviderCallInput(
   return { role, prompt, provider, model };
 }
 
+export function normalizeProviderCallResult(result: unknown): ProviderCallResult {
+  if (typeof result !== 'object' || result === null) {
+    throw new Error('Invalid result: expected object');
+  }
+  const r = result as Record<string, unknown>;
+
+  const role = r.role;
+  if (role !== 'coder' && role !== 'reviewer') {
+    throw new Error('Invalid result.role: expected coder or reviewer');
+  }
+
+  const text = r.text;
+  if (typeof text !== 'string') {
+    throw new Error('Invalid result.text: expected string');
+  }
+
+  const provider = r.provider;
+  if (typeof provider !== 'string' || provider.length === 0) {
+    throw new Error('Invalid result.provider: expected non-empty string');
+  }
+
+  const model = r.model;
+  if (typeof model !== 'string' || model.length === 0) {
+    throw new Error('Invalid result.model: expected non-empty string');
+  }
+
+  return { role, text: text.trim(), provider, model };
+}
+
 export function createMockProviderCall(responseText: string): ProviderCallFn {
   return async (input: ProviderCallInput): Promise<ProviderCallResult> => {
     return {

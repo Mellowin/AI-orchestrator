@@ -4,6 +4,7 @@ import {
   createMockProviderCall,
   createRealProviderCall,
   buildProviderCallInput,
+  normalizeProviderCallResult,
 } from '../src/provider-call.js';
 import type { ProviderCallInput } from '../src/provider-call.js';
 
@@ -111,5 +112,108 @@ describe('provider-call', () => {
     const input1 = buildProviderCallInput('coder', 'prompt', 'prov', 'mod');
     const input2 = buildProviderCallInput('coder', 'prompt', 'prov', 'mod');
     assert.deepStrictEqual(input1, input2);
+  });
+
+  test('normalizeProviderCallResult trims leading and trailing whitespace', () => {
+    const result = normalizeProviderCallResult({
+      role: 'coder',
+      text: '  hello world  ',
+      provider: 'mock',
+      model: 'mock-model',
+    });
+    assert.strictEqual(result.text, 'hello world');
+  });
+
+  test('normalizeProviderCallResult preserves internal newlines', () => {
+    const result = normalizeProviderCallResult({
+      role: 'coder',
+      text: '\nline1\nline2\n',
+      provider: 'mock',
+      model: 'mock-model',
+    });
+    assert.strictEqual(result.text, 'line1\nline2');
+  });
+
+  test('normalizeProviderCallResult preserves role, provider, and model', () => {
+    const result = normalizeProviderCallResult({
+      role: 'reviewer',
+      text: 'looks good',
+      provider: 'openai',
+      model: 'gpt-4o',
+    });
+    assert.strictEqual(result.role, 'reviewer');
+    assert.strictEqual(result.provider, 'openai');
+    assert.strictEqual(result.model, 'gpt-4o');
+  });
+
+  test('normalizeProviderCallResult rejects non-object input', () => {
+    assert.throws(
+      () => normalizeProviderCallResult(null),
+      /Invalid result: expected object/
+    );
+    assert.throws(
+      () => normalizeProviderCallResult('string'),
+      /Invalid result: expected object/
+    );
+  });
+
+  test('normalizeProviderCallResult rejects invalid role', () => {
+    assert.throws(
+      () =>
+        normalizeProviderCallResult({
+          role: 'admin',
+          text: 'test',
+          provider: 'mock',
+          model: 'mock-model',
+        }),
+      /Invalid result.role: expected coder or reviewer/
+    );
+  });
+
+  test('normalizeProviderCallResult rejects non-string text', () => {
+    assert.throws(
+      () =>
+        normalizeProviderCallResult({
+          role: 'coder',
+          text: 123,
+          provider: 'mock',
+          model: 'mock-model',
+        } as unknown as Record<string, unknown>),
+      /Invalid result.text: expected string/
+    );
+  });
+
+  test('normalizeProviderCallResult rejects empty provider', () => {
+    assert.throws(
+      () =>
+        normalizeProviderCallResult({
+          role: 'coder',
+          text: 'test',
+          provider: '',
+          model: 'mock-model',
+        }),
+      /Invalid result.provider: expected non-empty string/
+    );
+  });
+
+  test('normalizeProviderCallResult rejects empty model', () => {
+    assert.throws(
+      () =>
+        normalizeProviderCallResult({
+          role: 'coder',
+          text: 'test',
+          provider: 'mock',
+          model: '',
+        }),
+      /Invalid result.model: expected non-empty string/
+    );
+  });
+
+  test('normalizeProviderCallResult is pure and deterministic', () => {
+    const raw = { role: 'coder', text: '  text  ', provider: 'mock', model: 'mod' };
+    const r1 = normalizeProviderCallResult(raw);
+    const r2 = normalizeProviderCallResult(raw);
+    assert.deepStrictEqual(r1, r2);
+    assert.strictEqual(r1.text, 'text');
   });
 });
