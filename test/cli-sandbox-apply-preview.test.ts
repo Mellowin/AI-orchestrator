@@ -468,4 +468,85 @@ describe('cli sandbox-apply-preview', () => {
       cleanup();
     }
   });
+
+  test('fails safely when SANDBOX_ROOT is inside real repo', () => {
+    const id = `${Date.now()}-${counter++}`;
+    const taskId = `sap-nested-${id}`;
+    const tmpBase = join(process.cwd(), 'tmp');
+    if (!existsSync(tmpBase)) {
+      mkdirSync(tmpBase);
+    }
+    const tmpDir = mkdtempSync(join(tmpBase, `sap-nested-${id}-`));
+    const repoPath = join(tmpDir, 'repo');
+    mkdirSync(repoPath);
+
+    writeFileSync(join(repoPath, 'README.md'), '# hello\n', 'utf-8');
+
+    spawnSync('git', ['init'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['add', '.'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['branch', '-m', 'main'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    // sandboxRoot is INSIDE the repo
+    const nestedSandboxRoot = join(repoPath, 'nested-sandbox');
+    mkdirSync(nestedSandboxRoot);
+
+    const tasksFilePath = join(tmpDir, 'tasks.yaml');
+    writeFileSync(
+      tasksFilePath,
+      `tasks:
+  - id: ${taskId}
+    title: "Sandbox apply preview test"
+    repo_path: "${repoPath.replace(/\\/g, '/')}"
+    base_branch: "main"
+    work_branch: "ai/${taskId}"
+    goal: "Test goal"
+    context_files:
+      - "README.md"
+    checks:
+      - command: "node"
+        args: ["-e", "process.exit(0)"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`,
+      'utf-8'
+    );
+
+    try {
+      const result = runCli(
+        ['sandbox-apply-preview', taskId],
+        {
+          TASKS_FILE: tasksFilePath,
+          ALLOW_SANDBOX_APPLY_PREVIEW: 'true',
+          SANDBOX_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]),
+          SANDBOX_ROOT: nestedSandboxRoot,
+        }
+      );
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(
+        result.stderr.includes('sandboxRoot') || result.stderr.includes('source repo'),
+        `stderr should mention sandboxRoot/source repo safety: ${result.stderr}`
+      );
+      assert(
+        result.stderr.includes('No patch was applied to real repo'),
+        'should include safety message'
+      );
+      assert(!result.stderr.includes('at '), 'should not leak stack trace');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

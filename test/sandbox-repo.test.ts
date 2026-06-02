@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   writeFileSync,
   readFileSync,
@@ -334,6 +335,58 @@ describe('createSandboxRepoCopy', () => {
       } finally {
         sandboxCleanup();
       }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('throws when sandboxRoot equals sourceRepoPath', () => {
+    const { sourceRepo, cleanup } = createTempDirs();
+    try {
+      assert.throws(
+        () => createSandboxRepoCopy(sourceRepo, sourceRepo),
+        /sandboxRoot must not be inside the source repo/
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('throws when sandboxRoot is nested inside sourceRepoPath', () => {
+    const { sourceRepo, cleanup } = createTempDirs();
+    try {
+      const nestedSandboxRoot = join(sourceRepo, 'nested-sandbox');
+      mkdirSync(nestedSandboxRoot);
+      assert.throws(
+        () => createSandboxRepoCopy(sourceRepo, nestedSandboxRoot),
+        /sandboxRoot must not be inside the source repo/
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('when sandboxRoot is inside source repo, no sandbox directory is created', () => {
+    const { sourceRepo, cleanup } = createTempDirs();
+    try {
+      const nestedSandboxRoot = join(sourceRepo, 'nested-sandbox');
+      mkdirSync(nestedSandboxRoot);
+      const entriesBefore = existsSync(nestedSandboxRoot)
+        ? readdirSync(nestedSandboxRoot)
+        : [];
+      try {
+        createSandboxRepoCopy(sourceRepo, nestedSandboxRoot);
+      } catch {
+        // expected
+      }
+      const entriesAfter = existsSync(nestedSandboxRoot)
+        ? readdirSync(nestedSandboxRoot)
+        : [];
+      assert.strictEqual(
+        entriesAfter.length,
+        entriesBefore.length,
+        'no sandbox directory should be created inside source repo'
+      );
     } finally {
       cleanup();
     }

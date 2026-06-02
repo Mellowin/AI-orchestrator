@@ -7,7 +7,7 @@ import {
   copyFileSync,
   rmSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 const EXCLUDED_NAMES = new Set(['.git', 'node_modules', 'runs', '.env']);
 
@@ -63,6 +63,24 @@ export function createSandboxRepoCopy(
 
   if (!existsSync(sandboxRoot)) {
     throw new Error(`Sandbox root does not exist: ${sandboxRoot}`);
+  }
+
+  const resolvedSource = resolve(sourceRepoPath);
+  const resolvedSandboxRoot = resolve(sandboxRoot);
+
+  if (resolvedSandboxRoot === resolvedSource) {
+    throw new Error(
+      `sandboxRoot must not be inside the source repo: ${sandboxRoot}`
+    );
+  }
+
+  if (
+    resolvedSandboxRoot === resolvedSource + sep ||
+    resolvedSandboxRoot.startsWith(resolvedSource + sep)
+  ) {
+    throw new Error(
+      `sandboxRoot must not be inside the source repo: ${sandboxRoot}`
+    );
   }
 
   const sandboxRepoPath = mkdtempSync(join(sandboxRoot, 'sandbox-'));
