@@ -149,11 +149,13 @@ The following are **out of scope** for this planning document and for the immedi
 
 ---
 
-## 8. Recommended First Implementation Task
+## 8. Implementation Progress
 
-After this plan is accepted, the first implementation task should be:
+### 8.1 Completed — `validateRealRepoApplySafety(task, repoStatus)`
 
-> **Add `validateRealRepoApplySafety(task, repoStatus)`**
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/real-repo-apply-safety.ts`
+- **Tests:** `test/real-repo-apply-safety.test.ts`
 
 A pure helper function that checks:
 
@@ -161,16 +163,29 @@ A pure helper function that checks:
 - Current branch is not `main` (`repoStatus.currentBranch !== 'main'`).
 - `task.work_branch` exists and is not empty.
 - `task.work_branch` is not `main`.
+- Current branch equals `work_branch`.
 - `task.guardrails.auto_commit === false`.
 - `task.guardrails.auto_push === false`.
 - `task.guardrails.auto_merge === false`.
 
-This helper must:
-- Return `ValidationResult` (`{ ok: boolean; reason?: string }`).
-- Be 100% pure (no file mutation, no network, no API keys).
-- Be unit-testable in isolation.
+Properties:
+- Returns `ValidationResult` (`{ ok: boolean; reason?: string }`).
+- 100% pure: no fs, no git commands, no child_process, no env reads, no network, no API keys, no state writes.
+- Unit-tested in isolation (13 tests).
+- **Not wired to CLI.**
+- **Real repo apply remains disabled.**
 
-> **This helper is documented here but must not be implemented in this planning commit.**
+### 8.2 Next Recommended Step — Stage 4.1 Dry-Run Command
+
+Plan and add tests for a `real-repo-apply-dry-run <taskId>` CLI command:
+
+- **No file writes.**
+- **No provider call.** Uses env-provided raw response (e.g. `REAL_REPO_PROVIDER_RESPONSE`).
+- Reuses `parseKimiOutputJson`, `validateFileList`, `validateProposedFileLineDeltas`.
+- Uses `validateRealRepoApplySafety` to print safety check results.
+- Prints proposed target files, line deltas, and safety verdict.
+- Output must include safety messages: `No files were modified`, `No commit was made`, `No push was performed`.
+- Behind `ALLOW_REAL_REPO_APPLY` is **not required** for dry-run; dry-run is always safe because it does not write.
 
 ---
 
