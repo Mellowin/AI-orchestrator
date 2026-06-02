@@ -55,10 +55,49 @@ Execution will open in small, reversible phases. No phase may be skipped.
 - ✅ Validate `fetchFn` (callable function).
 - ✅ Implement `getProviderRetryDecision()` pure helper with exponential backoff (1000ms / 2000ms / 4000ms, max 3 retries). Not wired yet.
 
-**Next recommended phase before CLI wiring:**
-- Design safe CLI preview for real provider call behind `ALLOW_REAL_PROVIDER_RUN=true`.
-- Still no patch, no git mutation, no state change.
-- Goal: let user see raw provider response in terminal before any file updates.
+### Phase 1 CLI preview contract
+**Status: documented. Implementation not yet started.**
+
+Command: `real-provider-preview <taskId>`
+
+**Required opt-in:**
+- `ALLOW_REAL_PROVIDER_RUN=true` must be set. Without it, the command refuses immediately — before loading task or calling any API.
+
+**Required env/config inputs:**
+- `KIMI_API_KEY` — non-empty string.
+- `KIMI_BASE_URL` — non-empty string starting with `http://` or `https://`.
+- `KIMI_MODEL` — optional. Falls back to task default or a safe default.
+
+**Behavior (read-only, no mutation):**
+1. Load task from `tasks.yaml`.
+2. Build context and prompt read-only (same as `provider-preview`).
+3. Build `ProviderCallInput` via `buildProviderCallInput`.
+4. Create real provider call via `createRealProviderCall` with `apiKey`, `baseUrl`, `fetchFn: globalThis.fetch`.
+5. Call provider, normalize result via `normalizeProviderCallResult`.
+6. Print raw normalized provider text to stdout.
+7. Print safety messages: no patch applied, no git mutation, no state change.
+
+**Strict non-mutation guarantees:**
+- No patch engine invocation.
+- No git mutation (no branch create, no commit, no push, no merge).
+- No state mutation (no `state.json` write).
+- No `main` branch touch.
+
+**Failure behavior:**
+- No opt-in → refuse before loading task / before API call.
+- Missing `KIMI_API_KEY` or `KIMI_BASE_URL` → fail before API call.
+- Provider errors (non-OK HTTP, malformed response, network error) → catch, normalize via `normalizeProviderCallError`, print safe error message without apiKey leak.
+- No stack traces in `stderr`.
+- Every failure path prints safety messages.
+
+**Testing rules:**
+- CLI tests must use injectable fake fetch or mock provider — no real network.
+- CI must not call real network.
+- No real API keys in tests.
+
+**Explicit disclaimer:**
+- This contract is documentation only. The `real-provider-preview` command does not exist in `src/cli.ts` yet.
+- Real Kimi API has not been called by tests or CI.
 
 ### Phase 2: Parse provider output only, no patch/git
 - Feed the real response through `parseKimiOutputJson` / `parseReviewerOutputJson`.

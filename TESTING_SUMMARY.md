@@ -2,7 +2,7 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `a96493dec55bcb7033a8c53b003099627655a5c5`
+**Last verified:** `789d65678c09adec8486af22548b8898f52b3ed7`
 
 ## Test metrics
 
@@ -52,6 +52,7 @@
 - **`normalizeProviderCallResult` exists as a pure normalizer.** Trims leading/trailing whitespace, preserves internal newlines, validates object/role/text/provider/model at runtime. No env reads, no network, no file mutation.
 - **`normalizeProviderCallError` exists as a pure error normalizer.** Accepts Error/string/unknown, trims message, detects retryable cases (timeout, rate limit, temporarily unavailable, ECONNRESET, ETIMEDOUT), redacts sk-/Bearer tokens, never leaks stack traces. No env reads, no network, no file mutation.
 - **`provider-preview <taskId>` uses only mock provider-call.** It loads task, builds context/prompt read-only, creates input via `buildProviderCallInput`, calls `createMockProviderCall(MOCK_PROVIDER_RESPONSE)`, normalizes result via `normalizeProviderCallResult`, prints output. Catch path normalizes errors via `normalizeProviderCallError` with safety messages. No real API call, no patch, no git mutation, no task state mutation.
+- **`real-provider-preview <taskId>` CLI contract exists as docs only.** Documented in `REAL_PROVIDER_PLAN.md`. Requires `ALLOW_REAL_PROVIDER_RUN=true`, `KIMI_API_KEY`, `KIMI_BASE_URL`. Read-only preview of real provider response. No patch, no git mutation, no state mutation. Implementation not yet started.
 
 ## Real provider execution plan
 
@@ -59,7 +60,7 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 
 ## Next recommended work
 
-1. Design safe CLI preview for real provider call behind `ALLOW_REAL_PROVIDER_RUN=true` — still no patch/git.
-2. Keep `createRealProviderCall` and `getProviderRetryDecision` not wired to CLI yet.
+1. Implement `real-provider-preview` with injectable fake fetch/test seam — still no patch/git.
+2. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
 3. Keep mock mode as default for tests and local development.
 4. Keep no push, no merge, no main touch.
