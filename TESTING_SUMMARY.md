@@ -2,12 +2,12 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `a7a2742c27d7d0073025ec037dcf5b66ca2273d8`
+**Last verified:** `8cde57d48605243fc78f9d9d0891d0aa19ea7a37`
 
 ## Test metrics
 
-- **Total tests:** 481
-- **Total suites:** 48
+- **Total tests:** 520
+- **Total suites:** 50
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -38,6 +38,8 @@
 | Real repo apply safety | `test/real-repo-apply-safety.test.ts` | `validateRealRepoApplySafety` pure helper: rejects dirty working tree, missing/empty current branch, current branch `main`, missing/empty `work_branch`, `work_branch === main`, current branch != work_branch, auto_commit/auto_push/auto_merge true. Confirms no input mutation. No fs/git/child_process/env/network/API keys/state writes. Wired to `real-repo-apply-dry-run` CLI. |
 | Real repo dry-run builder | `test/real-repo-apply-dry-run.test.ts` | `buildRealRepoApplyDryRunSummary` pure helper: trims taskId/currentBranch/workBranch/file paths, preserves file order, rejects empty taskId/currentBranch/workBranch/file path, rejects duplicate file paths after trimming, rejects non-finite lineDelta (NaN, Infinity). Includes safety messages: `No files were modified`, `No commit was made`, `No push was performed`, `No merge was performed`, `Real repo apply is dry-run only`. Confirms no input mutation. No fs/git/child_process/env/network/API keys/state writes. Wired to `real-repo-apply-dry-run` CLI. |
 | Real repo apply dry-run CLI | `test/cli-real-repo-apply-dry-run.test.ts` | `real-repo-apply-dry-run <taskId>` read-only CLI command. Reads `REAL_REPO_PROVIDER_RESPONSE` env var. Parses via `parseKimiOutputJson`, validates file list via `validateFileList`, validates line deltas via `validateProposedFileLineDeltas`, validates repo safety via `validateRealRepoApplySafety`, builds summary via `buildRealRepoApplyDryRunSummary`. Prints task/branch/guardrails verdict/safety verdict/files/safety messages. Existing empty files reported as `isNew=false`. Does NOT require `ALLOW_REAL_REPO_APPLY`. No provider call, no network, no API keys, no file writes, no patch apply, no state write, no push/merge/checkout/main touch. 15 CLI tests covering success, all safety/guardrails failures, missing env, parse failure, no file mutation, no state write, existing empty file isNew fix. |
+| Real repo apply refusal stub CLI | `test/cli-real-repo-apply.test.ts` | `real-repo-apply <taskId>` safe refusal stub. Always exits non-zero with clear refusal message (`real-repo-apply is not implemented yet`). Prints safety messages. Does NOT require `ALLOW_REAL_REPO_APPLY`. No real repo writes, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch. 14 CLI tests covering refusal, missing taskId, no opt-in required, no provider response required, no file mutation, no state write, no commit/push/merge/checkout, no stack trace leak, no API key leak. |
+| Real repo apply plan builder | `test/real-repo-apply-plan.test.ts` | `buildRealRepoApplyPlan` pure helper: builds create/overwrite plan from `existingPaths` and proposed files. Builds `runDir` (`runs/{taskId}/attempt-{attempt}`) and `backupPath` (`runs/{taskId}/attempt-{attempt}/files-before/{path}`). Validates taskId, attempt (positive integer), file paths, duplicate paths, content type, existingPaths. Rejects Unix absolute paths (`/etc/passwd`), Windows absolute paths (`C:/temp/file.ts`), path traversal (`..`), backslash paths. Allows empty string content. Returns `{ok:false,reason,safetyMessages}` without throwing. No fs/git/child_process/env/network/API keys/state writes. Not wired to CLI. 25 unit tests. |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
 ## Safety guarantees
@@ -64,6 +66,8 @@
 - **`validateRealRepoApplySafety(task, repoStatus)` is implemented as a pure helper.** Validates all preconditions before any real-repo write: clean working tree, non-main current branch, valid `work_branch`, matching current branch and work_branch, `auto_commit`/`auto_push`/`auto_merge` all `false`. Returns `ValidationResult`. No fs/git/child_process/env/network/API keys/state writes. Unit-tested in isolation. Wired to `real-repo-apply-dry-run` CLI. Real repo apply remains disabled for writes.
 - **`buildRealRepoApplyDryRunSummary(input)` is implemented as a pure helper.** Builds normalized dry-run summary with safety messages. Trims strings, preserves file order, validates inputs (no empty strings, no duplicate paths after trim, finite lineDelta). No fs/git/child_process/env/network/API keys/state writes. Unit-tested in isolation. Wired to `real-repo-apply-dry-run` CLI. Real repo apply remains disabled for writes.
 - **`real-repo-apply-dry-run <taskId>` CLI command is implemented.** Read-only dry-run preview. Does NOT require `ALLOW_REAL_REPO_APPLY`. Reads `REAL_REPO_PROVIDER_RESPONSE` env var. Uses `parseKimiOutputJson` → `validateFileList` → `validateProposedFileLineDeltas` → `validateRealRepoApplySafety` → `buildRealRepoApplyDryRunSummary`. Prints summary with safety messages. Existing empty files correctly reported as `isNew=false` (fixed from `oldContent === ''` to `!fileExists`). No file writes, no patch apply, no state creation, no API calls, no git mutations. 15 CLI tests. |
+- **`real-repo-apply <taskId>` CLI refusal stub is implemented.** Always exits non-zero with safe refusal message (`real-repo-apply is not implemented yet`) and safety messages (`No files were modified`, `No commit was made`, `No push was performed`, `No merge was performed`, `Real repo apply remains disabled`). Does NOT require `ALLOW_REAL_REPO_APPLY`. No real repo writes, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch. 14 CLI tests. Real repo write behavior still disabled.
+- **`buildRealRepoApplyPlan(input)` pure helper is implemented.** Builds create/overwrite plan from `existingPaths` and proposed files. Builds `runDir` and `backupPath` strings. Validates taskId, attempt, paths, duplicates, content type, existingPaths. Rejects Unix absolute, Windows absolute (`C:/...`), traversal (`..`), backslash paths. Allows empty string content. Returns `{ok:false,reason,safetyMessages}` without throwing. No fs/git/child_process/env/network/API keys/state writes. Not wired to CLI. 25 unit tests. |
 - **`applyToSandboxRepo` exists as a pure helper.** Applies validated `FileUpdate[]` inside sandbox only, delegates to patch-engine for apply/rollback/path validation. Used indirectly by `sandbox-apply-preview` via `runSandboxApplyFlow`.
 - **`runSandboxApplyFlow` exists as a pure helper.** Orchestrates the full sandbox pipeline: parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Runs checks only in sandbox path. Real repo remains untouched. No state write. Wired to `sandbox-apply-preview` CLI.
 - **`sandbox-apply-preview <taskId>` CLI command is implemented.** Behind `ALLOW_SANDBOX_APPLY_PREVIEW=true`. Requires `SANDBOX_PROVIDER_RESPONSE` and `SANDBOX_ROOT`. Uses `runSandboxApplyFlow`. No real provider call, no network, no API keys, no real repo mutation, no state write, no push/merge/main touch. CLI fails safely when `SANDBOX_ROOT` is inside the real repo.
@@ -75,7 +79,9 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 ## Next recommended work
 
 1. Stage 4.1 read-only dry-run CLI is complete and documented.
-2. Next: Stage 4.2 planning/audit before any real repo apply implementation.
-3. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
-4. Keep mock mode as default for tests and local development.
-5. Keep no push, no merge, no main touch.
+2. `real-repo-apply <taskId>` safe refusal stub is implemented and tested.
+3. `buildRealRepoApplyPlan` pure helper is implemented and tested.
+4. Next: Stage 4.2 pre-write refusal tests / opt-in tests before real file write implementation.
+5. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
+6. Keep mock mode as default for tests and local development.
+7. Keep no push, no merge, no main touch.

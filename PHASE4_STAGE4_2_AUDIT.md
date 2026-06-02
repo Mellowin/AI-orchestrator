@@ -2,7 +2,7 @@
 
 **Status:** planning/audit only  
 **Branch:** `feature/mvp-skeleton`  
-**Baseline commit:** `75ccb954ab22acedbe339ed909336a3712760cb2`
+**Baseline commit:** `8cde57d48605243fc78f9d9d0891d0aa19ea7a37`
 
 ---
 
@@ -23,6 +23,30 @@ This document is planning/audit only. No real repo write behavior is enabled by 
   - No file writes, no provider call, no state write, no push, no merge, no checkout.
   - `validateRealRepoApplySafety` and `buildRealRepoApplyDryRunSummary` are implemented and wired to the dry-run CLI.
   - `isNew` detection fixed: existing empty files report `isNew=false`.
+
+---
+
+## Implementation Progress
+
+The following runtime building blocks have been implemented **after** this audit document was created. They do not enable real repo writes, but they prepare the codebase for Stage 4.2:
+
+- **`real-repo-apply <taskId>` safe refusal stub CLI** (`src/cli.ts`, `test/cli-real-repo-apply.test.ts`):
+  - Always exits non-zero with clear refusal message.
+  - Prints safety messages.
+  - Does not require `ALLOW_REAL_REPO_APPLY`.
+  - No real repo writes, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch.
+
+- **`buildRealRepoApplyPlan(input)` pure helper** (`src/real-repo-apply-plan.ts`, `test/real-repo-apply-plan.test.ts`):
+  - Builds create/overwrite plan from `existingPaths` and proposed files.
+  - Builds `runDir` and `backupPath` strings.
+  - Validates taskId, attempt, paths, duplicates, content type, existingPaths.
+  - Rejects Unix absolute paths, Windows absolute paths (`C:/temp/file.ts`), path traversal (`..`), backslash paths.
+  - Allows empty string content.
+  - Returns `{ok:false,reason,safetyMessages}` without throwing.
+  - 100% pure: no fs, no git, no child_process, no env, no network, no API keys, no state writes.
+  - **Not wired to CLI.**
+
+> **Stage 4.2 write behavior remains pending.** Real repo apply is still disabled. No `ALLOW_REAL_REPO_APPLY` check is enforced in the CLI yet. No `applyFileUpdates` is called on the real repo.
 
 ---
 

@@ -225,20 +225,63 @@ Properties:
 - **Wired to CLI.**
 - **Real repo apply remains disabled for writes.**
 
-### 8.4 Next Recommended Step — Stage 4.2 Planning / Audit
+### 8.4 Completed — `real-repo-apply <taskId>` safe refusal stub CLI
 
-**Do not start real repo apply implementation yet.**
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`
+- **Tests:** `test/cli-real-repo-apply.test.ts`
 
-Before any real repo file write (Stage 4.2), define exact boundaries:
+A safe refusal stub that:
 
-- **Failure boundaries:** What happens on parse failure, guardrails failure, safety failure, apply failure, check failure? Where does the pipeline stop? What is the minimum rollback surface?
-- **Rollback boundaries:** Can `rollbackFileUpdates` safely restore real repo files mid-attempt? What is the backup strategy for real repo? Is `runs/{task_id}/attempt-N/files-before/` sufficient?
-- **State boundaries:** When (if ever) should `saveState` be called during real repo apply? Should state reflect `patching` before apply, or only after successful checks? What happens to state on rollback?
-- **Branch boundaries:** Confirm `prepareWorkBranch` logic for real repo (create vs resume). Confirm no checkout of `main` at any point.
-- **Opt-in boundaries:** Confirm `ALLOW_REAL_REPO_APPLY` is checked before any `applyFileUpdates` call, not after guardrails.
-- **Human-in-the-loop boundaries:** Define exactly when human review is required and when the pipeline can auto-retry (needs_changes loop is currently mock-only).
+- Always exits non-zero with clear refusal message: `real-repo-apply is not implemented yet`.
+- Prints safety messages: `No files were modified`, `No commit was made`, `No push was performed`, `No merge was performed`, `Real repo apply remains disabled`.
+- Does NOT require `ALLOW_REAL_REPO_APPLY`.
+- No real repo writes, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch.
 
-Deliverable: a short audit/plan document (or update to this file) with Stage 4.2 decision record before writing any Stage 4.2 runtime code.
+Properties:
+- 14 CLI tests covering refusal, missing taskId, no opt-in required, no provider response required, no file mutation, no state write, no commit/push/merge/checkout, no stack trace leak, no API key leak.
+- **Wired to CLI.**
+- **Real repo apply remains disabled for writes.**
+
+### 8.5 Completed — `buildRealRepoApplyPlan(input)` pure helper
+
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/real-repo-apply-plan.ts`
+- **Tests:** `test/real-repo-apply-plan.test.ts`
+
+A pure helper that builds a real-repo apply plan without touching the filesystem:
+
+- Builds `runDir`: `runs/{taskId}/attempt-{attempt}`.
+- Builds `backupPath`: `runs/{taskId}/attempt-{attempt}/files-before/{path}`.
+- Determines `action`: `create` or `overwrite` based on `existingPaths`.
+- Validates `taskId` (non-empty string), `attempt` (positive integer).
+- Validates file paths: rejects empty, duplicates after trim, absolute (`/` and `C:/...`), traversal (`..`), backslash.
+- Validates `existingPaths` with same rules.
+- Allows empty string `content`.
+- Returns `{ok:false,reason,safetyMessages}` for validation failures without throwing.
+
+Properties:
+- 100% pure: no fs, no git commands, no child_process, no env reads, no network, no API keys, no state writes.
+- 25 unit tests covering create/overwrite plans, path trimming, runDir/backupPath, empty content, all validation failures, input immutability, safety messages.
+- **Not wired to CLI.**
+- **Real repo apply remains disabled for writes.**
+
+### 8.6 Next Recommended Step — Stage 4.2 Pre-Write Refusal Tests / Opt-In Tests
+
+**Do not implement real file writes yet.**
+
+Before wiring `buildRealRepoApplyPlan` into `real-repo-apply` CLI and enabling actual file writes:
+
+1. **Expand `test/cli-real-repo-apply.test.ts`** to test pre-write refusal paths:
+   - Missing `ALLOW_REAL_REPO_APPLY` opt-in.
+   - Dirty working tree.
+   - Current branch is `main`.
+   - `work_branch` is `main`.
+   - Branch mismatch.
+   - Missing provider response (`REAL_REPO_PROVIDER_RESPONSE`).
+   - Parse failure, guardrails failure, line delta failure, safety failure.
+2. **Keep the stub behavior for all failure paths.** Real file writes must only be added after all refusal tests pass.
+3. **Only then:** replace the stub with real logic that calls `buildRealRepoApplyPlan` → `applyFileUpdates` → `runChecks` → `rollbackFileUpdates` on failure, all behind `ALLOW_REAL_REPO_APPLY=true`.
 
 ---
 
