@@ -22,6 +22,7 @@ import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
 import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-plan.js';
+import { createMockProviderCall } from './provider-call.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -130,7 +131,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|provider-preview> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -811,6 +812,48 @@ if (command === 'real-provider-plan') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-provider-plan] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'provider-preview') {
+  try {
+    const mockResponse = process.env.MOCK_PROVIDER_RESPONSE;
+    if (!mockResponse) {
+      console.error('[provider-preview] Error: MOCK_PROVIDER_RESPONSE env var is required');
+      console.error('[provider-preview] No real API call was made');
+      console.error('[provider-preview] No patch was applied');
+      console.error('[provider-preview] No git mutation was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+    const context = buildContext(task);
+    const prompt = buildKimiPrompt(context);
+
+    const mockProviderCall = createMockProviderCall(mockResponse);
+    const result = await mockProviderCall({
+      role: 'coder',
+      prompt,
+      provider: 'mock',
+      model: 'mock-model',
+    });
+
+    console.log(`[provider-preview] Task: ${taskId}`);
+    console.log(`[provider-preview] Provider: ${result.provider}`);
+    console.log(`[provider-preview] Model: ${result.model}`);
+    console.log(`[provider-preview] Role: ${result.role}`);
+    console.log(`[provider-preview] Response:`);
+    console.log(result.text);
+    console.log('[provider-preview] ---');
+    console.log('[provider-preview] No real API call was made');
+    console.log('[provider-preview] No patch was applied');
+    console.log('[provider-preview] No git mutation was performed');
+
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[provider-preview] Error: ${message}`);
     process.exit(1);
   }
 }
