@@ -401,6 +401,7 @@ describe('cli real-provider-preview', () => {
       });
 
       assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
+      assert(result.stderr.includes('[real-provider-preview] Error:'), `Expected error prefix, got stderr: ${result.stderr}`);
       assert(result.stderr.includes('Guardrails: REJECTED'), `Expected guardrails rejection, got stderr: ${result.stderr}`);
       assert(result.stderr.includes('Forbidden file touched'), `Expected forbidden file reason, got stderr: ${result.stderr}`);
       assert(result.stderr.includes('No patch was applied'), `Expected patch safety message, got stderr: ${result.stderr}`);
@@ -445,6 +446,7 @@ describe('cli real-provider-preview', () => {
       });
 
       assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
+      assert(result.stderr.includes('[real-provider-preview] Error:'), `Expected error prefix, got stderr: ${result.stderr}`);
       assert(result.stderr.includes('Guardrails: REJECTED'), `Expected guardrails rejection, got stderr: ${result.stderr}`);
       assert(result.stderr.includes('No patch was applied'), `Expected patch safety message, got stderr: ${result.stderr}`);
       assert(result.stderr.includes('No git mutation was performed'), `Expected git safety message, got stderr: ${result.stderr}`);

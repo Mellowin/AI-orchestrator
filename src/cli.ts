@@ -914,7 +914,7 @@ if (command === 'real-provider-preview') {
       task.guardrails
     );
     if (!fileListValidation.ok) {
-      console.error(`[real-provider-preview] Guardrails: REJECTED — ${fileListValidation.reason}`);
+      console.error(`[real-provider-preview] Error: Guardrails: REJECTED — ${fileListValidation.reason}`);
       console.error('[real-provider-preview] No patch was applied');
       console.error('[real-provider-preview] No git mutation was performed');
       console.error('[real-provider-preview] No state mutation was performed');
@@ -929,7 +929,7 @@ if (command === 'real-provider-preview') {
       );
     } catch (deltaErr) {
       const info = normalizeProviderCallError(deltaErr);
-      console.error(`[real-provider-preview] Guardrails: REJECTED — ${info.message}`);
+      console.error(`[real-provider-preview] Error: Guardrails: REJECTED — ${info.message}`);
       console.error('[real-provider-preview] No patch was applied');
       console.error('[real-provider-preview] No git mutation was performed');
       console.error('[real-provider-preview] No state mutation was performed');

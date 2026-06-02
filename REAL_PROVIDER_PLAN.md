@@ -5,7 +5,7 @@
 | Component | Status |
 |-----------|--------|
 | `provider-preview` | Mock-only. Uses `createMockProviderCall(MOCK_PROVIDER_RESPONSE)`. No real API calls. |
-| `real-provider-preview` | Implemented behind `ALLOW_REAL_PROVIDER_RUN=true`. Requires `KIMI_API_KEY` + `KIMI_BASE_URL`, optional `KIMI_MODEL`. `KIMI_FAKE_RESPONSE` test seam creates injected fake fetchFn. Production path uses `globalThis.fetch`. Read-only: no patch, no git, no state mutation. Tests/CI use fake response only. |
+| `real-provider-preview` | Implemented behind `ALLOW_REAL_PROVIDER_RUN=true`. Requires `KIMI_API_KEY` + `KIMI_BASE_URL`, optional `KIMI_MODEL`. `KIMI_FAKE_RESPONSE` test seam creates injected fake fetchFn. Production path uses `globalThis.fetch`. Parse-only: runs `parseKimiOutputJson`, `validateFileList`, `validateProposedFileLineDeltas`, prints proposed diff summary. Read-only: no patch, no git, no state mutation. Tests/CI use fake response only. |
 | `real-provider-plan` | Dry-run only. Prints plan, loads task, validates config. No API, no patch, no git mutation. |
 | `real-provider-run` | Refusal stub. Requires `ALLOW_REAL_PROVIDER_RUN=true` and still refuses because execution is not implemented. |
 | `createRealProviderCall()` | Implemented for `provider: 'kimi'`. Accepts `apiKey`, `baseUrl`, injected `fetchFn`, optional `model`. Sends POST to `/chat/completions` with `Authorization: Bearer` header, parses `choices[0].message.content`, normalizes via `normalizeProviderCallResult`. Not wired to CLI or runtime execution. Tests use fake fetch only. |
@@ -106,16 +106,24 @@ Command: `real-provider-preview <taskId>`
 - Tests and CI never call the real API.
 
 ### Phase 2: Parse provider output only, no patch/git
-- Feed the real response through `parseKimiOutputJson` / `parseReviewerOutputJson`.
-- Run full guardrails (`validateFileList`, `validateProposedFileLineDeltas`) on the parsed output.
-- Print the proposed diff and guardrails verdict.
+**Status: implemented at CLI preview level.**
+
+- ✅ Feed the real response through `parseKimiOutputJson`.
+- ✅ Run full guardrails (`validateFileList`, `validateProposedFileLineDeltas`) on the parsed output.
+- ✅ Print the proposed diff (current lines → proposed lines, delta, `[new]` tag) and guardrails verdict (`PASS`/`REJECTED`).
+- ✅ Standardized failure output: `[real-provider-preview] Error: Guardrails: REJECTED — ...` with safety messages.
 - **Still no file updates.** Human reviews the diff before any apply.
+- **Still no git mutation.** No branch create, no commit, no push, no merge.
+- **Still no state mutation.** No `state.json` write.
 
 ### Phase 3: Guarded apply in temp repo / test fixture
+**Status: not started.**
+
 - Apply the validated patch to a temporary git repository (a test fixture or clone).
 - Run configured checks (`runChecks`) in the temp repo.
 - Rollback if checks fail or reviewer rejects.
 - Goal: prove the full Coder → Patch → Checks → Reviewer loop in a sandbox.
+- **No real repo apply yet.** The target `repo_path` from `tasks.yaml` is still read-only.
 
 ### Phase 4: Real repo apply behind opt-in
 - Move the temp-repo flow to the real `repo_path` from `tasks.yaml`.
