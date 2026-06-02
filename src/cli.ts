@@ -22,7 +22,8 @@ import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
 import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-plan.js';
-import { createMockProviderCall, buildProviderCallInput, normalizeProviderCallResult, normalizeProviderCallError } from './provider-call.js';
+import { createMockProviderCall, createRealProviderCall, buildProviderCallInput, normalizeProviderCallResult, normalizeProviderCallError } from './provider-call.js';
+import type { FetchFn } from './provider-call.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -812,6 +813,99 @@ if (command === 'real-provider-plan') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-provider-plan] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'real-provider-preview') {
+  try {
+    if (process.env.ALLOW_REAL_PROVIDER_RUN !== 'true') {
+      console.error('[real-provider-preview] Error: real provider preview requires ALLOW_REAL_PROVIDER_RUN=true');
+      console.error('[real-provider-preview] No API call was made');
+      console.error('[real-provider-preview] No patch was applied');
+      console.error('[real-provider-preview] No git mutation was performed');
+      console.error('[real-provider-preview] No state mutation was performed');
+      process.exit(1);
+    }
+
+    const apiKey = process.env.KIMI_API_KEY?.trim();
+    if (!apiKey) {
+      console.error('[real-provider-preview] Error: KIMI_API_KEY env var is required');
+      console.error('[real-provider-preview] No API call was made');
+      console.error('[real-provider-preview] No patch was applied');
+      console.error('[real-provider-preview] No git mutation was performed');
+      console.error('[real-provider-preview] No state mutation was performed');
+      process.exit(1);
+    }
+
+    const baseUrl = process.env.KIMI_BASE_URL?.trim();
+    if (!baseUrl) {
+      console.error('[real-provider-preview] Error: KIMI_BASE_URL env var is required');
+      console.error('[real-provider-preview] No API call was made');
+      console.error('[real-provider-preview] No patch was applied');
+      console.error('[real-provider-preview] No git mutation was performed');
+      console.error('[real-provider-preview] No state mutation was performed');
+      process.exit(1);
+    }
+
+    const model = process.env.KIMI_MODEL?.trim() || 'kimi-k2.6';
+
+    const fakeResponse = process.env.KIMI_FAKE_RESPONSE;
+    let fetchFn: FetchFn;
+    if (fakeResponse !== undefined) {
+      fetchFn = async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: fakeResponse } }],
+        }),
+      });
+    } else {
+      if (typeof globalThis.fetch !== 'function') {
+        console.error('[real-provider-preview] Error: global fetch is not available');
+        console.error('[real-provider-preview] No API call was made');
+        console.error('[real-provider-preview] No patch was applied');
+        console.error('[real-provider-preview] No git mutation was performed');
+        console.error('[real-provider-preview] No state mutation was performed');
+        process.exit(1);
+      }
+      fetchFn = globalThis.fetch as unknown as FetchFn;
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+    const context = buildContext(task);
+    const prompt = buildKimiPrompt(context);
+
+    const realProviderCall = createRealProviderCall({
+      provider: 'kimi',
+      apiKey,
+      baseUrl,
+      fetchFn,
+      model,
+    });
+
+    const providerInput = buildProviderCallInput('coder', prompt, 'kimi', model);
+    const result = await realProviderCall(providerInput);
+    const normalizedResult = normalizeProviderCallResult(result);
+
+    console.log(`[real-provider-preview] Task: ${taskId}`);
+    console.log(`[real-provider-preview] Provider: ${normalizedResult.provider}`);
+    console.log(`[real-provider-preview] Model: ${normalizedResult.model}`);
+    console.log(`[real-provider-preview] Role: ${normalizedResult.role}`);
+    console.log(`[real-provider-preview] Response:`);
+    console.log(normalizedResult.text);
+    console.log('[real-provider-preview] ---');
+    console.log('[real-provider-preview] No patch was applied');
+    console.log('[real-provider-preview] No git mutation was performed');
+    console.log('[real-provider-preview] No state mutation was performed');
+
+    process.exit(0);
+  } catch (err) {
+    const info = normalizeProviderCallError(err);
+    console.error(`[real-provider-preview] Error: ${info.message}`);
+    console.error('[real-provider-preview] No patch was applied');
+    console.error('[real-provider-preview] No git mutation was performed');
+    console.error('[real-provider-preview] No state mutation was performed');
     process.exit(1);
   }
 }
