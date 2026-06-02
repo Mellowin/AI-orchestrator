@@ -2,11 +2,11 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `4b8b39cc91e8edc58338499781e3a38a9d02c894`
+**Last verified:** `be21d0e2f2a8d8c7b9c9f2e3a1b4c5d6e7f8a9b0`
 
 ## Test metrics
 
-- **Total tests:** 326
+- **Total tests:** 329
 - **Total suites:** 40
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
@@ -29,7 +29,7 @@
 | Pipeline loop | `test/pipeline-loop.test.ts` | approve keeps patch, needs_changes rolls back, reject rolls back, invalid reviewer JSON rolls back |
 | Pipeline loop CLI | `test/cli-pipeline-loop.test.ts` | approve success, needs_changes failure + rollback, reject failure + rollback, missing MOCK_REVIEWER_RESPONSE |
 | Provider call | `test/provider-call.test.ts` | Mock provider returns deterministic result, preserves role/provider/model, no network, real placeholder refusal, `buildProviderCallInput` validates role/prompt/provider/model, runtime invalid-role guard, pure function (no env/network/file mutation), `normalizeProviderCallResult` trims whitespace/preserves internal newlines, validates object/role/text/provider/model at runtime, `normalizeProviderCallError` handles Error/string/unknown input, retryable detection (timeout/rate limit/ECONNRESET/ETIMEDOUT), redacts sk-/Bearer tokens, no stack trace leak |
-| Provider preview CLI | `test/cli-provider-preview.test.ts` | Mock provider-call output preview with MOCK_PROVIDER_RESPONSE, uses `buildProviderCallInput` + `createMockProviderCall` + `normalizeProviderCallResult`, `normalizeProviderCallError` in failure path, trimmed response output, internal newlines preserved, no stack trace leak, safety messages on failure, missing env error, missing task error, no file mutation |
+| Provider preview CLI | `test/cli-provider-preview.test.ts` | Mock provider-call output preview with MOCK_PROVIDER_RESPONSE, uses `buildProviderCallInput` + `createMockProviderCall` + `normalizeProviderCallResult`, `normalizeProviderCallError` in failure path, trimmed response output, internal newlines preserved, no stack trace leak, safety messages on failure, missing env error, missing task error, no file mutation, `--role coder|reviewer` flag with validation |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
@@ -54,9 +54,8 @@
 
 ## Next recommended work
 
-1. Add a tiny mock-only provider-preview role flag (coder|reviewer) if it does not broaden scope.
-2. Or start designing real-provider execution plan docs.
-3. Do not wire real provider execution yet.
-4. Keep real provider call disabled behind `ALLOW_REAL_PROVIDER_RUN=true`.
-5. Keep mock mode as default for tests and local development.
-6. Keep no push, no merge, no main touch.
+1. Start designing real-provider execution plan docs.
+2. Do not wire real provider execution yet.
+3. Keep real provider call disabled behind `ALLOW_REAL_PROVIDER_RUN=true`.
+4. Keep mock mode as default for tests and local development.
+5. Keep no push, no merge, no main touch.
