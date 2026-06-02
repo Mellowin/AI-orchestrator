@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { applyFileUpdates, rollbackFileUpdates } from './patch-engine.js';
 import type { FileUpdate } from './types.js';
 

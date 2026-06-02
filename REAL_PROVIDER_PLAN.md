@@ -12,6 +12,8 @@
 | `buildProviderCallInput` | Pure builder. Validates role/prompt/provider/model. No env reads, no network. |
 | `normalizeProviderCallResult` | Pure normalizer. Trims whitespace, preserves newlines, validates shape. |
 | `getProviderRetryDecision()` | Pure helper. Exponential backoff retry policy (attempt 1→1000ms, 2→2000ms, 3→4000ms, 4+→no retry). Non-retryable → no retry immediately. Not wired to `createRealProviderCall` or CLI yet. |
+| `createSandboxRepoCopy()` | Pure helper. Creates isolated temp copy of source repo, excludes `.git`, `node_modules`, `runs`, `.env`, `.env.*`. No git commands, no state write. Not wired to CLI. |
+| `applyToSandboxRepo()` | Pure helper. Applies validated `FileUpdate[]` inside sandbox only, delegates to patch-engine for apply/rollback/path validation. No git mutation, no state write. Not wired to CLI. |
 | `normalizeProviderCallError` | Pure error normalizer. Redacts secrets, detects retryable errors, no stack leak. |
 
 ## 2. Explicit opt-in rules
@@ -117,23 +119,26 @@ Command: `real-provider-preview <taskId>`
 - **Still no state mutation.** No `state.json` write.
 
 ### Phase 3: Guarded apply in temp repo / test fixture
-**Status: contract documented. Implementation not started.**
+**Status: helpers implemented. CLI command not implemented yet.**
 
-Command: `sandbox-apply-preview <taskId>` (future CLI command)
+- ✅ Implement `createSandboxRepoCopy(sourceRepoPath, sandboxRoot)` — isolated temp copy with exclusions.
+- ✅ Implement `applyToSandboxRepo(sandboxRepoPath, files)` — sandbox-scoped apply with rollback via patch-engine.
+
+Command: `sandbox-apply-preview <taskId>` (future CLI command — not implemented)
 
 **Goal:** prove the full Coder → Patch → Checks loop in an isolated sandbox without touching the real repository.
 
-**Required behavior (future implementation):**
+**Required behavior (future orchestration / CLI):**
 1. Load task from `tasks.yaml`.
 2. Obtain provider output (from existing parse-only flow, cached response, or test fixture).
 3. Parse output via `parseKimiOutputJson`.
 4. Validate file list via `validateFileList(task.guardrails)`.
 5. Validate proposed line deltas via `validateProposedFileLineDeltas(task.repo_path, files, task.guardrails.max_lines_changed)`.
-6. Create an isolated temporary git repository (copy/clone of real repo or fresh fixture).
-7. Apply patch **only inside the temp repo** via `applyFileUpdates`.
+6. Create an isolated temporary copy via `createSandboxRepoCopy(task.repo_path, sandboxRoot)`.
+7. Apply patch **only inside the temp repo** via `applyToSandboxRepo(sandboxRepoPath, files)`.
 8. Run configured checks (`runChecks`) inside the temp repo.
 9. Print apply/check result (success or failure with step).
-10. Delete temp repo on completion, or print temp path for inspection in debug mode.
+10. Rollback via returned `rollback()` on failure, or cleanup temp repo on success.
 
 **Strict safety boundaries:**
 - **No patch to real `task.repo_path`.** The real repository is never modified.
@@ -164,8 +169,9 @@ Command: `sandbox-apply-preview <taskId>` (future CLI command)
 - Tests must assert no `runs/{task_id}/state.json` is written.
 
 **Explicit disclaimer:**
-- Phase 3 implementation is **not started**.
-- The current system still only has parse-only preview (`real-provider-preview`).
+- Phase 3 helpers (`createSandboxRepoCopy`, `applyToSandboxRepo`) are implemented but **not wired to CLI**.
+- `sandbox-apply-preview <taskId>` CLI command does **not exist**.
+- The current system still only has parse-only preview (`real-provider-preview`) at CLI level.
 - Real repo apply remains forbidden until Phase 4.
 
 ### Phase 4: Real repo apply behind opt-in
