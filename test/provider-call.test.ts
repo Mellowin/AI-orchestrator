@@ -380,6 +380,118 @@ describe('provider-call', () => {
     // No filesystem side effects to verify; function only calls injected fetchFn
   });
 
+  test('createRealProviderCall empty baseUrl throws', () => {
+    assert.throws(
+      () =>
+        createRealProviderCall({
+          provider: 'kimi',
+          apiKey: 'sk-test',
+          baseUrl: '',
+          fetchFn: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+        }),
+      /baseUrl is required/
+    );
+  });
+
+  test('createRealProviderCall non-http baseUrl throws', () => {
+    assert.throws(
+      () =>
+        createRealProviderCall({
+          provider: 'kimi',
+          apiKey: 'sk-test',
+          baseUrl: 'ftp://api.example.com',
+          fetchFn: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+        }),
+      /baseUrl must start with http:\/\/ or https:\/\//
+    );
+  });
+
+  test('createRealProviderCall missing fetchFn throws', () => {
+    assert.throws(
+      () =>
+        createRealProviderCall({
+          provider: 'kimi',
+          apiKey: 'sk-test',
+          baseUrl: 'https://api.example.com',
+          fetchFn: undefined as unknown as FetchFn,
+        }),
+      /fetchFn is required/
+    );
+  });
+
+  test('createRealProviderCall non-function fetchFn throws', () => {
+    assert.throws(
+      () =>
+        createRealProviderCall({
+          provider: 'kimi',
+          apiKey: 'sk-test',
+          baseUrl: 'https://api.example.com',
+          fetchFn: 'not-a-function' as unknown as FetchFn,
+        }),
+      /fetchFn is required/
+    );
+  });
+
+  test('createRealProviderCall baseUrl without trailing slash builds correct URL', async () => {
+    let calledUrl: string | undefined;
+    const fakeFetch: FetchFn = async (url) => {
+      calledUrl = url;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'ok' } }],
+        }),
+      };
+    };
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.com',
+      fetchFn: fakeFetch,
+    });
+
+    await realFn({
+      role: 'coder',
+      prompt: 'test',
+      model: 'kimi-k2.6',
+      provider: 'kimi',
+    });
+
+    assert.strictEqual(calledUrl, 'https://api.example.com/chat/completions');
+  });
+
+  test('createRealProviderCall baseUrl with trailing slash builds correct URL without double slash', async () => {
+    let calledUrl: string | undefined;
+    const fakeFetch: FetchFn = async (url) => {
+      calledUrl = url;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'ok' } }],
+        }),
+      };
+    };
+
+    const realFn = createRealProviderCall({
+      provider: 'kimi',
+      apiKey: 'sk-test',
+      baseUrl: 'https://api.example.com/',
+      fetchFn: fakeFetch,
+    });
+
+    await realFn({
+      role: 'coder',
+      prompt: 'test',
+      model: 'kimi-k2.6',
+      provider: 'kimi',
+    });
+
+    assert.strictEqual(calledUrl, 'https://api.example.com/chat/completions');
+  });
+
   test('buildProviderCallInput creates coder input correctly', () => {
     const input = buildProviderCallInput('coder', 'write hello world', 'mock', 'mock-model');
     assert.strictEqual(input.role, 'coder');

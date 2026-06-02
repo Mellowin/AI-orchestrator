@@ -138,9 +138,21 @@ export function createRealProviderCall(options: CreateRealProviderCallOptions): 
   if (typeof options.apiKey !== 'string' || options.apiKey.length === 0) {
     throw new Error('apiKey is required');
   }
+  if (typeof options.baseUrl !== 'string' || options.baseUrl.length === 0) {
+    throw new Error('baseUrl is required');
+  }
+  const lowerBase = options.baseUrl.toLowerCase();
+  if (!lowerBase.startsWith('http://') && !lowerBase.startsWith('https://')) {
+    throw new Error('baseUrl must start with http:// or https://');
+  }
+  if (typeof options.fetchFn !== 'function') {
+    throw new Error('fetchFn is required');
+  }
+
+  const baseUrl = options.baseUrl.replace(/\/+$/, '');
 
   return async (input: ProviderCallInput): Promise<ProviderCallResult> => {
-    const response = await options.fetchFn(`${options.baseUrl}/chat/completions`, {
+    const response = await options.fetchFn(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
