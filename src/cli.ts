@@ -25,6 +25,8 @@ import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-
 import { createMockProviderCall, createRealProviderCall, buildProviderCallInput, normalizeProviderCallResult, normalizeProviderCallError } from './provider-call.js';
 import type { FetchFn } from './provider-call.js';
 import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
+import { validateRealRepoApplySafety } from './real-repo-apply-safety.js';
+import { buildRealRepoApplyDryRunSummary } from './real-repo-apply-dry-run.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -133,7 +135,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -1083,6 +1085,107 @@ if (command === 'sandbox-apply-preview') {
     console.error('[sandbox-apply-preview] No patch was applied to real repo');
     console.error('[sandbox-apply-preview] No git mutation was performed in real repo');
     console.error('[sandbox-apply-preview] No state mutation was performed');
+    process.exit(1);
+  }
+}
+
+if (command === 'real-repo-apply-dry-run') {
+  try {
+    const rawProviderText = process.env.REAL_REPO_PROVIDER_RESPONSE?.trim();
+    if (!rawProviderText) {
+      console.error('[real-repo-apply-dry-run] Error: REAL_REPO_PROVIDER_RESPONSE env var is required');
+      console.error('[real-repo-apply-dry-run] No files were modified');
+      console.error('[real-repo-apply-dry-run] No commit was made');
+      console.error('[real-repo-apply-dry-run] No push was performed');
+      console.error('[real-repo-apply-dry-run] No merge was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+    const kimiOutput = parseKimiOutputJson(rawProviderText);
+    const updatePaths = kimiOutput.files.map((f) => f.path);
+
+    const guardrailsResult = validateFileList(updatePaths, task.guardrails);
+    if (!guardrailsResult.ok) {
+      console.error(`[real-repo-apply-dry-run] Guardrails failed: ${guardrailsResult.reason}`);
+      console.error('[real-repo-apply-dry-run] No files were modified');
+      console.error('[real-repo-apply-dry-run] No commit was made');
+      console.error('[real-repo-apply-dry-run] No push was performed');
+      console.error('[real-repo-apply-dry-run] No merge was performed');
+      process.exit(1);
+    }
+
+    if (task.guardrails.max_lines_changed !== undefined) {
+      validateProposedFileLineDeltas(
+        task.repo_path,
+        kimiOutput.files,
+        task.guardrails.max_lines_changed
+      );
+    }
+
+    let currentBranch = '';
+    let isClean = false;
+    try {
+      ensureClean(task.repo_path);
+      isClean = true;
+    } catch {
+      isClean = false;
+    }
+
+    try {
+      currentBranch = getCurrentBranch(task.repo_path);
+    } catch {
+      currentBranch = '';
+    }
+
+    const safetyResult = validateRealRepoApplySafety(task, { isClean, currentBranch });
+    if (!safetyResult.ok) {
+      console.error(`[real-repo-apply-dry-run] Safety check failed: ${safetyResult.reason}`);
+      console.error('[real-repo-apply-dry-run] No files were modified');
+      console.error('[real-repo-apply-dry-run] No commit was made');
+      console.error('[real-repo-apply-dry-run] No push was performed');
+      console.error('[real-repo-apply-dry-run] No merge was performed');
+      process.exit(1);
+    }
+
+    const lineDeltas = kimiOutput.files.map((f) => {
+      const filePath = join(task.repo_path, f.path);
+      const oldContent = existsSync(filePath) ? readFileSync(filePath, 'utf-8') : '';
+      const oldLines = countLines(oldContent);
+      const newLines = countLines(f.content);
+      return { path: f.path, lineDelta: newLines - oldLines, isNew: oldContent === '' };
+    });
+
+    const summary = buildRealRepoApplyDryRunSummary({
+      taskId,
+      currentBranch,
+      workBranch: task.work_branch,
+      guardrailsVerdict: 'PASS',
+      safetyVerdict: 'PASS',
+      files: lineDeltas,
+    });
+
+    console.log(`[real-repo-apply-dry-run] Task: ${summary.taskId}`);
+    console.log(`[real-repo-apply-dry-run] Current branch: ${summary.currentBranch}`);
+    console.log(`[real-repo-apply-dry-run] Work branch: ${summary.workBranch}`);
+    console.log(`[real-repo-apply-dry-run] Guardrails: ${summary.guardrailsVerdict}`);
+    console.log(`[real-repo-apply-dry-run] Safety: ${summary.safetyVerdict}`);
+    console.log('[real-repo-apply-dry-run] Files:');
+    for (const f of summary.files) {
+      console.log(`[real-repo-apply-dry-run]   ${f.path}: delta=${f.lineDelta}, isNew=${f.isNew}`);
+    }
+    console.log('[real-repo-apply-dry-run] Safety messages:');
+    for (const msg of summary.safetyMessages) {
+      console.log(`[real-repo-apply-dry-run]   ${msg}`);
+    }
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-repo-apply-dry-run] Error: ${message}`);
+    console.error('[real-repo-apply-dry-run] No files were modified');
+    console.error('[real-repo-apply-dry-run] No commit was made');
+    console.error('[real-repo-apply-dry-run] No push was performed');
+    console.error('[real-repo-apply-dry-run] No merge was performed');
     process.exit(1);
   }
 }
