@@ -895,6 +895,59 @@ if (command === 'real-provider-preview') {
     console.log(`[real-provider-preview] Response:`);
     console.log(normalizedResult.text);
     console.log('[real-provider-preview] ---');
+
+    // Parse-only section: validate output without applying patches
+    let parsed: KimiOutput;
+    try {
+      parsed = parseKimiOutputJson(normalizedResult.text);
+    } catch (parseErr) {
+      const info = normalizeProviderCallError(parseErr);
+      console.error(`[real-provider-preview] Error: ${info.message}`);
+      console.error('[real-provider-preview] No patch was applied');
+      console.error('[real-provider-preview] No git mutation was performed');
+      console.error('[real-provider-preview] No state mutation was performed');
+      process.exit(1);
+    }
+
+    const fileListValidation = validateFileList(
+      parsed.files.map((f) => f.path),
+      task.guardrails
+    );
+    if (!fileListValidation.ok) {
+      console.error(`[real-provider-preview] Guardrails: REJECTED — ${fileListValidation.reason}`);
+      console.error('[real-provider-preview] No patch was applied');
+      console.error('[real-provider-preview] No git mutation was performed');
+      console.error('[real-provider-preview] No state mutation was performed');
+      process.exit(1);
+    }
+
+    try {
+      validateProposedFileLineDeltas(
+        task.repo_path,
+        parsed.files,
+        task.guardrails.max_lines_changed
+      );
+    } catch (deltaErr) {
+      const info = normalizeProviderCallError(deltaErr);
+      console.error(`[real-provider-preview] Guardrails: REJECTED — ${info.message}`);
+      console.error('[real-provider-preview] No patch was applied');
+      console.error('[real-provider-preview] No git mutation was performed');
+      console.error('[real-provider-preview] No state mutation was performed');
+      process.exit(1);
+    }
+
+    console.log('[real-provider-preview] Parse: PASS');
+    console.log(`[real-provider-preview] Proposed files: ${parsed.files.length}`);
+    for (const file of parsed.files) {
+      const filePath = join(task.repo_path, file.path);
+      const currentLines = existsSync(filePath) ? countLines(readFileSync(filePath, 'utf-8')) : 0;
+      const proposedLines = countLines(file.content);
+      const delta = proposedLines - currentLines;
+      const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
+      const newTag = currentLines === 0 ? ' [new]' : '';
+      console.log(`[real-provider-preview]   ${file.path}: ${currentLines} lines → ${proposedLines} lines (${deltaStr})${newTag}`);
+    }
+    console.log('[real-provider-preview] Guardrails: PASS');
     console.log('[real-provider-preview] No patch was applied');
     console.log('[real-provider-preview] No git mutation was performed');
     console.log('[real-provider-preview] No state mutation was performed');

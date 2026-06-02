@@ -49,7 +49,11 @@ function runCli(args: string[], envOverrides: Record<string, string> = {}): {
   };
 }
 
-function createTempEnv(): {
+function buildFakeKimiOutput(files: Array<{ path: string; content: string }>): string {
+  return JSON.stringify({ mode: 'file_update', files });
+}
+
+function createTempEnv(maxLinesChanged: number = 150): {
   taskId: string;
   tasksFilePath: string;
   repoPath: string;
@@ -97,7 +101,7 @@ function createTempEnv(): {
         - ".env.*"
         - "node_modules/**"
         - ".git/**"
-      max_lines_changed: 150
+      max_lines_changed: ${maxLinesChanged}
       require_tests: false
       auto_commit: false
       auto_push: false
@@ -170,7 +174,7 @@ describe('cli real-provider-preview', () => {
   test('with opt-in and KIMI_FAKE_RESPONSE succeeds and prints normalized fake response', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
-      const fakeResponse = 'Hello from fake provider';
+      const fakeResponse = buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]);
       const result = runCli(['real-provider-preview', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_PROVIDER_RUN: 'true',
@@ -193,7 +197,8 @@ describe('cli real-provider-preview', () => {
   test('fake response with leading and trailing whitespace is trimmed', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
-      const fakeResponse = '  trimmed response  ';
+      const inner = buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]);
+      const fakeResponse = `  ${inner}  `;
       const result = runCli(['real-provider-preview', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_PROVIDER_RUN: 'true',
@@ -203,8 +208,8 @@ describe('cli real-provider-preview', () => {
       });
 
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
-      assert(result.stdout.includes('trimmed response'), `Expected trimmed text, got stdout: ${result.stdout}`);
-      assert(!result.stdout.includes('  trimmed response  '), `Expected trimmed text without surrounding spaces, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes(inner), `Expected trimmed text, got stdout: ${result.stdout}`);
+      assert(!result.stdout.includes(fakeResponse), `Expected trimmed text without surrounding spaces, got stdout: ${result.stdout}`);
     } finally {
       cleanup();
     }
@@ -218,7 +223,7 @@ describe('cli real-provider-preview', () => {
         ALLOW_REAL_PROVIDER_RUN: 'true',
         KIMI_API_KEY: 'sk-test',
         KIMI_BASE_URL: 'https://api.example.com',
-        KIMI_FAKE_RESPONSE: 'ok',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]),
       });
 
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
@@ -243,7 +248,7 @@ describe('cli real-provider-preview', () => {
 
       assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
       assert(result.stderr.includes('[real-provider-preview] Error:'), `Expected error prefix, got stderr: ${result.stderr}`);
-      assert(!result.stderr.includes('at '), `Stderr should not contain stack trace, got: ${result.stderr}`);
+      assert(!result.stderr.includes('    at '), `Stderr should not contain stack trace, got: ${result.stderr}`);
       assert(result.stderr.includes('No patch was applied'), `Expected patch safety message, got stderr: ${result.stderr}`);
       assert(result.stderr.includes('No git mutation was performed'), `Expected git safety message, got stderr: ${result.stderr}`);
       assert(result.stderr.includes('No state mutation was performed'), `Expected state safety message, got stderr: ${result.stderr}`);
@@ -281,7 +286,7 @@ describe('cli real-provider-preview', () => {
         ALLOW_REAL_PROVIDER_RUN: 'true',
         KIMI_API_KEY: 'sk-test',
         KIMI_BASE_URL: 'https://api.example.com',
-        KIMI_FAKE_RESPONSE: 'Hello from fake provider',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]),
       });
 
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
@@ -301,11 +306,210 @@ describe('cli real-provider-preview', () => {
         KIMI_API_KEY: 'sk-test',
         KIMI_BASE_URL: 'https://api.example.com',
         KIMI_MODEL: 'custom-model-v1',
-        KIMI_FAKE_RESPONSE: 'ok',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]),
       });
 
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
       assert(result.stdout.includes('[real-provider-preview] Model: custom-model-v1'), `Expected custom model, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('fake response with valid KimiOutput JSON parses successfully', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]),
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('[real-provider-preview] Parse: PASS'), `Expected Parse: PASS, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('valid output prints proposed files count and path', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]),
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('Proposed files: 1'), `Expected proposed files count, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('README.md'), `Expected file path, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('valid output prints line delta for existing file', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# updated\nline2\n' }]),
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('(+1)'), `Expected +1 delta, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('valid output prints line delta for new file with [new] tag', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'src/new.ts', content: 'export const x = 1;\n' }]),
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('0 lines → 1 lines (+1) [new]'), `Expected new file delta, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('guardrails reject denied file and exits safely', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: '.env', content: 'SECRET=1\n' }]),
+      });
+
+      assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
+      assert(result.stderr.includes('Guardrails: REJECTED'), `Expected guardrails rejection, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('Forbidden file touched'), `Expected forbidden file reason, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No patch was applied'), `Expected patch safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No git mutation was performed'), `Expected git safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No state mutation was performed'), `Expected state safety message, got stderr: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('malformed provider JSON exits safely', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: '{not valid json',
+      });
+
+      assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
+      assert(result.stderr.includes('[real-provider-preview] Error:'), `Expected error prefix, got stderr: ${result.stderr}`);
+      assert(!result.stderr.includes('    at '), `Stderr should not contain stack trace, got: ${result.stderr}`);
+      assert(result.stderr.includes('No patch was applied'), `Expected patch safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No git mutation was performed'), `Expected git safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No state mutation was performed'), `Expected state safety message, got stderr: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('line delta too large is rejected by guardrails', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv(2);
+    try {
+      const result = runCli(['real-provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'line1\nline2\nline3\nline4\nline5\n' }]),
+      });
+
+      assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
+      assert(result.stderr.includes('Guardrails: REJECTED'), `Expected guardrails rejection, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No patch was applied'), `Expected patch safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No git mutation was performed'), `Expected git safety message, got stderr: ${result.stderr}`);
+      assert(result.stderr.includes('No state mutation was performed'), `Expected state safety message, got stderr: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no git mutation on parse-only path', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      const branchBefore = spawnSync('git', ['branch', '--show-current'], { cwd: repoPath, encoding: 'utf-8', shell: false }).stdout.trim();
+      const result = runCli(['real-provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]),
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      const branchAfter = spawnSync('git', ['branch', '--show-current'], { cwd: repoPath, encoding: 'utf-8', shell: false }).stdout.trim();
+      assert.strictEqual(branchAfter, branchBefore, 'Branch should not change');
+      const status = spawnSync('git', ['status', '--porcelain'], { cwd: repoPath, encoding: 'utf-8', shell: false }).stdout.trim();
+      assert.strictEqual(status, '', 'Working tree should remain clean');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no state mutation on parse-only path', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-provider-preview', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# updated\n' }]),
+      });
+
+      assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
+      const runDir = join(process.cwd(), 'runs', taskId);
+      assert(!existsSync(runDir), `Run directory should not be created: ${runDir}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no apiKey leak on parse/guardrails errors', () => {
+    const { tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const secretKey = 'sk-super-secret-key-12345';
+      const result = runCli(['real-provider-preview', 'nonexistent-task'], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER_RUN: 'true',
+        KIMI_API_KEY: secretKey,
+        KIMI_BASE_URL: 'https://api.example.com',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: '.env', content: 'SECRET=1\n' }]),
+      });
+
+      assert.strictEqual(result.status, 1, `Expected failure, got stdout: ${result.stdout}`);
+      const combinedOutput = result.stdout + result.stderr;
+      assert(!combinedOutput.includes(secretKey), `Output should not leak API key, got: ${combinedOutput}`);
     } finally {
       cleanup();
     }
