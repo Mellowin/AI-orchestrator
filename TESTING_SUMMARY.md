@@ -2,11 +2,11 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `c24aec93dda8ee4622e73058f01e3a09799f10ef`
+**Last verified:** `571b43257def3d0ddd7da4bf68598510db358b56`
 
 ## Test metrics
 
-- **Total tests:** 435
+- **Total tests:** 439
 - **Total suites:** 45
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
@@ -32,7 +32,7 @@
 | Provider preview CLI | `test/cli-provider-preview.test.ts` | Mock provider-call output preview with MOCK_PROVIDER_RESPONSE, uses `buildProviderCallInput` + `createMockProviderCall` + `normalizeProviderCallResult`, `normalizeProviderCallError` in failure path, trimmed response output, internal newlines preserved, no stack trace leak, safety messages on failure, missing env error, missing task error, no file mutation, `--role coder|reviewer` flag with validation |
 | Real provider preview CLI | `test/cli-real-provider-preview.test.ts` | `real-provider-preview <taskId>` behind `ALLOW_REAL_PROVIDER_RUN=true`, requires `KIMI_API_KEY` + `KIMI_BASE_URL`, optional `KIMI_MODEL`, `KIMI_FAKE_RESPONSE` test seam creates injected fake fetchFn (OpenAI-compatible response), production path uses `globalThis.fetch`, parse-only mode: parses provider response via `parseKimiOutputJson`, validates file list with `validateFileList`, validates proposed line deltas with `validateProposedFileLineDeltas`, prints proposed file summary with line deltas and `[new]` tag, guardrails verdict (`PASS`/`REJECTED`), read-only (no patch/git/state mutation), `normalizeProviderCallError` in failure path, no stack trace leak, no apiKey leak, safety messages on success and failure, no file mutation |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
-| Sandbox repo copy | `test/sandbox-repo.test.ts` | `createSandboxRepoCopy` creates isolated temp copy of source repo, validates source exists and is git repo, validates sandboxRoot, copies files recursively, excludes `.git`, `node_modules`, `runs`, `.env`, `.env.*`, returns `{sandboxRepoPath, cleanup}`. No git commands, no branch creation, no state write, no source mutation. |
+| Sandbox repo copy | `test/sandbox-repo.test.ts` | `createSandboxRepoCopy` creates isolated temp copy of source repo, validates source exists and is git repo, validates sandboxRoot, resolves both paths to absolute normalized paths, rejects if sandboxRoot equals or is nested inside sourceRepoPath (before `mkdtempSync` / `copyDirectoryRecursive`), copies files recursively, excludes `.git`, `node_modules`, `runs`, `.env`, `.env.*`, returns `{sandboxRepoPath, cleanup}`. No git commands, no branch creation, no state write, no source mutation. |
 | Sandbox apply | `test/sandbox-apply.test.ts` | `applyToSandboxRepo` applies validated `FileUpdate[]` only inside sandbox repo, delegates to `applyFileUpdates`/`rollbackFileUpdates` with sandbox-scoped runDir, supports overwrite existing / create new / nested dirs, auto-rollback on failure mid-apply, explicit rollback restores overwritten files and removes newly created ones. Path validation via patch-engine (absolute, traversal, backslash, empty, duplicates). No git mutation, no state write, no real repo touch. Not wired to CLI yet. |
 | Sandbox apply flow | `test/sandbox-apply-flow.test.ts` | `runSandboxApplyFlow` orchestrates: parse raw provider text via `parseKimiOutputJson` → validate file list via `validateFileList` → validate line deltas via `validateProposedFileLineDeltas` → create sandbox copy via `createSandboxRepoCopy` → apply in sandbox via `applyToSandboxRepo` → run checks via `runChecks` in sandbox path → cleanup on success, or rollback + cleanup on failure. Tests cover success path, real repo isolation, sandbox cleanup, parse failure, guardrails failure, line-delta failure, check failure with rollback/cleanup, apply failure with cleanup, checks run in sandbox not real repo, no state write, no git mutation, logs include major steps, no network/API keys. |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
@@ -60,7 +60,7 @@
 - **`createSandboxRepoCopy` exists as a pure helper.** Creates isolated temp copy of source repo, excludes sensitive directories, no git commands, no state write. Used indirectly by `sandbox-apply-preview` via `runSandboxApplyFlow`.
 - **`applyToSandboxRepo` exists as a pure helper.** Applies validated `FileUpdate[]` inside sandbox only, delegates to patch-engine for apply/rollback/path validation. Used indirectly by `sandbox-apply-preview` via `runSandboxApplyFlow`.
 - **`runSandboxApplyFlow` exists as a pure helper.** Orchestrates the full sandbox pipeline: parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Runs checks only in sandbox path. Real repo remains untouched. No state write. Wired to `sandbox-apply-preview` CLI.
-- **`sandbox-apply-preview <taskId>` CLI command is implemented.** Behind `ALLOW_SANDBOX_APPLY_PREVIEW=true`. Requires `SANDBOX_PROVIDER_RESPONSE` and `SANDBOX_ROOT`. Uses `runSandboxApplyFlow`. No real provider call, no network, no API keys, no real repo mutation, no state write, no push/merge/main touch.
+- **`sandbox-apply-preview <taskId>` CLI command is implemented.** Behind `ALLOW_SANDBOX_APPLY_PREVIEW=true`. Requires `SANDBOX_PROVIDER_RESPONSE` and `SANDBOX_ROOT`. Uses `runSandboxApplyFlow`. No real provider call, no network, no API keys, no real repo mutation, no state write, no push/merge/main touch. CLI fails safely when `SANDBOX_ROOT` is inside the real repo.
 
 ## Real provider execution plan
 

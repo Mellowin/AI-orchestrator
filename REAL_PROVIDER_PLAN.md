@@ -163,6 +163,9 @@ Command: `sandbox-apply-preview <taskId>`
 - **No real repo branch creation.** Work branches are created only inside the temp repo if needed.
 - **No real repo commit.** Commits happen only inside the temp repo if needed.
 - **Checks run in sandbox only.** `runChecks` receives the sandbox path, never the real `repo_path`.
+- **SANDBOX_ROOT must not equal `task.repo_path`.** Enforced by `createSandboxRepoCopy` before any copy/apply.
+- **SANDBOX_ROOT must not be inside `task.repo_path`.** Enforced by `createSandboxRepoCopy` before any copy/apply.
+- **Rejection happens before sandbox directory creation.** If sandboxRoot is invalid, no temp directory is created inside the real repo.
 
 **Failure behavior:**
 - Malformed provider output → fail safely before any file operation.
