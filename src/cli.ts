@@ -827,14 +827,20 @@ if (command === 'provider-preview') {
       process.exit(1);
     }
 
+    const extraArgs = args.slice(2);
     let role: string = 'coder';
-    const roleIdx = args.indexOf('--role');
-    if (roleIdx !== -1 && args[roleIdx + 1]) {
-      role = args[roleIdx + 1];
-    }
-
-    if (role !== 'coder' && role !== 'reviewer') {
-      console.error('[provider-preview] Error: Invalid role: expected coder or reviewer');
+    if (extraArgs.length === 2 && extraArgs[0] === '--role') {
+      if (extraArgs[1] === 'coder' || extraArgs[1] === 'reviewer') {
+        role = extraArgs[1];
+      } else {
+        console.error('[provider-preview] Error: Invalid role: expected coder or reviewer');
+        console.error('[provider-preview] No real API call was made');
+        console.error('[provider-preview] No patch was applied');
+        console.error('[provider-preview] No git mutation was performed');
+        process.exit(1);
+      }
+    } else if (extraArgs.length > 0) {
+      console.error('[provider-preview] Error: Unexpected arguments. Usage: provider-preview <taskId> [--role coder|reviewer]');
       console.error('[provider-preview] No real API call was made');
       console.error('[provider-preview] No patch was applied');
       console.error('[provider-preview] No git mutation was performed');
