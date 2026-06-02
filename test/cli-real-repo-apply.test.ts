@@ -62,6 +62,13 @@ function runCli(
   };
 }
 
+function buildFakeKimiOutput(
+  files: Array<{ path: string; content: string }>,
+  notes?: string
+): string {
+  return JSON.stringify({ mode: 'file_update', files, notes });
+}
+
 function createTempEnv(): {
   taskId: string;
   tasksFilePath: string;
@@ -147,7 +154,7 @@ function createTempEnv(): {
 }
 
 describe('cli real-repo-apply', () => {
-  test('command exists and refuses safely', () => {
+  test('missing ALLOW_REAL_REPO_APPLY refuses before provider response is required', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-apply', taskId], {
@@ -155,8 +162,12 @@ describe('cli real-repo-apply', () => {
       });
       assert.notStrictEqual(result.status, 0, 'should exit non-zero');
       assert(
-        result.stderr.includes('real-repo-apply is not implemented yet'),
-        `Expected refusal message, got: ${result.stderr}`
+        result.stderr.includes('ALLOW_REAL_REPO_APPLY=true is required'),
+        `Expected opt-in message, got: ${result.stderr}`
+      );
+      assert(
+        !result.stderr.includes('REAL_REPO_PROVIDER_RESPONSE'),
+        'Should not mention provider response before opt-in'
       );
     } finally {
       cleanup();
@@ -172,52 +183,260 @@ describe('cli real-repo-apply', () => {
     );
   });
 
-  test('does not require ALLOW_REAL_REPO_APPLY while still stubbed', () => {
+  test('with opt-in, missing REAL_REPO_PROVIDER_RESPONSE refuses safely', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
       });
-      assert.notStrictEqual(result.status, 0);
-      assert(!result.stderr.includes('ALLOW_REAL_REPO_APPLY'));
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(result.stderr.includes('REAL_REPO_PROVIDER_RESPONSE'));
+      assert(result.stderr.includes('No files were modified'));
     } finally {
       cleanup();
     }
   });
 
-  test('does not require provider response while still stubbed', () => {
+  test('with opt-in, empty REAL_REPO_PROVIDER_RESPONSE refuses safely', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: '',
       });
-      assert.notStrictEqual(result.status, 0);
-      assert(!result.stderr.includes('REAL_REPO_PROVIDER_RESPONSE'));
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(result.stderr.includes('REAL_REPO_PROVIDER_RESPONSE'));
+      assert(result.stderr.includes('No files were modified'));
     } finally {
       cleanup();
     }
   });
 
-  test('does not require API keys', () => {
+  test('with opt-in, malformed provider response refuses safely', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: 'not-json-at-all',
       });
-      assert.notStrictEqual(result.status, 0);
-      assert(!result.stderr.includes('KIMI_API_KEY'));
-      assert(!result.stderr.includes('OPENAI_API_KEY'));
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(result.stderr.includes('[real-repo-apply] Error:'));
+      assert(result.stderr.includes('No files were modified'));
     } finally {
       cleanup();
     }
   });
 
-  test('does not modify repo files', () => {
+  test('with opt-in, file guardrails violation refuses safely', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: '.env', content: 'SECRET=1\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(result.stderr.includes('Guardrails failed:'));
+      assert(result.stderr.includes('No files were modified'));
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with opt-in, line delta violation refuses safely', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const longContent = Array(152).fill('x').join('\n') + '\n';
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: longContent },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(result.stderr.includes('Error:'));
+      assert(result.stderr.includes('No files were modified'));
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with opt-in, dirty working tree refuses safely', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'dirty.txt'), 'dirty', 'utf-8');
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(result.stderr.includes('Safety check failed:'));
+      assert(result.stderr.includes('Working tree is not clean'));
+      assert(result.stderr.includes('No files were modified'));
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with opt-in, current branch main refuses safely', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['checkout', 'main'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(result.stderr.includes('Safety check failed:'));
+      assert(result.stderr.includes('Current branch is main'));
+      assert(result.stderr.includes('No files were modified'));
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with opt-in, task.work_branch main refuses safely', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      const modifiedTasksPath = join(repoPath, '..', 'tasks-main.yaml');
+      writeFileSync(
+        modifiedTasksPath,
+        `tasks:
+  - id: ${taskId}
+    title: "Apply test"
+    repo_path: "${repoPath.replace(/\\/g, '/')}"
+    base_branch: "main"
+    work_branch: "main"
+    goal: "Test goal"
+    context_files:
+      - "README.md"
+    checks:
+      - command: "node"
+        args: ["-e", "process.exit(0)"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`,
+        'utf-8'
+      );
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: modifiedTasksPath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(result.stderr.includes('Safety check failed:'));
+      assert(result.stderr.includes('work_branch is main'));
+      assert(result.stderr.includes('No files were modified'));
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with opt-in, branch mismatch refuses safely', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['checkout', '-b', 'other-branch'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(result.stderr.includes('Safety check failed:'));
+      assert(result.stderr.includes('does not equal work_branch'));
+      assert(result.stderr.includes('No files were modified'));
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with opt-in and valid response/safety, prints plan summary and then refuses before write', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+      assert(
+        result.stdout.includes('[real-repo-apply] Task:'),
+        `Expected Task header, got: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[real-repo-apply] Current branch:'),
+        `Expected current branch, got: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[real-repo-apply] Work branch:'),
+        `Expected work branch, got: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('[real-repo-apply] Files:'),
+        `Expected Files header, got: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('action=overwrite'),
+        `Expected action=overwrite, got: ${result.stdout}`
+      );
+      assert(
+        result.stdout.includes('backupPath='),
+        `Expected backupPath, got: ${result.stdout}`
+      );
+      assert(
+        result.stderr.includes('pre-write validation passed, but file apply is not implemented yet'),
+        `Expected pre-write stop message, got: ${result.stderr}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('valid pre-write path does not modify repo files', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       const original = readFileSync(join(repoPath, 'README.md'), 'utf-8');
       runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
       });
       assert.strictEqual(
         readFileSync(join(repoPath, 'README.md'), 'utf-8'),
@@ -228,11 +447,15 @@ describe('cli real-repo-apply', () => {
     }
   });
 
-  test('does not create runs/state files', () => {
+  test('valid pre-write path does not create runs/state files', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
       });
       assert(
         !existsSync(join(repoPath, 'runs', 'state.json')),
@@ -243,7 +466,7 @@ describe('cli real-repo-apply', () => {
     }
   });
 
-  test('does not commit', () => {
+  test('valid pre-write path does not commit', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       const before = spawnSync(
@@ -254,6 +477,10 @@ describe('cli real-repo-apply', () => {
       const beforeCount = before.stdout?.trim().split('\n').length ?? 0;
       runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
       });
       const after = spawnSync(
         'git',
@@ -267,14 +494,17 @@ describe('cli real-repo-apply', () => {
     }
   });
 
-  test('does not push', () => {
+  test('valid pre-write path does not push', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
       });
       assert.notStrictEqual(result.status, 0);
-      // Safety message mentions "No push was performed" but actual git push must not happen
       assert(!result.stdout.includes('git push'));
       assert(!result.stderr.includes('git push'));
     } finally {
@@ -282,11 +512,15 @@ describe('cli real-repo-apply', () => {
     }
   });
 
-  test('does not merge', () => {
+  test('valid pre-write path does not merge', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
       });
       assert.notStrictEqual(result.status, 0);
       assert(!result.stdout.includes('git merge'));
@@ -296,7 +530,7 @@ describe('cli real-repo-apply', () => {
     }
   });
 
-  test('does not checkout or switch branch', () => {
+  test('valid pre-write path does not checkout or switch branch', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       const before = spawnSync(
@@ -307,6 +541,10 @@ describe('cli real-repo-apply', () => {
       const beforeBranch = before.stdout?.trim() ?? '';
       runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
       });
       const after = spawnSync(
         'git',
@@ -320,18 +558,59 @@ describe('cli real-repo-apply', () => {
     }
   });
 
+  test('does not require API keys', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stderr.includes('KIMI_API_KEY'));
+      assert(!result.stderr.includes('OPENAI_API_KEY'));
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('does not call provider/network', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      // No API keys required and response comes from env, so no provider call happened
+      assert(!result.stderr.includes('KIMI_API_KEY'));
+      assert(!result.stderr.includes('fetch'));
+    } finally {
+      cleanup();
+    }
+  });
+
   test('output contains all safety messages', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('No files were modified'));
-      assert(result.stderr.includes('No commit was made'));
-      assert(result.stderr.includes('No push was performed'));
-      assert(result.stderr.includes('No merge was performed'));
-      assert(result.stderr.includes('Real repo apply remains disabled'));
+      const combined = result.stdout + result.stderr;
+      assert(combined.includes('No files were modified'));
+      assert(combined.includes('No commit was made'));
+      assert(combined.includes('No push was performed'));
+      assert(combined.includes('No merge was performed'));
     } finally {
       cleanup();
     }
@@ -342,6 +621,10 @@ describe('cli real-repo-apply', () => {
     try {
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
       });
       assert.notStrictEqual(result.status, 0);
       const combined = result.stdout + result.stderr;
@@ -359,6 +642,10 @@ describe('cli real-repo-apply', () => {
     try {
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
         OPENAI_API_KEY: 'sk-fake-key-12345',
       });
       assert.notStrictEqual(result.status, 0);

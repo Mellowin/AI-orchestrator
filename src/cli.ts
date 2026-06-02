@@ -27,6 +27,7 @@ import type { FetchFn } from './provider-call.js';
 import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
 import { validateRealRepoApplySafety } from './real-repo-apply-safety.js';
 import { buildRealRepoApplyDryRunSummary } from './real-repo-apply-dry-run.js';
+import { buildRealRepoApplyPlan } from './real-repo-apply-plan.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -1192,13 +1193,123 @@ if (command === 'real-repo-apply-dry-run') {
 }
 
 if (command === 'real-repo-apply') {
-  console.error('[real-repo-apply] real-repo-apply is not implemented yet');
-  console.error('[real-repo-apply] No files were modified');
-  console.error('[real-repo-apply] No commit was made');
-  console.error('[real-repo-apply] No push was performed');
-  console.error('[real-repo-apply] No merge was performed');
-  console.error('[real-repo-apply] Real repo apply remains disabled');
-  process.exit(1);
+  try {
+    if (process.env.ALLOW_REAL_REPO_APPLY !== 'true') {
+      console.error('[real-repo-apply] ALLOW_REAL_REPO_APPLY=true is required');
+      console.error('[real-repo-apply] No files were modified');
+      console.error('[real-repo-apply] No commit was made');
+      console.error('[real-repo-apply] No push was performed');
+      console.error('[real-repo-apply] No merge was performed');
+      process.exit(1);
+    }
+
+    const rawProviderText = process.env.REAL_REPO_PROVIDER_RESPONSE?.trim();
+    if (!rawProviderText) {
+      console.error('[real-repo-apply] Error: REAL_REPO_PROVIDER_RESPONSE env var is required');
+      console.error('[real-repo-apply] No files were modified');
+      console.error('[real-repo-apply] No commit was made');
+      console.error('[real-repo-apply] No push was performed');
+      console.error('[real-repo-apply] No merge was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+    const kimiOutput = parseKimiOutputJson(rawProviderText);
+    const updatePaths = kimiOutput.files.map((f) => f.path);
+
+    const guardrailsResult = validateFileList(updatePaths, task.guardrails);
+    if (!guardrailsResult.ok) {
+      console.error(`[real-repo-apply] Guardrails failed: ${guardrailsResult.reason}`);
+      console.error('[real-repo-apply] No files were modified');
+      console.error('[real-repo-apply] No commit was made');
+      console.error('[real-repo-apply] No push was performed');
+      console.error('[real-repo-apply] No merge was performed');
+      process.exit(1);
+    }
+
+    if (task.guardrails.max_lines_changed !== undefined) {
+      validateProposedFileLineDeltas(
+        task.repo_path,
+        kimiOutput.files,
+        task.guardrails.max_lines_changed
+      );
+    }
+
+    let currentBranch = '';
+    let isClean = false;
+    try {
+      ensureClean(task.repo_path);
+      isClean = true;
+    } catch {
+      isClean = false;
+    }
+
+    try {
+      currentBranch = getCurrentBranch(task.repo_path);
+    } catch {
+      currentBranch = '';
+    }
+
+    const safetyResult = validateRealRepoApplySafety(task, { isClean, currentBranch });
+    if (!safetyResult.ok) {
+      console.error(`[real-repo-apply] Safety check failed: ${safetyResult.reason}`);
+      console.error('[real-repo-apply] No files were modified');
+      console.error('[real-repo-apply] No commit was made');
+      console.error('[real-repo-apply] No push was performed');
+      console.error('[real-repo-apply] No merge was performed');
+      process.exit(1);
+    }
+
+    const existingPaths: string[] = [];
+    for (const f of kimiOutput.files) {
+      const filePath = join(task.repo_path, f.path);
+      if (existsSync(filePath)) {
+        existingPaths.push(f.path);
+      }
+    }
+
+    const planResult = buildRealRepoApplyPlan({
+      taskId,
+      attempt: 1,
+      existingPaths,
+      files: kimiOutput.files,
+    });
+
+    if (!planResult.ok) {
+      console.error(`[real-repo-apply] Plan builder failed: ${planResult.reason}`);
+      for (const msg of planResult.safetyMessages) {
+        console.error(`[real-repo-apply] ${msg}`);
+      }
+      console.error('[real-repo-apply] No files were modified');
+      console.error('[real-repo-apply] No commit was made');
+      console.error('[real-repo-apply] No push was performed');
+      console.error('[real-repo-apply] No merge was performed');
+      process.exit(1);
+    }
+
+    console.log(`[real-repo-apply] Task: ${planResult.taskId}`);
+    console.log(`[real-repo-apply] Current branch: ${currentBranch}`);
+    console.log(`[real-repo-apply] Work branch: ${task.work_branch}`);
+    console.log('[real-repo-apply] Files:');
+    for (const f of planResult.files) {
+      console.log(`[real-repo-apply]   ${f.path}: action=${f.action}, backupPath=${f.backupPath}`);
+    }
+
+    console.error('[real-repo-apply] real-repo-apply pre-write validation passed, but file apply is not implemented yet');
+    console.error('[real-repo-apply] No files were modified');
+    console.error('[real-repo-apply] No commit was made');
+    console.error('[real-repo-apply] No push was performed');
+    console.error('[real-repo-apply] No merge was performed');
+    process.exit(1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-repo-apply] Error: ${message}`);
+    console.error('[real-repo-apply] No files were modified');
+    console.error('[real-repo-apply] No commit was made');
+    console.error('[real-repo-apply] No push was performed');
+    console.error('[real-repo-apply] No merge was performed');
+    process.exit(1);
+  }
 }
 
 if (process.exitCode === undefined) {
