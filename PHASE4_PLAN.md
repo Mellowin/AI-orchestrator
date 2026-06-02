@@ -225,23 +225,30 @@ Properties:
 - **Wired to CLI.**
 - **Real repo apply remains disabled for writes.**
 
-### 8.4 Completed — `real-repo-apply <taskId>` safe refusal stub CLI
+### 8.4 Completed — `real-repo-apply <taskId>` pre-write validation CLI
 
 - **Status:** ✅ Implemented and tested.
 - **Location:** `src/cli.ts`
 - **Tests:** `test/cli-real-repo-apply.test.ts`
 
-A safe refusal stub that:
+A pre-write validation flow that still refuses before any file write:
 
-- Always exits non-zero with clear refusal message: `real-repo-apply is not implemented yet`.
-- Prints safety messages: `No files were modified`, `No commit was made`, `No push was performed`, `No merge was performed`, `Real repo apply remains disabled`.
-- Does NOT require `ALLOW_REAL_REPO_APPLY`.
-- No real repo writes, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch.
+- Requires `ALLOW_REAL_REPO_APPLY=true`.
+- Reads `REAL_REPO_PROVIDER_RESPONSE` env var.
+- Parses via `parseKimiOutputJson`.
+- Validates file list via `validateFileList`.
+- Validates line deltas via `validateProposedFileLineDeltas`.
+- Validates repo safety via `validateRealRepoApplySafety` (clean tree, non-main branch, branch match, auto_commit/push/merge all false).
+- Builds apply plan via `buildRealRepoApplyPlan`.
+- Prints plan summary: task id, current branch, work branch, files with action (`create`/`overwrite`) and `backupPath`.
+- Exits non-zero with message: `real-repo-apply pre-write validation passed, but file apply is not implemented yet`.
+- Prints safety messages: `No files were modified`, `No commit was made`, `No push was performed`, `No merge was performed`.
+- No real repo writes, no `applyFileUpdates`, no `rollbackFileUpdates`, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch.
 
 Properties:
-- 14 CLI tests covering refusal, missing taskId, no opt-in required, no provider response required, no file mutation, no state write, no commit/push/merge/checkout, no stack trace leak, no API key leak.
+- 23 CLI tests covering missing opt-in, missing/empty/malformed provider response, parse failure, guardrails failure, line delta failure, dirty tree, main branch, work_branch main, branch mismatch, safety failure, valid pre-write path with plan summary, no file mutation, no state write, no commit/push/merge/checkout, no stack trace leak, no API key leak.
 - **Wired to CLI.**
-- **Real repo apply remains disabled for writes.**
+- **Real repo apply (write) remains disabled.**
 
 ### 8.5 Completed — `buildRealRepoApplyPlan(input)` pure helper
 
@@ -266,22 +273,20 @@ Properties:
 - **Not wired to CLI.**
 - **Real repo apply remains disabled for writes.**
 
-### 8.6 Next Recommended Step — Stage 4.2 Pre-Write Refusal Tests / Opt-In Tests
+### 8.6 Next Recommended Step — Stage 4.2 Actual File Apply and Rollback
 
-**Do not implement real file writes yet.**
+**Real file write is still not implemented.** The pre-write validation flow validates everything but stops before `applyFileUpdates`.
 
-Before wiring `buildRealRepoApplyPlan` into `real-repo-apply` CLI and enabling actual file writes:
+Next steps to complete Stage 4.2:
 
-1. **Expand `test/cli-real-repo-apply.test.ts`** to test pre-write refusal paths:
-   - Missing `ALLOW_REAL_REPO_APPLY` opt-in.
-   - Dirty working tree.
-   - Current branch is `main`.
-   - `work_branch` is `main`.
-   - Branch mismatch.
-   - Missing provider response (`REAL_REPO_PROVIDER_RESPONSE`).
-   - Parse failure, guardrails failure, line delta failure, safety failure.
-2. **Keep the stub behavior for all failure paths.** Real file writes must only be added after all refusal tests pass.
-3. **Only then:** replace the stub with real logic that calls `buildRealRepoApplyPlan` → `applyFileUpdates` → `runChecks` → `rollbackFileUpdates` on failure, all behind `ALLOW_REAL_REPO_APPLY=true`.
+1. **Preserve all existing refusal tests** in `test/cli-real-repo-apply.test.ts` (23 tests). Every failure path must continue to exit non-zero with safe messages and no file mutation.
+2. **Add real apply logic** behind the pre-write validation success path:
+   - Call `applyFileUpdates` with real repo path and `runDir` from `buildRealRepoApplyPlan`.
+   - Run `runChecks` in real repo path after apply.
+   - On check failure: call `rollbackFileUpdates` to restore files.
+   - On apply failure mid-batch: call `rollbackFileUpdates` for successfully written files.
+3. **State remains no-write** until a safe point is explicitly defined (see audit doc).
+4. **No commit, no push, no merge, no main touch** — these invariants must hold even after apply is enabled.
 
 ---
 
@@ -290,7 +295,9 @@ Before wiring `buildRealRepoApplyPlan` into `real-repo-apply` CLI and enabling a
 | Check | Status |
 |-------|--------|
 | Phase 4 Stage 4.1 implemented | ✅ |
+| Phase 4 pre-write validation implemented | ✅ |
 | No real repo writes in Stage 4.1 | Confirmed |
 | Real repo apply (write) remains disabled | Confirmed |
+| Pre-write validation stops before applyFileUpdates | Confirmed |
 | No push / no merge / no main touch | Confirmed |
 | Opt-in flags defined | Confirmed |

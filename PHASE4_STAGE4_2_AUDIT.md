@@ -30,11 +30,19 @@ This document is planning/audit only. No real repo write behavior is enabled by 
 
 The following runtime building blocks have been implemented **after** this audit document was created. They do not enable real repo writes, but they prepare the codebase for Stage 4.2:
 
-- **`real-repo-apply <taskId>` safe refusal stub CLI** (`src/cli.ts`, `test/cli-real-repo-apply.test.ts`):
-  - Always exits non-zero with clear refusal message.
-  - Prints safety messages.
-  - Does not require `ALLOW_REAL_REPO_APPLY`.
-  - No real repo writes, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch.
+- **`real-repo-apply <taskId>` pre-write validation CLI** (`src/cli.ts`, `test/cli-real-repo-apply.test.ts`):
+  - Requires `ALLOW_REAL_REPO_APPLY=true`.
+  - Reads `REAL_REPO_PROVIDER_RESPONSE` env var.
+  - Parses via `parseKimiOutputJson`.
+  - Validates file list via `validateFileList`.
+  - Validates line deltas via `validateProposedFileLineDeltas`.
+  - Validates repo safety via `validateRealRepoApplySafety` (clean tree, non-main branch, branch match, auto_commit/push/merge all false).
+  - Builds apply plan via `buildRealRepoApplyPlan`.
+  - Prints plan summary (task id, current branch, work branch, files with action and backupPath).
+  - Still exits non-zero before any file write with message `real-repo-apply pre-write validation passed, but file apply is not implemented yet`.
+  - Prints safety messages (`No files were modified`, `No commit was made`, `No push was performed`, `No merge was performed`).
+  - No real repo writes, no `applyFileUpdates`, no `rollbackFileUpdates`, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch.
+  - 23 CLI tests covering all refusal paths and pre-write validation success path.
 
 - **`buildRealRepoApplyPlan(input)` pure helper** (`src/real-repo-apply-plan.ts`, `test/real-repo-apply-plan.test.ts`):
   - Builds create/overwrite plan from `existingPaths` and proposed files.
@@ -44,9 +52,9 @@ The following runtime building blocks have been implemented **after** this audit
   - Allows empty string content.
   - Returns `{ok:false,reason,safetyMessages}` without throwing.
   - 100% pure: no fs, no git, no child_process, no env, no network, no API keys, no state writes.
-  - **Not wired to CLI.**
+  - **Wired to `real-repo-apply` CLI.**
 
-> **Stage 4.2 write behavior remains pending.** Real repo apply is still disabled. No `ALLOW_REAL_REPO_APPLY` check is enforced in the CLI yet. No `applyFileUpdates` is called on the real repo.
+> **Stage 4.2 write behavior remains pending.** Real repo apply is still disabled. The CLI validates everything but stops before `applyFileUpdates`. No files are written to the real repo.
 
 ---
 
@@ -270,30 +278,27 @@ The following are **out of scope** for this document and for Stage 4.2:
 
 ---
 
-## 13. Recommended First Stage 4.2 Implementation Task
+## 13. Next Pending Boundaries
 
-**Safer next step: add tests before helper.**
+### 13.1 Actual apply + rollback
 
-Before writing `buildRealRepoApplyPlan` or wiring a new CLI command, create the test file `test/cli-real-repo-apply.test.ts` with the 22 required test cases above. Initially, all tests will target a stub/refusal implementation (similar to how `real-provider-run` started as a safe refusal stub). Then, incrementally replace the stub with real logic behind `ALLOW_REAL_REPO_APPLY`, keeping tests green at each step.
+The pre-write validation flow is complete. The remaining work for Stage 4.2 is:
 
-**Alternative: add pure planner only.**
+1. **Call `applyFileUpdates`** with real repo path and `runDir` from `buildRealRepoApplyPlan` after all pre-write checks pass.
+2. **Run `runChecks`** in real repo path after successful apply.
+3. **Call `rollbackFileUpdates`** on check failure to restore files.
+4. **Call `rollbackFileUpdates`** on apply failure mid-batch for successfully written files.
+5. **Preserve all 23 existing refusal tests** — every failure path must continue to exit non-zero with safe messages and no file mutation.
+6. **No state write** until a safe point is explicitly defined.
+7. **No commit, no push, no merge, no main touch** — these invariants must hold even after apply is enabled.
 
-If tests-first is not chosen, the next safest step is a pure helper:
+### 13.2 Recommended implementation order
 
-```typescript
-buildRealRepoApplyPlan(input: {
-  task: Task;
-  kimiOutput: KimiOutput;
-  repoStatus: RealRepoStatus;
-}): {
-  ok: true;
-  plan: { path: string; action: 'create' | 'overwrite'; backupPath: string }[];
-} | { ok: false; reason: string; safeMessages: string[] }
-```
-
-This helper validates inputs and produces a plan without touching the filesystem. It can be unit-tested in isolation. The CLI command would call this helper before calling `applyFileUpdates`.
-
-**Recommendation:** tests-first approach is strongly preferred for Stage 4.2 because it is the first real-repo write phase.
+1. Add the apply/rollback logic behind the existing pre-write validation success path in `src/cli.ts`.
+2. Add tests for the new success path (apply to real repo, checks pass) and failure path (apply succeeds but checks fail → rollback).
+3. Verify all 23 existing refusal tests still pass.
+4. Verify no state file is written on failure.
+5. Verify no commit/push/merge/checkout/main touch occurs in any path.
 
 ---
 
