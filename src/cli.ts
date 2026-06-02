@@ -24,6 +24,7 @@ import { resolveBackupPath } from './backup-path.js';
 import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-plan.js';
 import { createMockProviderCall, createRealProviderCall, buildProviderCallInput, normalizeProviderCallResult, normalizeProviderCallError } from './provider-call.js';
 import type { FetchFn } from './provider-call.js';
+import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -132,7 +133,7 @@ const taskId = args[1];
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -1021,6 +1022,67 @@ if (command === 'provider-preview') {
     console.error('[provider-preview] No real API call was made');
     console.error('[provider-preview] No patch was applied');
     console.error('[provider-preview] No git mutation was performed');
+    process.exit(1);
+  }
+}
+
+if (command === 'sandbox-apply-preview') {
+  try {
+    if (process.env.ALLOW_SANDBOX_APPLY_PREVIEW !== 'true') {
+      console.error('[sandbox-apply-preview] Error: sandbox-apply-preview requires ALLOW_SANDBOX_APPLY_PREVIEW=true');
+      console.error('[sandbox-apply-preview] No patch was applied to real repo');
+      console.error('[sandbox-apply-preview] No git mutation was performed in real repo');
+      console.error('[sandbox-apply-preview] No state mutation was performed');
+      process.exit(1);
+    }
+
+    const rawProviderText = process.env.SANDBOX_PROVIDER_RESPONSE?.trim();
+    if (!rawProviderText) {
+      console.error('[sandbox-apply-preview] Error: SANDBOX_PROVIDER_RESPONSE env var is required');
+      console.error('[sandbox-apply-preview] No patch was applied to real repo');
+      console.error('[sandbox-apply-preview] No git mutation was performed in real repo');
+      console.error('[sandbox-apply-preview] No state mutation was performed');
+      process.exit(1);
+    }
+
+    const sandboxRoot = process.env.SANDBOX_ROOT?.trim();
+    if (!sandboxRoot) {
+      console.error('[sandbox-apply-preview] Error: SANDBOX_ROOT env var is required');
+      console.error('[sandbox-apply-preview] No patch was applied to real repo');
+      console.error('[sandbox-apply-preview] No git mutation was performed in real repo');
+      console.error('[sandbox-apply-preview] No state mutation was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+    const result = runSandboxApplyFlow({ task, rawProviderText, sandboxRoot });
+
+    if (result.success) {
+      console.log('[sandbox-apply-preview] Apply: PASS');
+      console.log(`[sandbox-apply-preview] Applied files: ${result.appliedFiles?.join(', ') ?? 'none'}`);
+      console.log(`[sandbox-apply-preview] Checks passed: ${result.checksPassed ? 'yes' : 'no'}`);
+      console.log('[sandbox-apply-preview] Logs:');
+      console.log(result.logs);
+      console.log('[sandbox-apply-preview] No patch was applied to real repo');
+      console.log('[sandbox-apply-preview] No git mutation was performed in real repo');
+      console.log('[sandbox-apply-preview] No state mutation was performed');
+      process.exit(0);
+    } else {
+      console.error('[sandbox-apply-preview] Apply: FAILED');
+      console.error(`[sandbox-apply-preview] Failed step: ${result.failedStep ?? 'unknown'}`);
+      console.error('[sandbox-apply-preview] Logs:');
+      console.error(result.logs);
+      console.error('[sandbox-apply-preview] No patch was applied to real repo');
+      console.error('[sandbox-apply-preview] No git mutation was performed in real repo');
+      console.error('[sandbox-apply-preview] No state mutation was performed');
+      process.exit(1);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[sandbox-apply-preview] Error: ${message}`);
+    console.error('[sandbox-apply-preview] No patch was applied to real repo');
+    console.error('[sandbox-apply-preview] No git mutation was performed in real repo');
+    console.error('[sandbox-apply-preview] No state mutation was performed');
     process.exit(1);
   }
 }
