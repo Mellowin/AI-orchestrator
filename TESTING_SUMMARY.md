@@ -2,12 +2,12 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `0753dfb0be205923b5b2cd91ac886fd70c6d04c9`
+**Last verified:** `9a532b8c9cd8015e300c10ddbb38fc465455bcde`
 
 ## Test metrics
 
-- **Total tests:** 284
-- **Total suites:** 37
+- **Total tests:** 287
+- **Total suites:** 38
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -25,7 +25,7 @@
 | AI output validator | `test/kimi-output-validator.test.ts`, `test/ai-response-parser.test.ts` | JSON parsing, fenced blocks, schema validation, unsafe paths |
 | Reviewer output validator | `test/reviewer-output-validator.test.ts` | approve / needs_changes / reject, strict schema validation, fenced JSON parsing, secret-safe errors |
 | Runner | `test/runner.test.ts` | Exit codes, stdout/stderr, secret env cleanup, command validation |
-| CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override, pipeline-loop approve / needs_changes / reject / missing reviewer response, real-provider-plan dry-run safeguard |
+| CLI entrypoint | `test/cli.test.ts`, `test/cli-*.test.ts` | Usage, missing args, missing task, mock provider, env override, pipeline-loop approve / needs_changes / reject / missing reviewer response, real-provider-plan dry-run safeguard, real-provider-run refusal with task validation after opt-in |
 | Pipeline loop | `test/pipeline-loop.test.ts` | approve keeps patch, needs_changes rolls back, reject rolls back, invalid reviewer JSON rolls back |
 | Pipeline loop CLI | `test/cli-pipeline-loop.test.ts` | approve success, needs_changes failure + rollback, reject failure + rollback, missing MOCK_REVIEWER_RESPONSE |
 | E2E mock smoke | `test/e2e-mock-smoke.test.ts` | Full happy path: ai-generate → ai-apply, file update, approved state, no push |
@@ -43,10 +43,12 @@
 
 - **Minimal pipeline loop is exposed through CLI (`pipeline-loop <taskId>`), but only with mock inputs (`MOCK_AI_RESPONSE` + `MOCK_REVIEWER_RESPONSE`).** Full real-provider multi-attempt Coder → Reviewer → Coder retry loop is still not implemented.
 - **`real-provider-plan` exists as a dry-run safeguard, but real-provider execution is not yet implemented.** It only prints a plan without calling APIs, applying patches, or touching git.
+- **`real-provider-run` exists as a safe refusal stub.** Without `ALLOW_REAL_PROVIDER_RUN=true` it refuses; even with opt-in it still refuses because execution is not implemented. No API call, no patch, no push, no merge, no main touch.
 
 ## Next recommended work
 
-1. Design explicit opt-in config/flag for real-provider execution.
-2. Add tests that default behavior refuses real-provider execution without opt-in.
-3. Keep mock mode as default for tests and local development.
-4. Keep no push, no merge, no main touch.
+1. Design first real-provider step as a separate provider-call abstraction.
+2. Keep execution behind `ALLOW_REAL_PROVIDER_RUN=true`.
+3. Add tests before any real provider call is wired.
+4. Keep mock mode as default for tests and local development.
+5. Keep no push, no merge, no main touch.
