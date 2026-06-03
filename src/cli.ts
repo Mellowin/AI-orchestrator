@@ -303,9 +303,48 @@ if (command === 'real-repo-commit') {
   }
 }
 
+if (command === 'real-repo-push') {
+  try {
+    if (!taskId) {
+      console.error('[real-repo-push] Error: task id is required');
+      console.error('[real-repo-push] No push was performed');
+      console.error('[real-repo-push] No merge was performed');
+      console.error('[real-repo-push] No checkout was performed');
+      console.error('[real-repo-push] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_PUSH !== 'true') {
+      console.error('[real-repo-push] ALLOW_REAL_REPO_PUSH=true is required');
+      console.error('[real-repo-push] No push was performed');
+      console.error('[real-repo-push] No merge was performed');
+      console.error('[real-repo-push] No checkout was performed');
+      console.error('[real-repo-push] No main touch was performed');
+      process.exit(1);
+    }
+
+    console.error('[real-repo-push] real-repo-push is not implemented yet');
+    console.error('[real-repo-push] Stage 4.4 push behavior remains disabled');
+    console.error('[real-repo-push] No push was performed');
+    console.error('[real-repo-push] No merge was performed');
+    console.error('[real-repo-push] No checkout was performed');
+    console.error('[real-repo-push] No main touch was performed');
+    console.error('[real-repo-push] Human review required before push');
+    process.exit(1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-repo-push] Error: ${message}`);
+    console.error('[real-repo-push] No push was performed');
+    console.error('[real-repo-push] No merge was performed');
+    console.error('[real-repo-push] No checkout was performed');
+    console.error('[real-repo-push] No main touch was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push> <taskId> [arg3]'
   );
   process.exit(1);
 }

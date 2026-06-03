@@ -81,11 +81,19 @@ All real-repo operations require explicit environment opt-ins. Defaults are deny
 - **No tag creation.**
 - Commit message format: `ai-orchestrator: apply {task_id}`.
 
-### Stage 4.4 — Optional Push
+### Stage 4.4 — Optional Push (refusal stub implemented, actual push disabled)
 
 - Behind separate `ALLOW_REAL_REPO_PUSH=true`.
-- Push the work branch to remote.
+- `real-repo-push <taskId>` safe refusal stub is implemented. With or without opt-in, it refuses safely and does not push.
+- Push the work branch to remote is not implemented yet.
 - **No merge.**
+- **No checkout.**
+- **No pull/fetch/rebase/reset.**
+- **No main touch.**
+- **No state write.**
+- **No provider call.**
+- **No force operations.**
+- **No tag creation.**
 - Human review required before any downstream action.
 
 ---
@@ -289,16 +297,16 @@ Properties:
 - **Not wired to CLI.**
 - **Real repo apply remains disabled for writes.**
 
-### 8.6 Next Recommended Step — Stage 4.4 Push Boundary Audit Plan
+### 8.6 Next Recommended Step — Stage 4.4 Pre-Push Validation Tests
 
-Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented.
+Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 safe refusal stub is implemented.
 
 Next steps:
 
-1. **Audit and plan Stage 4.4 push boundaries.** Define what `ALLOW_REAL_REPO_PUSH=true` would mean, what safety checks are required before any `git push` command, and what the refusal stub behavior should be. Do NOT implement push yet.
-2. **State write still requires explicit decision** before any auto-commit work.
-3. Keep mock mode as default for tests and local development.
-4. Keep no merge, no main touch.
+1. **Add pre-push validation tests** before any actual `git push` command is implemented. Test that `real-repo-push` refuses when prerequisites are not met (dirty tree, branch mismatch, missing remote, no local commit, etc.).
+2. **Do NOT implement git push yet.** Keep `ALLOW_REAL_REPO_PUSH` as a planned opt-in only.
+3. Keep no merge, no main touch.
+4. Keep mock mode as default for tests and local development.
 
 ### 8.7 Completed — `real-repo-commit <taskId>` local commit
 
@@ -345,4 +353,6 @@ Properties:
 | No state write in Stage 4.2 | Confirmed |
 | No provider call in Stage 4.2 | Confirmed |
 | Stage 4.3 actual local commit enabled | Confirmed |
+| Phase 4 Stage 4.4 refusal stub implemented | ✅ |
+| Phase 4 Stage 4.4 actual push remains disabled | Confirmed |
 | Opt-in flags defined | Confirmed |

@@ -2,7 +2,7 @@
 
 **Status:** planning/audit + local commit implemented
 **Branch:** `feature/mvp-skeleton`
-**Baseline commit:** `06c625c22f4a805e835da52bbaed1425c2035ab7`
+**Baseline commit:** `b8375887f739b2b39e944b22f4eee34b80ce4f34`
 
 ---
 
@@ -59,7 +59,7 @@ The following runtime building blocks have been implemented after this audit doc
   - 31 CLI tests covering all validation paths and refusal-before-commit paths.
 
 - **`real-repo-commit <taskId>` actual local commit** (`src/cli.ts`, `test/cli-real-repo-commit.test.ts`):
-  - Commit hash: `06c625c22f4a805e835da52bbaed1425c2035ab7`
+  - Commit hash: `b8375887f739b2b39e944b22f4eee34b80ce4f34`
   - Requires `ALLOW_REAL_REPO_COMMIT=true`, then `ALLOW_REAL_REPO_APPLY=true`, then `REAL_REPO_PROVIDER_RESPONSE`.
   - All pre-commit validation from above is preserved.
   - Stages only approved changed paths via `git add <path>` (array args, no shell interpolation).
