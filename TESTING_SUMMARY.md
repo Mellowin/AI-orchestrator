@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `aec2b1cbd0ece60d39357eea3e70260a40f3478a`
+**Last verified:** `7a15f7a66029690940133f2b83b10174a8686623`
 
 ## Test metrics
 
 - **Total tests:** 1096
 - **Total suites:** 66
-- **Last verified commit:** `aec2b1cbd0ece60d39357eea3e70260a40f3478a` (Stage 6.0 Provider Abstraction Foundation)
+- **Last verified commit:** `7a15f7a66029690940133f2b83b10174a8686623` (Stage 6.0 Provider Abstraction Foundation)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -19,7 +19,7 @@
 | Stage 5.9 | MVP hardening / final documentation | `9d77ee29427ddb4f1c239df911972b6606b63c1d` |
 | Stage 5.10 | Live operator demo evidence pack | `36d8581f5cc171ebc12a93d10a672a26695984f6` |
 | Stage 6.0A | Product vision and autonomous architecture documentation | `f044e2a50acab1329a4edb151cbbccfc3618d144` |
-| Stage 6.0 | Provider Abstraction Foundation | `aec2b1cbd0ece60d39357eea3e70260a40f3478a` |
+| Stage 6.0 | Provider Abstraction Foundation | `7a15f7a66029690940133f2b83b10174a8686623` |
 
 ## Covered layers
 
