@@ -380,7 +380,7 @@ Properties:
 - **Wired to CLI.**
 - **Self-repair loop integrated into real provider workflow.**
 
-### 8.8 Completed — `real-repo-commit <taskId>` local commit
+### 8.9 Completed — `real-repo-commit <taskId>` local commit
 
 - **Status:** ✅ Implemented and tested.
 - **Location:** `src/cli.ts`
@@ -410,6 +410,51 @@ Properties:
 - **Wired to CLI.**
 - **Actual local commit enabled.**
 
+### 8.10 Completed — Stage 5.3 Readiness + Operator Guide
+
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`, `STAGE5_OPERATOR_GUIDE.md`, `STAGE5_REAL_SMOKE_DEMO.md`
+- **Tests:** `test/cli-real-repo-run-ai-readiness.test.ts`
+
+Readiness command `real-repo-run-ai-readiness <taskId>`:
+
+- Validates that `real-repo-run-ai <taskId>` is safe to start, **without** calling the provider and without mutating the repo.
+- Checks all four opt-ins (`ALLOW_REAL_PROVIDER`, `ALLOW_REAL_REPO_APPLY`, `ALLOW_REAL_REPO_COMMIT`, `ALLOW_REAL_REPO_PUSH`).
+- Validates task existence, `repo_path`, `work_branch` not main.
+- Validates repo: current branch exists, not main, matches `work_branch`, clean working tree, HEAD commit exists, origin remote exists with non-empty URL.
+- Validates provider env presence (`KIMI_API_KEY`, `KIMI_BASE_URL`).
+- On success prints readiness summary with `Provider call: not performed`, `Apply: not performed`, `Commit: not performed`, `Push: not performed`.
+- On any failure prints safe error + standard safety messages. No stack trace.
+- Hard forbidden: no provider call, no apply, no commit, no push, no state write, no merge, no checkout/switch, no pull/fetch/rebase/reset, no main touch, no API key printing.
+
+Operator guide (`STAGE5_OPERATOR_GUIDE.md`):
+
+- Documents what Stage 5 supports and what it does NOT support (no merge, no PR, no main touch).
+- Lists required environment variables.
+- Provides exact safe operator sequence (branch → clean → task → readiness → run → inspect → decide).
+- Includes safety checklist and recovery checklist.
+
+Real smoke demo doc (`STAGE5_REAL_SMOKE_DEMO.md`):
+
+- Tiny safe demo plan using `smoke-demo/ai-smoke.txt`.
+- Exact copy-paste steps: branch creation, task config, readiness, real AI run, verification, cleanup.
+- No merge, no force push, no main touch.
+
+Properties:
+- 32 CLI tests covering missing taskId, missing opt-ins (each individually), missing provider env, task/repo validation, branch safety, working tree checks (dirty/untracked/staged), HEAD/origin checks, success output validation, no mutation (files/commit/push/state), no checkout/switch, no main touch, no stack trace, existing `real-repo-run-ai` behavior unchanged.
+- **Wired to CLI.**
+- **Readiness check + operator docs added.**
+
+### 8.11 Next Recommended Step — Stage 5.4 Manual Approval / PR Boundary Audit
+
+Stage 5.3 readiness + operator guide is complete.
+
+Next steps:
+
+1. **Run the real smoke demo** documented in `STAGE5_REAL_SMOKE_DEMO.md` and capture execution report.
+2. **Audit PR boundary:** what happens after `status: pushed`? Document manual approval flow, PR creation guidelines, and merge safety rules.
+3. Keep no merge, no main touch, no automatic checkout/switch.
+
 ---
 
 ## 9. Sign-Off
@@ -431,4 +476,5 @@ Properties:
 | Phase 4 Stage 5.0 unified workflow implemented | ✅ |
 | Phase 4 Stage 5.1 real provider integration implemented | ✅ |
 | Phase 4 Stage 5.2 self-repair loop implemented | ✅ |
+| Phase 4 Stage 5.3 readiness + operator guide implemented | ✅ |
 | Opt-in flags defined | Confirmed |

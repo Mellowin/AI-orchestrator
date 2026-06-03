@@ -1283,9 +1283,151 @@ if (command === 'real-repo-run-ai') {
   }
 }
 
+if (command === 'real-repo-run-ai-readiness') {
+  try {
+    if (!taskId) {
+      console.error('[real-repo-run-ai-readiness] Error: task id is required');
+      console.error('[real-repo-run-ai-readiness] No provider call was made');
+      console.error('[real-repo-run-ai-readiness] No apply was performed');
+      console.error('[real-repo-run-ai-readiness] No commit was made');
+      console.error('[real-repo-run-ai-readiness] No push was performed');
+      console.error('[real-repo-run-ai-readiness] No merge was performed');
+      console.error('[real-repo-run-ai-readiness] No checkout was performed');
+      console.error('[real-repo-run-ai-readiness] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_PROVIDER !== 'true') {
+      console.error('[real-repo-run-ai-readiness] ALLOW_REAL_PROVIDER=true is required');
+      console.error('[real-repo-run-ai-readiness] No provider call was made');
+      console.error('[real-repo-run-ai-readiness] No apply was performed');
+      console.error('[real-repo-run-ai-readiness] No commit was made');
+      console.error('[real-repo-run-ai-readiness] No push was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_APPLY !== 'true') {
+      console.error('[real-repo-run-ai-readiness] ALLOW_REAL_REPO_APPLY=true is required');
+      console.error('[real-repo-run-ai-readiness] No provider call was made');
+      console.error('[real-repo-run-ai-readiness] No apply was performed');
+      console.error('[real-repo-run-ai-readiness] No commit was made');
+      console.error('[real-repo-run-ai-readiness] No push was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_COMMIT !== 'true') {
+      console.error('[real-repo-run-ai-readiness] ALLOW_REAL_REPO_COMMIT=true is required');
+      console.error('[real-repo-run-ai-readiness] No provider call was made');
+      console.error('[real-repo-run-ai-readiness] No apply was performed');
+      console.error('[real-repo-run-ai-readiness] No commit was made');
+      console.error('[real-repo-run-ai-readiness] No push was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_PUSH !== 'true') {
+      console.error('[real-repo-run-ai-readiness] ALLOW_REAL_REPO_PUSH=true is required');
+      console.error('[real-repo-run-ai-readiness] No provider call was made');
+      console.error('[real-repo-run-ai-readiness] No apply was performed');
+      console.error('[real-repo-run-ai-readiness] No commit was made');
+      console.error('[real-repo-run-ai-readiness] No push was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+
+    if (!existsSync(task.repo_path)) {
+      throw new Error('repo_path does not exist');
+    }
+    if (!task.work_branch) {
+      throw new Error('task.work_branch is missing');
+    }
+    if (task.work_branch === 'main') {
+      throw new Error('task.work_branch is main');
+    }
+
+    const currentBranch = getCurrentBranch(task.repo_path);
+    if (!currentBranch || currentBranch === 'HEAD') {
+      throw new Error('Current branch is missing or detached HEAD');
+    }
+    if (currentBranch === 'main') {
+      throw new Error('Current branch is main');
+    }
+    if (currentBranch !== task.work_branch) {
+      throw new Error(
+        `Branch mismatch: current=${currentBranch}, work_branch=${task.work_branch}`
+      );
+    }
+
+    const statusResult = spawnSync('git', ['status', '--porcelain'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (statusResult.stdout && statusResult.stdout.trim().length > 0) {
+      throw new Error('Working tree is not clean');
+    }
+
+    const headResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (headResult.status !== 0) {
+      throw new Error('No local HEAD commit exists');
+    }
+
+    const remoteResult = spawnSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (remoteResult.status !== 0) {
+      throw new Error('Remote origin does not exist');
+    }
+    if (!remoteResult.stdout || remoteResult.stdout.trim().length === 0) {
+      throw new Error('Remote origin URL is empty');
+    }
+
+    const apiKey = process.env.KIMI_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error('KIMI_API_KEY env var is required');
+    }
+
+    const baseUrl = process.env.KIMI_BASE_URL?.trim();
+    if (!baseUrl) {
+      throw new Error('KIMI_BASE_URL env var is required');
+    }
+
+    console.error('[real-repo-run-ai-readiness] Readiness check passed');
+    console.error(`[real-repo-run-ai-readiness] Task: ${taskId}`);
+    console.error(`[real-repo-run-ai-readiness] Branch: ${currentBranch}`);
+    console.error('[real-repo-run-ai-readiness] Provider opt-in: enabled');
+    console.error('[real-repo-run-ai-readiness] Repo apply opt-in: enabled');
+    console.error('[real-repo-run-ai-readiness] Repo commit opt-in: enabled');
+    console.error('[real-repo-run-ai-readiness] Repo push opt-in: enabled');
+    console.error('[real-repo-run-ai-readiness] Provider call: not performed');
+    console.error('[real-repo-run-ai-readiness] Apply: not performed');
+    console.error('[real-repo-run-ai-readiness] Commit: not performed');
+    console.error('[real-repo-run-ai-readiness] Push: not performed');
+    console.error(`[real-repo-run-ai-readiness] Ready to run: real-repo-run-ai ${taskId}`);
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-repo-run-ai-readiness] Error: ${message}`);
+    console.error('[real-repo-run-ai-readiness] No provider call was made');
+    console.error('[real-repo-run-ai-readiness] No apply was performed');
+    console.error('[real-repo-run-ai-readiness] No commit was made');
+    console.error('[real-repo-run-ai-readiness] No push was performed');
+    console.error('[real-repo-run-ai-readiness] No merge was performed');
+    console.error('[real-repo-run-ai-readiness] No checkout was performed');
+    console.error('[real-repo-run-ai-readiness] No main touch was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness> <taskId> [arg3]'
   );
   process.exit(1);
 }
