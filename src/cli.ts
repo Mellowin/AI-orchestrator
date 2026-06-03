@@ -444,9 +444,299 @@ if (command === 'real-repo-push') {
   }
 }
 
+if (command === 'real-repo-run') {
+  let applyStarted = false;
+  try {
+    if (!taskId) {
+      console.error('[real-repo-run] Error: task id is required');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_APPLY !== 'true') {
+      console.error('[real-repo-run] ALLOW_REAL_REPO_APPLY=true is required');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_COMMIT !== 'true') {
+      console.error('[real-repo-run] ALLOW_REAL_REPO_COMMIT=true is required');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_PUSH !== 'true') {
+      console.error('[real-repo-run] ALLOW_REAL_REPO_PUSH=true is required');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    const rawProviderText = process.env.REAL_REPO_PROVIDER_RESPONSE?.trim();
+    if (!rawProviderText) {
+      console.error('[real-repo-run] Error: REAL_REPO_PROVIDER_RESPONSE env var is required');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+    const kimiOutput = parseKimiOutputJson(rawProviderText);
+    const updatePaths = kimiOutput.files.map((f) => f.path);
+
+    const guardrailsResult = validateFileList(updatePaths, task.guardrails);
+    if (!guardrailsResult.ok) {
+      console.error(`[real-repo-run] Guardrails failed: ${guardrailsResult.reason}`);
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (task.guardrails.max_lines_changed !== undefined) {
+      validateProposedFileLineDeltas(
+        task.repo_path,
+        kimiOutput.files,
+        task.guardrails.max_lines_changed
+      );
+    }
+
+    let currentBranch = '';
+    let isClean = false;
+    try {
+      ensureClean(task.repo_path);
+      isClean = true;
+    } catch {
+      isClean = false;
+    }
+
+    try {
+      currentBranch = getCurrentBranch(task.repo_path);
+    } catch {
+      currentBranch = '';
+    }
+
+    const safetyResult = validateRealRepoApplySafety(task, { isClean, currentBranch });
+    if (!safetyResult.ok) {
+      console.error(`[real-repo-run] Safety check failed: ${safetyResult.reason}`);
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    const existingPaths: string[] = [];
+    for (const f of kimiOutput.files) {
+      const filePath = join(task.repo_path, f.path);
+      if (existsSync(filePath)) {
+        existingPaths.push(f.path);
+      }
+    }
+
+    const planResult = buildRealRepoApplyPlan({
+      taskId,
+      attempt: 1,
+      existingPaths,
+      files: kimiOutput.files,
+    });
+
+    if (!planResult.ok) {
+      console.error(`[real-repo-run] Plan builder failed: ${planResult.reason}`);
+      for (const msg of planResult.safetyMessages) {
+        console.error(`[real-repo-run] ${msg}`);
+      }
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    let manifest: import('./types.js').PatchManifestEntry[] | undefined;
+    try {
+      applyStarted = true;
+      manifest = applyFileUpdates(task.repo_path, kimiOutput.files, planResult.runDir);
+    } catch (applyErr) {
+      const applyMessage = applyErr instanceof Error ? applyErr.message : String(applyErr);
+      console.error(`[real-repo-run] Apply failed: ${applyMessage}`);
+      console.error('[real-repo-run] Manual inspection required');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    const checkResult = runChecks(task.repo_path, task.checks);
+    if (!checkResult.success) {
+      console.error('[real-repo-run] Checks failed');
+      if (manifest && manifest.length > 0) {
+        try {
+          rollbackFileUpdates(task.repo_path, manifest);
+          console.error('[real-repo-run] Rollback completed');
+        } catch (rollbackErr) {
+          const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+          console.error(`[real-repo-run] Rollback failed: ${rollbackMessage}`);
+        }
+      } else {
+        console.error('[real-repo-run] Rollback could not be attempted because apply manifest was not returned');
+      }
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    // Validate working tree contains only approved changes before commit
+    const approvedPaths = new Set(updatePaths);
+    const { all: allChanges } = getRepoWorkingTreeChanges(task.repo_path);
+    const unrelated = allChanges.filter((p) => !approvedPaths.has(p));
+    if (unrelated.length > 0) {
+      console.error(`[real-repo-run] Unrelated changes detected: ${unrelated.join(', ')}`);
+      if (manifest && manifest.length > 0) {
+        try {
+          rollbackFileUpdates(task.repo_path, manifest);
+          console.error('[real-repo-run] Rollback completed');
+        } catch (rollbackErr) {
+          const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+          console.error(`[real-repo-run] Rollback failed: ${rollbackMessage}`);
+        }
+      }
+      console.error('[real-repo-run] No commit was made');
+      console.error('[real-repo-run] No push was performed');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (allChanges.length === 0) {
+      console.error('[real-repo-run] No working tree changes match the approved apply manifest');
+      console.error('[real-repo-run] No commit was made');
+      console.error('[real-repo-run] No push was performed');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    // Stage approved files
+    const approvedChanged = allChanges.filter((p) => approvedPaths.has(p));
+    for (const p of approvedChanged) {
+      const addResult = spawnSync('git', ['add', p], {
+        cwd: task.repo_path,
+        shell: false,
+        encoding: 'utf-8',
+      });
+      if (addResult.status !== 0) {
+        console.error('[real-repo-run] Git add failed');
+        console.error('[real-repo-run] No commit was made');
+        console.error('[real-repo-run] No push was performed');
+        console.error('[real-repo-run] No merge was performed');
+        console.error('[real-repo-run] No checkout was performed');
+        console.error('[real-repo-run] No main touch was performed');
+        process.exit(1);
+      }
+    }
+
+    // Commit
+    const commitMessage = `ai-orchestrator: apply ${taskId}`;
+    const commitResult = spawnSync('git', ['commit', '-m', commitMessage, '--no-gpg-sign'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (commitResult.status !== 0) {
+      console.error('[real-repo-run] Git commit failed');
+      console.error('[real-repo-run] Manual inspection required');
+      console.error('[real-repo-run] No push was performed');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    // Push
+    const pushResult = spawnSync('git', ['push', 'origin', currentBranch], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (pushResult.status !== 0) {
+      console.error('[real-repo-run] Git push failed');
+      console.error('[real-repo-run] Manual inspection required');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    // Write state
+    const headResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    const headSha = headResult.status === 0 ? headResult.stdout.trim() : '';
+    const now = new Date().toISOString();
+    let existingState: RunState | null = null;
+    try {
+      existingState = loadState(taskId);
+    } catch {
+      // ignore
+    }
+    const pushState: RunState = {
+      task_id: taskId,
+      status: 'pushed',
+      current_attempt: existingState?.current_attempt ?? 0,
+      branch: currentBranch,
+      repo_path: task.repo_path,
+      created_at: existingState?.created_at ?? now,
+      updated_at: now,
+      pushed_remote: 'origin',
+      pushed_ref: currentBranch,
+      commit_sha: headSha,
+      safety_note: 'Push completed; merge not performed; human review required before merge',
+    };
+
+    try {
+      saveState(taskId, pushState);
+    } catch (stateErr) {
+      console.error('[real-repo-run] Push completed');
+      console.error('[real-repo-run] State write failed');
+      console.error('[real-repo-run] Manual inspection required');
+      console.error('[real-repo-run] No merge was performed');
+      console.error('[real-repo-run] No checkout was performed');
+      console.error('[real-repo-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    console.error('[real-repo-run] Real repo run completed');
+    console.error(`[real-repo-run] Applied files: ${kimiOutput.files.length}`);
+    console.error('[real-repo-run] Commit created');
+    console.error('[real-repo-run] Push completed');
+    console.error('[real-repo-run] State written');
+    console.error('[real-repo-run] Human review required before merge');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-repo-run] Error: ${message}`);
+    console.error('[real-repo-run] No merge was performed');
+    console.error('[real-repo-run] No checkout was performed');
+    console.error('[real-repo-run] No main touch was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run> <taskId> [arg3]'
   );
   process.exit(1);
 }

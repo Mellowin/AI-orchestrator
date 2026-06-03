@@ -1,6 +1,6 @@
 # Phase 4 Real Repo Apply Plan
 
-**Status:** Stage 4.1 implemented, Stage 4.2 implemented, stages 4.3–4.4 pending  
+**Status:** Stage 4.1 implemented, Stage 4.2 implemented, Stage 4.3 implemented, Stage 4.4 implemented, Stage 4.5 implemented, Stage 5.0 implemented  
 **Branch:** `feature/mvp-skeleton`  
 **Audited baseline:** `7ebfe43a765527dea7f92544ebc151f163fd694a`
 
@@ -23,6 +23,7 @@ All real-repo operations require explicit environment opt-ins. Defaults are deny
 | `ALLOW_REAL_REPO_APPLY=true` | 4.2+ | Any real-repo file write |
 | `ALLOW_REAL_REPO_COMMIT=true` | 4.3 | Local commit on work branch |
 | `ALLOW_REAL_REPO_PUSH=true` | 4.4 | Pushing work branch to remote |
+| `ALLOW_REAL_REPO_APPLY=true` + `ALLOW_REAL_REPO_COMMIT=true` + `ALLOW_REAL_REPO_PUSH=true` | 5.0 | One-command unified run (apply → commit → push) |
 
 **Hard defaults:**
 - No push by default.
@@ -298,9 +299,41 @@ Properties:
 - **Not wired to CLI.**
 - **Real repo apply remains disabled for writes.**
 
-### 8.6 Next Recommended Step — Stage 4.6 Merge Boundary Audit Plan
+### 8.6 Completed — `real-repo-run <taskId>` unified workflow (Stage 5.0)
 
-Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 actual safe push is implemented. Stage 4.5 state write after push is implemented.
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`
+- **Tests:** `test/cli-real-repo-run.test.ts`
+
+One-command unified workflow behind all three opt-ins:
+
+- Requires `ALLOW_REAL_REPO_APPLY=true`, `ALLOW_REAL_REPO_COMMIT=true`, `ALLOW_REAL_REPO_PUSH=true`, and `REAL_REPO_PROVIDER_RESPONSE`.
+- Parses provider response via `parseKimiOutputJson`.
+- Validates file list via `validateFileList`.
+- Validates line deltas via `validateProposedFileLineDeltas`.
+- Validates repo safety via `validateRealRepoApplySafety`.
+- Builds apply plan via `buildRealRepoApplyPlan`.
+- Applies validated file updates via `applyFileUpdates`.
+- Runs checks via `runChecks`.
+- Rolls back on check failure via `rollbackFileUpdates`.
+- Validates working tree contains only approved changes before commit.
+- Refuses unrelated modified/untracked/staged files with rollback.
+- Stages approved files via `git add <path>`.
+- Commits via `git commit -m "ai-orchestrator: apply <taskId>" --no-gpg-sign`.
+- Pushes via `git push origin <currentBranch>`.
+- Writes state with `status: 'pushed'`, `pushed_remote: 'origin'`, `pushed_ref`, `commit_sha`, `updated_at`, `safety_note`.
+- Apply failure: prints `Apply failed` + `Manual inspection required`, does not commit/push/state.
+- Check failure: rolls back, does not commit/push/state.
+- No merge, no checkout, no pull/fetch/rebase/reset, no main touch, no force, no tags, no `--all`/`--mirror`, no provider call, no API keys.
+
+Properties:
+- 40 CLI tests covering all refusal paths (missing opt-ins, missing/malformed provider response, guardrails, line delta, main branch, work_branch main, branch mismatch, dirty tree), apply failure (no commit/push/state), check failure with rollback, success path (apply + commit + push + state), state validation, content safety, no force/all/mirror/tags, no merge/checkout/reset/main touch, working tree clean after success, existing commands unchanged.
+- **Wired to CLI.**
+- **Unified workflow enabled.**
+
+### 8.7 Next Recommended Step — Stage 4.6 Merge Boundary Audit Plan
+
+Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 actual safe push is implemented. Stage 4.5 state write after push is implemented. Stage 5.0 unified workflow is implemented.
 
 Next steps:
 
@@ -308,7 +341,7 @@ Next steps:
 2. Keep mock mode as default for tests and local development.
 3. Keep no main touch unless explicitly planned.
 
-### 8.7 Completed — `real-repo-commit <taskId>` local commit
+### 8.8 Completed — `real-repo-commit <taskId>` local commit
 
 - **Status:** ✅ Implemented and tested.
 - **Location:** `src/cli.ts`
@@ -356,4 +389,5 @@ Properties:
 | Phase 4 Stage 4.4 actual push implemented | ✅ |
 | Phase 4 Stage 4.4 actual push enabled | Confirmed |
 | Phase 4 Stage 4.5 state write after push implemented | ✅ |
+| Phase 4 Stage 5.0 unified workflow implemented | ✅ |
 | Opt-in flags defined | Confirmed |
