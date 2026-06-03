@@ -65,13 +65,18 @@ All real-repo operations require explicit environment opt-ins. Defaults are deny
 - Apply failure is honest: prints `Apply failed` + `Manual inspection required`. If apply manifest is missing, prints `Rollback could not be attempted because apply manifest was not returned`. Does NOT claim `No files were modified` after apply-start failure.
 - Human review required before commit.
 
-### Stage 4.3 — Optional Local Commit
+### Stage 4.3 — Optional Local Commit (refusal stub implemented, commit behavior disabled)
 
 - Behind separate `ALLOW_REAL_REPO_COMMIT=true`.
+- `real-repo-commit <taskId>` safe refusal stub is implemented. With or without opt-in, it refuses safely and does not create a commit.
 - Commit applied changes to the local work branch only.
 - **No push.**
 - **No merge.**
-- Commit message format: `ai-orchestrator: {task_id} attempt {N} — manual review required`.
+- **No checkout.**
+- **No main touch.**
+- **No provider call.**
+- **No state write.**
+- Commit message format (planned): `ai-orchestrator: {task_id} attempt {N} — manual review required`.
 
 ### Stage 4.4 — Optional Push
 
@@ -281,17 +286,16 @@ Properties:
 - **Not wired to CLI.**
 - **Real repo apply remains disabled for writes.**
 
-### 8.6 Next Recommended Step — Stage 4.3 Commit Boundary
+### 8.6 Next Recommended Step — Stage 4.3 Pre-Commit Validation Tests
 
-Stage 4.2 local file apply is complete.
+Stage 4.2 local file apply is complete. `real-repo-commit <taskId>` safe refusal stub is implemented.
 
 Next steps:
 
-1. **Document/plan Stage 4.3 commit boundary** — define when and how `ALLOW_REAL_REPO_COMMIT=true` would create a local commit on the work branch.
-2. **Add explicit state-write decision** before any auto-commit work. State may only be written after apply + checks succeed and only if explicitly required.
-3. **Do NOT implement auto-commit yet.** Keep `ALLOW_REAL_REPO_COMMIT` as a planned opt-in only.
-4. Keep no push, no merge, no main touch.
-5. Keep mock mode as default for tests and local development.
+1. **Add pre-commit validation tests** before any actual `git commit` command is implemented. Test that `real-repo-commit` refuses when prerequisites are not met (dirty tree, branch mismatch, missing `ALLOW_REAL_REPO_APPLY`, etc.).
+2. **Do NOT implement git commit yet.** Keep `ALLOW_REAL_REPO_COMMIT` as a planned opt-in only.
+3. Keep no push, no merge, no main touch.
+4. Keep mock mode as default for tests and local development.
 
 ---
 
@@ -301,9 +305,11 @@ Next steps:
 |-------|--------|
 | Phase 4 Stage 4.1 implemented | ✅ |
 | Phase 4 Stage 4.2 implemented | ✅ |
+| Phase 4 Stage 4.3 refusal stub implemented | ✅ |
 | No real repo writes in Stage 4.1 | Confirmed |
 | Real repo apply (write) enabled in Stage 4.2 | Confirmed |
 | No commit / no push / no merge / no main touch in Stage 4.2 | Confirmed |
 | No state write in Stage 4.2 | Confirmed |
 | No provider call in Stage 4.2 | Confirmed |
+| Stage 4.3 commit behavior remains disabled | Confirmed |
 | Opt-in flags defined | Confirmed |

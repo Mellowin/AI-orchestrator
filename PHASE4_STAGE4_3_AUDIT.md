@@ -1,8 +1,8 @@
 # Stage 4.3 Local Commit Boundary Audit Plan
 
-**Status:** planning/audit only
+**Status:** planning/audit + refusal stub implemented
 **Branch:** `feature/mvp-skeleton`
-**Baseline commit:** `7028dc658e82a310a2ebe53b647f77bcd9b31168`
+**Baseline commit:** `de5dea2ce2e7557be493ec811ea59cb8fe4a3491`
 
 ---
 
@@ -30,6 +30,24 @@ This document is planning/audit only. No commit behavior is enabled by this comm
   - No merge.
   - No main touch.
   - Human review required before commit.
+
+---
+
+## Implementation Progress
+
+The following runtime building block has been implemented after this audit document was created. It does not enable commit behavior, but it prepares the codebase for Stage 4.3:
+
+- **`real-repo-commit <taskId>` safe refusal stub** (`src/cli.ts`, `test/cli-real-repo-commit.test.ts`):
+  - Commit hash: `de5dea2ce2e7557be493ec811ea59cb8fe4a3491`
+  - Requires `ALLOW_REAL_REPO_COMMIT=true` to reach the disabled stub behavior.
+  - Without opt-in: refuses with `ALLOW_REAL_REPO_COMMIT=true is required`, prints safety messages (`No commit was made`, `No push was performed`, `No merge was performed`).
+  - With opt-in: validates task exists via `loadTask`, then refuses with `real-repo-commit is not implemented yet` and `Stage 4.3 commit behavior remains disabled`.
+  - Does not require `ALLOW_REAL_REPO_APPLY`.
+  - Does not require `REAL_REPO_PROVIDER_RESPONSE`.
+  - No provider call, no network, no API keys, no state write, no git add, no commit, no push, no merge, no checkout, no main touch.
+  - 23 CLI tests covering missing opt-in, missing taskId, opt-in with disabled stub, no file mutation, no state write, no commit/push/merge/checkout/main touch, no stack trace leak, no API key leak.
+
+> **Stage 4.3 commit behavior is still not implemented.** `ALLOW_REAL_REPO_COMMIT=true` does not create a commit yet. It only reaches the disabled refusal stub behavior.
 
 ---
 
@@ -256,10 +274,9 @@ Before any `git commit` command is implemented, add refusal tests for `ALLOW_REA
 
 | Check | Status |
 |-------|--------|
-| Stage 4.3 is planning only in this commit | Confirmed |
-| No runtime code changes | Confirmed |
-| No test changes | Confirmed |
-| Real repo commit remains disabled | Confirmed |
+| Stage 4.3 refusal stub implemented | Confirmed |
+| Stage 4.3 commit behavior remains disabled | Confirmed |
+| `ALLOW_REAL_REPO_COMMIT=true` reaches disabled stub only | Confirmed |
 | No push / no merge / no main touch | Confirmed |
 | Opt-in flag boundaries defined | Confirmed |
 | Commit boundaries defined | Confirmed |

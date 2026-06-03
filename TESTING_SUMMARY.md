@@ -2,12 +2,12 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `026f5d4eb4cb1a7e613d28f60dba44ce08591def`
+**Last verified:** `de5dea2ce2e7557be493ec811ea59cb8fe4a3491`
 
 ## Test metrics
 
-- **Total tests:** 540
-- **Total suites:** 50
+- **Total tests:** 563
+- **Total suites:** 51
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -40,6 +40,7 @@
 | Real repo apply dry-run CLI | `test/cli-real-repo-apply-dry-run.test.ts` | `real-repo-apply-dry-run <taskId>` read-only CLI command. Reads `REAL_REPO_PROVIDER_RESPONSE` env var. Parses via `parseKimiOutputJson`, validates file list via `validateFileList`, validates line deltas via `validateProposedFileLineDeltas`, validates repo safety via `validateRealRepoApplySafety`, builds summary via `buildRealRepoApplyDryRunSummary`. Prints task/branch/guardrails verdict/safety verdict/files/safety messages. Existing empty files reported as `isNew=false`. Does NOT require `ALLOW_REAL_REPO_APPLY`. No provider call, no network, no API keys, no file writes, no patch apply, no state write, no push/merge/checkout/main touch. 15 CLI tests covering success, all safety/guardrails failures, missing env, parse failure, no file mutation, no state write, existing empty file isNew fix. |
 | Real repo apply pre-write validation CLI | `test/cli-real-repo-apply.test.ts` | `real-repo-apply <taskId>` pre-write validation flow. Requires `ALLOW_REAL_REPO_APPLY=true`. Reads `REAL_REPO_PROVIDER_RESPONSE` env var. Parses via `parseKimiOutputJson`, validates file list via `validateFileList`, validates line deltas via `validateProposedFileLineDeltas`, validates repo safety via `validateRealRepoApplySafety`, builds plan via `buildRealRepoApplyPlan`. Prints plan summary (task id, current branch, work branch, files with action and backupPath). Still exits non-zero before file apply with message `real-repo-apply pre-write validation passed, but file apply is not implemented yet`. No real repo writes, no `applyFileUpdates`, no `rollbackFileUpdates`, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch. 23 CLI tests covering missing opt-in, missing/empty/malformed provider response, parse failure, guardrails failure, line delta failure, dirty tree, main branch, work_branch main, branch mismatch, safety failure, valid pre-write path with plan summary, no file mutation, no state write, no commit/push/merge/checkout, no stack trace leak, no API key leak. |
 | Real repo apply plan builder | `test/real-repo-apply-plan.test.ts` | `buildRealRepoApplyPlan` pure helper: builds create/overwrite plan from `existingPaths` and proposed files. Builds `runDir` (`runs/{taskId}/attempt-{attempt}`) and `backupPath` (`runs/{taskId}/attempt-{attempt}/files-before/{path}`). Validates taskId, attempt (positive integer), file paths, duplicate paths, content type, existingPaths. Rejects Unix absolute paths (`/etc/passwd`), Windows absolute paths (`C:/temp/file.ts`), path traversal (`..`), backslash paths. Allows empty string content. Returns `{ok:false,reason,safetyMessages}` without throwing. No fs/git/child_process/env/network/API keys/state writes. Not wired to CLI. 25 unit tests. |
+| Real repo commit refusal stub | `test/cli-real-repo-commit.test.ts` | `real-repo-commit <taskId>` safe refusal stub. Exists behind `ALLOW_REAL_REPO_COMMIT=true`. Without opt-in: refuses safely, does not require `ALLOW_REAL_REPO_APPLY`, does not require `REAL_REPO_PROVIDER_RESPONSE`. With opt-in: still refuses because Stage 4.3 is not implemented yet. Prints `No commit was made`, `No push was performed`, `No merge was performed`, `Human review required before commit`. Does not call provider/network, does not require API keys, does not modify repo files, does not write state, does not call `git add`, does not commit, does not push, does not merge, does not checkout/switch branch, does not touch main. 23 CLI tests covering missing opt-in, missing taskId, opt-in with disabled stub, no file mutation, no state write, no commit/push/merge/checkout/main touch, no stack trace leak, no API key leak, existing real-repo-apply behavior unchanged. |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
 ## Safety guarantees
@@ -81,7 +82,8 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 1. Stage 4.1 read-only dry-run CLI is complete and documented.
 2. Stage 4.2 local file apply is implemented and tested behind `ALLOW_REAL_REPO_APPLY=true`. Applies validated files, runs checks, rolls back on failure. No commit, no push, no merge, no state write.
 3. `buildRealRepoApplyPlan` pure helper is implemented and tested (wired to CLI).
-4. Next: document/plan Stage 4.3 commit boundary, or add explicit state-write decision before any auto-commit work. Do NOT implement auto-commit yet.
+4. `real-repo-commit <taskId>` safe refusal stub is implemented and tested behind `ALLOW_REAL_REPO_COMMIT=true`. Stage 4.3 commit behavior remains disabled.
+5. Next: add pre-commit validation tests before any actual git commit command. Do NOT implement git commit yet.
 5. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
 6. Keep mock mode as default for tests and local development.
 7. Keep no push, no merge, no main touch.
