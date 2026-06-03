@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `pending final Stage 6.1.1 commit hash`
+**Last verified:** `57f340af8de1c3a289d92a0f594959e9e35eeb37`
 
 ## Test metrics
 
 - **Total tests:** 1197
 - **Total suites:** 71
-- **Last verified commit:** `pending final Stage 6.1.1 commit hash` (Stage 6.1.1 Reviewer Gate Safety Hardening)
+- **Last verified commit:** `57f340af8de1c3a289d92a0f594959e9e35eeb37` (Stage 6.1.1 Reviewer Gate Safety Hardening)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -21,7 +21,7 @@
 | Stage 6.0A | Product vision and autonomous architecture documentation | `f044e2a50acab1329a4edb151cbbccfc3618d144` |
 | Stage 6.0 | Provider Abstraction Foundation | `7a15f7a66029690940133f2b83b10174a8686623` |
 | Stage 6.1 | Deterministic Commit Verifier for Reviewer Gate | `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38` |
-| Stage 6.1.1 | Reviewer Gate Safety Hardening | `pending` |
+| Stage 6.1.1 | Reviewer Gate Safety Hardening | `57f340af8de1c3a289d92a0f594959e9e35eeb37` |
 
 ## Covered layers
 
