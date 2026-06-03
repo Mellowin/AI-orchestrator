@@ -5,6 +5,7 @@ import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState, getRunDir } from './state-manager.js';
 import { buildContext } from './context-builder.js';
 import { validateFileList, validateProposedFileLineDeltas } from './guardrails.js';
+import { applyFileUpdates, rollbackFileUpdates } from './patch-engine.js';
 import { runChecks } from './runner.js';
 import {
   ensureClean,
@@ -1295,12 +1296,33 @@ if (command === 'real-repo-apply') {
       console.log(`[real-repo-apply]   ${f.path}: action=${f.action}, backupPath=${f.backupPath}`);
     }
 
-    console.error('[real-repo-apply] real-repo-apply pre-write validation passed, but file apply is not implemented yet');
-    console.error('[real-repo-apply] No files were modified');
-    console.error('[real-repo-apply] No commit was made');
-    console.error('[real-repo-apply] No push was performed');
-    console.error('[real-repo-apply] No merge was performed');
-    process.exit(1);
+    const manifest = applyFileUpdates(task.repo_path, kimiOutput.files, planResult.runDir);
+
+    const checkResult = runChecks(task.repo_path, task.checks);
+    if (!checkResult.success) {
+      console.error('[real-repo-apply] Checks failed');
+      try {
+        rollbackFileUpdates(task.repo_path, manifest);
+        console.error('[real-repo-apply] Rollback completed');
+      } catch (rollbackErr) {
+        const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+        console.error(`[real-repo-apply] Rollback failed: ${rollbackMessage}`);
+      }
+      console.error('[real-repo-apply] No commit was made');
+      console.error('[real-repo-apply] No push was performed');
+      console.error('[real-repo-apply] No merge was performed');
+      process.exit(1);
+    }
+
+    console.log('[real-repo-apply] real-repo-apply completed local file apply');
+    for (const f of planResult.files) {
+      console.log(`[real-repo-apply]   ${f.path}`);
+    }
+    console.log('[real-repo-apply] No commit was made');
+    console.log('[real-repo-apply] No push was performed');
+    console.log('[real-repo-apply] No merge was performed');
+    console.log('[real-repo-apply] Human review required before commit');
+    process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-repo-apply] Error: ${message}`);
