@@ -540,11 +540,98 @@ Final documentation created:
 - `TESTING_SUMMARY.md` updated with docs rules.
 - `STAGE5_PR_BOUNDARY_AUDIT.md` updated with Stage 5.9.
 
-### 8.17 Next Recommended Step — Stage 6.0 Architecture Refactor / Merge Safety Design
+### 8.17 Completed — Stage 5.10 Live Operator Demo Evidence Pack
 
-- Stage 6 is a separate design phase. No merge currently implemented.
+- **Status:** ✅ Executed and documented.
+- **Location:** `STAGE5_LIVE_DEMO_EVIDENCE.md`
+- **Evidence commit:** `36d8581f5cc171ebc12a93d10a672a26695984f6`
+
+Live demo results:
+- **Branch:** `demo/stage5-live-proof`
+- **Task:** `stage5-live-proof`
+- **Readiness:** ✅ Passed
+- **Real AI run:** ✅ Success on first attempt (no self-repair)
+- **File changed:** `live-demo/stage5-proof.txt` created with content "Stage 5 live proof works"
+- **Commit:** `77e8f2e539e167a38ea33cb15c24898d40e53eba` (`ai-orchestrator: apply stage5-live-proof`)
+- **Pushed:** `origin/demo/stage5-live-proof`
+- **State:** `runs/stage5-live-proof/state.json` with `status: pushed`
+- **Approval report:** ✅ Generated
+- **PR readiness:** ✅ Generated (`pr-readiness.md` + `pr-body.md`)
+- **PR creation:** ❌ Blocked — `GITHUB_TOKEN` not available (expected safe refusal)
+- **No merge:** ✅ `demo/stage5-live-proof` not merged
+- **No main touch:** ✅ `main` unchanged
+
+---
+
+## Stage 6 — Autonomous Block Orchestrator
+
+Stage 5 built the safe repo/PR pipeline. Stage 6 turns it into autonomous block execution.
+
+### Stage 6.0A — Product Vision and Autonomous Architecture Documentation ✅
+
+- **Status:** Documentation complete.
+- **Location:** `PRODUCT_VISION.md`, `AUTONOMOUS_BLOCK_ARCHITECTURE.md`, `PROVIDER_COMBINATION_ROADMAP.md`
+
+Documents created:
+- `PRODUCT_VISION.md` — fixes the original product goal, defines what the project is and is not, states core principles, defines first autonomous target (Kimi coder + Kimi reviewer), lists future provider combinations, defines human role.
+- `AUTONOMOUS_BLOCK_ARCHITECTURE.md` — defines block concept, block task concept, task statuses, block statuses, autonomous loop, reviewer gate, deterministic checks before AI review, reviewer input/output schemas, stop conditions, what is not autonomous.
+- `PROVIDER_COMBINATION_ROADMAP.md` — documents provider roles, intended interfaces, current implementation status, immediate roadmap (Stage 6.0–6.7), future provider combinations, configuration examples, product rule against provider hardcoding.
+
+### Stage 6.0 — Provider Abstraction Foundation
+
+- Extract provider-agnostic interfaces (`CoderProvider`, `ReviewerProvider`).
+- Implement fake coder and fake reviewer for tests.
+- Define Kimi reviewer provider contract (same API, different prompt/role).
+- Define reviewer decision schema (JSON schema, strict validation).
+
+### Stage 6.1 — Deterministic Commit Verifier for Reviewer Gate
+
+- Build `buildReviewerInput` pure helper that gathers commit evidence.
+- Ensure deterministic checks (typecheck/build/test/guardrails) run before reviewer call.
+- Validate reviewer output schema before acting on it.
+
+### Stage 6.2 — Block State Runner
+
+- Implement `BlockState` data model and `BlockStateManager`.
+- Support save/load block state to `runs/{block_id}/block-state.json`.
+- Track task statuses, fix attempts, commit SHAs, reviewer decisions.
+
+### Stage 6.3 — Autonomous One-Task Loop
+
+- Wire Kimi coder + Kimi reviewer for a single task.
+- Run full loop: coder → apply → checks → commit → push → reviewer → decision.
+- Support fix loop: reviewer rejects → repair prompt → coder retry.
+
+### Stage 6.4 — Autonomous Multi-Task Block Runner
+
+- Run multiple tasks in sequence inside one block.
+- Advance to next task only on `accepted`.
+- Stop on `blocked` or `block_for_human`.
+
+### Stage 6.5 — Fix Loop
+
+- Bounded retry with `max_fix_attempts`.
+- Repair prompt includes reviewer feedback + prior attempt context.
+- Final failure stops block, writes report.
+
+### Stage 6.6 — Block Completion Report
+
+- Generate human-readable block report.
+- Include task list, commit SHAs, reviewer decisions, fix history, safety notes.
+- Write to `runs/{block_id}/block-report.md`.
+
+### Stage 6.7 — Live 3-Task Autonomous Demo
+
+- Define a 3-task block in `tasks.yaml`.
+- Run end-to-end with real Kimi coder + Kimi reviewer.
+- Document results in `AUTONOMOUS_BLOCK_DEMO_REPORT.md`.
+
+### Stage 6 Safety Rules
+
+- Do not implement merge in Stage 6.
+- Do not add more demo/docs stages instead of autonomous loop work.
 - `main` remains protected by design.
-- Possible refactor: extract modules from `src/cli.ts` before adding merge.
+- Possible refactor: extract modules from `src/cli.ts` before adding more commands.
 - Merge must not be added without dedicated safety design document.
 
 ---

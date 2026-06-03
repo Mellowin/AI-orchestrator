@@ -279,6 +279,22 @@ MAX_ATTEMPTS=3
 
 ---
 
+## Product Direction
+
+Stage 5 completed the safe pipeline proof (provider → apply → checks → commit → push → PR status).  
+Stage 6 target is **autonomous block execution with AI coder + AI reviewer**.
+
+- First target: **Kimi as Coder + Kimi as Reviewer** (same API key, different prompts/roles).
+- Future: users can combine providers — Claude coder + Gemini reviewer, DeepSeek coder + OpenAI reviewer, etc.
+- The orchestrator must never be hardcoded to one AI provider.
+
+Documents:
+- [`PRODUCT_VISION.md`](PRODUCT_VISION.md) — original goal, what the project is and is not, core principles, human role.
+- [`AUTONOMOUS_BLOCK_ARCHITECTURE.md`](AUTONOMOUS_BLOCK_ARCHITECTURE.md) — block concept, task state machine, autonomous loop, reviewer gate, stop conditions.
+- [`PROVIDER_COMBINATION_ROADMAP.md`](PROVIDER_COMBINATION_ROADMAP.md) — provider roles, interfaces, roadmap Stage 6.0–6.7, future combinations, configuration examples.
+
+---
+
 ## Architecture
 
 See `ARCHITECTURE.md` for module descriptions, data flow, and contracts.

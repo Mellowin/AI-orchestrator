@@ -2,15 +2,23 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `9d77ee29427ddb4f1c239df911972b6606b63c1d`
+**Last verified:** `pending final Stage 6.0A commit hash`
 
 ## Test metrics
 
 - **Total tests:** 1034
 - **Total suites:** 59
-- **Last verified commit:** `9d77ee29427ddb4f1c239df911972b6606b63c1d` (Stage 5.9 is documentation-only; no code/tests changed)
+- **Last verified commit:** `d1f1850c1eed003151798e548627919eb2987bf7` (baseline before Stage 6.0A; no code/tests changed in this docs stage)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
+
+## Documentation stages
+
+| Stage | Description | Commit |
+|---|---|---|
+| Stage 5.9 | MVP hardening / final documentation | `9d77ee29427ddb4f1c239df911972b6606b63c1d` |
+| Stage 5.10 | Live operator demo evidence pack | `36d8581f5cc171ebc12a93d10a672a26695984f6` |
+| Stage 6.0A | Product vision and autonomous architecture documentation | `pending final commit hash` |
 
 ## Covered layers
 
