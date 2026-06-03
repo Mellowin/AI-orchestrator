@@ -22,3 +22,31 @@ tasks:
       auto_commit: false
       auto_push: false
       auto_merge: false
+  - id: stage5-live-proof
+    title: "Stage 5 live proof"
+    repo_path: "."
+    base_branch: "feature/mvp-skeleton"
+    work_branch: "demo/stage5-live-proof"
+    goal: "Create live-demo/stage5-proof.txt with one short line: Stage 5 live proof works"
+    context_files:
+      - "package.json"
+    checks:
+      - command: "node"
+        args: ["-e", "const fs=require('fs'); const p='live-demo/stage5-proof.txt'; if(!fs.existsSync(p)) throw new Error('missing'); const c=fs.readFileSync(p,'utf8'); if(!c.trim().length) throw new Error('empty'); console.log('check-pass');"]
+    guardrails:
+      allow_modify:
+        - "live-demo/stage5-proof.txt"
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - "package.json"
+        - "package-lock.json"
+        - "src/**"
+        - "test/**"
+        - ".github/**"
+      max_lines_changed: 10
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
