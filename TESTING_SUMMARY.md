@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `pending final Stage 6.1 commit hash`
+**Last verified:** `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38`
 
 ## Test metrics
 
 - **Total tests:** 1178
 - **Total suites:** 71
-- **Last verified commit:** `pending final Stage 6.1 commit hash` (Stage 6.1 Deterministic Commit Verifier for Reviewer Gate)
+- **Last verified commit:** `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38` (Stage 6.1 Deterministic Commit Verifier for Reviewer Gate)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -20,7 +20,7 @@
 | Stage 5.10 | Live operator demo evidence pack | `36d8581f5cc171ebc12a93d10a672a26695984f6` |
 | Stage 6.0A | Product vision and autonomous architecture documentation | `f044e2a50acab1329a4edb151cbbccfc3618d144` |
 | Stage 6.0 | Provider Abstraction Foundation | `7a15f7a66029690940133f2b83b10174a8686623` |
-| Stage 6.1 | Deterministic Commit Verifier for Reviewer Gate | `pending` |
+| Stage 6.1 | Deterministic Commit Verifier for Reviewer Gate | `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38` |
 
 ## Covered layers
 
