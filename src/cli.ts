@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadTask } from './task-loader.js';
@@ -135,6 +136,42 @@ const args = process.argv.slice(2);
 const command = args[0];
 const taskId = args[1];
 
+function getRepoWorkingTreeChanges(repoPath: string): { modified: string[]; staged: string[]; untracked: string[]; all: string[] } {
+  const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+    cwd: repoPath,
+    shell: false,
+    encoding: 'utf-8',
+  });
+  if (result.error) {
+    throw new Error(`Git status failed: ${result.error.message}`);
+  }
+
+  const modified: string[] = [];
+  const staged: string[] = [];
+  const untracked: string[] = [];
+
+  const lines = (result.stdout || '').split('\n').map((s) => s.trimEnd()).filter((s) => s.length > 0);
+  for (const line of lines) {
+    const statusCode = line.slice(0, 2);
+    const pathPart = line.slice(3);
+    const filePath = pathPart.includes(' -> ') ? pathPart.split(' -> ')[1] : pathPart;
+
+    if (statusCode === '??') {
+      untracked.push(filePath);
+    } else {
+      if (statusCode[0] !== ' ' && statusCode[0] !== '?') {
+        staged.push(filePath);
+      }
+      if (statusCode[1] !== ' ' && statusCode[1] !== '?') {
+        modified.push(filePath);
+      }
+    }
+  }
+
+  const all = [...new Set([...modified, ...staged, ...untracked])];
+  return { modified, staged, untracked, all };
+}
+
 if (command === 'real-repo-commit') {
   try {
     if (!taskId) {
@@ -153,11 +190,75 @@ if (command === 'real-repo-commit') {
       process.exit(1);
     }
 
-    // Validate task exists before refusing (contracts check)
-    loadTask(getTasksFilePath(), taskId);
+    if (process.env.ALLOW_REAL_REPO_APPLY !== 'true') {
+      console.error('[real-repo-commit] ALLOW_REAL_REPO_APPLY=true is required');
+      console.error('[real-repo-commit] No commit was made');
+      console.error('[real-repo-commit] No push was performed');
+      console.error('[real-repo-commit] No merge was performed');
+      process.exit(1);
+    }
 
-    console.error('[real-repo-commit] real-repo-commit is not implemented yet');
-    console.error('[real-repo-commit] Stage 4.3 commit behavior remains disabled');
+    const rawProviderText = process.env.REAL_REPO_PROVIDER_RESPONSE?.trim();
+    if (!rawProviderText) {
+      console.error('[real-repo-commit] Error: REAL_REPO_PROVIDER_RESPONSE env var is required');
+      console.error('[real-repo-commit] No commit was made');
+      console.error('[real-repo-commit] No push was performed');
+      console.error('[real-repo-commit] No merge was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+    const kimiOutput = parseKimiOutputJson(rawProviderText);
+
+    const updatePaths = kimiOutput.files.map((f) => f.path);
+    const guardrailsResult = validateFileList(updatePaths, task.guardrails);
+    if (!guardrailsResult.ok) {
+      console.error(`[real-repo-commit] Guardrails failed: ${guardrailsResult.reason}`);
+      console.error('[real-repo-commit] No commit was made');
+      console.error('[real-repo-commit] No push was performed');
+      console.error('[real-repo-commit] No merge was performed');
+      process.exit(1);
+    }
+
+    // Branch safety checks (read-only)
+    const currentBranch = getCurrentBranch(task.repo_path);
+    if (!currentBranch || currentBranch === 'HEAD') {
+      throw new Error('Current branch is missing or detached HEAD');
+    }
+    if (currentBranch === 'main') {
+      throw new Error('Current branch is main');
+    }
+    if (!task.work_branch) {
+      throw new Error('task.work_branch is missing');
+    }
+    if (task.work_branch === 'main') {
+      throw new Error('task.work_branch is main');
+    }
+    if (currentBranch !== task.work_branch) {
+      throw new Error(`Branch mismatch: current=${currentBranch}, work_branch=${task.work_branch}`);
+    }
+
+    // Get approved paths
+    const approvedPaths = new Set(updatePaths);
+
+    // Inspect working tree using read-only git commands
+    const { all } = getRepoWorkingTreeChanges(task.repo_path);
+
+    // Verify at least one approved changed file
+    const approvedChanged = all.filter((p) => approvedPaths.has(p));
+    if (approvedChanged.length === 0) {
+      throw new Error('No working tree changes match the approved apply manifest');
+    }
+
+    // Verify no unrelated changes
+    const unrelated = all.filter((p) => !approvedPaths.has(p));
+    if (unrelated.length > 0) {
+      throw new Error(`Unrelated changes detected: ${unrelated.join(', ')}`);
+    }
+
+    // Pre-commit validation passed
+    console.error('[real-repo-commit] real-repo-commit pre-commit validation passed, but git commit is not implemented yet');
+    console.error(`[real-repo-commit] Commit message: ai-orchestrator: apply ${taskId}`);
     console.error('[real-repo-commit] No commit was made');
     console.error('[real-repo-commit] No push was performed');
     console.error('[real-repo-commit] No merge was performed');

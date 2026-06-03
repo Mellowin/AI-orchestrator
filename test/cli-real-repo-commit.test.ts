@@ -64,6 +64,13 @@ function runCli(
   };
 }
 
+function buildFakeKimiOutput(
+  files: Array<{ path: string; content: string }>,
+  notes?: string
+): string {
+  return JSON.stringify({ mode: 'file_update', files, notes });
+}
+
 function createTempEnv(): {
   taskId: string;
   tasksFilePath: string;
@@ -141,30 +148,41 @@ function createTempEnv(): {
   };
 }
 
-describe('cli real-repo-commit', () => {
-  test('command exists and refuses safely', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
-    try {
-      const result = runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-      });
-      assert.notStrictEqual(result.status, 0, `Expected non-zero exit: ${result.stderr}`);
-    } finally {
-      cleanup();
-    }
+function getGitLogCount(repoPath: string): number {
+  const result = spawnSync('git', ['log', '--oneline'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
   });
+  return result.stdout.trim().split('\n').filter((l) => l.length > 0).length;
+}
 
-  test('missing taskId exits non-zero', () => {
+function getCurrentBranch(repoPath: string): string {
+  const result = spawnSync('git', ['branch', '--show-current'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  return result.stdout.trim();
+}
+
+function getGitPorcelain(repoPath: string): string {
+  const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  return result.stdout.trim();
+}
+
+describe('cli real-repo-commit', () => {
+  test('missing taskId exits non-zero and prints No commit was made', () => {
     const result = runCli(['real-repo-commit']);
     assert.notStrictEqual(result.status, 0);
-  });
-
-  test('missing taskId prints No commit was made', () => {
-    const result = runCli(['real-repo-commit']);
     assert(result.stderr.includes('No commit was made'), `Expected "No commit was made": ${result.stderr}`);
   });
 
-  test('without ALLOW_REAL_REPO_COMMIT refuses with opt-in message', () => {
+  test('missing ALLOW_REAL_REPO_COMMIT refuses before requiring ALLOW_REAL_REPO_APPLY', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-commit', taskId], {
@@ -172,25 +190,13 @@ describe('cli real-repo-commit', () => {
       });
       assert.notStrictEqual(result.status, 0);
       assert(result.stderr.includes('ALLOW_REAL_REPO_COMMIT=true is required'), `Expected opt-in message: ${result.stderr}`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('without ALLOW_REAL_REPO_COMMIT does not require ALLOW_REAL_REPO_APPLY', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
-    try {
-      const result = runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-      });
-      assert.notStrictEqual(result.status, 0);
       assert(!result.stderr.includes('ALLOW_REAL_REPO_APPLY'), `Should not require ALLOW_REAL_REPO_APPLY: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('without ALLOW_REAL_REPO_COMMIT does not require REAL_REPO_PROVIDER_RESPONSE', () => {
+  test('missing ALLOW_REAL_REPO_COMMIT refuses before requiring REAL_REPO_PROVIDER_RESPONSE', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-commit', taskId], {
@@ -203,7 +209,7 @@ describe('cli real-repo-commit', () => {
     }
   });
 
-  test('with ALLOW_REAL_REPO_COMMIT=true still refuses because implementation is disabled', () => {
+  test('with ALLOW_REAL_REPO_COMMIT=true, missing ALLOW_REAL_REPO_APPLY refuses', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-commit', taskId], {
@@ -211,235 +217,333 @@ describe('cli real-repo-commit', () => {
         ALLOW_REAL_REPO_COMMIT: 'true',
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('real-repo-commit is not implemented yet'), `Expected not-implemented message: ${result.stderr}`);
+      assert(result.stderr.includes('ALLOW_REAL_REPO_APPLY=true is required'), `Expected ALLOW_REAL_REPO_APPLY message: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('with ALLOW_REAL_REPO_COMMIT=true prints Stage 4.3 commit behavior remains disabled', () => {
+  test('with both opt-ins, missing REAL_REPO_PROVIDER_RESPONSE refuses', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Stage 4.3 commit behavior remains disabled'), `Expected Stage 4.3 disabled: ${result.stderr}`);
+      assert(result.stderr.includes('REAL_REPO_PROVIDER_RESPONSE'), `Expected provider response message: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('with ALLOW_REAL_REPO_COMMIT=true prints Human review required before commit', () => {
+  test('with both opt-ins, empty REAL_REPO_PROVIDER_RESPONSE refuses', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: '   ',
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Human review required before commit'), `Expected human review message: ${result.stderr}`);
+      assert(result.stderr.includes('REAL_REPO_PROVIDER_RESPONSE'), `Expected provider response message: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('does not modify repo files', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      const before = readFileSync(join(repoPath, 'README.md'), 'utf-8');
-      runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_COMMIT: 'true',
-      });
-      const after = readFileSync(join(repoPath, 'README.md'), 'utf-8');
-      assert.strictEqual(after, before);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('does not create new files', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      const before = readdirSync(repoPath);
-      runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_COMMIT: 'true',
-      });
-      const after = readdirSync(repoPath);
-      assert.deepStrictEqual(after, before);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('does not write state.json', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_COMMIT: 'true',
-      });
-      const statePath = join(repoPath, 'runs', taskId, 'state.json');
-      assert(!existsSync(statePath), `state.json should not exist: ${statePath}`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('does not commit', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      const logBefore = spawnSync('git', ['log', '--oneline'], {
-        cwd: repoPath,
-        encoding: 'utf-8',
-        shell: false,
-      }).stdout.trim().split('\n').length;
-      runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_COMMIT: 'true',
-      });
-      const logAfter = spawnSync('git', ['log', '--oneline'], {
-        cwd: repoPath,
-        encoding: 'utf-8',
-        shell: false,
-      }).stdout.trim().split('\n').length;
-      assert.strictEqual(logAfter, logBefore, `Commit count should not change`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('does not stage files with git add', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      const statusBefore = spawnSync('git', ['status', '--short'], {
-        cwd: repoPath,
-        encoding: 'utf-8',
-        shell: false,
-      }).stdout.trim();
-      runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_COMMIT: 'true',
-      });
-      const statusAfter = spawnSync('git', ['status', '--short'], {
-        cwd: repoPath,
-        encoding: 'utf-8',
-        shell: false,
-      }).stdout.trim();
-      assert.strictEqual(statusAfter, statusBefore, `Git status should not change`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('does not push', () => {
+  test('with both opt-ins, malformed provider response refuses', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: 'not-json',
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('No push was performed'), `Expected no push message: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('does not merge', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
-    try {
-      const result = runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_COMMIT: 'true',
-      });
-      assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('No merge was performed'), `Expected no merge message: ${result.stderr}`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('does not checkout or switch branch', () => {
+  test('current branch main refuses', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
-      const branchBefore = spawnSync('git', ['branch', '--show-current'], {
+      spawnSync('git', ['checkout', 'main'], {
         cwd: repoPath,
         encoding: 'utf-8',
         shell: false,
-      }).stdout.trim();
-      runCli(['real-repo-commit', taskId], {
+      });
+      const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'x' }]),
       });
-      const branchAfter = spawnSync('git', ['branch', '--show-current'], {
-        cwd: repoPath,
-        encoding: 'utf-8',
-        shell: false,
-      }).stdout.trim();
-      assert.strictEqual(branchAfter, branchBefore, `Branch should not change: ${branchBefore} -> ${branchAfter}`);
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Current branch is main'), `Expected main branch refusal: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('does not touch main', () => {
+  test('task.work_branch main refuses', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
-      runCli(['real-repo-commit', taskId], {
+      // Rewrite tasks.yaml with work_branch: main
+      const tasksContent = readFileSync(tasksFilePath, 'utf-8');
+      writeFileSync(tasksFilePath, tasksContent.replace(/work_branch: "ai\/[^"]+"/, 'work_branch: "main"'), 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'x' }]),
       });
-      const mainLog = spawnSync('git', ['log', 'main', '--oneline'], {
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('work_branch is main'), `Expected work_branch main refusal: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('branch mismatch refuses', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['checkout', '-b', 'other-branch'], {
         cwd: repoPath,
         encoding: 'utf-8',
         shell: false,
-      }).stdout.trim();
-      assert.strictEqual(mainLog.split('\n').length, 1, `main should have exactly 1 commit`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('does not require API keys', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
-    try {
+      });
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'x' }]),
       });
       assert.notStrictEqual(result.status, 0);
-      assert(!result.stderr.includes('KIMI_API_KEY'), `Should not require KIMI_API_KEY: ${result.stderr}`);
-      assert(!result.stderr.includes('OPENAI_API_KEY'), `Should not require OPENAI_API_KEY: ${result.stderr}`);
+      assert(result.stderr.includes('Branch mismatch'), `Expected branch mismatch refusal: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('does not call provider/network', () => {
+  test('no working tree changes refuses', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'x' }]),
       });
       assert.notStrictEqual(result.status, 0);
-      assert(!result.stderr.includes('Provider'), `Should not mention provider: ${result.stderr}`);
-      assert(!result.stderr.includes('network'), `Should not mention network: ${result.stderr}`);
+      assert(result.stderr.includes('No working tree changes match the approved apply manifest'), `Expected no changes refusal: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('output contains no stack trace', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+  test('unrelated modified tracked file refuses', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      writeFileSync(join(repoPath, 'NEW.md'), 'new\n', 'utf-8');
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'NEW.md', content: 'new' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Unrelated changes detected'), `Expected unrelated refusal: ${result.stderr}`);
+      assert(result.stderr.includes('README.md'), `Expected README.md in unrelated: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('unrelated untracked file refuses', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'NEW.md'), 'new\n', 'utf-8');
+      writeFileSync(join(repoPath, 'UNRELATED.md'), 'unrelated\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'NEW.md', content: 'new' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Unrelated changes detected'), `Expected unrelated refusal: ${result.stderr}`);
+      assert(result.stderr.includes('UNRELATED.md'), `Expected UNRELATED.md in unrelated: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('unrelated staged file refuses', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'NEW.md'), 'new\n', 'utf-8');
+      writeFileSync(join(repoPath, 'UNRELATED.md'), 'unrelated\n', 'utf-8');
+      spawnSync('git', ['add', 'UNRELATED.md'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'NEW.md', content: 'new' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Unrelated changes detected'), `Expected unrelated refusal: ${result.stderr}`);
+      assert(result.stderr.includes('UNRELATED.md'), `Expected UNRELATED.md in unrelated: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('approved modified tracked file passes pre-commit validation, then refuses before commit', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('pre-commit validation passed, but git commit is not implemented yet'), `Expected pre-commit pass: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('approved new/untracked file passes pre-commit validation, then refuses before commit', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'NEW.md'), 'new\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'NEW.md', content: 'new' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('pre-commit validation passed, but git commit is not implemented yet'), `Expected pre-commit pass: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('approved staged file passes pre-commit validation, then refuses before commit', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'NEW.md'), 'new\n', 'utf-8');
+      spawnSync('git', ['add', 'NEW.md'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'NEW.md', content: 'new' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('pre-commit validation passed, but git commit is not implemented yet'), `Expected pre-commit pass: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('successful pre-commit validation prints commit message preview', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Commit message: ai-orchestrator: apply'), `Expected commit message preview: ${result.stderr}`);
+      assert(result.stderr.includes(taskId), `Expected taskId in commit message: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('commit message preview does not include provider response content', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stderr.includes('file_update'), `Should not include provider response content: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('commit message preview does not include file content', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified secret content\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified secret content' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stderr.includes('secret content'), `Should not include file content: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('fake API key value is not printed', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+        KIMI_API_KEY: 'sk-fake12345',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stderr.includes('sk-fake'), `Should not leak fake API key: ${result.stderr}`);
+      assert(!result.stdout.includes('sk-fake'), `Should not leak fake API key in stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no stack trace in all failure paths', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
       assert.notStrictEqual(result.status, 0);
       assert(!result.stderr.includes('at '), `Should not contain stack trace: ${result.stderr}`);
@@ -448,16 +552,159 @@ describe('cli real-repo-commit', () => {
     }
   });
 
-  test('fake API key value is not printed', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+  test('no git commit is created in any path', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const before = getGitLogCount(repoPath);
+      runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      const after = getGitLogCount(repoPath);
+      assert.strictEqual(after, before, `Commit count should not change`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no git add / staging mutation is performed by the command', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const before = getGitPorcelain(repoPath);
+      runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      const after = getGitPorcelain(repoPath);
+      assert.strictEqual(after, before, `Git porcelain should not change`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no push', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
       assert.notStrictEqual(result.status, 0);
-      assert(!result.stderr.includes('sk-fake'), `Should not leak fake API key: ${result.stderr}`);
-      assert(!result.stdout.includes('sk-fake'), `Should not leak fake API key in stdout: ${result.stdout}`);
+      assert(result.stderr.includes('No push was performed'), `Expected no push message: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no merge', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('No merge was performed'), `Expected no merge message: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no checkout or switch branch', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const before = getCurrentBranch(repoPath);
+      runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      const after = getCurrentBranch(repoPath);
+      assert.strictEqual(after, before, `Branch should not change: ${before} -> ${after}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no main touch', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const before = getGitLogCount(repoPath);
+      runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      // Switch to main to check its log
+      spawnSync('git', ['stash', '--include-untracked'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      spawnSync('git', ['checkout', 'main'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const mainLog = spawnSync('git', ['log', '--oneline'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      }).stdout.trim().split('\n').filter((l) => l.length > 0).length;
+      assert.strictEqual(mainLog, 1, `main should have exactly 1 commit`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no state.json write', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      const statePath = join(repoPath, 'runs', taskId, 'state.json');
+      assert(!existsSync(statePath), `state.json should not exist: ${statePath}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no provider/network/API keys required', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stderr.includes('KIMI_API_KEY'), `Should not require KIMI_API_KEY: ${result.stderr}`);
+      assert(!result.stderr.includes('OPENAI_API_KEY'), `Should not require OPENAI_API_KEY: ${result.stderr}`);
+      assert(!result.stderr.includes('Provider'), `Should not mention provider: ${result.stderr}`);
+      assert(!result.stderr.includes('network'), `Should not mention network: ${result.stderr}`);
     } finally {
       cleanup();
     }
