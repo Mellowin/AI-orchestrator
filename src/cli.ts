@@ -502,11 +502,23 @@ if (command === 'real-repo-run') {
     }
 
     if (task.guardrails.max_lines_changed !== undefined) {
-      validateProposedFileLineDeltas(
-        task.repo_path,
-        kimiOutput.files,
-        task.guardrails.max_lines_changed
-      );
+      try {
+        validateProposedFileLineDeltas(
+          task.repo_path,
+          kimiOutput.files,
+          task.guardrails.max_lines_changed
+        );
+      } catch (deltaErr) {
+        const deltaMessage = deltaErr instanceof Error ? deltaErr.message : String(deltaErr);
+        console.error(`[real-repo-run-ai] Guardrails failed: ${deltaMessage}`);
+        console.error('[real-repo-run-ai] No apply was performed');
+        console.error('[real-repo-run-ai] No commit was made');
+        console.error('[real-repo-run-ai] No push was performed');
+        console.error('[real-repo-run-ai] No merge was performed');
+        console.error('[real-repo-run-ai] No checkout was performed');
+        console.error('[real-repo-run-ai] No main touch was performed');
+        process.exit(1);
+      }
     }
 
     let currentBranch = '';
@@ -734,9 +746,420 @@ if (command === 'real-repo-run') {
   }
 }
 
+if (command === 'real-repo-run-ai') {
+  let applyStarted = false;
+  try {
+    if (!taskId) {
+      console.error('[real-repo-run-ai] Error: task id is required');
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_PROVIDER !== 'true') {
+      console.error('[real-repo-run-ai] ALLOW_REAL_PROVIDER=true is required');
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_APPLY !== 'true') {
+      console.error('[real-repo-run-ai] ALLOW_REAL_REPO_APPLY=true is required');
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_COMMIT !== 'true') {
+      console.error('[real-repo-run-ai] ALLOW_REAL_REPO_COMMIT=true is required');
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_PUSH !== 'true') {
+      console.error('[real-repo-run-ai] ALLOW_REAL_REPO_PUSH=true is required');
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+
+    let currentBranch = '';
+    let isClean = false;
+    try {
+      ensureClean(task.repo_path);
+      isClean = true;
+    } catch {
+      isClean = false;
+    }
+
+    try {
+      currentBranch = getCurrentBranch(task.repo_path);
+    } catch {
+      currentBranch = '';
+    }
+
+    const safetyResult = validateRealRepoApplySafety(task, { isClean, currentBranch });
+    if (!safetyResult.ok) {
+      console.error(`[real-repo-run-ai] Safety check failed: ${safetyResult.reason}`);
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const apiKey = process.env.KIMI_API_KEY?.trim();
+    if (!apiKey) {
+      console.error('[real-repo-run-ai] Error: KIMI_API_KEY env var is required');
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const baseUrl = process.env.KIMI_BASE_URL?.trim();
+    if (!baseUrl) {
+      console.error('[real-repo-run-ai] Error: KIMI_BASE_URL env var is required');
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const model = process.env.KIMI_MODEL?.trim() || 'kimi-k2.6';
+
+    const fakeResponse = process.env.KIMI_FAKE_RESPONSE;
+    let fetchFn: FetchFn;
+    if (fakeResponse !== undefined) {
+      fetchFn = async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: fakeResponse } }],
+        }),
+      });
+    } else {
+      if (typeof globalThis.fetch !== 'function') {
+        console.error('[real-repo-run-ai] Error: global fetch is not available');
+        console.error('[real-repo-run-ai] No provider call was made');
+        console.error('[real-repo-run-ai] No apply was performed');
+        console.error('[real-repo-run-ai] No commit was made');
+        console.error('[real-repo-run-ai] No push was performed');
+        console.error('[real-repo-run-ai] No merge was performed');
+        console.error('[real-repo-run-ai] No checkout was performed');
+        console.error('[real-repo-run-ai] No main touch was performed');
+        process.exit(1);
+      }
+      fetchFn = globalThis.fetch as unknown as FetchFn;
+    }
+
+    const context = buildContext(task);
+    const prompt = buildKimiPrompt(context);
+
+    let kimiOutput: KimiOutput;
+    try {
+      const realProviderCall = createRealProviderCall({
+        provider: 'kimi',
+        apiKey,
+        baseUrl,
+        fetchFn,
+        model,
+      });
+      const providerInput = buildProviderCallInput('coder', prompt, 'kimi', model);
+      const result = await realProviderCall(providerInput);
+      const normalizedResult = normalizeProviderCallResult(result);
+      kimiOutput = parseKimiOutputJson(normalizedResult.text);
+    } catch (providerErr) {
+      const info = normalizeProviderCallError(providerErr);
+      const message = info.message;
+      const isParseError = message.includes('Invalid Kimi JSON') || message.includes('KimiOutput') || message.includes('JSON');
+      if (isParseError) {
+        console.error(`[real-repo-run-ai] Provider output malformed: ${message}`);
+      } else {
+        console.error(`[real-repo-run-ai] Provider call failed: ${message}`);
+      }
+      console.error('[real-repo-run-ai] Manual inspection required');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const updatePaths = kimiOutput.files.map((f) => f.path);
+
+    const guardrailsResult = validateFileList(updatePaths, task.guardrails);
+    if (!guardrailsResult.ok) {
+      console.error(`[real-repo-run-ai] Guardrails failed: ${guardrailsResult.reason}`);
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (task.guardrails.max_lines_changed !== undefined) {
+      try {
+        validateProposedFileLineDeltas(
+          task.repo_path,
+          kimiOutput.files,
+          task.guardrails.max_lines_changed
+        );
+      } catch (deltaErr) {
+        const deltaMessage = deltaErr instanceof Error ? deltaErr.message : String(deltaErr);
+        console.error(`[real-repo-run-ai] Guardrails failed: ${deltaMessage}`);
+        console.error('[real-repo-run-ai] No apply was performed');
+        console.error('[real-repo-run-ai] No commit was made');
+        console.error('[real-repo-run-ai] No push was performed');
+        console.error('[real-repo-run-ai] No merge was performed');
+        console.error('[real-repo-run-ai] No checkout was performed');
+        console.error('[real-repo-run-ai] No main touch was performed');
+        process.exit(1);
+      }
+    }
+
+    const existingPaths: string[] = [];
+    for (const f of kimiOutput.files) {
+      const filePath = join(task.repo_path, f.path);
+      if (existsSync(filePath)) {
+        existingPaths.push(f.path);
+      }
+    }
+
+    const planResult = buildRealRepoApplyPlan({
+      taskId,
+      attempt: 1,
+      existingPaths,
+      files: kimiOutput.files,
+    });
+
+    if (!planResult.ok) {
+      console.error(`[real-repo-run-ai] Plan builder failed: ${planResult.reason}`);
+      for (const msg of planResult.safetyMessages) {
+        console.error(`[real-repo-run-ai] ${msg}`);
+      }
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    let manifest: import('./types.js').PatchManifestEntry[] | undefined;
+    try {
+      applyStarted = true;
+      manifest = applyFileUpdates(task.repo_path, kimiOutput.files, planResult.runDir);
+    } catch (applyErr) {
+      const applyMessage = applyErr instanceof Error ? applyErr.message : String(applyErr);
+      console.error(`[real-repo-run-ai] Apply failed: ${applyMessage}`);
+      console.error('[real-repo-run-ai] Manual inspection required');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const checkResult = runChecks(task.repo_path, task.checks);
+    if (!checkResult.success) {
+      console.error('[real-repo-run-ai] Checks failed');
+      if (manifest && manifest.length > 0) {
+        try {
+          rollbackFileUpdates(task.repo_path, manifest);
+          console.error('[real-repo-run-ai] Rollback completed');
+        } catch (rollbackErr) {
+          const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+          console.error(`[real-repo-run-ai] Rollback failed: ${rollbackMessage}`);
+        }
+      } else {
+        console.error('[real-repo-run-ai] Rollback could not be attempted because apply manifest was not returned');
+      }
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const approvedPaths = new Set(updatePaths);
+    const { all: allChanges } = getRepoWorkingTreeChanges(task.repo_path);
+    const unrelated = allChanges.filter((p) => !approvedPaths.has(p));
+    if (unrelated.length > 0) {
+      console.error(`[real-repo-run-ai] Unrelated changes detected: ${unrelated.join(', ')}`);
+      if (manifest && manifest.length > 0) {
+        try {
+          rollbackFileUpdates(task.repo_path, manifest);
+          console.error('[real-repo-run-ai] Rollback completed');
+        } catch (rollbackErr) {
+          const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+          console.error(`[real-repo-run-ai] Rollback failed: ${rollbackMessage}`);
+        }
+      }
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (allChanges.length === 0) {
+      console.error('[real-repo-run-ai] No working tree changes match the approved apply manifest');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const approvedChanged = allChanges.filter((p) => approvedPaths.has(p));
+    for (const p of approvedChanged) {
+      const addResult = spawnSync('git', ['add', p], {
+        cwd: task.repo_path,
+        shell: false,
+        encoding: 'utf-8',
+      });
+      if (addResult.status !== 0) {
+        console.error('[real-repo-run-ai] Git add failed');
+        console.error('[real-repo-run-ai] No commit was made');
+        console.error('[real-repo-run-ai] No push was performed');
+        console.error('[real-repo-run-ai] No merge was performed');
+        console.error('[real-repo-run-ai] No checkout was performed');
+        console.error('[real-repo-run-ai] No main touch was performed');
+        process.exit(1);
+      }
+    }
+
+    const commitMessage = `ai-orchestrator: apply ${taskId}`;
+    const commitResult = spawnSync('git', ['commit', '-m', commitMessage, '--no-gpg-sign'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (commitResult.status !== 0) {
+      console.error('[real-repo-run-ai] Git commit failed');
+      console.error('[real-repo-run-ai] Manual inspection required');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const pushResult = spawnSync('git', ['push', 'origin', currentBranch], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (pushResult.status !== 0) {
+      console.error('[real-repo-run-ai] Git push failed');
+      console.error('[real-repo-run-ai] Manual inspection required');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    const headResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    const headSha = headResult.status === 0 ? headResult.stdout.trim() : '';
+    const now = new Date().toISOString();
+    let existingState: RunState | null = null;
+    try {
+      existingState = loadState(taskId);
+    } catch {
+      // ignore
+    }
+    const pushState: RunState = {
+      task_id: taskId,
+      status: 'pushed',
+      current_attempt: existingState?.current_attempt ?? 0,
+      branch: currentBranch,
+      repo_path: task.repo_path,
+      created_at: existingState?.created_at ?? now,
+      updated_at: now,
+      pushed_remote: 'origin',
+      pushed_ref: currentBranch,
+      commit_sha: headSha,
+      safety_note: 'Push completed; merge not performed; human review required before merge',
+    };
+
+    try {
+      saveState(taskId, pushState);
+    } catch (stateErr) {
+      console.error('[real-repo-run-ai] Push completed');
+      console.error('[real-repo-run-ai] State write failed');
+      console.error('[real-repo-run-ai] Manual inspection required');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exit(1);
+    }
+
+    console.error('[real-repo-run-ai] Real provider run completed');
+    console.error(`[real-repo-run-ai] Applied files: ${kimiOutput.files.length}`);
+    console.error('[real-repo-run-ai] Commit created');
+    console.error('[real-repo-run-ai] Push completed');
+    console.error('[real-repo-run-ai] State written');
+    console.error('[real-repo-run-ai] Human review required before merge');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-repo-run-ai] Error: ${message}`);
+    console.error('[real-repo-run-ai] No merge was performed');
+    console.error('[real-repo-run-ai] No checkout was performed');
+    console.error('[real-repo-run-ai] No main touch was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai> <taskId> [arg3]'
   );
   process.exit(1);
 }

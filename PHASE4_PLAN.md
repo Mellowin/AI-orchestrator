@@ -24,6 +24,7 @@ All real-repo operations require explicit environment opt-ins. Defaults are deny
 | `ALLOW_REAL_REPO_COMMIT=true` | 4.3 | Local commit on work branch |
 | `ALLOW_REAL_REPO_PUSH=true` | 4.4 | Pushing work branch to remote |
 | `ALLOW_REAL_REPO_APPLY=true` + `ALLOW_REAL_REPO_COMMIT=true` + `ALLOW_REAL_REPO_PUSH=true` | 5.0 | One-command unified run (apply → commit → push) |
+| `ALLOW_REAL_PROVIDER=true` + above three | 5.1 | One-command unified run with real AI provider |
 
 **Hard defaults:**
 - No push by default.
@@ -331,13 +332,39 @@ Properties:
 - **Wired to CLI.**
 - **Unified workflow enabled.**
 
-### 8.7 Next Recommended Step — Stage 4.6 Merge Boundary Audit Plan
+### 8.7 Completed — `real-repo-run-ai <taskId>` unified workflow with real provider (Stage 5.1)
 
-Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 actual safe push is implemented. Stage 4.5 state write after push is implemented. Stage 5.0 unified workflow is implemented.
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`
+- **Tests:** `test/cli-real-repo-run-ai.test.ts`
+
+One-command unified workflow with real AI provider integration behind four opt-ins:
+
+- Requires `ALLOW_REAL_PROVIDER=true`, `ALLOW_REAL_REPO_APPLY=true`, `ALLOW_REAL_REPO_COMMIT=true`, `ALLOW_REAL_REPO_PUSH=true`.
+- Validates repo safety BEFORE provider call: clean working tree, non-main current branch, valid `work_branch`, branch match, `auto_commit`/`auto_push`/`auto_merge` all `false`.
+- Builds prompt via `buildContext` + `buildKimiPrompt`.
+- Calls real provider via `createRealProviderCall` with `KIMI_API_KEY` + `KIMI_BASE_URL` + `KIMI_MODEL`. Supports `KIMI_FAKE_RESPONSE` test seam for injected fake fetch.
+- Parses provider response via `parseKimiOutputJson`.
+- Validates file list via `validateFileList`.
+- Validates line deltas via `validateProposedFileLineDeltas`.
+- Runs identical safe sequence as `real-repo-run`: apply → checks → rollback on fail → commit → push → state.
+- Provider call failure prints `Provider call failed` + `Manual inspection required`, does not apply/commit/push/state.
+- Malformed provider output prints `Provider output malformed` + `Manual inspection required`, does not apply/commit/push/state.
+- No provider raw output printed in success path.
+- No merge, no checkout, no pull/fetch/rebase/reset, no main touch, no force, no tags, no `--all`/`--mirror`.
+
+Properties:
+- 39 CLI tests covering missing opt-ins (each individually), repo safety failures before provider call, provider call failure, malformed output, guardrails failure, line delta failure, apply failure, check failure with rollback, success path with provider→apply→commit→push→state, state content safety, no force/all/mirror/tags, no merge/checkout/reset/main touch, working tree clean after success, existing commands unchanged.
+- **Wired to CLI.**
+- **Real provider integrated into one-command workflow.**
+
+### 8.8 Next Recommended Step — Stage 5.2 Self-Repair Loop
+
+Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 actual safe push is implemented. Stage 4.5 state write after push is implemented. Stage 5.0 unified workflow is implemented. Stage 5.1 real provider integration is implemented.
 
 Next steps:
 
-1. **Audit and plan Stage 4.6 merge boundary.** Define what `ALLOW_REAL_REPO_MERGE=true` would mean, what safety checks are required before any merge operation, and what the refusal stub behavior should be. Do NOT implement merge yet.
+1. **Audit and plan Stage 5.2 self-repair loop.** Define what happens when checks fail after provider-generated apply: retry with provider feedback, max attempts, reviewer loop. Do NOT implement merge yet.
 2. Keep mock mode as default for tests and local development.
 3. Keep no main touch unless explicitly planned.
 
@@ -390,4 +417,5 @@ Properties:
 | Phase 4 Stage 4.4 actual push enabled | Confirmed |
 | Phase 4 Stage 4.5 state write after push implemented | ✅ |
 | Phase 4 Stage 5.0 unified workflow implemented | ✅ |
+| Phase 4 Stage 5.1 real provider integration implemented | ✅ |
 | Opt-in flags defined | Confirmed |
