@@ -663,6 +663,29 @@ describe('cli real-repo-apply', () => {
     }
   });
 
+  test('apply failure prints missing manifest rollback message', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(
+        result.stderr.includes('Rollback could not be attempted because apply manifest was not returned'),
+        `Expected missing manifest message, got: ${result.stderr}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   test('apply failure does NOT print No files were modified', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {

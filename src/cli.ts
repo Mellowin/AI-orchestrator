@@ -1305,6 +1305,7 @@ if (command === 'real-repo-apply') {
       const applyMessage = applyErr instanceof Error ? applyErr.message : String(applyErr);
       console.error(`[real-repo-apply] Apply failed: ${applyMessage}`);
       console.error('[real-repo-apply] Manual inspection required');
+      console.error('[real-repo-apply] Rollback could not be attempted because apply manifest was not returned');
       console.error('[real-repo-apply] No commit was made');
       console.error('[real-repo-apply] No push was performed');
       console.error('[real-repo-apply] No merge was performed');
