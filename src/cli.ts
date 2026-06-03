@@ -1426,9 +1426,174 @@ if (command === 'real-repo-run-ai-readiness') {
   }
 }
 
+if (command === 'real-repo-approval-report') {
+  try {
+    if (!taskId) {
+      console.error('[real-repo-approval-report] Error: task id is required');
+      console.error('[real-repo-approval-report] No provider call was made');
+      console.error('[real-repo-approval-report] No apply was performed');
+      console.error('[real-repo-approval-report] No commit was made');
+      console.error('[real-repo-approval-report] No push was performed');
+      console.error('[real-repo-approval-report] No PR was created');
+      console.error('[real-repo-approval-report] No merge was performed');
+      console.error('[real-repo-approval-report] No checkout was performed');
+      console.error('[real-repo-approval-report] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_REAL_REPO_APPROVAL_REPORT !== 'true') {
+      console.error('[real-repo-approval-report] ALLOW_REAL_REPO_APPROVAL_REPORT=true is required');
+      console.error('[real-repo-approval-report] No PR was created');
+      console.error('[real-repo-approval-report] No merge was performed');
+      console.error('[real-repo-approval-report] No checkout was performed');
+      console.error('[real-repo-approval-report] No main touch was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+
+    if (!existsSync(task.repo_path)) {
+      throw new Error('repo_path does not exist');
+    }
+    if (!task.work_branch) {
+      throw new Error('task.work_branch is missing');
+    }
+    if (task.work_branch === 'main') {
+      throw new Error('task.work_branch is main');
+    }
+    if (!task.base_branch) {
+      throw new Error('task.base_branch is missing');
+    }
+
+    const state = loadState(taskId);
+    if (!state) {
+      throw new Error('State file does not exist');
+    }
+    if (state.task_id !== taskId) {
+      throw new Error('State task_id mismatch');
+    }
+    if (state.status !== 'pushed') {
+      throw new Error(`State status is ${state.status}, expected pushed`);
+    }
+    if (state.branch !== task.work_branch) {
+      throw new Error('State branch mismatch');
+    }
+    if (state.pushed_remote !== 'origin') {
+      throw new Error('State pushed_remote is not origin');
+    }
+    if (state.pushed_ref !== task.work_branch) {
+      throw new Error('State pushed_ref mismatch');
+    }
+    if (!state.commit_sha) {
+      throw new Error('State commit_sha is missing');
+    }
+
+    const commitVerify = spawnSync(
+      'git',
+      ['rev-parse', '--verify', '--end-of-options', `${state.commit_sha}^{commit}`],
+      {
+        cwd: task.repo_path,
+        shell: false,
+        encoding: 'utf-8',
+      }
+    );
+    if (commitVerify.status !== 0) {
+      throw new Error('Commit SHA does not exist in local repository');
+    }
+
+    let diffStat = '';
+    const diffResult = spawnSync('git', ['diff', '--stat', `${task.base_branch}...${task.work_branch}`], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (diffResult.status === 0 && diffResult.stdout) {
+      diffStat = diffResult.stdout.trim();
+    }
+
+    const reportLines: string[] = [];
+    reportLines.push(`# Manual Approval Report: ${taskId}`);
+    reportLines.push('');
+    reportLines.push(`- **Task ID:** ${taskId}`);
+    reportLines.push(`- **Task Title:** ${task.title ?? 'N/A'}`);
+    reportLines.push(`- **Goal:** ${task.goal ?? 'N/A'}`);
+    reportLines.push(`- **Base Branch:** ${task.base_branch}`);
+    reportLines.push(`- **Work Branch:** ${task.work_branch}`);
+    reportLines.push(`- **Pushed Remote:** ${state.pushed_remote}`);
+    reportLines.push(`- **Pushed Ref:** ${state.pushed_ref}`);
+    reportLines.push(`- **Pushed Commit SHA:** ${state.commit_sha}`);
+    reportLines.push(`- **State Status:** ${state.status}`);
+    reportLines.push(`- **Safety Note:** ${state.safety_note ?? 'N/A'}`);
+    reportLines.push('');
+    reportLines.push('## Changed Files / Diff Stat');
+    reportLines.push('');
+    if (diffStat) {
+      reportLines.push('```');
+      reportLines.push(diffStat);
+      reportLines.push('```');
+    } else {
+      reportLines.push('> Diff stat unavailable; inspect manually');
+    }
+    reportLines.push('');
+    reportLines.push('## Manual Review Checklist');
+    reportLines.push('');
+    reportLines.push('- [ ] Inspect the diff carefully');
+    reportLines.push('- [ ] Inspect the commit message and contents');
+    reportLines.push('- [ ] Run tests locally if needed');
+    reportLines.push('- [ ] Open PR manually if desired');
+    reportLines.push('- [ ] Do not merge without human review');
+    reportLines.push('- [ ] Do not force push');
+    reportLines.push('- [ ] Do not touch main directly');
+    reportLines.push('');
+    reportLines.push('## Manual Commands');
+    reportLines.push('');
+    reportLines.push('```bash');
+    reportLines.push(`git log --oneline ${task.base_branch}..${task.work_branch}`);
+    reportLines.push(`git diff --stat ${task.base_branch}...${task.work_branch}`);
+    reportLines.push(`git diff ${task.base_branch}...${task.work_branch}`);
+    reportLines.push('# Optional: create PR manually (not executed by this tool)');
+    reportLines.push(`# gh pr create --base ${task.base_branch} --head ${task.work_branch}`);
+    reportLines.push('```');
+    reportLines.push('');
+    reportLines.push('## Hard Safety Statement');
+    reportLines.push('');
+    reportLines.push('- This tool did not create a PR.');
+    reportLines.push('- This tool did not merge.');
+    reportLines.push('- This tool did not checkout or switch branches.');
+    reportLines.push('- This tool did not touch main.');
+    reportLines.push('- This tool did not call provider.');
+    reportLines.push('- This tool did not push.');
+    reportLines.push('');
+
+    const reportContent = reportLines.join('\n');
+    const reportPath = join(getRunDir(taskId), 'approval-report.md');
+    writeFileSync(reportPath, reportContent, 'utf-8');
+
+    console.error('[real-repo-approval-report] Approval report written');
+    console.error(`[real-repo-approval-report] Report path: ${reportPath}`);
+    console.error('[real-repo-approval-report] No PR was created');
+    console.error('[real-repo-approval-report] No merge was performed');
+    console.error('[real-repo-approval-report] No checkout was performed');
+    console.error('[real-repo-approval-report] No main touch was performed');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-repo-approval-report] Error: ${message}`);
+    console.error('[real-repo-approval-report] No provider call was made');
+    console.error('[real-repo-approval-report] No apply was performed');
+    console.error('[real-repo-approval-report] No commit was made');
+    console.error('[real-repo-approval-report] No push was performed');
+    console.error('[real-repo-approval-report] No PR was created');
+    console.error('[real-repo-approval-report] No merge was performed');
+    console.error('[real-repo-approval-report] No checkout was performed');
+    console.error('[real-repo-approval-report] No main touch was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report> <taskId> [arg3]'
   );
   process.exit(1);
 }

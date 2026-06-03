@@ -450,7 +450,7 @@ Properties:
 - **Status:** ✅ Executed and reported.
 - **Location:** `STAGE5_REAL_SMOKE_DEMO_REPORT.md`, `ai/smoke-demo` branch
 - **Bug found and fixed:** `createRealProviderCall` did not pass `KIMI_USER_AGENT` header, causing HTTP 403 from Kimi For Coding API.
-- **Fix commit:** `319efb8` (cherry-picked to `feature/mvp-skeleton` as `876f001`)
+- **Fix commit:** `319efb808224ae308d7e72d041f438e6c5022402`
 
 Real smoke demo results:
 - **Branch:** `ai/smoke-demo`
@@ -464,11 +464,27 @@ Real smoke demo results:
 - **No merge:** ✅ `ai/smoke-demo` not merged into `main`
 - **No main touch:** ✅ `main` unchanged at `065568b`
 
-### 8.12 Next Recommended Step — Manual Approval / PR Boundary Audit
+### 8.12 Completed — Stage 5.5 Manual Approval / PR Boundary Report
 
-What happens after `status: pushed`? Document manual approval flow, PR creation guidelines, and merge safety rules.
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`, `test/cli-real-repo-approval-report.test.ts`, `STAGE5_PR_BOUNDARY_AUDIT.md`
+- **Tests:** 45 CLI tests
 
-Keep no merge, no main touch, no automatic checkout/switch.
+Command `real-repo-approval-report <taskId>`:
+- Generates `runs/<taskId>/approval-report.md` after successful push (`status: pushed`).
+- Requires `ALLOW_REAL_REPO_APPROVAL_REPORT=true`.
+- No provider call, no apply, no commit, no push, no PR creation, no merge, no checkout/switch, no main touch, no API keys required.
+- Validates task and state file rigorously.
+- Validates commit SHA exists locally via `git rev-parse --verify --end-of-options <sha>^{commit}`.
+- Generates diff stat via read-only `git diff --stat`.
+- Report includes: task metadata, commit SHA, diff stat (or warning), manual review checklist, exact manual commands, hard safety statements.
+- Report excludes: API keys, env values, remote URL credentials.
+
+### 8.13 Next Recommended Step — Stage 5.6 PR Creation Readiness / Stub
+
+- PR creation dry-run / stub command.
+- GitHub API opt-in design (separate from push opt-in).
+- Still no auto-merge, no main touch, no automatic checkout/switch.
 
 ---
 
@@ -493,4 +509,5 @@ Keep no merge, no main touch, no automatic checkout/switch.
 | Phase 4 Stage 5.2 self-repair loop implemented | ✅ |
 | Phase 4 Stage 5.3 readiness + operator guide implemented | ✅ |
 | Phase 4 Stage 5.4 real smoke demo executed | ✅ |
+| Phase 4 Stage 5.5 manual approval / PR boundary report implemented | ✅ |
 | Opt-in flags defined | Confirmed |
