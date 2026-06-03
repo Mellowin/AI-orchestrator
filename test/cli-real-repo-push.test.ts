@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -67,6 +68,7 @@ function createTempEnv(): {
   taskId: string;
   tasksFilePath: string;
   repoPath: string;
+  originPath: string;
   cleanup: () => void;
 } {
   const id = `${Date.now()}-${counter++}`;
@@ -77,6 +79,7 @@ function createTempEnv(): {
   }
   const tmpDir = mkdtempSync(join(tmpBase, `push-${id}-`));
   const repoPath = join(tmpDir, 'repo');
+  const originPath = join(tmpDir, 'origin.git');
   mkdirSync(repoPath);
 
   writeFileSync(join(repoPath, 'README.md'), '# hello\n', 'utf-8');
@@ -102,6 +105,17 @@ function createTempEnv(): {
     shell: false,
   });
   spawnSync('git', ['checkout', '-b', `ai/${taskId}`], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+
+  // Create bare remote and add as origin
+  spawnSync('git', ['init', '--bare', originPath], {
+    encoding: 'utf-8',
+    shell: false,
+  });
+  spawnSync('git', ['remote', 'add', 'origin', originPath], {
     cwd: repoPath,
     encoding: 'utf-8',
     shell: false,
@@ -134,6 +148,7 @@ function createTempEnv(): {
     taskId,
     tasksFilePath,
     repoPath,
+    originPath,
     cleanup: () => {
       rmSync(tmpDir, { recursive: true, force: true });
     },
@@ -149,13 +164,24 @@ function getCurrentBranch(repoPath: string): string {
   return result.stdout.trim();
 }
 
-describe('cli real-repo-push', () => {
-  test('command exists and refuses safely', () => {
-    const result = runCli(['real-repo-push']);
-    assert.notStrictEqual(result.status, 0);
-    assert(result.stderr.includes('No push was performed'), `Expected no push message: ${result.stderr}`);
+function getBareRefs(originPath: string): string[] {
+  const result = spawnSync('git', ['--git-dir', originPath, 'show-ref'], {
+    encoding: 'utf-8',
+    shell: false,
   });
+  return result.stdout.trim().split('\n').filter((l) => l.length > 0);
+}
 
+function getGitPorcelain(repoPath: string): string {
+  const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  return result.stdout.trim();
+}
+
+describe('cli real-repo-push', () => {
   test('missing taskId exits non-zero', () => {
     const result = runCli(['real-repo-push']);
     assert.notStrictEqual(result.status, 0);
@@ -168,7 +194,7 @@ describe('cli real-repo-push', () => {
     assert(result.stderr.includes('No push was performed'), `Expected no push: ${result.stderr}`);
   });
 
-  test('without ALLOW_REAL_REPO_PUSH, refuses with opt-in message', () => {
+  test('missing ALLOW_REAL_REPO_PUSH refuses', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-push', taskId], {
@@ -181,7 +207,7 @@ describe('cli real-repo-push', () => {
     }
   });
 
-  test('without ALLOW_REAL_REPO_PUSH, does not require ALLOW_REAL_REPO_APPLY', () => {
+  test('missing ALLOW_REAL_REPO_PUSH does not require apply/commit/provider env', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-push', taskId], {
@@ -189,125 +215,372 @@ describe('cli real-repo-push', () => {
       });
       assert.notStrictEqual(result.status, 0);
       assert(!result.stderr.includes('ALLOW_REAL_REPO_APPLY'), `Should not require ALLOW_REAL_REPO_APPLY: ${result.stderr}`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('without ALLOW_REAL_REPO_PUSH, does not require ALLOW_REAL_REPO_COMMIT', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
-    try {
-      const result = runCli(['real-repo-push', taskId], {
-        TASKS_FILE: tasksFilePath,
-      });
-      assert.notStrictEqual(result.status, 0);
       assert(!result.stderr.includes('ALLOW_REAL_REPO_COMMIT'), `Should not require ALLOW_REAL_REPO_COMMIT: ${result.stderr}`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('without ALLOW_REAL_REPO_PUSH, does not require REAL_REPO_PROVIDER_RESPONSE', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
-    try {
-      const result = runCli(['real-repo-push', taskId], {
-        TASKS_FILE: tasksFilePath,
-      });
-      assert.notStrictEqual(result.status, 0);
       assert(!result.stderr.includes('REAL_REPO_PROVIDER_RESPONSE'), `Should not require REAL_REPO_PROVIDER_RESPONSE: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('with ALLOW_REAL_REPO_PUSH=true, still refuses because implementation disabled', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+  test('with opt-in, missing task refuses safely', () => {
+    const { tasksFilePath, cleanup } = createTempEnv();
     try {
-      const result = runCli(['real-repo-push', taskId], {
+      const result = runCli(['real-repo-push', 'nonexistent-task'], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_PUSH: 'true',
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('real-repo-push is not implemented yet'), `Expected not implemented: ${result.stderr}`);
+      assert(result.stderr.includes('Error:'), `Expected safe error: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('with opt-in, prints Stage 4.4 push behavior remains disabled', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
-    try {
-      const result = runCli(['real-repo-push', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_PUSH: 'true',
-      });
-      assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Stage 4.4 push behavior remains disabled'), `Expected stage 4.4 disabled: ${result.stderr}`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('with opt-in, prints Human review required before push', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
-    try {
-      const result = runCli(['real-repo-push', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_PUSH: 'true',
-      });
-      assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Human review required before push'), `Expected human review: ${result.stderr}`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('does not call git push', () => {
+  test('current branch main refuses', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
-      const before = spawnSync('git', ['log', '--oneline'], {
+      spawnSync('git', ['checkout', 'main'], {
         cwd: repoPath,
         encoding: 'utf-8',
         shell: false,
-      }).stdout.trim().split('\n').filter((l) => l.length > 0).length;
-      runCli(['real-repo-push', taskId], {
+      });
+      const result = runCli(['real-repo-push', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_PUSH: 'true',
       });
-      const after = spawnSync('git', ['log', '--oneline'], {
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Current branch is main'), `Expected main branch refusal: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('task.work_branch main refuses', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const tasksContent = readFileSync(tasksFilePath, 'utf-8');
+      writeFileSync(tasksFilePath, tasksContent.replace(/work_branch: "ai\/[^"]+"/, 'work_branch: "main"'), 'utf-8');
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('work_branch is main'), `Expected work_branch main refusal: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('branch mismatch refuses', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['checkout', '-b', 'other-branch'], {
         cwd: repoPath,
         encoding: 'utf-8',
         shell: false,
-      }).stdout.trim().split('\n').filter((l) => l.length > 0).length;
-      assert.strictEqual(after, before, `Log count should not change`);
+      });
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Branch mismatch'), `Expected branch mismatch refusal: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('does not call git merge', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+  test('dirty tracked working tree refuses', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
     try {
-      const before = getCurrentBranch(repoPath);
-      runCli(['real-repo-push', taskId], {
+      writeFileSync(join(repoPath, 'README.md'), '# dirty\n', 'utf-8');
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-push', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_PUSH: 'true',
       });
-      const after = getCurrentBranch(repoPath);
-      assert.strictEqual(after, before, `Branch should not change`);
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Working tree is not clean'), `Expected dirty tree refusal: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Bare remote should not change on dirty tree refusal`);
     } finally {
       cleanup();
     }
   });
 
-  test('does not call git checkout or switch', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+  test('untracked file refuses', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
     try {
-      const before = getCurrentBranch(repoPath);
-      runCli(['real-repo-push', taskId], {
+      writeFileSync(join(repoPath, 'UNTRACKED.md'), 'untracked\n', 'utf-8');
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-push', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_PUSH: 'true',
       });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Working tree is not clean'), `Expected untracked refusal: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Bare remote should not change on untracked refusal`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('staged file refuses', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'STAGED.md'), 'staged\n', 'utf-8');
+      spawnSync('git', ['add', 'STAGED.md'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Working tree is not clean'), `Expected staged refusal: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Bare remote should not change on staged refusal`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('missing local HEAD commit refuses', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      // Switch to main, delete work branch, create orphan work branch with no commits
+      spawnSync('git', ['checkout', 'main'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      spawnSync('git', ['branch', '-D', `ai/${taskId}`], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      spawnSync('git', ['checkout', '--orphan', `ai/${taskId}`], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      // Remove tracked files from index and working tree for clean status
+      spawnSync('git', ['rm', '-rf', '.'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(
+        result.stderr.includes('No local HEAD commit exists') || result.stderr.includes('ambiguous argument \'HEAD\''),
+        `Expected missing HEAD refusal: ${result.stderr}`
+      );
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Bare remote should not change on missing HEAD refusal`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('missing origin remote refuses', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['remote', 'remove', 'origin'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Remote origin does not exist'), `Expected missing origin refusal: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Bare remote should not change on missing origin refusal`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('origin remote exists and clean branch passes validation', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('actual push updates local bare remote branch', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      assert.strictEqual(before.length, 0, `Bare remote should have no refs before push`);
+
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+
+      const after = getBareRefs(originPath);
+      assert(after.length > 0, `Bare remote should have refs after push: ${after.join(', ')}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('pushed branch name equals current work branch', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      const branch = getCurrentBranch(repoPath);
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+
+      const after = getBareRefs(originPath);
+      const hasBranch = after.some((ref) => ref.includes(`refs/heads/${branch}`));
+      assert(hasBranch, `Bare remote should have refs/heads/${branch}: ${after.join(', ')}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('command output contains Push completed', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes('Push completed'), `Expected Push completed: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('command output contains Push target: origin <currentBranch>', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      const branch = getCurrentBranch(repoPath);
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes(`Push target: origin ${branch}`), `Expected push target: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('command does not push main', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      const hasMain = after.some((ref) => ref.includes('refs/heads/main'));
+      assert(!hasMain, `Bare remote should NOT have refs/heads/main: ${after.join(', ')}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('command does not push tags', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['tag', 'v1.0.0'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      const hasTag = after.some((ref) => ref.includes('refs/tags/'));
+      assert(!hasTag, `Bare remote should NOT have tags: ${after.join(', ')}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('command does not use force', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(!result.stderr.includes('--force'), `Should not mention force: ${result.stderr}`);
+      assert(!result.stderr.includes('force'), `Should not mention force: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('command does not use --all', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(!result.stderr.includes('--all'), `Should not mention --all: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('command does not use --mirror', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(!result.stderr.includes('--mirror'), `Should not mention --mirror: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('command does not merge', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      const before = getCurrentBranch(repoPath);
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       const after = getCurrentBranch(repoPath);
       assert.strictEqual(after, before, `Branch should not change: ${before} -> ${after}`);
     } finally {
@@ -315,37 +588,15 @@ describe('cli real-repo-push', () => {
     }
   });
 
-  test('does not call git pull/fetch/rebase/reset', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      const before = spawnSync('git', ['log', '--oneline'], {
-        cwd: repoPath,
-        encoding: 'utf-8',
-        shell: false,
-      }).stdout.trim().split('\n').filter((l) => l.length > 0).length;
-      runCli(['real-repo-push', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_PUSH: 'true',
-      });
-      const after = spawnSync('git', ['log', '--oneline'], {
-        cwd: repoPath,
-        encoding: 'utf-8',
-        shell: false,
-      }).stdout.trim().split('\n').filter((l) => l.length > 0).length;
-      assert.strictEqual(after, before, `Log count should not change`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('branch before/after remains the same', () => {
+  test('command does not checkout or switch branch', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       const before = getCurrentBranch(repoPath);
-      runCli(['real-repo-push', taskId], {
+      const result = runCli(['real-repo-push', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_PUSH: 'true',
       });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       const after = getCurrentBranch(repoPath);
       assert.strictEqual(after, before, `Branch should not change: ${before} -> ${after}`);
     } finally {
@@ -353,13 +604,71 @@ describe('cli real-repo-push', () => {
     }
   });
 
-  test('no state.json write', () => {
+  test('command does not pull/fetch/rebase/reset', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
-      runCli(['real-repo-push', taskId], {
+      const before = spawnSync('git', ['log', '--oneline'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      }).stdout.trim().split('\n').filter((l) => l.length > 0).length;
+      const result = runCli(['real-repo-push', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_PUSH: 'true',
       });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const after = spawnSync('git', ['log', '--oneline'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      }).stdout.trim().split('\n').filter((l) => l.length > 0).length;
+      assert.strictEqual(after, before, `Local log count should not change: ${before} -> ${after}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('branch before/after remains unchanged', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      const before = getCurrentBranch(repoPath);
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const after = getCurrentBranch(repoPath);
+      assert.strictEqual(after, before, `Branch should not change: ${before} -> ${after}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('working tree before/after remains clean', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      const before = getGitPorcelain(repoPath);
+      assert.strictEqual(before, '', `Working tree should be clean before push: ${before}`);
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const after = getGitPorcelain(repoPath);
+      assert.strictEqual(after, '', `Working tree should be clean after push: ${after}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no state.json is written', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       const statePath = join(repoPath, 'runs', taskId, 'state.json');
       assert(!existsSync(statePath), `state.json should not exist: ${statePath}`);
     } finally {
@@ -367,14 +676,14 @@ describe('cli real-repo-push', () => {
     }
   });
 
-  test('no provider/network/API key requirement', () => {
+  test('no provider/API keys required', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-push', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_PUSH: 'true',
       });
-      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       assert(!result.stderr.includes('KIMI_API_KEY'), `Should not require KIMI_API_KEY: ${result.stderr}`);
       assert(!result.stderr.includes('OPENAI_API_KEY'), `Should not require OPENAI_API_KEY: ${result.stderr}`);
       assert(!result.stderr.includes('Provider'), `Should not mention provider: ${result.stderr}`);
@@ -384,9 +693,26 @@ describe('cli real-repo-push', () => {
     }
   });
 
-  test('no stack trace', () => {
+  test('fake API key is not printed', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
+      const result = runCli(['real-repo-push', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'sk-fake12345',
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(!result.stderr.includes('sk-fake'), `Should not leak fake API key: ${result.stderr}`);
+      assert(!result.stdout.includes('sk-fake'), `Should not leak fake API key in stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no stack trace in failure paths', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# dirty\n', 'utf-8');
       const result = runCli(['real-repo-push', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_PUSH: 'true',
@@ -398,23 +724,28 @@ describe('cli real-repo-push', () => {
     }
   });
 
-  test('fake API key value is not printed', () => {
-    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+  test('push failure prints Git push failed + Manual inspection required', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
+      // Set origin to invalid path to force push failure
+      spawnSync('git', ['remote', 'set-url', 'origin', '/nonexistent/remote.git'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
       const result = runCli(['real-repo-push', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_PUSH: 'true',
-        KIMI_API_KEY: 'sk-fake12345',
       });
       assert.notStrictEqual(result.status, 0);
-      assert(!result.stderr.includes('sk-fake'), `Should not leak fake API key: ${result.stderr}`);
-      assert(!result.stdout.includes('sk-fake'), `Should not leak fake API key in stdout: ${result.stdout}`);
+      assert(result.stderr.includes('Git push failed'), `Expected Git push failed: ${result.stderr}`);
+      assert(result.stderr.includes('Manual inspection required'), `Expected manual inspection: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('existing real-repo-apply behavior is not changed', () => {
+  test('existing real-repo-apply behavior is unchanged', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-apply', taskId], {
@@ -427,7 +758,7 @@ describe('cli real-repo-push', () => {
     }
   });
 
-  test('existing real-repo-commit behavior is not changed', () => {
+  test('existing real-repo-commit behavior is unchanged', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-commit', taskId], {

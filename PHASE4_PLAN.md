@@ -81,11 +81,12 @@ All real-repo operations require explicit environment opt-ins. Defaults are deny
 - **No tag creation.**
 - Commit message format: `ai-orchestrator: apply {task_id}`.
 
-### Stage 4.4 — Optional Push (refusal stub implemented, actual push disabled)
+### Stage 4.4 — Optional Push (implemented)
 
 - Behind separate `ALLOW_REAL_REPO_PUSH=true`.
-- `real-repo-push <taskId>` safe refusal stub is implemented. With or without opt-in, it refuses safely and does not push.
-- Push the work branch to remote is not implemented yet.
+- `real-repo-push <taskId>` actual safe push is implemented. Validates task, repo_path, work_branch, current branch, clean working tree, HEAD commit, origin remote. Performs `git push origin <currentBranch>` via `spawnSync` with array args and `shell: false`. No force, no tags, no `--all`, no `--mirror`.
+- On success prints `Push completed` and safety messages, exits 0.
+- On push failure prints `Git push failed` + `Manual inspection required`, exits non-zero.
 - **No merge.**
 - **No checkout.**
 - **No pull/fetch/rebase/reset.**
@@ -297,16 +298,15 @@ Properties:
 - **Not wired to CLI.**
 - **Real repo apply remains disabled for writes.**
 
-### 8.6 Next Recommended Step — Stage 4.4 Pre-Push Validation Tests
+### 8.6 Next Recommended Step — Stage 4.5 State Write or Merge Boundary Audit
 
-Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 safe refusal stub is implemented.
+Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 actual safe push is implemented.
 
 Next steps:
 
-1. **Add pre-push validation tests** before any actual `git push` command is implemented. Test that `real-repo-push` refuses when prerequisites are not met (dirty tree, branch mismatch, missing remote, no local commit, etc.).
-2. **Do NOT implement git push yet.** Keep `ALLOW_REAL_REPO_PUSH` as a planned opt-in only.
-3. Keep no merge, no main touch.
-4. Keep mock mode as default for tests and local development.
+1. **Audit and plan Stage 4.5 state write or merge boundary.** Decide whether the orchestrator should write `runs/{taskId}/state.json` automatically after commit/push, or whether that remains a separate explicit decision. Do NOT implement merge yet.
+2. Keep mock mode as default for tests and local development.
+3. Keep no merge, no main touch unless explicitly planned.
 
 ### 8.7 Completed — `real-repo-commit <taskId>` local commit
 
@@ -353,6 +353,6 @@ Properties:
 | No state write in Stage 4.2 | Confirmed |
 | No provider call in Stage 4.2 | Confirmed |
 | Stage 4.3 actual local commit enabled | Confirmed |
-| Phase 4 Stage 4.4 refusal stub implemented | ✅ |
-| Phase 4 Stage 4.4 actual push remains disabled | Confirmed |
+| Phase 4 Stage 4.4 actual push implemented | ✅ |
+| Phase 4 Stage 4.4 actual push enabled | Confirmed |
 | Opt-in flags defined | Confirmed |

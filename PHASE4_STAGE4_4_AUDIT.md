@@ -1,18 +1,16 @@
 # Stage 4.4 Push Boundary Audit Plan
 
-**Baseline commit:** `b8375887f739b2b39e944b22f4eee34b80ce4f34`
+**Baseline commit:** `5574e2a62e986a0b17b32c89fe448a98ddc28264`
 
-**Status:** planning/audit + refusal stub only
+**Status:** planning/audit + actual safe push implemented
 
-**Actual push:** not implemented
+**Actual push:** implemented (local bare remote verified in tests)
 
 ---
 
 ## 1. What is Stage 4.4?
 
-Stage 4.4 is the future optional `real-repo-push <taskId>` command that may push the current work branch to a remote repository.
-
-This document audits the boundaries before any real push behavior is implemented.
+Stage 4.4 is the `real-repo-push <taskId>` command that pushes the current work branch to a remote repository.
 
 ---
 
@@ -20,34 +18,33 @@ This document audits the boundaries before any real push behavior is implemented
 
 - **Stage 4.2 local apply:** implemented
 - **Stage 4.3 local commit:** implemented
-- **Stage 4.4 push:** refusal stub implemented, actual push disabled
+- **Stage 4.4 push:** actual safe push implemented
 
 ---
 
 ## 3. Scope
 
-Future Stage 4.4 may push the current work branch to remote only after explicit opt-in.
+`real-repo-push <taskId>` pushes the current work branch to `origin` after explicit opt-in and full validation.
 
-This commit only adds:
-- Safe refusal stub for `real-repo-push <taskId>`
-- Audit plan document
-
-No actual push behavior is enabled.
+This commit implements actual push behavior verified against a local temporary bare repository.
 
 ---
 
-## 4. Future Push Constraints
+## 4. Push Constraints
 
-Before any `git push` is implemented, the following constraints must be enforced:
+The following constraints are enforced before any `git push`:
 
 - Require `ALLOW_REAL_REPO_PUSH=true`
+- Require task exists
+- Require `repo_path` exists
 - Require current branch exists
 - Current branch must not be `main`
-- `task.work_branch` must not be `main`
+- `task.work_branch` must exist and must not be `main`
 - Current branch must equal `task.work_branch`
 - Working tree must be clean
-- Local commit must exist on work_branch
-- Remote target must be explicit and safe
+- Local HEAD commit must exist
+- Remote `origin` must exist
+- Push target is exactly `origin <currentBranch>`
 - No force push
 - No tags
 - No merge
@@ -64,13 +61,15 @@ Before any `git push` is implemented, the following constraints must be enforced
 |--------------|----------|
 | Missing taskId | Refuse safely |
 | Missing opt-in | Refuse safely |
+| Missing task | Refuse safely |
 | Current branch is main | Refuse safely |
 | work_branch is main | Refuse safely |
 | Branch mismatch | Refuse safely |
 | Dirty working tree | Refuse safely |
-| No local commit to push | Refuse safely |
-| Remote missing | Refuse safely |
-| Upstream mismatch | Refuse safely |
+| Untracked files | Refuse safely |
+| Staged files | Refuse safely |
+| No local HEAD commit | Refuse safely |
+| Remote origin missing | Refuse safely |
 | Push failure | Refuse safely, no retry |
 | Unexpected exception | Refuse safely, no stack trace |
 
@@ -86,59 +85,93 @@ For every failure:
 
 ---
 
-## 6. Required Future Tests Before Real Push
+## 6. Actual Push Behavior
 
-Before implementing actual `git push`, the following tests must exist:
+- Command: `git push origin <currentBranch>`
+- Implementation: `spawnSync('git', ['push', 'origin', currentBranch], { cwd: task.repo_path, shell: false, encoding: 'utf-8' })`
+- On success: exit 0, print `Push completed`, `Push target: origin <currentBranch>`, safety messages
+- On failure: exit 1, print `Git push failed`, `Manual inspection required`, safety messages
 
-- Refuses missing opt-in
-- Refuses main branch
-- Refuses work_branch main
-- Refuses branch mismatch
-- Refuses dirty tree
-- Refuses missing remote
-- Refuses no local commit
-- Refuses force push
-- Pushes only current work branch when all checks pass
-- Does not push main
-- Does not push tags
-- Does not merge
-- Does not checkout
-- Does not write state initially
-- Safe failure messages
-- No API key leak
+Forbidden in implementation:
+- `git push --force`
+- `git push --force-with-lease`
+- `git push --tags`
+- `git push --all`
+- `git push --mirror`
+- `git push --set-upstream`
 
 ---
 
-## 7. Implementation Progress
+## 7. Tests
+
+Tests verify actual push using a local temporary bare repository as `origin`:
+
+- Create temp working git repo
+- Create temp bare remote: `git init --bare <temp>/origin.git`
+- Add it as origin: `git remote add origin <temp>/origin.git`
+- Create/switch to non-main work branch matching `task.work_branch`
+- Create at least one local commit
+- Run `real-repo-push <taskId>` with `ALLOW_REAL_REPO_PUSH=true`
+- Verify that `refs/heads/<currentBranch>` exists in the local bare remote after command
+- Verify that `refs/heads/main` was not created or updated
+- Verify that tags were not pushed
+
+35 CLI tests covering:
+- Missing taskId, missing opt-in, missing task
+- Current branch main, work_branch main, branch mismatch
+- Dirty tree, untracked file, staged file
+- Missing HEAD commit, missing origin remote
+- Success path with bare remote verification
+- Pushed branch name equals work branch
+- No main push, no tags, no force/all/mirror
+- No merge/checkout/pull/fetch/rebase/reset
+- Branch unchanged, working tree clean
+- No state write, no API keys, no stack trace
+- Push failure handling
+- Existing real-repo-apply and real-repo-commit behavior unchanged
+
+---
+
+## 8. Implementation Progress
 
 - **`real-repo-push <taskId>` safe refusal stub** (`src/cli.ts`, `test/cli-real-repo-push.test.ts`):
+  - Commit hash: `5574e2a62e986a0b17b32c89fe448a98ddc28264`
   - Without opt-in: refuses with `ALLOW_REAL_REPO_PUSH=true is required`
-  - With opt-in: refuses with `real-repo-push is not implemented yet` and `Stage 4.4 push behavior remains disabled`
-  - No provider call, no network, no API keys, no state write, no git push, no git merge, no checkout, no main touch
-  - 20 CLI tests covering missing taskId, missing opt-in, opt-in with disabled stub, no push/merge/checkout/main touch, no state write, no stack trace leak, no API key leak, existing real-repo-apply and real-repo-commit behavior unchanged
+  - With opt-in: refused with `real-repo-push is not implemented yet`
 
-> **Stage 4.4 actual push is still not implemented.** `ALLOW_REAL_REPO_PUSH=true` does not push to remote yet.
+- **`real-repo-push <taskId>` actual safe push** (`src/cli.ts`, `test/cli-real-repo-push.test.ts`):
+  - Validates task, repo_path, work_branch, current branch, clean working tree, HEAD commit, origin remote
+  - Performs actual `git push origin <currentBranch>` via `spawnSync` with array args and `shell: false`
+  - No force, no tags, no `--all`, no `--mirror`
+  - Tests verify actual push against local bare remote, never touching real GitHub remote
+  - 35 CLI tests
+
+> **Stage 4.4 actual safe push is now implemented.** `ALLOW_REAL_REPO_PUSH=true` performs a real `git push origin <currentBranch>` after validation passes.
 
 ---
 
-## 8. Safer Next Step Recommendation
+## 9. Safer Next Step Recommendation
 
-- Add `ALLOW_REAL_REPO_PUSH` pre-push validation tests before any `git push` command is implemented.
+- **Audit and plan Stage 4.5 state write or merge boundary.** Decide whether the orchestrator should write `runs/{taskId}/state.json` automatically after commit/push, or whether that remains a separate explicit decision.
+- **Do NOT implement merge yet.** Keep merge as a future boundary.
 - Preserve all existing Stage 4.2 tests (34 tests in `test/cli-real-repo-apply.test.ts`).
 - Preserve all existing Stage 4.3 tests (35 tests in `test/cli-real-repo-commit.test.ts`).
-- Preserve all existing Stage 4.4 refusal stub tests (20 tests in `test/cli-real-repo-push.test.ts`).
-- Stage 4.4 must not break Stage 4.2, Stage 4.3, or earlier behavior.
+- Preserve all existing Stage 4.4 tests (35 tests in `test/cli-real-repo-push.test.ts`).
+- Stage 4.5 must not break Stage 4.2, Stage 4.3, or Stage 4.4 behavior.
 
 ---
 
-## 9. Sign-Off
+## 10. Sign-Off
 
 | Checkpoint | Status |
 |---|---|
 | Stage 4.4 refusal stub implemented | Confirmed |
-| Stage 4.4 actual push remains disabled | Confirmed |
-| `ALLOW_REAL_REPO_PUSH=true` reaches disabled stub only | Confirmed |
-| No push / no merge / no checkout / no main touch | Confirmed |
+| Stage 4.4 actual safe push implemented | Confirmed |
+| Stage 4.4 actual push enabled | Confirmed |
+| Push target only `origin <currentBranch>` | Confirmed |
+| No force/tags/all/mirror | Confirmed |
+| No push / no merge / no checkout / no main touch on failure | Confirmed |
+| Tests use local bare remote, not GitHub | Confirmed |
 | Opt-in flag boundary defined | Confirmed |
 | Failure boundaries defined for all cases | Confirmed |
-| Required future tests listed before implementation | Confirmed |
+| Required tests exist and pass | Confirmed |

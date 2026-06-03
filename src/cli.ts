@@ -323,14 +323,81 @@ if (command === 'real-repo-push') {
       process.exit(1);
     }
 
-    console.error('[real-repo-push] real-repo-push is not implemented yet');
-    console.error('[real-repo-push] Stage 4.4 push behavior remains disabled');
-    console.error('[real-repo-push] No push was performed');
+    const task = loadTask(getTasksFilePath(), taskId);
+
+    if (!existsSync(task.repo_path)) {
+      throw new Error('repo_path does not exist');
+    }
+    if (!task.work_branch) {
+      throw new Error('task.work_branch is missing');
+    }
+    if (task.work_branch === 'main') {
+      throw new Error('task.work_branch is main');
+    }
+
+    const currentBranch = getCurrentBranch(task.repo_path);
+    if (!currentBranch || currentBranch === 'HEAD') {
+      throw new Error('Current branch is missing or detached HEAD');
+    }
+    if (currentBranch === 'main') {
+      throw new Error('Current branch is main');
+    }
+    if (currentBranch !== task.work_branch) {
+      throw new Error(`Branch mismatch: current=${currentBranch}, work_branch=${task.work_branch}`);
+    }
+
+    // Working tree must be clean
+    const statusResult = spawnSync('git', ['status', '--porcelain'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (statusResult.stdout && statusResult.stdout.trim().length > 0) {
+      throw new Error('Working tree is not clean');
+    }
+
+    // Local HEAD commit must exist
+    const headResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (headResult.status !== 0) {
+      throw new Error('No local HEAD commit exists');
+    }
+
+    // Origin remote must exist
+    const remoteResult = spawnSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (remoteResult.status !== 0) {
+      throw new Error('Remote origin does not exist');
+    }
+
+    // Push
+    const pushResult = spawnSync('git', ['push', 'origin', currentBranch], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (pushResult.status !== 0) {
+      console.error('[real-repo-push] Git push failed');
+      console.error('[real-repo-push] Manual inspection required');
+      console.error('[real-repo-push] No merge was performed');
+      console.error('[real-repo-push] No checkout was performed');
+      console.error('[real-repo-push] No main touch was performed');
+      process.exit(1);
+    }
+
+    console.error('[real-repo-push] Push completed');
+    console.error(`[real-repo-push] Push target: origin ${currentBranch}`);
     console.error('[real-repo-push] No merge was performed');
     console.error('[real-repo-push] No checkout was performed');
     console.error('[real-repo-push] No main touch was performed');
-    console.error('[real-repo-push] Human review required before push');
-    process.exit(1);
+    console.error('[real-repo-push] Human review required before merge');
+    process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-repo-push] Error: ${message}`);
