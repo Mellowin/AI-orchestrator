@@ -1802,9 +1802,236 @@ if (command === 'real-repo-pr-readiness') {
   }
 }
 
+if (command === 'real-repo-pr-create') {
+  try {
+    if (!taskId) {
+      console.error('[real-repo-pr-create] Error: task id is required');
+      console.error('[real-repo-pr-create] No provider call was made');
+      console.error('[real-repo-pr-create] No apply was performed');
+      console.error('[real-repo-pr-create] No commit was made');
+      console.error('[real-repo-pr-create] No push was performed');
+      console.error('[real-repo-pr-create] No PR was created');
+      console.error('[real-repo-pr-create] No merge was performed');
+      console.error('[real-repo-pr-create] No checkout was performed');
+      console.error('[real-repo-pr-create] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_GITHUB_PR_CREATE !== 'true') {
+      console.error('[real-repo-pr-create] ALLOW_GITHUB_PR_CREATE=true is required');
+      console.error('[real-repo-pr-create] No GitHub API call was made');
+      console.error('[real-repo-pr-create] No PR was created');
+      console.error('[real-repo-pr-create] No merge was performed');
+      console.error('[real-repo-pr-create] No checkout was performed');
+      console.error('[real-repo-pr-create] No main touch was performed');
+      process.exit(1);
+    }
+
+    const githubToken = process.env.GITHUB_TOKEN;
+    if (!githubToken) {
+      console.error('[real-repo-pr-create] GITHUB_TOKEN is required');
+      console.error('[real-repo-pr-create] No GitHub API call was made');
+      console.error('[real-repo-pr-create] No PR was created');
+      console.error('[real-repo-pr-create] No merge was performed');
+      console.error('[real-repo-pr-create] No checkout was performed');
+      console.error('[real-repo-pr-create] No main touch was performed');
+      process.exit(1);
+    }
+
+    const githubRepo = process.env.GITHUB_REPOSITORY;
+    if (!githubRepo) {
+      console.error('[real-repo-pr-create] GITHUB_REPOSITORY is required');
+      console.error('[real-repo-pr-create] No GitHub API call was made');
+      console.error('[real-repo-pr-create] No PR was created');
+      console.error('[real-repo-pr-create] No merge was performed');
+      console.error('[real-repo-pr-create] No checkout was performed');
+      console.error('[real-repo-pr-create] No main touch was performed');
+      process.exit(1);
+    }
+
+    const repoParts = githubRepo.split('/');
+    if (repoParts.length !== 2 || !repoParts[0] || !repoParts[1]) {
+      console.error('[real-repo-pr-create] GITHUB_REPOSITORY must be in owner/repo format');
+      console.error('[real-repo-pr-create] No GitHub API call was made');
+      console.error('[real-repo-pr-create] No PR was created');
+      console.error('[real-repo-pr-create] No merge was performed');
+      console.error('[real-repo-pr-create] No checkout was performed');
+      console.error('[real-repo-pr-create] No main touch was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+
+    if (!existsSync(task.repo_path)) {
+      throw new Error('repo_path does not exist');
+    }
+    if (!task.base_branch) {
+      throw new Error('base_branch is missing');
+    }
+    if (!task.work_branch) {
+      throw new Error('work_branch is missing');
+    }
+    if (task.work_branch === 'main') {
+      throw new Error('work_branch is main');
+    }
+
+    const state = loadState(taskId);
+    if (!state) {
+      throw new Error('State file does not exist');
+    }
+    if (state.task_id !== taskId) {
+      throw new Error('State task_id mismatch');
+    }
+    if (state.status !== 'pushed') {
+      throw new Error(`State status is "${state.status}", expected "pushed"`);
+    }
+    if (state.branch !== task.work_branch) {
+      throw new Error('State branch mismatch');
+    }
+    if (state.pushed_remote !== 'origin') {
+      throw new Error('State pushed_remote is not origin');
+    }
+    if (state.pushed_ref !== task.work_branch) {
+      throw new Error('State pushed_ref mismatch');
+    }
+    if (!state.commit_sha) {
+      throw new Error('State commit_sha is missing');
+    }
+
+    const runDir = getRunDir(taskId);
+    const approvalReportPath = join(runDir, 'approval-report.md');
+    if (!existsSync(approvalReportPath)) {
+      throw new Error('Approval report is required before PR creation');
+    }
+    const prReadinessPath = join(runDir, 'pr-readiness.md');
+    if (!existsSync(prReadinessPath)) {
+      throw new Error('PR readiness report is required before PR creation');
+    }
+    const prBodyPath = join(runDir, 'pr-body.md');
+    if (!existsSync(prBodyPath)) {
+      throw new Error('PR body is required before PR creation');
+    }
+
+    const commitVerify = spawnSync(
+      'git',
+      ['rev-parse', '--verify', '--end-of-options', `${state.commit_sha}^{commit}`],
+      {
+        cwd: task.repo_path,
+        shell: false,
+        encoding: 'utf-8',
+      }
+    );
+    if (commitVerify.status !== 0) {
+      throw new Error('Commit SHA does not exist in local repository');
+    }
+
+    const baseRefVerify = spawnSync('git', ['rev-parse', '--verify', '--end-of-options', task.base_branch], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (baseRefVerify.status !== 0) {
+      throw new Error('Base branch ref does not exist in local repository');
+    }
+
+    const headRefVerify = spawnSync('git', ['rev-parse', '--verify', '--end-of-options', task.work_branch], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (headRefVerify.status !== 0) {
+      throw new Error('Work branch ref does not exist in local repository');
+    }
+
+    const prBody = readFileSync(prBodyPath, 'utf-8');
+    const prTitle = task.title ?? `AI task: ${taskId}`;
+
+    const apiBaseUrl = (process.env.GITHUB_API_BASE_URL ?? 'https://api.github.com').replace(/\/$/, '');
+    const apiUrl = `${apiBaseUrl}/repos/${githubRepo}/pulls`;
+
+    const requestBody = {
+      title: prTitle,
+      body: prBody,
+      base: task.base_branch,
+      head: task.work_branch,
+    };
+
+    let apiCallMade = false;
+    const fakePrResponse = process.env.GITHUB_FAKE_PR_RESPONSE;
+    const fakePrStatus = process.env.GITHUB_FAKE_PR_STATUS || '200';
+
+    let response: Response;
+    if (fakePrResponse !== undefined) {
+      const statusCode = parseInt(fakePrStatus, 10);
+      apiCallMade = true;
+      console.error(`[github-api-call]`);
+      console.error(`[github-api-request] POST ${apiUrl}`);
+      console.error(`[github-api-request] body=${JSON.stringify(requestBody)}`);
+      response = {
+        ok: statusCode >= 200 && statusCode < 300,
+        status: statusCode,
+        json: async () => JSON.parse(fakePrResponse),
+      } as Response;
+    } else {
+      apiCallMade = true;
+      response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+    }
+
+    if (!response.ok) {
+      console.error('[real-repo-pr-create] Error: GitHub PR creation failed');
+      console.error('[real-repo-pr-create] Manual inspection required');
+      console.error('[real-repo-pr-create] No merge was performed');
+      console.error('[real-repo-pr-create] No checkout was performed');
+      console.error('[real-repo-pr-create] No main touch was performed');
+      process.exit(1);
+    }
+
+    const responseData = await response.json();
+    const prNumber = typeof responseData.number === 'number' ? responseData.number : 0;
+    const prUrl = typeof responseData.html_url === 'string' ? responseData.html_url : '';
+
+    const prCreated = {
+      task_id: taskId,
+      pr_number: prNumber,
+      pr_url: prUrl,
+      base: task.base_branch,
+      head: task.work_branch,
+      commit_sha: state.commit_sha,
+      created_at: new Date().toISOString(),
+      safety_note: 'PR created; merge not performed; human review required before merge',
+    };
+
+    const prCreatedPath = join(runDir, 'pr-created.json');
+    writeFileSync(prCreatedPath, JSON.stringify(prCreated, null, 2), 'utf-8');
+
+    console.error('[real-repo-pr-create] PR created');
+    console.error(`[real-repo-pr-create] PR URL: ${prUrl}`);
+    console.error('[real-repo-pr-create] No merge was performed');
+    console.error('[real-repo-pr-create] No checkout was performed');
+    console.error('[real-repo-pr-create] No main touch was performed');
+    console.error('[real-repo-pr-create] Human review required before merge');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-repo-pr-create] Error: ${message}`);
+    console.error('[real-repo-pr-create] No merge was performed');
+    console.error('[real-repo-pr-create] No checkout was performed');
+    console.error('[real-repo-pr-create] No main touch was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create> <taskId> [arg3]'
   );
   process.exit(1);
 }

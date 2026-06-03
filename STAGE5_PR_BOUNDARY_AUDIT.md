@@ -52,10 +52,23 @@ Report location: `runs/<taskId>/approval-report.md`
 - **Includes:** PR title suggestion, manual `gh pr create` command as text only, diff summary
 - **Does NOT:** create PR, call GitHub API, execute `gh`, merge, checkout, push, call provider
 
-## Future Possible Stage 5.7
+## Stage 5.7 — Real PR Creation
 
-- Real PR creation behind `ALLOW_GITHUB_PR_CREATE=true`.
-- Still **no auto-merge**.
+- **Command:** `real-repo-pr-create <taskId>`
+- **Requires:** `ALLOW_GITHUB_PR_CREATE=true`
+- **Requires:** `GITHUB_TOKEN`
+- **Requires:** `GITHUB_REPOSITORY` in `owner/repo` format
+- **Requires:** prior `approval-report.md`, `pr-readiness.md`, `pr-body.md`
+- **Requires:** pushed state (`status: pushed`)
+- **Calls:** GitHub REST API `POST /repos/{owner}/{repo}/pulls`
+- **Produces:** `runs/<taskId>/pr-created.json` with PR metadata
+- **Does NOT:** merge, auto-merge, checkout/switch, push, call provider, execute `gh`
+
+## Future Possible Stage 5.8
+
+- PR status / checks read-only report.
+- Optional checks status polling.
+- Still **no merge**.
 - Still **no main touch**.
 - Still **no automatic checkout/switch**.
 

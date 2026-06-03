@@ -480,11 +480,40 @@ Command `real-repo-approval-report <taskId>`:
 - Report includes: task metadata, commit SHA, diff stat (or warning), manual review checklist, exact manual commands, hard safety statements.
 - Report excludes: API keys, env values, remote URL credentials.
 
-### 8.13 Next Recommended Step — Stage 5.6 PR Creation Readiness / Stub
+### 8.13 Completed — Stage 5.6 PR Readiness / Dry-Run Stub
 
-- PR creation dry-run / stub command.
-- GitHub API opt-in design (separate from push opt-in).
-- Still no auto-merge, no main touch, no automatic checkout/switch.
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`, `test/cli-real-repo-pr-readiness.test.ts`
+- **Tests:** 60 CLI tests
+
+Command `real-repo-pr-readiness <taskId>`:
+- Generates `runs/<taskId>/pr-readiness.md` and `runs/<taskId>/pr-body.md` after successful push.
+- Requires `ALLOW_REAL_REPO_PR_READINESS=true` and existing `approval-report.md`.
+- Validates task, state, commit SHA, approval report, base/work branch refs.
+- Includes PR title suggestion, diff stat, manual `gh pr create` command as text only, hard safety statements.
+- No provider call, no apply, no commit, no push, no PR creation, no GitHub API call, no gh execution, no merge, no checkout/switch, no main touch.
+
+### 8.14 Completed — Stage 5.7 Real PR Creation
+
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`, `test/cli-real-repo-pr-create.test.ts`
+- **Tests:** 69 CLI tests
+
+Command `real-repo-pr-create <taskId>`:
+- Creates a GitHub Pull Request via REST API after successful push.
+- Requires `ALLOW_GITHUB_PR_CREATE=true`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`.
+- Validates task, state (`status: pushed`), commit SHA, approval report, PR readiness report, PR body, base/work branch refs.
+- Calls GitHub API `POST /repos/{owner}/{repo}/pulls` with title, body, base, head.
+- Tests use `GITHUB_FAKE_PR_RESPONSE` injected fake fetch — no real GitHub API calls.
+- Writes `runs/<taskId>/pr-created.json` with PR metadata and safety note.
+- No merge, no auto-merge, no checkout/switch, no main touch, no push, no provider call, no gh execution.
+- Safe error on API failure: `GitHub PR creation failed`, `Manual inspection required`.
+
+### 8.15 Next Recommended Step — Stage 5.8 PR Status / Checks Read-Only Report
+
+- PR status read-only polling/report command.
+- Optional checks status read-only.
+- Still no merge, no main touch, no automatic checkout/switch.
 
 ---
 
@@ -511,4 +540,5 @@ Command `real-repo-approval-report <taskId>`:
 | Phase 4 Stage 5.4 real smoke demo executed | ✅ |
 | Phase 4 Stage 5.5 manual approval / PR boundary report implemented | ✅ |
 | Phase 4 Stage 5.6 PR readiness / dry-run stub implemented | ✅ |
+| Phase 4 Stage 5.7 real PR creation implemented | ✅ |
 | Opt-in flags defined | Confirmed |
