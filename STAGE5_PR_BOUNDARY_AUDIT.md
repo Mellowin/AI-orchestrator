@@ -64,10 +64,25 @@ Report location: `runs/<taskId>/approval-report.md`
 - **Produces:** `runs/<taskId>/pr-created.json` with PR metadata
 - **Does NOT:** merge, auto-merge, checkout/switch, push, call provider, execute `gh`
 
-## Future Possible Stage 5.8
+## Stage 5.8 — PR Status / Checks Read-Only Report
 
-- PR status / checks read-only report.
-- Optional checks status polling.
+- **Command:** `real-repo-pr-status <taskId>`
+- **Requires:** `ALLOW_GITHUB_PR_STATUS=true`
+- **Requires:** `GITHUB_TOKEN`, `GITHUB_REPOSITORY`
+- **Requires:** prior `pr-created.json` (from Stage 5.7)
+- **Calls:** GitHub REST API read-only GET:
+  - `/repos/{owner}/{repo}/pulls/{number}`
+  - `/repos/{owner}/{repo}/commits/{sha}/status`
+  - `/repos/{owner}/{repo}/commits/{sha}/check-runs`
+- **Produces:**
+  - `runs/<taskId>/pr-status-report.md` — human-readable report with PR state, checks summary, next-step guidance
+  - `runs/<taskId>/pr-status.json` — machine-readable status snapshot
+- **Does NOT:** create PR, update PR, comment, approve, merge, auto-merge, checkout/switch, push, call provider, execute `gh`
+
+## Future Possible Stage 5.9
+
+- MVP hardening / final demo documentation.
+- Or controlled PR comment/update readiness if needed.
 - Still **no merge**.
 - Still **no main touch**.
 - Still **no automatic checkout/switch**.

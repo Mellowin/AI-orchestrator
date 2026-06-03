@@ -2029,9 +2029,362 @@ if (command === 'real-repo-pr-create') {
   }
 }
 
+if (command === 'real-repo-pr-status') {
+  try {
+    if (!taskId) {
+      console.error('[real-repo-pr-status] Error: task id is required');
+      console.error('[real-repo-pr-status] No provider call was made');
+      console.error('[real-repo-pr-status] No apply was performed');
+      console.error('[real-repo-pr-status] No commit was made');
+      console.error('[real-repo-pr-status] No push was performed');
+      console.error('[real-repo-pr-status] No PR was created');
+      console.error('[real-repo-pr-status] No PR was updated');
+      console.error('[real-repo-pr-status] No merge was performed');
+      console.error('[real-repo-pr-status] No checkout was performed');
+      console.error('[real-repo-pr-status] No main touch was performed');
+      process.exit(1);
+    }
+
+    if (process.env.ALLOW_GITHUB_PR_STATUS !== 'true') {
+      console.error('[real-repo-pr-status] ALLOW_GITHUB_PR_STATUS=true is required');
+      console.error('[real-repo-pr-status] No GitHub API call was made');
+      console.error('[real-repo-pr-status] No PR was updated');
+      console.error('[real-repo-pr-status] No merge was performed');
+      console.error('[real-repo-pr-status] No checkout was performed');
+      console.error('[real-repo-pr-status] No main touch was performed');
+      process.exit(1);
+    }
+
+    const githubToken = process.env.GITHUB_TOKEN;
+    if (!githubToken) {
+      console.error('[real-repo-pr-status] GITHUB_TOKEN is required');
+      console.error('[real-repo-pr-status] No GitHub API call was made');
+      console.error('[real-repo-pr-status] No PR was updated');
+      console.error('[real-repo-pr-status] No merge was performed');
+      console.error('[real-repo-pr-status] No checkout was performed');
+      console.error('[real-repo-pr-status] No main touch was performed');
+      process.exit(1);
+    }
+
+    const githubRepo = process.env.GITHUB_REPOSITORY;
+    if (!githubRepo) {
+      console.error('[real-repo-pr-status] GITHUB_REPOSITORY is required');
+      console.error('[real-repo-pr-status] No GitHub API call was made');
+      console.error('[real-repo-pr-status] No PR was updated');
+      console.error('[real-repo-pr-status] No merge was performed');
+      console.error('[real-repo-pr-status] No checkout was performed');
+      console.error('[real-repo-pr-status] No main touch was performed');
+      process.exit(1);
+    }
+
+    const repoParts = githubRepo.split('/');
+    if (repoParts.length !== 2 || !repoParts[0] || !repoParts[1]) {
+      console.error('[real-repo-pr-status] GITHUB_REPOSITORY must be in owner/repo format');
+      console.error('[real-repo-pr-status] No GitHub API call was made');
+      console.error('[real-repo-pr-status] No PR was updated');
+      console.error('[real-repo-pr-status] No merge was performed');
+      console.error('[real-repo-pr-status] No checkout was performed');
+      console.error('[real-repo-pr-status] No main touch was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+
+    if (!existsSync(task.repo_path)) {
+      throw new Error('repo_path does not exist');
+    }
+    if (!task.base_branch) {
+      throw new Error('base_branch is missing');
+    }
+    if (!task.work_branch) {
+      throw new Error('work_branch is missing');
+    }
+    if (task.work_branch === 'main') {
+      throw new Error('work_branch is main');
+    }
+
+    const state = loadState(taskId);
+    if (!state) {
+      throw new Error('State file does not exist');
+    }
+    if (state.task_id !== taskId) {
+      throw new Error('State task_id mismatch');
+    }
+    if (state.status !== 'pushed') {
+      throw new Error(`State status is "${state.status}", expected "pushed"`);
+    }
+    if (state.branch !== task.work_branch) {
+      throw new Error('State branch mismatch');
+    }
+    if (state.pushed_remote !== 'origin') {
+      throw new Error('State pushed_remote is not origin');
+    }
+    if (state.pushed_ref !== task.work_branch) {
+      throw new Error('State pushed_ref mismatch');
+    }
+    if (!state.commit_sha) {
+      throw new Error('State commit_sha is missing');
+    }
+
+    const runDir = getRunDir(taskId);
+    const approvalReportPath = join(runDir, 'approval-report.md');
+    if (!existsSync(approvalReportPath)) {
+      throw new Error('Approval report is required before PR status check');
+    }
+    const prReadinessPath = join(runDir, 'pr-readiness.md');
+    if (!existsSync(prReadinessPath)) {
+      throw new Error('PR readiness report is required before PR status check');
+    }
+    const prBodyPath = join(runDir, 'pr-body.md');
+    if (!existsSync(prBodyPath)) {
+      throw new Error('PR body is required before PR status check');
+    }
+    const prCreatedPath = join(runDir, 'pr-created.json');
+    if (!existsSync(prCreatedPath)) {
+      throw new Error('pr-created.json is required before PR status check');
+    }
+
+    let prCreated: Record<string, unknown>;
+    try {
+      prCreated = JSON.parse(readFileSync(prCreatedPath, 'utf-8'));
+    } catch {
+      throw new Error('pr-created.json is malformed');
+    }
+    if (prCreated.task_id !== taskId) {
+      throw new Error('pr-created.json task_id mismatch');
+    }
+    if (typeof prCreated.pr_number !== 'number' || prCreated.pr_number <= 0 || !Number.isFinite(prCreated.pr_number)) {
+      throw new Error('pr-created.json pr_number is invalid');
+    }
+    if (!prCreated.pr_url) {
+      throw new Error('pr-created.json pr_url is missing');
+    }
+    if (prCreated.base !== task.base_branch) {
+      throw new Error('pr-created.json base branch mismatch');
+    }
+    if (prCreated.head !== task.work_branch) {
+      throw new Error('pr-created.json head branch mismatch');
+    }
+    if (prCreated.commit_sha !== state.commit_sha) {
+      throw new Error('pr-created.json commit_sha mismatch');
+    }
+
+    const commitVerify = spawnSync(
+      'git',
+      ['rev-parse', '--verify', '--end-of-options', `${state.commit_sha}^{commit}`],
+      {
+        cwd: task.repo_path,
+        shell: false,
+        encoding: 'utf-8',
+      }
+    );
+    if (commitVerify.status !== 0) {
+      throw new Error('Commit SHA does not exist in local repository');
+    }
+
+    const apiBaseUrl = (process.env.GITHUB_API_BASE_URL ?? 'https://api.github.com').replace(/\/$/, '');
+    const prNumber = prCreated.pr_number as number;
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${githubToken}`,
+      Accept: 'application/vnd.github+json',
+    };
+
+    const fakePrResponse = process.env.GITHUB_FAKE_PR_RESPONSE;
+    const fakeStatusResponse = process.env.GITHUB_FAKE_STATUS_RESPONSE;
+    const fakeChecksResponse = process.env.GITHUB_FAKE_CHECKS_RESPONSE;
+    const fakePrStatus = process.env.GITHUB_FAKE_PR_STATUS || '200';
+
+    async function githubGet(url: string): Promise<Response> {
+      if (fakePrResponse !== undefined) {
+        const statusCode = parseInt(fakePrStatus, 10);
+        console.error(`[github-api-call]`);
+        console.error(`[github-api-request] GET ${url}`);
+        let body: unknown = {};
+        if (url.includes('/pulls/') && !url.includes('/status')) {
+          body = JSON.parse(fakePrResponse);
+        } else if (url.includes('/status')) {
+          body = fakeStatusResponse ? JSON.parse(fakeStatusResponse) : { state: 'pending', total_count: 0, statuses: [] };
+        } else if (url.includes('/check-runs')) {
+          body = fakeChecksResponse ? JSON.parse(fakeChecksResponse) : { total_count: 0, check_runs: [] };
+        }
+        return {
+          ok: statusCode >= 200 && statusCode < 300,
+          status: statusCode,
+          json: async () => body,
+        } as Response;
+      }
+      return fetch(url, { method: 'GET', headers });
+    }
+
+    const prUrl = `${apiBaseUrl}/repos/${githubRepo}/pulls/${prNumber}`;
+    const prResponse = await githubGet(prUrl);
+    if (!prResponse.ok) {
+      console.error('[real-repo-pr-status] Error: GitHub PR status fetch failed');
+      console.error('[real-repo-pr-status] Manual inspection required');
+      console.error('[real-repo-pr-status] No PR was updated');
+      console.error('[real-repo-pr-status] No merge was performed');
+      console.error('[real-repo-pr-status] No checkout was performed');
+      console.error('[real-repo-pr-status] No main touch was performed');
+      process.exit(1);
+    }
+    const prData = (await prResponse.json()) as Record<string, unknown>;
+
+    const statusUrl = `${apiBaseUrl}/repos/${githubRepo}/commits/${state.commit_sha}/status`;
+    const statusResponse = await githubGet(statusUrl);
+    let statusData: Record<string, unknown> = { state: 'unknown', total_count: 0, statuses: [] };
+    if (statusResponse.ok) {
+      statusData = (await statusResponse.json()) as Record<string, unknown>;
+    }
+
+    const checksUrl = `${apiBaseUrl}/repos/${githubRepo}/commits/${state.commit_sha}/check-runs`;
+    const checksResponse = await githubGet(checksUrl);
+    let checksData: Record<string, unknown> = { total_count: 0, check_runs: [] };
+    if (checksResponse.ok) {
+      checksData = (await checksResponse.json()) as Record<string, unknown>;
+    }
+
+    const prState = typeof prData.state === 'string' ? prData.state : 'unknown';
+    const prDraft = prData.draft === true;
+    const prTitle = typeof prData.title === 'string' ? prData.title : '';
+    const prHtmlUrl = typeof prData.html_url === 'string' ? prData.html_url : String(prCreated.pr_url);
+    const prUser = prData.user && typeof (prData.user as Record<string, unknown>).login === 'string'
+      ? (prData.user as Record<string, unknown>).login as string
+      : '';
+    const prMergeable = prData.mergeable;
+    const prMergeableState = typeof prData.mergeable_state === 'string' ? prData.mergeable_state : '';
+
+    const combinedStatusState = typeof statusData.state === 'string' ? statusData.state : 'unknown';
+    const statusTotalCount = typeof statusData.total_count === 'number' ? statusData.total_count : 0;
+    const statuses = Array.isArray(statusData.statuses) ? statusData.statuses as Record<string, unknown>[] : [];
+
+    const checkRunTotalCount = typeof checksData.total_count === 'number' ? checksData.total_count : 0;
+    const checkRuns = Array.isArray(checksData.check_runs) ? checksData.check_runs as Record<string, unknown>[] : [];
+
+    let nextStep = 'Human inspection required';
+    if (prState === 'open') {
+      if (combinedStatusState === 'success' && checkRuns.every((c) => c.conclusion === 'success' || c.conclusion === 'skipped' || c.conclusion === null)) {
+        nextStep = 'Ready for human review; merge still manual';
+      } else if (combinedStatusState === 'pending' || checkRuns.some((c) => c.status !== 'completed')) {
+        nextStep = 'Wait for checks';
+      }
+    }
+
+    const now = new Date().toISOString();
+
+    const prStatusJson = {
+      task_id: taskId,
+      pr_number: prNumber,
+      pr_url: prHtmlUrl,
+      pr_state: prState,
+      draft: prDraft,
+      base: task.base_branch,
+      head: task.work_branch,
+      commit_sha: state.commit_sha,
+      combined_status_state: combinedStatusState,
+      status_count: statusTotalCount,
+      check_run_count: checkRunTotalCount,
+      created_at: now,
+      safety_note: 'PR status read-only; merge not performed; human review required before merge',
+    };
+
+    const prStatusJsonPath = join(runDir, 'pr-status.json');
+    writeFileSync(prStatusJsonPath, JSON.stringify(prStatusJson, null, 2), 'utf-8');
+
+    const reportLines: string[] = [];
+    reportLines.push(`# PR Status Report: ${taskId}`);
+    reportLines.push('');
+    reportLines.push(`- **Task ID:** ${taskId}`);
+    reportLines.push(`- **PR Number:** ${prNumber}`);
+    reportLines.push(`- **PR URL:** ${prHtmlUrl}`);
+    reportLines.push(`- **PR State:** ${prState}`);
+    reportLines.push(`- **Draft:** ${prDraft ? 'Yes' : 'No'}`);
+    reportLines.push(`- **Title:** ${prTitle}`);
+    reportLines.push(`- **Base Branch:** ${task.base_branch}`);
+    reportLines.push(`- **Head Branch:** ${task.work_branch}`);
+    reportLines.push(`- **Pushed Commit SHA:** ${state.commit_sha}`);
+    if (prUser) {
+      reportLines.push(`- **Author:** ${prUser}`);
+    }
+    if (prMergeable !== undefined) {
+      reportLines.push(`- **Mergeable:** ${prMergeable}`);
+    }
+    if (prMergeableState) {
+      reportLines.push(`- **Mergeable State:** ${prMergeableState}`);
+    }
+    reportLines.push('');
+    reportLines.push('## Combined Status');
+    reportLines.push('');
+    reportLines.push(`- **State:** ${combinedStatusState}`);
+    reportLines.push(`- **Total Statuses:** ${statusTotalCount}`);
+    if (statuses.length > 0) {
+      reportLines.push('');
+      reportLines.push('| Context | State | Description |');
+      reportLines.push('|---------|-------|-------------|');
+      for (const s of statuses) {
+        const ctx = typeof s.context === 'string' ? s.context : '';
+        const st = typeof s.state === 'string' ? s.state : '';
+        const desc = typeof s.description === 'string' ? s.description : '';
+        reportLines.push(`| ${ctx} | ${st} | ${desc} |`);
+      }
+    }
+    reportLines.push('');
+    reportLines.push('## Check Runs');
+    reportLines.push('');
+    reportLines.push(`- **Total Check Runs:** ${checkRunTotalCount}`);
+    if (checkRuns.length > 0) {
+      reportLines.push('');
+      reportLines.push('| Name | Status | Conclusion |');
+      reportLines.push('|------|--------|------------|');
+      for (const c of checkRuns) {
+        const name = typeof c.name === 'string' ? c.name : '';
+        const st = typeof c.status === 'string' ? c.status : '';
+        const conc = typeof c.conclusion === 'string' ? c.conclusion : '';
+        reportLines.push(`| ${name} | ${st} | ${conc} |`);
+      }
+    }
+    reportLines.push('');
+    reportLines.push('## Next Step');
+    reportLines.push('');
+    reportLines.push(`> ${nextStep}`);
+    reportLines.push('');
+    reportLines.push('## Hard Safety Statement');
+    reportLines.push('');
+    reportLines.push('- This tool did not create a PR.');
+    reportLines.push('- This tool did not update a PR.');
+    reportLines.push('- This tool did not merge.');
+    reportLines.push('- This tool did not checkout or switch branches.');
+    reportLines.push('- This tool did not touch main.');
+    reportLines.push('- This tool did not push.');
+    reportLines.push('- This tool did not call provider.');
+    reportLines.push('');
+
+    const reportContent = reportLines.join('\n');
+    const reportPath = join(runDir, 'pr-status-report.md');
+    writeFileSync(reportPath, reportContent, 'utf-8');
+
+    console.error('[real-repo-pr-status] PR status report written');
+    console.error(`[real-repo-pr-status] Report path: ${reportPath}`);
+    console.error(`[real-repo-pr-status] Status path: ${prStatusJsonPath}`);
+    console.error('[real-repo-pr-status] No PR was created');
+    console.error('[real-repo-pr-status] No PR was updated');
+    console.error('[real-repo-pr-status] No merge was performed');
+    console.error('[real-repo-pr-status] No checkout was performed');
+    console.error('[real-repo-pr-status] No main touch was performed');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-repo-pr-status] Error: ${message}`);
+    console.error('[real-repo-pr-status] No merge was performed');
+    console.error('[real-repo-pr-status] No checkout was performed');
+    console.error('[real-repo-pr-status] No main touch was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status> <taskId> [arg3]'
   );
   process.exit(1);
 }

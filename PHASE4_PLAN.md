@@ -509,10 +509,27 @@ Command `real-repo-pr-create <taskId>`:
 - No merge, no auto-merge, no checkout/switch, no main touch, no push, no provider call, no gh execution.
 - Safe error on API failure: `GitHub PR creation failed`, `Manual inspection required`.
 
-### 8.15 Next Recommended Step — Stage 5.8 PR Status / Checks Read-Only Report
+### 8.15 Completed — Stage 5.8 PR Status / Checks Read-Only Report
 
-- PR status read-only polling/report command.
-- Optional checks status read-only.
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`, `test/cli-real-repo-pr-status.test.ts`
+- **Tests:** 83 CLI tests
+
+Command `real-repo-pr-status <taskId>`:
+- Read-only PR status/checks report after PR creation.
+- Requires `ALLOW_GITHUB_PR_STATUS=true`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`.
+- Validates task, state (`status: pushed`), commit SHA, approval report, PR readiness report, PR body, `pr-created.json` fields.
+- Calls GitHub API read-only GET: `/pulls/{number}`, `/commits/{sha}/status`, `/commits/{sha}/check-runs`.
+- Tests use `GITHUB_FAKE_PR_RESPONSE`, `GITHUB_FAKE_STATUS_RESPONSE`, `GITHUB_FAKE_CHECKS_RESPONSE` injected fake fetch — no real GitHub API calls.
+- Writes `runs/<taskId>/pr-status-report.md` with PR metadata, combined status, check runs summary, next-step guidance.
+- Writes `runs/<taskId>/pr-status.json` with machine-readable status snapshot.
+- No PR creation, no PR update, no merge, no auto-merge, no checkout/switch, no main touch, no push, no provider call, no gh execution.
+- Safe error on API failure: `GitHub PR status fetch failed`, `Manual inspection required`.
+
+### 8.16 Next Recommended Step — Stage 5.9 MVP Hardening / Final Demo Documentation
+
+- Final demo documentation and operator guides.
+- Optional controlled PR comment/update readiness if needed.
 - Still no merge, no main touch, no automatic checkout/switch.
 
 ---
@@ -541,4 +558,5 @@ Command `real-repo-pr-create <taskId>`:
 | Phase 4 Stage 5.5 manual approval / PR boundary report implemented | ✅ |
 | Phase 4 Stage 5.6 PR readiness / dry-run stub implemented | ✅ |
 | Phase 4 Stage 5.7 real PR creation implemented | ✅ |
+| Phase 4 Stage 5.8 PR status / checks read-only report implemented | ✅ |
 | Opt-in flags defined | Confirmed |
