@@ -162,7 +162,24 @@ Both use `src/providers/kimi/kimi-*.ts` adapters with different prompts.
 
 ---
 
-## 10. Future Combinations
+## 10. Stage 6.1 — Evidence Layer
+
+Before the AI reviewer is called, the system builds factual evidence:
+
+1. **Commit verifier** (`src/reviewer/commit-verifier.ts`) — validates SHA, reads changed files, diff, git status from local git.
+2. **Deterministic checks** (`src/reviewer/deterministic-review-checks.ts`) — validates scope, size, secrets, merge conflicts, branch safety, check results.
+3. **Review input builder** (`src/reviewer/review-input-builder.ts`) — assembles `ReviewInput` from evidence.
+4. **Reviewer gate** (`src/reviewer/reviewer-gate.ts`) — runs deterministic checks first; only calls AI reviewer if they pass.
+
+The reviewer never sees coder self-report. It sees:
+- Task goal
+- Allowed/denied files
+- Actual diff
+- Commit SHA
+- Check results
+- Safety findings
+
+## 11. Future Combinations
 
 The architecture supports any combination without core loop changes:
 

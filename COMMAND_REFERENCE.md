@@ -223,7 +223,7 @@
 
 ### `reviewer-gate-dry-run <taskId>`
 
-**Purpose:** Validate reviewer provider contract without modifying repo.
+**Purpose:** Validate reviewer provider contract with minimal fake input. Does not inspect real repo or commit.
 
 **Required env:**
 - `REVIEWER_PROVIDER` — `fake` (default) or `kimi`
@@ -252,6 +252,52 @@
 - Exits non-zero on invalid reviewer output
 - Prints safe error
 - No side effects
+
+---
+
+### `reviewer-gate-evidence-dry-run <taskId> <commitSha>`
+
+**Purpose:** Build real commit evidence and run deterministic reviewer gate dry-run. Inspects actual local git state, validates commit SHA, changed files, diff, and runs deterministic checks before optionally calling the reviewer.
+
+**Required env:**
+- `REVIEWER_PROVIDER` — `fake` (default) or `kimi`
+- `KIMI_FAKE_REVIEWER_RESPONSE` — for testing kimi provider without real network
+- `DRY_RUN_TYPECHECK_RESULT` — override typecheck result (default: `skipped (dry-run)`)
+- `DRY_RUN_BUILD_RESULT` — override build result (default: `skipped (dry-run)`)
+- `DRY_RUN_TEST_RESULT` — override test result (default: `skipped (dry-run)`)
+
+**Allowed mutation:**
+- None. Read-only validation only.
+
+**Forbidden actions:**
+- No file writes
+- No state writes
+- No push
+- No merge
+- No checkout/switch
+- No main touch
+- No GitHub API call
+
+**Outputs/files:**
+- None
+
+**Normal success message:**
+- `Commit: <sha>`
+- `Changed files: <count>`
+- `Deterministic checks: PASS/FAIL`
+- `Reviewer called: yes/no`
+- `Reviewer decision: accepted/rejected`
+- `Next action: ...`
+- `Blocking issues count: ...`
+
+**Safe failure behavior:**
+- Exits non-zero on invalid commit SHA or missing args
+- Prints safe error
+- No side effects
+
+> **Difference from `reviewer-gate-dry-run`:**
+> - `reviewer-gate-dry-run` validates the **provider contract** with a minimal fake `ReviewInput`.
+> - `reviewer-gate-evidence-dry-run` validates **actual local commit evidence** against deterministic checks and the full reviewer gate.
 
 ---
 

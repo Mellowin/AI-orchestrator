@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `7a15f7a66029690940133f2b83b10174a8686623`
+**Last verified:** `pending final Stage 6.1 commit hash`
 
 ## Test metrics
 
-- **Total tests:** 1096
-- **Total suites:** 66
-- **Last verified commit:** `7a15f7a66029690940133f2b83b10174a8686623` (Stage 6.0 Provider Abstraction Foundation)
+- **Total tests:** 1178
+- **Total suites:** 71
+- **Last verified commit:** `pending final Stage 6.1 commit hash` (Stage 6.1 Deterministic Commit Verifier for Reviewer Gate)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -20,6 +20,7 @@
 | Stage 5.10 | Live operator demo evidence pack | `36d8581f5cc171ebc12a93d10a672a26695984f6` |
 | Stage 6.0A | Product vision and autonomous architecture documentation | `f044e2a50acab1329a4edb151cbbccfc3618d144` |
 | Stage 6.0 | Provider Abstraction Foundation | `7a15f7a66029690940133f2b83b10174a8686623` |
+| Stage 6.1 | Deterministic Commit Verifier for Reviewer Gate | `pending` |
 
 ## Covered layers
 
@@ -63,6 +64,11 @@
 | Reviewer schema | `test/reviewer-schema.test.ts` | Strict `validateReviewerDecision`: accepted/rejected decisions, missing fields, wrong types, unknown enums, accepted + blocking_issues fails, rejected without blocking_issues/fix_task fails, safe errors without secret leak |
 | Kimi reviewer provider | `test/kimi-reviewer-provider.test.ts` | Requires `ALLOW_KIMI_REVIEWER=true`, opt-in/API key/base URL validation, `KIMI_FAKE_REVIEWER_RESPONSE` test seam, parses accepted/rejected JSON, rejects invalid JSON/schema safely, no API key leak, no raw invalid output, strict reviewer prompt with factual evidence |
 | Reviewer gate dry-run CLI | `test/cli-reviewer-gate-dry-run.test.ts` | `reviewer-gate-dry-run <taskId>`: accepted/rejected output, invalid output exits non-zero, no file writes, no git commands, no merge/checkout/main touch, no stack trace/API key leak, default provider is fake, `REVIEWER_PROVIDER=kimi` uses fake response, missing taskId shows usage and exits non-zero |
+| Commit verifier | `test/commit-verifier.test.ts` | `validateCommitSha` (40-char hex, rejects short/non-hex/empty), `verifyCommitExists` (true/false in temp repo), `getCommitChangedFiles` (changed file list from git), `getCommitDiff` (diff from git), `getGitStatusPorcelain` (clean/dirty), shell=false no interpolation, no file writes, no GitHub API, no push/merge/checkout, `buildCommitEvidence` structure and non-existent commit rejection |
+| Deterministic review checks | `test/deterministic-review-checks.test.ts` | `runDeterministicReviewChecks`: pass case, rejects invalid SHA, empty changedFiles, file outside allowedFiles, denied file touched, empty allowedFiles, maxLinesChanged <= 0 / exceeded, ignores diff metadata (`+++`, `---`, `@@`), rejects failed typecheck/build/test, dirty git status, currentBranch main, secret patterns (`sk-`, `Bearer`, API key names, `.env`), merge conflict markers, blockingIssues/safetyFindings non-empty on failure, no raw token leak |
+| Review input builder | `test/review-input-builder.test.ts` | `buildReviewInput`: builds valid ReviewInput, trims taskId/title/goal, preserves diff, rejects missing taskId/goal/invalid SHA/non-arrays, no provider raw output, no API keys |
+| Reviewer gate | `test/reviewer-gate.test.ts` | `runReviewerGate`: deterministic fail does not call reviewer, returns rejected, reviewerCalled=false, deterministic pass calls reviewer, validates reviewer decision, invalid decision rejects safely, severe secret issue → block_for_human, denied file → block_for_human, main branch → block_for_human, outside allowed file → send_fix_to_coder, accepted advances, rejected sends fix |
+| Reviewer gate evidence dry-run CLI | `test/cli-reviewer-gate-evidence-dry-run.test.ts` | `reviewer-gate-evidence-dry-run <taskId> <commitSha>`: missing taskId/commitSha fail safely, short hash rejected, valid temp repo produces evidence, deterministic pass + fake reviewer accepted, deterministic fail does not call reviewer, dirty git status rejected, no file writes, no state writes, no push/merge/checkout/switch, no GitHub API, no API key leak, no stack trace |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
 ## Safety guarantees
@@ -95,6 +101,7 @@
 - **`runSandboxApplyFlow` exists as a pure helper.** Orchestrates the full sandbox pipeline: parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Runs checks only in sandbox path. Real repo remains untouched. No state write. Wired to `sandbox-apply-preview` CLI.
 - **`sandbox-apply-preview <taskId>` CLI command is implemented.** Behind `ALLOW_SANDBOX_APPLY_PREVIEW=true`. Requires `SANDBOX_PROVIDER_RESPONSE` and `SANDBOX_ROOT`. Uses `runSandboxApplyFlow`. No real provider call, no network, no API keys, no real repo mutation, no state write, no push/merge/main touch. CLI fails safely when `SANDBOX_ROOT` is inside the real repo.
 - **`reviewer-gate-dry-run <taskId>` CLI command is implemented.** Validates reviewer provider contract without repo mutation. Default provider is `fake` (deterministic, no network). `REVIEWER_PROVIDER=kimi` uses Kimi reviewer behind `ALLOW_KIMI_REVIEWER=true` with `KIMI_FAKE_REVIEWER_RESPONSE` test seam. No file writes, no git commands, no merge/checkout/main touch. 12 CLI tests.
+- **`reviewer-gate-evidence-dry-run <taskId> <commitSha>` CLI command is implemented.** Builds real commit evidence and runs deterministic reviewer gate dry-run. Validates commit SHA, reads changed files/diff/git status from local git, runs deterministic checks (scope, secrets, merge conflicts, branch safety), builds ReviewInput, runs reviewer gate. Default provider is `fake`. No file writes, no state writes, no git mutation, no push/merge/checkout/main touch. 16 CLI tests.
 
 ## Real provider execution plan
 
@@ -104,7 +111,7 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 
 1. Stage 4.x and 5.x pipeline is complete (apply, commit, push, PR create/status, readiness, approval report).
 2. Stage 6.0 Provider Abstraction Foundation is complete: provider types, registry, fake/Kimi adapters, reviewer schema, reviewer gate dry-run CLI.
-3. Next: Stage 6.1 Deterministic Commit Verifier for Reviewer Gate — `buildReviewerInput` pure helper that gathers commit evidence.
+3. Stage 6.1 Deterministic Commit Verifier for Reviewer Gate is complete: commit verifier, deterministic checks, review input builder, reviewer gate, evidence dry-run CLI.
 4. Next: Stage 6.2 Block State Runner — `BlockState` data model and `BlockStateManager`.
 5. Next: Stage 6.3 Autonomous One-Task Loop — wire Kimi coder + Kimi reviewer for a single task.
 6. Keep mock mode as default for tests and local development.

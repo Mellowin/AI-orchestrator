@@ -599,6 +599,25 @@ Properties:
 - No merge, no main touch, no checkout/switch in new code.
 - 62 new tests covering all new modules. All 1096 tests pass (66 suites).
 
+### Stage 6.1 — Deterministic Commit Verifier for Reviewer Gate ✅
+
+- **Status:** Implemented and tested.
+- **Location:** `src/reviewer/commit-verifier.ts`, `src/reviewer/deterministic-review-checks.ts`, `src/reviewer/review-input-builder.ts`, `src/reviewer/reviewer-gate.ts`, `test/commit-verifier.test.ts`, `test/deterministic-review-checks.test.ts`, `test/review-input-builder.test.ts`, `test/reviewer-gate.test.ts`, `test/cli-reviewer-gate-evidence-dry-run.test.ts`
+- **Tests:** 82 tests across 5 new test suites
+
+Implementation:
+- **Commit verifier** (`commit-verifier.ts`): `validateCommitSha` (40-char hex), `verifyCommitExists` (git rev-parse), `getCommitChangedFiles` (git diff/show), `getCommitDiff` (git diff/show with truncation guard), `getGitStatusPorcelain`, `buildCommitEvidence` — all read-only, shell: false.
+- **Deterministic checks** (`deterministic-review-checks.ts`): `runDeterministicReviewChecks` validates commit SHA, changed files non-empty, allowedFiles scope, deniedFiles rejection, maxLinesChanged counting (ignores `+++`, `---`, `@@`), typecheck/build/test pass detection, clean git status, non-main branch, secret detection in diff (`sk-`, `Bearer`, API key names, `.env`), merge conflict markers. Rejects with `block_for_human` for severe issues, `send_fix_to_coder` for non-severe.
+- **Review input builder** (`review-input-builder.ts`): `buildReviewInput` validates and assembles `ReviewInput` from evidence. Trims strings, validates arrays, normalizes SHA.
+- **Reviewer gate** (`reviewer-gate.ts`): `runReviewerGate` calls deterministic checks first. If they fail, returns rejected decision without calling AI reviewer. If they pass, calls `reviewer.reviewCommit()` and validates output via `validateReviewerDecision`.
+- **CLI command** `reviewer-gate-evidence-dry-run <taskId> <commitSha>`: Loads task, validates SHA, builds commit evidence, runs deterministic checks, builds ReviewInput, resolves reviewer provider, runs reviewer gate, prints summary. No file writes, no state writes, no git mutation, no push/merge/checkout/main touch.
+
+Properties:
+- No real provider calls in tests (all use fake seams).
+- No GitHub API calls.
+- No merge, no main touch, no checkout/switch in new code.
+- 82 new tests covering all new modules. All tests pass.
+
 ### Stage 6.1 — Deterministic Commit Verifier for Reviewer Gate
 
 - Build `buildReviewerInput` pure helper that gathers commit evidence.
@@ -680,4 +699,5 @@ Properties:
 | Phase 4 Stage 5.10 live operator demo evidence pack | ✅ |
 | Phase 4 Stage 6.0A product vision / autonomous architecture docs | ✅ |
 | Phase 4 Stage 6.0 provider abstraction foundation | ✅ |
+| Phase 4 Stage 6.1 deterministic commit verifier / reviewer gate | ✅ |
 | Opt-in flags defined | Confirmed |

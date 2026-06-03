@@ -36,6 +36,10 @@ import { createFakeReviewerProvider } from './providers/fake/fake-reviewer-provi
 import { createKimiCoderProvider } from './providers/kimi/kimi-coder-provider.js';
 import { createKimiReviewerProvider } from './providers/kimi/kimi-reviewer-provider.js';
 import { validateReviewerDecision } from './reviewer/reviewer-schema.js';
+import { buildCommitEvidence, validateCommitSha } from './reviewer/commit-verifier.js';
+import { runDeterministicReviewChecks } from './reviewer/deterministic-review-checks.js';
+import { buildReviewInput } from './reviewer/review-input-builder.js';
+import { runReviewerGate } from './reviewer/reviewer-gate.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -182,6 +186,7 @@ function executeAiPreview(taskId: string): { filesCount: number; notes?: string 
 const args = process.argv.slice(2);
 const command = args[0];
 const taskId = args[1];
+const commitSha = args[2];
 
 function getRepoWorkingTreeChanges(repoPath: string): { modified: string[]; staged: string[]; untracked: string[]; all: string[] } {
   const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
@@ -2390,7 +2395,7 @@ if (command === 'real-repo-pr-status') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run> <taskId> [commitSha]'
   );
   process.exit(1);
 }
@@ -3705,6 +3710,153 @@ if (command === 'reviewer-gate-dry-run') {
     console.error('[reviewer-gate-dry-run] No merge was performed');
     console.error('[reviewer-gate-dry-run] No checkout was performed');
     console.error('[reviewer-gate-dry-run] No main touch was performed');
+    process.exit(1);
+  }
+}
+
+if (command === 'reviewer-gate-evidence-dry-run') {
+  try {
+    if (!taskId) {
+      console.error('[reviewer-gate-evidence-dry-run] Error: task id is required');
+      console.error('[reviewer-gate-evidence-dry-run] No provider call was made');
+      console.error('[reviewer-gate-evidence-dry-run] No merge was performed');
+      console.error('[reviewer-gate-evidence-dry-run] No checkout was performed');
+      console.error('[reviewer-gate-evidence-dry-run] No main touch was performed');
+      process.exit(1);
+    }
+    if (!commitSha) {
+      console.error('[reviewer-gate-evidence-dry-run] Error: commit SHA is required');
+      console.error('[reviewer-gate-evidence-dry-run] No provider call was made');
+      console.error('[reviewer-gate-evidence-dry-run] No merge was performed');
+      console.error('[reviewer-gate-evidence-dry-run] No checkout was performed');
+      console.error('[reviewer-gate-evidence-dry-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    // Validate commit SHA format before loading task
+    validateCommitSha(commitSha);
+
+    const task = loadTask(getTasksFilePath(), taskId);
+    const repoPath = task.repo_path;
+
+    // Build commit evidence
+    const evidence = buildCommitEvidence({
+      repoPath,
+      taskId,
+      taskGoal: task.goal,
+      allowedFiles: task.guardrails.allow_modify ?? [],
+      deniedFiles: task.guardrails.deny_modify,
+      maxLinesChanged: task.guardrails.max_lines_changed ?? 0,
+      commitSha,
+      baseRef: task.base_branch,
+    });
+
+    // Determine check results: in dry-run mode we cannot run real typecheck/build/test
+    // so we report them as skipped unless the caller provides env overrides
+    const typecheckResult = process.env.DRY_RUN_TYPECHECK_RESULT?.trim() || 'skipped (dry-run)';
+    const buildResult = process.env.DRY_RUN_BUILD_RESULT?.trim() || 'skipped (dry-run)';
+    const testResult = process.env.DRY_RUN_TEST_RESULT?.trim() || 'skipped (dry-run)';
+
+    // Run deterministic checks
+    const deterministicResult = runDeterministicReviewChecks({
+      allowedFiles: evidence.allowedFiles,
+      deniedFiles: evidence.deniedFiles,
+      maxLinesChanged: evidence.maxLinesChanged,
+      changedFiles: evidence.changedFiles,
+      diff: evidence.diff,
+      typecheckResult,
+      buildResult,
+      testResult,
+      gitStatus: evidence.gitStatus,
+      commitSha: evidence.commitSha,
+    });
+
+    // Build ReviewInput
+    const reviewInput = buildReviewInput({
+      blockId: undefined,
+      taskId: evidence.taskId,
+      taskTitle: task.title,
+      taskGoal: evidence.taskGoal,
+      allowedFiles: evidence.allowedFiles,
+      deniedFiles: evidence.deniedFiles,
+      maxLinesChanged: evidence.maxLinesChanged,
+      commitSha: evidence.commitSha,
+      changedFiles: evidence.changedFiles,
+      diff: evidence.diff,
+      typecheckResult,
+      buildResult,
+      testResult,
+      gitStatus: evidence.gitStatus,
+      safetyFindings: [...evidence.safetyFindings, ...deterministicResult.safetyFindings],
+    });
+
+    // Resolve reviewer provider
+    const reviewerProviderId = process.env.REVIEWER_PROVIDER?.trim() || 'fake';
+    const registry = new ProviderRegistry();
+    registry.registerReviewer('fake', () => createFakeReviewerProvider());
+    registry.registerReviewer('kimi', () => {
+      const fakeResponse = process.env.KIMI_FAKE_REVIEWER_RESPONSE;
+      return createKimiReviewerProvider(
+        {
+          provider: 'kimi',
+          model: process.env.KIMI_REVIEWER_MODEL?.trim() || process.env.KIMI_MODEL?.trim() || 'kimi-k2.6',
+        },
+        {
+          allowReal: process.env.ALLOW_KIMI_REVIEWER === 'true',
+          apiKey: process.env.KIMI_API_KEY?.trim(),
+          baseUrl: process.env.KIMI_BASE_URL?.trim(),
+          model: process.env.KIMI_REVIEWER_MODEL?.trim() || process.env.KIMI_MODEL?.trim(),
+          userAgent: process.env.KIMI_USER_AGENT?.trim(),
+          fakeResponse,
+          fetchFn: fakeResponse !== undefined
+            ? async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: fakeResponse } }] }) })
+            : undefined,
+        }
+      );
+    });
+
+    let reviewer;
+    try {
+      reviewer = registry.resolveReviewer({ provider: reviewerProviderId as any, model: 'default' });
+    } catch (resolveErr) {
+      const msg = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
+      console.error(`[reviewer-gate-evidence-dry-run] Error: ${msg}`);
+      console.error('[reviewer-gate-evidence-dry-run] No provider call was made');
+      console.error('[reviewer-gate-evidence-dry-run] No merge was performed');
+      console.error('[reviewer-gate-evidence-dry-run] No checkout was performed');
+      console.error('[reviewer-gate-evidence-dry-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    // Run reviewer gate
+    const gateResult = await runReviewerGate({
+      reviewer,
+      reviewInput,
+      deterministicResult,
+    });
+
+    console.log(`[reviewer-gate-evidence-dry-run] Commit: ${evidence.commitSha}`);
+    console.log(`[reviewer-gate-evidence-dry-run] Changed files: ${evidence.changedFiles.length}`);
+    console.log(`[reviewer-gate-evidence-dry-run] Deterministic checks: ${deterministicResult.ok ? 'PASS' : 'FAIL'}`);
+    console.log(`[reviewer-gate-evidence-dry-run] Reviewer called: ${gateResult.reviewerCalled ? 'yes' : 'no'}`);
+    console.log(`[reviewer-gate-evidence-dry-run] Reviewer decision: ${gateResult.decision.decision}`);
+    console.log(`[reviewer-gate-evidence-dry-run] Next action: ${gateResult.decision.next_action}`);
+    console.log(`[reviewer-gate-evidence-dry-run] Blocking issues count: ${gateResult.decision.blocking_issues.length}`);
+    if (gateResult.decision.review_summary) {
+      console.log(`[reviewer-gate-evidence-dry-run] Review summary: ${gateResult.decision.review_summary}`);
+    }
+    console.log('[reviewer-gate-evidence-dry-run] No file was modified');
+    console.log('[reviewer-gate-evidence-dry-run] No state was written');
+    console.log('[reviewer-gate-evidence-dry-run] No merge was performed');
+    console.log('[reviewer-gate-evidence-dry-run] No checkout was performed');
+    console.log('[reviewer-gate-evidence-dry-run] No main touch was performed');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[reviewer-gate-evidence-dry-run] Error: ${message}`);
+    console.error('[reviewer-gate-evidence-dry-run] No merge was performed');
+    console.error('[reviewer-gate-evidence-dry-run] No checkout was performed');
+    console.error('[reviewer-gate-evidence-dry-run] No main touch was performed');
     process.exit(1);
   }
 }

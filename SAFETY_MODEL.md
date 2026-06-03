@@ -65,6 +65,23 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - **Tests use fake provider** (`KIMI_FAKE_RESPONSE`, `KIMI_FAKE_RESPONSES`) — no real API calls in tests.
 - **Repair prompts do not include** API keys, env values, or remote URL credentials.
 
+## 4.1 Deterministic Reviewer Gate
+
+- **AI reviewer is NEVER called if deterministic checks fail.**
+- Deterministic checks run before any provider call:
+  - Commit SHA validation (full 40-char hex)
+  - Changed files within `allowed_files` scope
+  - No `denied_files` touched
+  - `max_lines_changed` not exceeded
+  - Typecheck/build/test results pass
+  - Working tree clean
+  - Current branch not `main`
+  - No secrets in diff (`sk-`, `Bearer`, API key names, `.env`)
+  - No merge conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
+- **Severe safety findings** (secrets, main branch, merge conflicts, denied files, invalid SHA) return `block_for_human` immediately without AI review.
+- **Non-severe failures** return `send_fix_to_coder` without AI review.
+- The reviewer receives **factual evidence**, not the coder's self-report.
+
 ---
 
 ## 5. GitHub API Policy
