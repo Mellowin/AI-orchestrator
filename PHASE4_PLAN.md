@@ -510,4 +510,5 @@ Command `real-repo-approval-report <taskId>`:
 | Phase 4 Stage 5.3 readiness + operator guide implemented | ✅ |
 | Phase 4 Stage 5.4 real smoke demo executed | ✅ |
 | Phase 4 Stage 5.5 manual approval / PR boundary report implemented | ✅ |
+| Phase 4 Stage 5.6 PR readiness / dry-run stub implemented | ✅ |
 | Opt-in flags defined | Confirmed |

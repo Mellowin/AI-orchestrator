@@ -41,11 +41,23 @@ npx tsx src/cli.ts real-repo-approval-report <taskId>
 
 Report location: `runs/<taskId>/approval-report.md`
 
-## Future Possible Stage 5.6
+## Stage 5.6 — PR Readiness / Dry-Run Stub
 
-- PR creation **readiness** command (dry-run / stub).
-- GitHub API opt-in flag (separate from push opt-in).
+- **Command:** `real-repo-pr-readiness <taskId>`
+- **Requires:** `ALLOW_REAL_REPO_PR_READINESS=true`
+- **Requires:** `runs/<taskId>/approval-report.md` exists
+- **Produces:**
+  - `runs/<taskId>/pr-readiness.md` — full PR readiness report
+  - `runs/<taskId>/pr-body.md` — suggested PR body text
+- **Includes:** PR title suggestion, manual `gh pr create` command as text only, diff summary
+- **Does NOT:** create PR, call GitHub API, execute `gh`, merge, checkout, push, call provider
+
+## Future Possible Stage 5.7
+
+- Real PR creation behind `ALLOW_GITHUB_PR_CREATE=true`.
 - Still **no auto-merge**.
+- Still **no main touch**.
+- Still **no automatic checkout/switch**.
 
 ## Future Possible Stage 6
 
