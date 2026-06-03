@@ -445,15 +445,30 @@ Properties:
 - **Wired to CLI.**
 - **Readiness check + operator docs added.**
 
-### 8.11 Next Recommended Step — Stage 5.4 Manual Approval / PR Boundary Audit
+### 8.11 Completed — Stage 5.4 Real Smoke Demo Execution
 
-Stage 5.3 readiness + operator guide is complete.
+- **Status:** ✅ Executed and reported.
+- **Location:** `STAGE5_REAL_SMOKE_DEMO_REPORT.md`, `ai/smoke-demo` branch
+- **Bug found and fixed:** `createRealProviderCall` did not pass `KIMI_USER_AGENT` header, causing HTTP 403 from Kimi For Coding API.
+- **Fix commit:** `319efb8` (cherry-picked to `feature/mvp-skeleton` as `876f001`)
 
-Next steps:
+Real smoke demo results:
+- **Branch:** `ai/smoke-demo`
+- **Task:** `smoke-demo`
+- **Readiness:** ✅ Passed
+- **Real AI run:** ✅ Success on first attempt (no self-repair)
+- **File changed:** `smoke-demo/ai-smoke.txt` created with content "AI smoke demo"
+- **Commit:** `df083194068c2f913492161233224f45ef0054a8` (`ai-orchestrator: apply smoke-demo`)
+- **Pushed:** `origin/ai/smoke-demo`
+- **State:** `runs/smoke-demo/state.json` with `status: pushed`
+- **No merge:** ✅ `ai/smoke-demo` not merged into `main`
+- **No main touch:** ✅ `main` unchanged at `065568b`
 
-1. **Run the real smoke demo** documented in `STAGE5_REAL_SMOKE_DEMO.md` and capture execution report.
-2. **Audit PR boundary:** what happens after `status: pushed`? Document manual approval flow, PR creation guidelines, and merge safety rules.
-3. Keep no merge, no main touch, no automatic checkout/switch.
+### 8.12 Next Recommended Step — Manual Approval / PR Boundary Audit
+
+What happens after `status: pushed`? Document manual approval flow, PR creation guidelines, and merge safety rules.
+
+Keep no merge, no main touch, no automatic checkout/switch.
 
 ---
 
@@ -477,4 +492,5 @@ Next steps:
 | Phase 4 Stage 5.1 real provider integration implemented | ✅ |
 | Phase 4 Stage 5.2 self-repair loop implemented | ✅ |
 | Phase 4 Stage 5.3 readiness + operator guide implemented | ✅ |
+| Phase 4 Stage 5.4 real smoke demo executed | ✅ |
 | Opt-in flags defined | Confirmed |

@@ -8,7 +8,7 @@
 
 - **Total tests:** 777
 - **Total suites:** 55
-- **Last verified commit:** 8f2a9183b08aa1994ee244c9730b996fbdb2e8c4
+- **Last verified commit:** 876f001a11ec3e9da0b04dae2875defc98811292 (includes real smoke demo bugfix)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
