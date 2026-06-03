@@ -1,8 +1,8 @@
 # Stage 4.3 Local Commit Boundary Audit Plan
 
-**Status:** planning/audit + refusal stub implemented
+**Status:** planning/audit + pre-commit validation implemented
 **Branch:** `feature/mvp-skeleton`
-**Baseline commit:** `de5dea2ce2e7557be493ec811ea59cb8fe4a3491`
+**Baseline commit:** `dfae23097f4ab1fd51a90376659db6f90a6e646a`
 
 ---
 
@@ -35,19 +35,30 @@ This document is planning/audit only. No commit behavior is enabled by this comm
 
 ## Implementation Progress
 
-The following runtime building block has been implemented after this audit document was created. It does not enable commit behavior, but it prepares the codebase for Stage 4.3:
+The following runtime building blocks have been implemented after this audit document was created. They do not enable actual commit behavior, but they prepare the codebase for Stage 4.3:
 
 - **`real-repo-commit <taskId>` safe refusal stub** (`src/cli.ts`, `test/cli-real-repo-commit.test.ts`):
   - Commit hash: `de5dea2ce2e7557be493ec811ea59cb8fe4a3491`
   - Requires `ALLOW_REAL_REPO_COMMIT=true` to reach the disabled stub behavior.
-  - Without opt-in: refuses with `ALLOW_REAL_REPO_COMMIT=true is required`, prints safety messages (`No commit was made`, `No push was performed`, `No merge was performed`).
-  - With opt-in: validates task exists via `loadTask`, then refuses with `real-repo-commit is not implemented yet` and `Stage 4.3 commit behavior remains disabled`.
-  - Does not require `ALLOW_REAL_REPO_APPLY`.
-  - Does not require `REAL_REPO_PROVIDER_RESPONSE`.
+  - Without opt-in: refuses with `ALLOW_REAL_REPO_COMMIT=true is required`, prints safety messages.
+  - With opt-in: validates task exists via `loadTask`, then refuses with `real-repo-commit is not implemented yet`.
   - No provider call, no network, no API keys, no state write, no git add, no commit, no push, no merge, no checkout, no main touch.
-  - 23 CLI tests covering missing opt-in, missing taskId, opt-in with disabled stub, no file mutation, no state write, no commit/push/merge/checkout/main touch, no stack trace leak, no API key leak.
 
-> **Stage 4.3 commit behavior is still not implemented.** `ALLOW_REAL_REPO_COMMIT=true` does not create a commit yet. It only reaches the disabled refusal stub behavior.
+- **`real-repo-commit <taskId>` pre-commit validation flow** (`src/cli.ts`, `test/cli-real-repo-commit.test.ts`):
+  - Commit hash: `dfae23097f4ab1fd51a90376659db6f90a6e646a`
+  - Requires `ALLOW_REAL_REPO_COMMIT=true`, then `ALLOW_REAL_REPO_APPLY=true`, then `REAL_REPO_PROVIDER_RESPONSE`.
+  - Parses provider response via `parseKimiOutputJson`, validates file list via `validateFileList`.
+  - Validates branch safety: current branch exists, not main, work_branch exists, not main, current branch equals work_branch.
+  - Inspects working tree via read-only `git status --porcelain`.
+  - Accepts only approved changed paths from parsed provider response.
+  - Refuses unrelated modified/untracked/staged files.
+  - Refuses when no approved working tree changes exist.
+  - Prints commit message preview: `ai-orchestrator: apply <taskId>`.
+  - Exits non-zero with `pre-commit validation passed, but git commit is not implemented yet`.
+  - No git add, no git commit, no provider call, no network, no API keys, no state write, no push, no merge, no checkout, no main touch.
+  - 31 CLI tests covering all validation paths and refusal-before-commit paths.
+
+> **Stage 4.3 actual local commit is still not implemented.** `ALLOW_REAL_REPO_COMMIT=true` does not create a commit yet. It only runs pre-commit validation and exits before `git add` / `git commit`.
 
 ---
 
@@ -255,16 +266,20 @@ The following are **out of scope** for this document and for Stage 4.3:
 
 ## 13. Recommended First Stage 4.3 Implementation Task
 
-### 13.1 Safe refusal stub or pre-commit validation tests
+### 13.1 Pre-commit validation flow
 
-Before any `git commit` command is implemented, add refusal tests for `ALLOW_REAL_REPO_COMMIT`:
+The pre-commit validation flow is now implemented. It validates all prerequisites before any `git commit` command:
 
-1. `real-repo-apply` with `ALLOW_REAL_REPO_APPLY=true` but **without** `ALLOW_REAL_REPO_COMMIT=true` must still succeed at apply + checks but must **not** commit, and must print `No commit was made`.
-2. Alternatively, introduce a new CLI command (e.g., `real-repo-commit <taskId>`) behind `ALLOW_REAL_REPO_COMMIT=true` that refuses safely when prerequisites are not met.
+- Opt-in checks (`ALLOW_REAL_REPO_COMMIT`, `ALLOW_REAL_REPO_APPLY`).
+- Provider response parsing and guardrails.
+- Branch safety (current branch, work_branch).
+- Working tree inspection (approved changes only, no unrelated files).
 
 ### 13.2 Safer next step recommendation
 
-- Add `ALLOW_REAL_REPO_COMMIT` refusal tests before any git commit command is implemented.
+- **Implement actual local commit** only after preserving all pre-commit validation tests.
+- The commit should stage only approved files, create a local commit with a safe message, and exit.
+- **Do NOT implement push/merge/main touch.** Keep those as future Stage 4.4+ boundaries.
 - Preserve all existing Stage 4.2 tests (34 tests in `test/cli-real-repo-apply.test.ts`).
 - Stage 4.3 must not break Stage 4.2 behavior.
 
@@ -274,12 +289,12 @@ Before any `git commit` command is implemented, add refusal tests for `ALLOW_REA
 
 | Check | Status |
 |-------|--------|
-| Stage 4.3 refusal stub implemented | Confirmed |
-| Stage 4.3 commit behavior remains disabled | Confirmed |
-| `ALLOW_REAL_REPO_COMMIT=true` reaches disabled stub only | Confirmed |
+| Stage 4.3 pre-commit validation implemented | Confirmed |
+| Stage 4.3 actual local commit remains disabled | Confirmed |
+| `ALLOW_REAL_REPO_COMMIT=true` runs validation only, no commit | Confirmed |
 | No push / no merge / no main touch | Confirmed |
 | Opt-in flag boundaries defined | Confirmed |
 | Commit boundaries defined | Confirmed |
 | State boundaries defined | Confirmed |
 | Failure boundaries defined for all cases | Confirmed |
-| Required tests listed before implementation | Confirmed |
+| Required tests exist and pass | Confirmed |
