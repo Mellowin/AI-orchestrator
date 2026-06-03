@@ -173,4 +173,55 @@ describe('deterministic-review-checks', () => {
     // The error text should contain the pattern label, not the raw secret value
     assert(!allText.includes('supersecret12345'), 'Raw secret should not leak in error output');
   });
+
+  test('redacts sk- token in typecheck result', () => {
+    const result = runDeterministicReviewChecks(makeInput({ typecheckResult: 'error: sk-SECRET123' }));
+    assert.strictEqual(result.ok, false);
+    const issue = result.blockingIssues.find((i) => i.includes('Typecheck'));
+    assert(issue, 'Expected typecheck blocking issue');
+    assert(!issue.includes('sk-SECRET123'), 'Raw token should be redacted');
+    assert(issue.includes('[REDACTED]'), 'Expected [REDACTED] placeholder');
+  });
+
+  test('redacts Bearer token in build result', () => {
+    const result = runDeterministicReviewChecks(makeInput({ buildResult: 'Build failed with Bearer SECRET123' }));
+    assert.strictEqual(result.ok, false);
+    const issue = result.blockingIssues.find((i) => i.includes('Build'));
+    assert(issue, 'Expected build blocking issue');
+    assert(!issue.includes('Bearer SECRET123'), 'Raw Bearer token should be redacted');
+    assert(issue.includes('[REDACTED]'), 'Expected [REDACTED] placeholder');
+  });
+
+  test('redacts GITHUB_TOKEN in test result', () => {
+    const result = runDeterministicReviewChecks(makeInput({ testResult: 'Tests failed: GITHUB_TOKEN=ghp_abc123xyz' }));
+    assert.strictEqual(result.ok, false);
+    const issue = result.blockingIssues.find((i) => i.includes('Tests'));
+    assert(issue, 'Expected test blocking issue');
+    assert(!issue.includes('ghp_abc123xyz'), 'Raw GitHub token should be redacted');
+    assert(issue.includes('[REDACTED]'), 'Expected [REDACTED] placeholder');
+  });
+
+  test('redacts generic env secret in typecheck result', () => {
+    const result = runDeterministicReviewChecks(makeInput({ typecheckResult: 'Error: MY_SECRET=verylongsecretvalue123' }));
+    assert.strictEqual(result.ok, false);
+    const issue = result.blockingIssues.find((i) => i.includes('Typecheck'));
+    assert(issue, 'Expected typecheck blocking issue');
+    assert(!issue.includes('verylongsecretvalue123'), 'Raw secret value should be redacted');
+    assert(issue.includes('[REDACTED]'), 'Expected [REDACTED] placeholder');
+  });
+
+  test('redacts dirty git status if it contains secrets', () => {
+    const result = runDeterministicReviewChecks(makeInput({ gitStatus: ' M config.ts\n?? .env\n' }));
+    assert.strictEqual(result.ok, false);
+    const issue = result.blockingIssues.find((i) => i.includes('Working tree'));
+    assert(issue, 'Expected dirty tree blocking issue');
+    assert(issue.includes('.env'), '.env file reference is allowed in status');
+  });
+
+  test('currentBranch main rejects', () => {
+    const result = runDeterministicReviewChecks(makeInput({ currentBranch: 'main' }));
+    assert.strictEqual(result.ok, false);
+    assert(result.blockingIssues.some((i) => i.includes('main')));
+    assert(result.safetyFindings.some((f) => f.includes('main branch violation')));
+  });
 });

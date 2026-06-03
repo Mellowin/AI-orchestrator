@@ -1,6 +1,7 @@
 import type { ReviewerProvider, ReviewerDecision, ReviewerNextAction } from '../providers/provider-types.js';
 import type { ReviewInput } from './reviewer-types.js';
 import { validateReviewerDecision } from './reviewer-schema.js';
+import { redactReviewerList, redactReviewerText } from './reviewer-redaction.js';
 
 export interface ReviewerGateInput {
   reviewer: ReviewerProvider;
@@ -41,13 +42,14 @@ function buildDeterministicRejectionDecision(
   safetyFindings: string[],
   nextAction: ReviewerNextAction
 ): ReviewerDecision {
+  const safeBlockingIssues = redactReviewerList(blockingIssues);
   return {
     decision: 'rejected',
     confidence: 'high',
-    blocking_issues: blockingIssues,
+    blocking_issues: safeBlockingIssues,
     non_blocking_issues: [],
-    review_summary: `Rejected by deterministic checks: ${blockingIssues.join('; ')}`,
-    fix_task: `Fix the following issues: ${blockingIssues.join('; ')}`,
+    review_summary: redactReviewerText(`Rejected by deterministic checks: ${safeBlockingIssues.join('; ')}`),
+    fix_task: redactReviewerText(`Fix the following issues: ${safeBlockingIssues.join('; ')}`),
     next_action: nextAction,
   };
 }

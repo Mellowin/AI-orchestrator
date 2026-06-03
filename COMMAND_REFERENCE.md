@@ -283,6 +283,7 @@
 
 **Normal success message:**
 - `Commit: <sha>`
+- `Current branch: <branch>`
 - `Changed files: <count>`
 - `Deterministic checks: PASS/FAIL`
 - `Reviewer called: yes/no`
@@ -292,6 +293,8 @@
 
 **Safe failure behavior:**
 - Exits non-zero on invalid commit SHA or missing args
+- If current branch is `main`, deterministic checks FAIL, reviewer is NOT called, next action is `block_for_human`
+- Dynamic failure text (typecheck/build/test output) is redacted before printing
 - Prints safe error
 - No side effects
 

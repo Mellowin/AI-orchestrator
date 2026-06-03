@@ -238,4 +238,62 @@ describe('reviewer-gate', () => {
     assert.strictEqual(result.decision.decision, 'rejected');
     assert.strictEqual(result.decision.next_action, 'send_fix_to_coder');
   });
+
+  test('deterministic failure with secret-containing blocking issue returns redacted review_summary', async () => {
+    const result = await runReviewerGate({
+      reviewer: fakeReviewer,
+      reviewInput: makeReviewInput(),
+      deterministicResult: {
+        ok: false,
+        blockingIssues: ['Typecheck did not pass: sk-SECRET123'],
+        safetyFindings: ['Typecheck failure'],
+      },
+    });
+    assert.strictEqual(result.decision.decision, 'rejected');
+    assert(!result.decision.review_summary.includes('sk-SECRET123'), 'Raw token should be redacted from review_summary');
+    assert(result.decision.review_summary.includes('[REDACTED]'), 'Expected [REDACTED] in review_summary');
+  });
+
+  test('deterministic failure with secret-containing blocking issue returns redacted fix_task', async () => {
+    const result = await runReviewerGate({
+      reviewer: fakeReviewer,
+      reviewInput: makeReviewInput(),
+      deterministicResult: {
+        ok: false,
+        blockingIssues: ['Build did not pass: Bearer SECRET123'],
+        safetyFindings: ['Build failure'],
+      },
+    });
+    assert.strictEqual(result.decision.decision, 'rejected');
+    assert(!result.decision.fix_task.includes('Bearer SECRET123'), 'Raw token should be redacted from fix_task');
+    assert(result.decision.fix_task.includes('[REDACTED]'), 'Expected [REDACTED] in fix_task');
+  });
+
+  test('severe secret issue returns block_for_human', async () => {
+    const result = await runReviewerGate({
+      reviewer: fakeReviewer,
+      reviewInput: makeReviewInput(),
+      deterministicResult: {
+        ok: false,
+        blockingIssues: ['Secret detected'],
+        safetyFindings: ['Secret pattern detected: sk- token'],
+      },
+    });
+    assert.strictEqual(result.decision.next_action, 'block_for_human');
+  });
+
+  test('no raw token in returned decision from deterministic failure', async () => {
+    const result = await runReviewerGate({
+      reviewer: fakeReviewer,
+      reviewInput: makeReviewInput(),
+      deterministicResult: {
+        ok: false,
+        blockingIssues: ['Tests did not pass: GITHUB_TOKEN=ghp_abc123xyz'],
+        safetyFindings: ['Test failure'],
+      },
+    });
+    const allText = JSON.stringify(result.decision);
+    assert(!allText.includes('ghp_abc123xyz'), 'Raw token should not leak in decision');
+    assert(!allText.includes('sk-'), 'No sk- pattern should leak');
+  });
 });

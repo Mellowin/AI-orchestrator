@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38`
+**Last verified:** `pending final Stage 6.1.1 commit hash`
 
 ## Test metrics
 
-- **Total tests:** 1178
+- **Total tests:** 1197
 - **Total suites:** 71
-- **Last verified commit:** `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38` (Stage 6.1 Deterministic Commit Verifier for Reviewer Gate)
+- **Last verified commit:** `pending final Stage 6.1.1 commit hash` (Stage 6.1.1 Reviewer Gate Safety Hardening)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -21,6 +21,7 @@
 | Stage 6.0A | Product vision and autonomous architecture documentation | `f044e2a50acab1329a4edb151cbbccfc3618d144` |
 | Stage 6.0 | Provider Abstraction Foundation | `7a15f7a66029690940133f2b83b10174a8686623` |
 | Stage 6.1 | Deterministic Commit Verifier for Reviewer Gate | `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38` |
+| Stage 6.1.1 | Reviewer Gate Safety Hardening | `pending` |
 
 ## Covered layers
 
@@ -101,7 +102,8 @@
 - **`runSandboxApplyFlow` exists as a pure helper.** Orchestrates the full sandbox pipeline: parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Runs checks only in sandbox path. Real repo remains untouched. No state write. Wired to `sandbox-apply-preview` CLI.
 - **`sandbox-apply-preview <taskId>` CLI command is implemented.** Behind `ALLOW_SANDBOX_APPLY_PREVIEW=true`. Requires `SANDBOX_PROVIDER_RESPONSE` and `SANDBOX_ROOT`. Uses `runSandboxApplyFlow`. No real provider call, no network, no API keys, no real repo mutation, no state write, no push/merge/main touch. CLI fails safely when `SANDBOX_ROOT` is inside the real repo.
 - **`reviewer-gate-dry-run <taskId>` CLI command is implemented.** Validates reviewer provider contract without repo mutation. Default provider is `fake` (deterministic, no network). `REVIEWER_PROVIDER=kimi` uses Kimi reviewer behind `ALLOW_KIMI_REVIEWER=true` with `KIMI_FAKE_REVIEWER_RESPONSE` test seam. No file writes, no git commands, no merge/checkout/main touch. 12 CLI tests.
-- **`reviewer-gate-evidence-dry-run <taskId> <commitSha>` CLI command is implemented.** Builds real commit evidence and runs deterministic reviewer gate dry-run. Validates commit SHA, reads changed files/diff/git status from local git, runs deterministic checks (scope, secrets, merge conflicts, branch safety), builds ReviewInput, runs reviewer gate. Default provider is `fake`. No file writes, no state writes, no git mutation, no push/merge/checkout/main touch. 16 CLI tests.
+- **`reviewer-gate-evidence-dry-run <taskId> <commitSha>` CLI command is implemented.** Builds real commit evidence and runs deterministic reviewer gate dry-run. Validates commit SHA, reads changed files/diff/git status/current branch from local git, runs deterministic checks (scope, secrets, merge conflicts, branch safety), builds ReviewInput, runs reviewer gate. Default provider is `fake`. No file writes, no state writes, no git mutation, no push/merge/checkout/main touch. 20 CLI tests.
+- **Reviewer gate redaction** (`src/reviewer/reviewer-redaction.ts`) is implemented. Redacts `sk-` tokens, `Bearer` tokens, API key assignments, generic GitHub PATs, and `.env`-like secrets from dynamic text before inclusion in blocking issues, safety findings, review summary, fix task, and CLI output. 6 redaction tests.
 
 ## Real provider execution plan
 

@@ -624,6 +624,25 @@ Properties:
 - Ensure deterministic checks (typecheck/build/test/guardrails) run before reviewer call.
 - Validate reviewer output schema before acting on it.
 
+### Stage 6.1.1 — Reviewer Gate Safety Hardening ✅
+
+- **Status:** Implemented and tested.
+- **Location:** `src/reviewer/reviewer-redaction.ts`, `src/reviewer/deterministic-review-checks.ts`, `src/reviewer/reviewer-gate.ts`, `src/reviewer/commit-verifier.ts`, `src/cli.ts`, tests
+
+Safety fixes:
+1. **Redaction helper** (`reviewer-redaction.ts`): `redactReviewerText` and `redactReviewerList` redact `sk-` tokens, `Bearer` tokens, API key assignments (`KIMI_API_KEY=...`, `OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, `GITHUB_TOKEN=...`), generic GitHub PATs (`ghp_...`, `github_pat_...`), and `.env`-like secret patterns before inclusion in blocking issues, safety findings, review summary, fix task, or CLI output.
+2. **Deterministic checks** now redact typecheck/build/test/gitStatus strings before adding them to `blockingIssues`. Secret detection still runs on raw diff for accuracy, but reported issues use generic labels.
+3. **Reviewer gate** (`reviewer-gate.ts`) redacts `blockingIssues` and `safetyFindings` before building `review_summary` and `fix_task`.
+4. **Current branch capture** (`commit-verifier.ts`): `getCurrentBranchName` reads branch via `git rev-parse --abbrev-ref HEAD`. `CommitEvidence` includes `currentBranch`. `buildCommitEvidence` populates it.
+5. **CLI** (`reviewer-gate-evidence-dry-run`) passes `currentBranch` into `runDeterministicReviewChecks`, prints `Current branch: <branch>`. If branch is `main`, deterministic checks FAIL, reviewer is NOT called, next action is `block_for_human`.
+6. **Word-level pass detection**: `looksLikePass` uses word-level matching (`split(/[^a-z0-9]+/)`) to avoid false positives like `token` matching `ok`.
+
+Properties:
+- No real provider calls in tests.
+- No GitHub API calls.
+- No merge, no main touch, no checkout/switch.
+- 19 new tests (redaction, current branch, main branch blocking, token redaction in CLI).
+
 ### Stage 6.2 — Block State Runner
 
 - Implement `BlockState` data model and `BlockStateManager`.
@@ -700,4 +719,5 @@ Properties:
 | Phase 4 Stage 6.0A product vision / autonomous architecture docs | ✅ |
 | Phase 4 Stage 6.0 provider abstraction foundation | ✅ |
 | Phase 4 Stage 6.1 deterministic commit verifier / reviewer gate | ✅ |
+| Phase 4 Stage 6.1.1 reviewer gate safety hardening | ✅ |
 | Opt-in flags defined | Confirmed |

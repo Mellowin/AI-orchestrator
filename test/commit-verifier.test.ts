@@ -3,12 +3,14 @@ import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   validateCommitSha,
   verifyCommitExists,
   getCommitChangedFiles,
   getCommitDiff,
   getGitStatusPorcelain,
+  getCurrentBranchName,
   buildCommitEvidence,
 } from '../src/reviewer/commit-verifier.js';
 
@@ -199,6 +201,75 @@ describe('commit-verifier', () => {
           }),
         /does not exist/
       );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('getCurrentBranchName returns branch name in temp repo', () => {
+    const { repoPath, cleanup } = createTempRepo();
+    try {
+      const branch = getCurrentBranchName(repoPath);
+      assert.strictEqual(branch, 'main');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('getCurrentBranchName returns work branch after checkout', () => {
+    const { repoPath, cleanup } = createTempRepo();
+    try {
+      spawnSync('git', ['checkout', '-b', 'feature/test'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const branch = getCurrentBranchName(repoPath);
+      assert.strictEqual(branch, 'feature/test');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('getCurrentBranchName safe error if not a git repo', () => {
+    // Use os.tmpdir() to avoid git finding parent .git directory
+    const tmpDir = mkdtempSync(join(tmpdir(), 'cv-nogit-'));
+    try {
+      assert.throws(() => getCurrentBranchName(tmpDir), /Failed to get current branch/);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('buildCommitEvidence includes currentBranch', () => {
+    const { repoPath, commitSha, cleanup } = createTempRepo();
+    try {
+      const evidence = buildCommitEvidence({
+        repoPath,
+        taskId: 'test-task',
+        taskGoal: 'test goal',
+        allowedFiles: ['README.md'],
+        deniedFiles: ['.env'],
+        maxLinesChanged: 100,
+        commitSha,
+      });
+      assert.strictEqual(evidence.currentBranch, 'main');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('buildCommitEvidence no mutation / no push / no merge / no checkout', () => {
+    const { repoPath, commitSha, cleanup } = createTempRepo();
+    try {
+      const before = spawnSync('git', ['status', '--porcelain'], { cwd: repoPath, encoding: 'utf-8', shell: false }).stdout;
+      buildCommitEvidence({
+        repoPath,
+        taskId: 'test',
+        taskGoal: 'g',
+        allowedFiles: ['README.md'],
+        deniedFiles: ['.env'],
+        maxLinesChanged: 100,
+        commitSha,
+      });
+      const after = spawnSync('git', ['status', '--porcelain'], { cwd: repoPath, encoding: 'utf-8', shell: false }).stdout;
+      assert.strictEqual(before, after);
     } finally {
       cleanup();
     }

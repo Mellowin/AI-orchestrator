@@ -1,3 +1,5 @@
+import { redactReviewerText } from './reviewer-redaction.js';
+
 export interface DeterministicReviewCheckResult {
   ok: boolean;
   blockingIssues: string[];
@@ -22,7 +24,8 @@ const PASS_PATTERNS = ['pass', 'success', 'clean', 'ok'];
 
 function looksLikePass(result: string): boolean {
   const lower = result.trim().toLowerCase();
-  return PASS_PATTERNS.some((p) => lower.includes(p));
+  const words = lower.split(/[^a-z0-9]+/);
+  return PASS_PATTERNS.some((p) => words.includes(p));
 }
 
 const SECRET_PATTERNS = [
@@ -121,22 +124,22 @@ export function runDeterministicReviewChecks(input: DeterministicReviewCheckInpu
 
   // Typecheck/build/test results
   if (!looksLikePass(input.typecheckResult)) {
-    blockingIssues.push(`Typecheck did not pass: ${input.typecheckResult}`);
+    blockingIssues.push(`Typecheck did not pass: ${redactReviewerText(input.typecheckResult)}`);
     safetyFindings.push('Typecheck failure');
   }
   if (!looksLikePass(input.buildResult)) {
-    blockingIssues.push(`Build did not pass: ${input.buildResult}`);
+    blockingIssues.push(`Build did not pass: ${redactReviewerText(input.buildResult)}`);
     safetyFindings.push('Build failure');
   }
   if (!looksLikePass(input.testResult)) {
-    blockingIssues.push(`Tests did not pass: ${input.testResult}`);
+    blockingIssues.push(`Tests did not pass: ${redactReviewerText(input.testResult)}`);
     safetyFindings.push('Test failure');
   }
 
   // Git status
   const cleanStatus = input.gitStatus.trim() === '';
   if (!cleanStatus) {
-    blockingIssues.push('Working tree is not clean');
+    blockingIssues.push(`Working tree is not clean: ${redactReviewerText(input.gitStatus)}`);
     safetyFindings.push('Dirty working tree detected');
   }
 

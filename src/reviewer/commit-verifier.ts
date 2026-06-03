@@ -21,6 +21,7 @@ export interface CommitEvidence {
   changedFiles: string[];
   diff: string;
   gitStatus: string;
+  currentBranch: string;
   safetyFindings: string[];
 }
 
@@ -111,6 +112,20 @@ export function getGitStatusPorcelain(repoPath: string): string {
   return result.stdout.trim();
 }
 
+export function getCurrentBranchName(repoPath: string): string {
+  const result = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd: repoPath,
+    shell: false,
+    encoding: 'utf-8',
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`Failed to get current branch: ${result.stderr?.trim() || 'unknown error'}`);
+  }
+
+  return result.stdout.trim();
+}
+
 export function buildCommitEvidence(input: CommitEvidenceInput): CommitEvidence {
   const safetyFindings: string[] = [];
 
@@ -123,6 +138,7 @@ export function buildCommitEvidence(input: CommitEvidenceInput): CommitEvidence 
   const changedFiles = getCommitChangedFiles(input.repoPath, normalizedSha, input.baseRef);
   let diff = getCommitDiff(input.repoPath, normalizedSha, input.baseRef);
   const gitStatus = getGitStatusPorcelain(input.repoPath);
+  const currentBranch = getCurrentBranchName(input.repoPath);
 
   if (diff.includes('[diff truncated:')) {
     safetyFindings.push('Diff was truncated due to size limits');
@@ -138,6 +154,7 @@ export function buildCommitEvidence(input: CommitEvidenceInput): CommitEvidence 
     changedFiles,
     diff,
     gitStatus,
+    currentBranch,
     safetyFindings,
   };
 }

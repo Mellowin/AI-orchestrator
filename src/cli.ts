@@ -3769,6 +3769,7 @@ if (command === 'reviewer-gate-evidence-dry-run') {
       testResult,
       gitStatus: evidence.gitStatus,
       commitSha: evidence.commitSha,
+      currentBranch: evidence.currentBranch,
     });
 
     // Build ReviewInput
@@ -3836,6 +3837,7 @@ if (command === 'reviewer-gate-evidence-dry-run') {
     });
 
     console.log(`[reviewer-gate-evidence-dry-run] Commit: ${evidence.commitSha}`);
+    console.log(`[reviewer-gate-evidence-dry-run] Current branch: ${evidence.currentBranch}`);
     console.log(`[reviewer-gate-evidence-dry-run] Changed files: ${evidence.changedFiles.length}`);
     console.log(`[reviewer-gate-evidence-dry-run] Deterministic checks: ${deterministicResult.ok ? 'PASS' : 'FAIL'}`);
     console.log(`[reviewer-gate-evidence-dry-run] Reviewer called: ${gateResult.reviewerCalled ? 'yes' : 'no'}`);

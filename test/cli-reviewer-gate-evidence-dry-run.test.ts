@@ -183,6 +183,7 @@ describe('cli reviewer-gate-evidence-dry-run', () => {
       });
       assert.strictEqual(result.status, 0, `Expected success, got stderr: ${result.stderr}`);
       assert(result.stdout.includes(`Commit: ${commitSha}`), `Expected commit SHA, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('Current branch:'), `Expected current branch, got stdout: ${result.stdout}`);
       assert(result.stdout.includes('Changed files:'), `Expected changed files count, got stdout: ${result.stdout}`);
     } finally {
       cleanup();
@@ -381,6 +382,80 @@ describe('cli reviewer-gate-evidence-dry-run', () => {
       });
       assert.strictEqual(result.status, 0);
       assert(!result.stderr.includes('at '), `Stderr should not contain stack trace: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('current branch main causes deterministic FAIL', () => {
+    const { taskId, tasksFilePath, commitSha, repoPath, cleanup } = createTempEnv();
+    try {
+      // Switch to main branch
+      spawnSync('git', ['checkout', 'main'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['reviewer-gate-evidence-dry-run', taskId, commitSha], {
+        TASKS_FILE: tasksFilePath,
+        REVIEWER_PROVIDER: 'fake',
+        DRY_RUN_TYPECHECK_RESULT: 'pass',
+        DRY_RUN_BUILD_RESULT: 'pass',
+        DRY_RUN_TEST_RESULT: 'pass',
+      });
+      assert.strictEqual(result.status, 0, `Expected dry-run success with FAIL, got stderr: ${result.stderr}`);
+      assert(result.stdout.includes('Current branch: main'), `Expected main branch, got stdout: ${result.stdout}`);
+      assert(result.stdout.includes('Deterministic checks: FAIL'), `Expected FAIL, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('current branch main does not call reviewer', () => {
+    const { taskId, tasksFilePath, commitSha, repoPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['checkout', 'main'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['reviewer-gate-evidence-dry-run', taskId, commitSha], {
+        TASKS_FILE: tasksFilePath,
+        REVIEWER_PROVIDER: 'fake',
+        DRY_RUN_TYPECHECK_RESULT: 'pass',
+        DRY_RUN_BUILD_RESULT: 'pass',
+        DRY_RUN_TEST_RESULT: 'pass',
+      });
+      assert.strictEqual(result.status, 0);
+      assert(result.stdout.includes('Reviewer called: no'), `Expected no reviewer call, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('current branch main next_action is block_for_human', () => {
+    const { taskId, tasksFilePath, commitSha, repoPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['checkout', 'main'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['reviewer-gate-evidence-dry-run', taskId, commitSha], {
+        TASKS_FILE: tasksFilePath,
+        REVIEWER_PROVIDER: 'fake',
+        DRY_RUN_TYPECHECK_RESULT: 'pass',
+        DRY_RUN_BUILD_RESULT: 'pass',
+        DRY_RUN_TEST_RESULT: 'pass',
+      });
+      assert.strictEqual(result.status, 0);
+      assert(result.stdout.includes('Next action: block_for_human'), `Expected block_for_human, got stdout: ${result.stdout}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('CLI output redacts tokens in DRY_RUN_TYPECHECK_RESULT', () => {
+    const { taskId, tasksFilePath, commitSha, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['reviewer-gate-evidence-dry-run', taskId, commitSha], {
+        TASKS_FILE: tasksFilePath,
+        REVIEWER_PROVIDER: 'fake',
+        DRY_RUN_TYPECHECK_RESULT: 'error TS123: sk-SECRET123',
+        DRY_RUN_BUILD_RESULT: 'pass',
+        DRY_RUN_TEST_RESULT: 'pass',
+      });
+      assert.strictEqual(result.status, 0, `Expected dry-run success with FAIL, got stderr: ${result.stderr}`);
+      assert(!result.stdout.includes('sk-SECRET123'), 'Raw token should be redacted from stdout');
+      assert(result.stdout.includes('[REDACTED]'), 'Expected [REDACTED] in stdout');
     } finally {
       cleanup();
     }

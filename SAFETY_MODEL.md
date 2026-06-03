@@ -73,7 +73,7 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
   - Changed files within `allowed_files` scope
   - No `denied_files` touched
   - `max_lines_changed` not exceeded
-  - Typecheck/build/test results pass
+  - Typecheck/build/test results pass (word-level matching to avoid false positives)
   - Working tree clean
   - Current branch not `main`
   - No secrets in diff (`sk-`, `Bearer`, API key names, `.env`)
@@ -81,6 +81,17 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - **Severe safety findings** (secrets, main branch, merge conflicts, denied files, invalid SHA) return `block_for_human` immediately without AI review.
 - **Non-severe failures** return `send_fix_to_coder` without AI review.
 - The reviewer receives **factual evidence**, not the coder's self-report.
+
+## 4.2 Reviewer Gate Redaction
+
+- Any dynamic text that comes from tool output (typecheck, build, test, git status) is **redacted** before inclusion in:
+  - `blockingIssues`
+  - `safetyFindings`
+  - `review_summary`
+  - `fix_task`
+  - CLI stdout/stderr
+- Redaction covers: `sk-` tokens, `Bearer` tokens, API key assignments (`KIMI_API_KEY=...`, `OPENAI_API_KEY=...`, `ANTHROPIC_API_KEY=...`, `GITHUB_TOKEN=...`), generic GitHub PATs, and `.env`-like secret patterns.
+- Secret **detection** still runs on raw diff for accuracy, but reported issues use generic labels, never raw secret values.
 
 ---
 
