@@ -22,3 +22,26 @@ tasks:
       auto_commit: false
       auto_push: false
       auto_merge: false
+
+  - id: smoke-demo
+    title: "AI smoke demo"
+    repo_path: "."
+    base_branch: "main"
+    work_branch: "ai/smoke-demo"
+    goal: "Write one short line into smoke-demo/ai-smoke.txt. Do not touch any other files."
+    context_files: []
+    checks:
+      - command: "node"
+        args: ["-e", "const fs=require('fs'); const c=fs.readFileSync('smoke-demo/ai-smoke.txt','utf8'); if(!c.trim()) process.exit(1);"]
+    guardrails:
+      allow_modify:
+        - "smoke-demo/ai-smoke.txt"
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+      max_lines_changed: 10
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
