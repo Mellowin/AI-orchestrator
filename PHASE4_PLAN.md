@@ -358,15 +358,27 @@ Properties:
 - **Wired to CLI.**
 - **Real provider integrated into one-command workflow.**
 
-### 8.8 Next Recommended Step — Stage 5.2 Self-Repair Loop
+### 8.8 Completed — Stage 5.2 Self-Repair Loop
 
-Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 actual safe push is implemented. Stage 4.5 state write after push is implemented. Stage 5.0 unified workflow is implemented. Stage 5.1 real provider integration is implemented.
+- **Status:** ✅ Implemented and tested.
+- **Location:** `src/cli.ts`
+- **Tests:** `test/cli-real-repo-run-ai.test.ts`
 
-Next steps:
+Self-repair loop for `real-repo-run-ai <taskId>`:
 
-1. **Audit and plan Stage 5.2 self-repair loop.** Define what happens when checks fail after provider-generated apply: retry with provider feedback, max attempts, reviewer loop. Do NOT implement merge yet.
-2. Keep mock mode as default for tests and local development.
-3. Keep no main touch unless explicitly planned.
+- `REAL_REPO_AI_MAX_ATTEMPTS` env var controls bounded retry (default 2, min 1, max 3). Invalid values refuse before provider call.
+- On check failure after apply, working tree is rolled back via `rollbackFileUpdates`.
+- If attempts remain, a repair prompt is built via `buildRepairPrompt` containing: failed check command, check output summary, previously proposed file paths. No API keys, env values, or remote URLs with credentials are included.
+- The real provider is called again with the repair prompt.
+- Provider parse failures on repair are reported as `Provider repair output malformed`. Provider call failures on repair are reported as `Provider repair call failed`.
+- On final failed attempt: prints `Checks failed after N attempt(s)`, no commit/push/state, working tree clean, branch unchanged.
+- On successful repair: exactly one commit, exactly one push, one state write. Output includes `Repair attempt succeeded`.
+- Tests use `KIMI_FAKE_RESPONSES` (JSON array) to simulate multiple provider responses. `__FETCH_ERROR__` marker simulates repair provider call failure.
+
+Properties:
+- 67 CLI tests covering missing opt-ins, repo safety, provider call failure, malformed output, guardrails/line delta, apply failure, check failure with rollback, max attempts validation (default/1/2/3/0/4/non-numeric), repair success path, repair provider failure/malformed, final failure state, commit/push/state safety on repair, prompt content safety, no force/all/mirror/tags, no merge/checkout/reset/main touch, working tree clean after success.
+- **Wired to CLI.**
+- **Self-repair loop integrated into real provider workflow.**
 
 ### 8.8 Completed — `real-repo-commit <taskId>` local commit
 
@@ -418,4 +430,5 @@ Properties:
 | Phase 4 Stage 4.5 state write after push implemented | ✅ |
 | Phase 4 Stage 5.0 unified workflow implemented | ✅ |
 | Phase 4 Stage 5.1 real provider integration implemented | ✅ |
+| Phase 4 Stage 5.2 self-repair loop implemented | ✅ |
 | Opt-in flags defined | Confirmed |

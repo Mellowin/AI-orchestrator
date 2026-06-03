@@ -24,6 +24,7 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.KIMI_BASE_URL;
   delete env.KIMI_USER_AGENT;
   delete env.KIMI_FAKE_RESPONSE;
+  delete env.KIMI_FAKE_RESPONSES;
   delete env.OPENAI_API_KEY;
   delete env.MOCK_AI;
   delete env.ALLOW_REAL_PROVIDER_RUN;
@@ -36,6 +37,7 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.SANDBOX_ROOT;
   delete env.REAL_REPO_PROVIDER_RESPONSE;
   delete env.RUNS_DIR;
+  delete env.REAL_REPO_AI_MAX_ATTEMPTS;
   env.AI_PROVIDER = 'mock';
   return env;
 }
@@ -73,7 +75,7 @@ function buildFakeKimiOutput(
   return JSON.stringify({ mode: 'file_update', files, notes });
 }
 
-function createTempEnv(checks: string[] = []): {
+function createTempEnv(checks: string[] = [], checkObjects?: Array<{ command: string; args: string[] }>): {
   taskId: string;
   tasksFilePath: string;
   repoPath: string;
@@ -131,9 +133,11 @@ function createTempEnv(checks: string[] = []): {
     shell: false,
   });
 
-  const checkLines = checks.length > 0
-    ? checks.map((c) => `    - command: "${c.split(' ')[0]}"\n      args: [${c.split(' ').slice(1).map((a) => `"${a}"`).join(', ')}]`).join('\n')
-    : '    - command: "node"\n      args: ["-e", "process.exit(0)"]';
+  const checkLines = checkObjects && checkObjects.length > 0
+    ? checkObjects.map((c) => `    - command: "${c.command}"\n      args: [${c.args.map((a) => `"${a}"`).join(', ')}]`).join('\n')
+    : checks.length > 0
+      ? checks.map((c) => `    - command: "${c.split(' ')[0]}"\n      args: [${c.split(' ').slice(1).map((a) => `"${a}"`).join(', ')}]`).join('\n')
+      : '    - command: "node"\n      args: ["-e", "process.exit(0)"]';
 
   const tasksFilePath = join(tmpDir, 'tasks.yaml');
   writeFileSync(
@@ -207,6 +211,12 @@ function getGitLogCount(repoPath: string): number {
     shell: false,
   });
   return result.stdout.trim().split('\n').filter((l) => l.length > 0).length;
+}
+
+function setupCheckFile(repoPath: string): void {
+  writeFileSync(join(repoPath, 'check.cjs'), `require('fs').readFileSync('README.md','utf8').includes('fail')&&process.exit(1)`, 'utf-8');
+  spawnSync('git', ['add', 'check.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+  spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
 }
 
 function loadStateFromPath(runsDir: string, taskId: string): unknown {
@@ -1027,6 +1037,723 @@ describe('cli real-repo-run-ai', () => {
       });
       assert.notStrictEqual(result.status, 0);
       assert(!result.stderr.includes('at '), `Should not contain stack trace: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // --- Max attempts validation ---
+
+  test('missing REAL_REPO_AI_MAX_ATTEMPTS defaults to 2', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes('Repair attempt succeeded'), `Expected repair success: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('REAL_REPO_AI_MAX_ATTEMPTS=1 allows only one provider call', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(!result.stderr.includes('Repair attempt'), `Should not repair with maxAttempts=1: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('REAL_REPO_AI_MAX_ATTEMPTS=2 allows repair once', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes('Repair attempt succeeded'), `Expected repair success: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('REAL_REPO_AI_MAX_ATTEMPTS=3 allows two repairs', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '3',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes('Repair attempt succeeded'), `Expected repair success: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('REAL_REPO_AI_MAX_ATTEMPTS=0 refuses before provider call', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '0',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Invalid REAL_REPO_AI_MAX_ATTEMPTS'), `Expected invalid message: ${result.stderr}`);
+      assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('REAL_REPO_AI_MAX_ATTEMPTS=4 refuses before provider call', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '4',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Invalid REAL_REPO_AI_MAX_ATTEMPTS'), `Expected invalid message: ${result.stderr}`);
+      assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('non-numeric REAL_REPO_AI_MAX_ATTEMPTS refuses before provider call', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: 'abc',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Invalid REAL_REPO_AI_MAX_ATTEMPTS'), `Expected invalid message: ${result.stderr}`);
+      assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('invalid REAL_REPO_AI_MAX_ATTEMPTS does not apply/commit/push/state', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const beforeLog = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: 'abc',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Invalid REAL_REPO_AI_MAX_ATTEMPTS'), `Expected invalid message: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Remote should not change`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLog, `No commit should be made`);
+      assert.strictEqual(loadStateFromPath(runsDir, taskId), null, `No state should be written`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // --- Check failure behavior ---
+
+  test('check failure on attempt 1 rolls back', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const beforeContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Rollback completed'), `Expected rollback: ${result.stderr}`);
+      const afterContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(afterContent, beforeContent, `File should be rolled back`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('check failure on attempt 1 does not commit', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const beforeLog = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLog, `No commit should be made`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('check failure on attempt 1 does not push', () => {
+    const { taskId, tasksFilePath, originPath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Remote should not change`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('check failure on attempt 1 does not write state', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+        ]),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(loadStateFromPath(runsDir, taskId), null, `No state should be written`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('check failure triggers second provider call when attempts remain', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success after second attempt: ${result.stderr}`);
+      assert(result.stderr.includes('Repair attempt succeeded'), `Expected repair success: ${result.stderr}`);
+      const content = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(content, '# pass\n', `Second provider response should be applied`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('repair provider output malformed refuses safely', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          'not-json',
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Provider repair output malformed'), `Expected malformed message: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('repair provider call failed refuses safely', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          '__FETCH_ERROR__',
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Provider repair call failed'), `Expected repair call failed: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // --- Final failed attempt ---
+
+  test('final failed attempt prints Checks failed after N attempts', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Checks failed after 1 attempt(s)'), `Expected failure count: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('final failed attempt leaves working tree clean', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(getGitPorcelain(repoPath), '', `Working tree should be clean: ${getGitPorcelain(repoPath)}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('final failed attempt leaves branch unchanged', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(getCurrentBranch(repoPath), `ai/${taskId}`, `Branch should be unchanged`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // --- Successful repair ---
+
+  test('successful repair creates exactly one commit', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const beforeLog = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLog + 1, `Should create exactly one commit`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('successful repair pushes exactly once', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.notDeepStrictEqual(after, before, `Should push to remote`);
+      assert(after.some((r) => r.includes(`ai/${taskId}`)), `Should push branch`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('successful repair writes pushed state', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+        RUNS_DIR: runsDir,
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null, `State should be written`);
+      assert.strictEqual((state as Record<string, unknown>).status, 'pushed', `State status should be pushed`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('successful repair commit message is exactly ai-orchestrator: apply <taskId>', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const logResult = spawnSync('git', ['log', '-1', '--pretty=%B'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+      const message = logResult.stdout.trim();
+      assert.strictEqual(message, `ai-orchestrator: apply ${taskId}`, `Commit message should match: ${message}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('successful repair state does not contain provider raw output', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+        RUNS_DIR: runsDir,
+      });
+      const stateRaw = readFileSync(join(runsDir, taskId, 'state.json'), 'utf-8');
+      assert(!stateRaw.includes('file_update'), `State should not contain provider raw output`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('successful repair state does not contain file contents', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+        RUNS_DIR: runsDir,
+      });
+      const stateRaw = readFileSync(join(runsDir, taskId, 'state.json'), 'utf-8');
+      assert(!stateRaw.includes('# pass'), `State should not contain file contents`);
+      assert(!stateRaw.includes('# fail'), `State should not contain file contents`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('successful repair state does not contain fake API key', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'sk-fake-repair-key',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+        RUNS_DIR: runsDir,
+      });
+      const stateRaw = readFileSync(join(runsDir, taskId, 'state.json'), 'utf-8');
+      assert(!stateRaw.includes('sk-fake'), `State should not contain fake API key`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('successful repair preserves safety rules', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(!result.stderr.includes('--force'), `Should not force push`);
+      assert(!result.stderr.includes('No merge was performed'), `Should not merge`);
+      assert(!result.stderr.includes('checkout'), `Should not checkout`);
+      assert(!result.stderr.includes('main'), `Should not touch main`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('repair prompt does not leak fake API key in stderr', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'sk-fake-repair-key',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(!result.stderr.includes('sk-fake'), `Should not leak API key in repair: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('repair prompt content is not printed to output', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const combined = result.stdout + result.stderr;
+      assert(!combined.includes('Failed check command:'), `Repair prompt should not be printed: ${combined}`);
+      assert(!combined.includes('Previously proposed files:'), `Repair prompt should not be printed: ${combined}`);
     } finally {
       cleanup();
     }

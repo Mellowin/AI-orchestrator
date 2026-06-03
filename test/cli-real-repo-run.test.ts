@@ -344,6 +344,25 @@ describe('cli real-repo-run', () => {
     }
   });
 
+  test('line delta failure uses real-repo-run prefix', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const bigContent = 'a\n'.repeat(200);
+      const result = runCli(['real-repo-run', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: bigContent }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('[real-repo-run] Guardrails failed'), `Expected [real-repo-run] prefix: ${result.stderr}`);
+      assert(!result.stderr.includes('[real-repo-run-ai]'), `Should NOT contain [real-repo-run-ai] prefix: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
   test('current branch main refuses', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
