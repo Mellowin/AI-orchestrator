@@ -151,6 +151,7 @@ export interface CreateRealProviderCallOptions {
   baseUrl: string;
   fetchFn: FetchFn;
   model?: string;
+  userAgent?: string;
 }
 
 export function createRealProviderCall(options: CreateRealProviderCallOptions): ProviderCallFn {
@@ -179,6 +180,7 @@ export function createRealProviderCall(options: CreateRealProviderCallOptions): 
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${options.apiKey}`,
+        ...(options.userAgent ? { 'User-Agent': options.userAgent } : {}),
       },
       body: JSON.stringify({
         model: options.model || input.model,

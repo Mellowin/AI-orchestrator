@@ -1000,6 +1000,7 @@ if (command === 'real-repo-run-ai') {
           baseUrl,
           fetchFn,
           model,
+          userAgent: process.env.KIMI_USER_AGENT?.trim(),
         });
         const providerInput = buildProviderCallInput('coder', currentPrompt, 'kimi', model);
         const result = await realProviderCall(providerInput);
@@ -2177,6 +2178,7 @@ if (command === 'real-provider-preview') {
       baseUrl,
       fetchFn,
       model,
+      userAgent: process.env.KIMI_USER_AGENT?.trim(),
     });
 
     const providerInput = buildProviderCallInput('coder', prompt, 'kimi', model);
