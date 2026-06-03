@@ -408,41 +408,47 @@ describe('cli real-repo-commit', () => {
     }
   });
 
-  test('approved modified tracked file passes pre-commit validation, then refuses before commit', () => {
+  test('approved modified tracked file creates local commit', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const before = getGitLogCount(repoPath);
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
-      assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('pre-commit validation passed, but git commit is not implemented yet'), `Expected pre-commit pass: ${result.stderr}`);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes('Commit created'), `Expected commit created: ${result.stderr}`);
+      const after = getGitLogCount(repoPath);
+      assert.strictEqual(after, before + 1, `Commit count should increase by 1: ${before} -> ${after}`);
     } finally {
       cleanup();
     }
   });
 
-  test('approved new/untracked file passes pre-commit validation, then refuses before commit', () => {
+  test('approved new untracked file creates local commit', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'NEW.md'), 'new\n', 'utf-8');
+      const before = getGitLogCount(repoPath);
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'NEW.md', content: 'new' }]),
       });
-      assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('pre-commit validation passed, but git commit is not implemented yet'), `Expected pre-commit pass: ${result.stderr}`);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes('Commit created'), `Expected commit created: ${result.stderr}`);
+      const after = getGitLogCount(repoPath);
+      assert.strictEqual(after, before + 1, `Commit count should increase by 1: ${before} -> ${after}`);
     } finally {
       cleanup();
     }
   });
 
-  test('approved staged file passes pre-commit validation, then refuses before commit', () => {
+  test('approved staged file creates local commit', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'NEW.md'), 'new\n', 'utf-8');
@@ -451,20 +457,23 @@ describe('cli real-repo-commit', () => {
         encoding: 'utf-8',
         shell: false,
       });
+      const before = getGitLogCount(repoPath);
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'NEW.md', content: 'new' }]),
       });
-      assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('pre-commit validation passed, but git commit is not implemented yet'), `Expected pre-commit pass: ${result.stderr}`);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes('Commit created'), `Expected commit created: ${result.stderr}`);
+      const after = getGitLogCount(repoPath);
+      assert.strictEqual(after, before + 1, `Commit count should increase by 1: ${before} -> ${after}`);
     } finally {
       cleanup();
     }
   });
 
-  test('successful pre-commit validation prints commit message preview', () => {
+  test('commit message is exactly ai-orchestrator: apply <taskId>', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
@@ -474,15 +483,14 @@ describe('cli real-repo-commit', () => {
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
-      assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Commit message: ai-orchestrator: apply'), `Expected commit message preview: ${result.stderr}`);
-      assert(result.stderr.includes(taskId), `Expected taskId in commit message: ${result.stderr}`);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes(`Commit message: ai-orchestrator: apply ${taskId}`), `Expected exact commit message: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('commit message preview does not include provider response content', () => {
+  test('commit message does not include provider response content', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
@@ -490,16 +498,17 @@ describe('cli real-repo-commit', () => {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
-        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }], 'some provider notes'),
       });
-      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       assert(!result.stderr.includes('file_update'), `Should not include provider response content: ${result.stderr}`);
+      assert(!result.stderr.includes('provider notes'), `Should not include provider notes: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('commit message preview does not include file content', () => {
+  test('commit message does not include file content', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified secret content\n', 'utf-8');
@@ -509,7 +518,7 @@ describe('cli real-repo-commit', () => {
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified secret content' }]),
       });
-      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       assert(!result.stderr.includes('secret content'), `Should not include file content: ${result.stderr}`);
     } finally {
       cleanup();
@@ -527,7 +536,7 @@ describe('cli real-repo-commit', () => {
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
         KIMI_API_KEY: 'sk-fake12345',
       });
-      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       assert(!result.stderr.includes('sk-fake'), `Should not leak fake API key: ${result.stderr}`);
       assert(!result.stdout.includes('sk-fake'), `Should not leak fake API key in stdout: ${result.stdout}`);
     } finally {
@@ -535,15 +544,11 @@ describe('cli real-repo-commit', () => {
     }
   });
 
-  test('no stack trace in all failure paths', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+  test('no stack trace in failure paths', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
-      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_COMMIT: 'true',
-        ALLOW_REAL_REPO_APPLY: 'true',
-        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
       assert.notStrictEqual(result.status, 0);
       assert(!result.stderr.includes('at '), `Should not contain stack trace: ${result.stderr}`);
@@ -552,10 +557,25 @@ describe('cli real-repo-commit', () => {
     }
   });
 
-  test('no git commit is created in any path', () => {
+  test('git log count does not change on refusal paths', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      const before = getGitLogCount(repoPath);
+      runCli(['real-repo-commit'], {
+        TASKS_FILE: tasksFilePath,
+      });
+      const after = getGitLogCount(repoPath);
+      assert.strictEqual(after, before, `Commit count should not change on missing taskId refusal`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('git log count does not change on unrelated modified refusal', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      writeFileSync(join(repoPath, 'UNRELATED.md'), 'unrelated\n', 'utf-8');
       const before = getGitLogCount(repoPath);
       runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
@@ -564,31 +584,13 @@ describe('cli real-repo-commit', () => {
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
       const after = getGitLogCount(repoPath);
-      assert.strictEqual(after, before, `Commit count should not change`);
+      assert.strictEqual(after, before, `Commit count should not change on unrelated refusal`);
     } finally {
       cleanup();
     }
   });
 
-  test('no git add / staging mutation is performed by the command', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
-      const before = getGitPorcelain(repoPath);
-      runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_COMMIT: 'true',
-        ALLOW_REAL_REPO_APPLY: 'true',
-        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
-      });
-      const after = getGitPorcelain(repoPath);
-      assert.strictEqual(after, before, `Git porcelain should not change`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('no push', () => {
+  test('no push is performed on success', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
@@ -598,14 +600,14 @@ describe('cli real-repo-commit', () => {
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
-      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       assert(result.stderr.includes('No push was performed'), `Expected no push message: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('no merge', () => {
+  test('no merge is performed on success', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
@@ -615,24 +617,25 @@ describe('cli real-repo-commit', () => {
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
-      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       assert(result.stderr.includes('No merge was performed'), `Expected no merge message: ${result.stderr}`);
     } finally {
       cleanup();
     }
   });
 
-  test('no checkout or switch branch', () => {
+  test('no checkout or switch branch on success', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
       const before = getCurrentBranch(repoPath);
-      runCli(['real-repo-commit', taskId], {
+      const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       const after = getCurrentBranch(repoPath);
       assert.strictEqual(after, before, `Branch should not change: ${before} -> ${after}`);
     } finally {
@@ -640,17 +643,17 @@ describe('cli real-repo-commit', () => {
     }
   });
 
-  test('no main touch', () => {
+  test('no main touch on success', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
-      const before = getGitLogCount(repoPath);
-      runCli(['real-repo-commit', taskId], {
+      const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_COMMIT: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       // Switch to main to check its log
       spawnSync('git', ['stash', '--include-untracked'], {
         cwd: repoPath,
@@ -673,24 +676,7 @@ describe('cli real-repo-commit', () => {
     }
   });
 
-  test('no state.json write', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
-      runCli(['real-repo-commit', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_COMMIT: 'true',
-        ALLOW_REAL_REPO_APPLY: 'true',
-        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
-      });
-      const statePath = join(repoPath, 'runs', taskId, 'state.json');
-      assert(!existsSync(statePath), `state.json should not exist: ${statePath}`);
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('no provider/network/API keys required', () => {
+  test('no state.json write on success', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
@@ -700,11 +686,114 @@ describe('cli real-repo-commit', () => {
         ALLOW_REAL_REPO_APPLY: 'true',
         REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
       });
-      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const statePath = join(repoPath, 'runs', taskId, 'state.json');
+      assert(!existsSync(statePath), `state.json should not exist: ${statePath}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no provider/network/API keys required on success', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       assert(!result.stderr.includes('KIMI_API_KEY'), `Should not require KIMI_API_KEY: ${result.stderr}`);
       assert(!result.stderr.includes('OPENAI_API_KEY'), `Should not require OPENAI_API_KEY: ${result.stderr}`);
       assert(!result.stderr.includes('Provider'), `Should not mention provider: ${result.stderr}`);
       assert(!result.stderr.includes('network'), `Should not mention network: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('commit contains only approved changed files', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const committedFiles = spawnSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      }).stdout.trim().split('\n').filter((l) => l.length > 0);
+      assert(committedFiles.includes('README.md'), `Commit should include README.md: ${committedFiles.join(', ')}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('unrelated files are not staged on refusal', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      writeFileSync(join(repoPath, 'UNRELATED.md'), 'unrelated\n', 'utf-8');
+      const before = getGitPorcelain(repoPath);
+      runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      const after = getGitPorcelain(repoPath);
+      assert.strictEqual(after, before, `Git porcelain should not change on unrelated refusal: before=${before}, after=${after}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('after successful commit, working tree is clean for approved files', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const porcelain = getGitPorcelain(repoPath);
+      assert.strictEqual(porcelain, '', `Working tree should be clean after commit: ${porcelain}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('if git commit fails, no push/merge happens and output says manual inspection required', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'README.md'), '# modified\n', 'utf-8');
+      // Create a pre-commit hook that fails to force git commit to fail
+      const hookPath = join(repoPath, '.git', 'hooks', 'pre-commit');
+      writeFileSync(hookPath, '#!/bin/sh\nexit 1\n', 'utf-8');
+      const before = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-commit', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: 'modified' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Git commit failed'), `Expected git commit failed: ${result.stderr}`);
+      assert(result.stderr.includes('Manual inspection required'), `Expected manual inspection required: ${result.stderr}`);
+      assert(result.stderr.includes('No push was performed'), `Expected no push message: ${result.stderr}`);
+      assert(result.stderr.includes('No merge was performed'), `Expected no merge message: ${result.stderr}`);
+      const after = getGitLogCount(repoPath);
+      assert.strictEqual(after, before, `Commit count should not change when git commit fails: ${before} -> ${after}`);
     } finally {
       cleanup();
     }

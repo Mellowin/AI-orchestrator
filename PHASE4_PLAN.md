@@ -65,11 +65,10 @@ All real-repo operations require explicit environment opt-ins. Defaults are deny
 - Apply failure is honest: prints `Apply failed` + `Manual inspection required`. If apply manifest is missing, prints `Rollback could not be attempted because apply manifest was not returned`. Does NOT claim `No files were modified` after apply-start failure.
 - Human review required before commit.
 
-### Stage 4.3 — Optional Local Commit (pre-commit validation implemented, actual commit disabled)
+### Stage 4.3 — Optional Local Commit (implemented)
 
 - Behind separate `ALLOW_REAL_REPO_COMMIT=true`.
-- `real-repo-commit <taskId>` pre-commit validation flow is implemented. Validates opt-ins, provider response, guardrails, branch safety, and approved working tree changes via read-only git inspection. Prints commit message preview (`ai-orchestrator: apply <taskId>`). Exits non-zero before `git add` / `git commit`.
-- Actual local commit is still not implemented.
+- `real-repo-commit <taskId>` actual local commit is implemented. Validates opt-ins, provider response, guardrails, branch safety, and approved working tree changes via read-only git inspection. Stages only approved changed paths via `git add <path>` (array args, no shell interpolation). Creates local commit via `git commit -m "ai-orchestrator: apply <taskId>" --no-gpg-sign`. Commit message uses taskId only, no provider content, no file content, no env values, no API keys. On success exits 0 after printing `Commit created` and safety messages. On `git add` failure exits non-zero with `Git add failed`, `No commit was made`. On `git commit` failure exits non-zero with `Git commit failed`, `Manual inspection required`.
 - Commit applied changes to the local work branch only.
 - **No push.**
 - **No merge.**
@@ -77,7 +76,10 @@ All real-repo operations require explicit environment opt-ins. Defaults are deny
 - **No main touch.**
 - **No provider call.**
 - **No state write.**
-- Commit message format (planned): `ai-orchestrator: {task_id} attempt {N} — manual review required`.
+- **No amend.**
+- **No force.**
+- **No tag creation.**
+- Commit message format: `ai-orchestrator: apply {task_id}`.
 
 ### Stage 4.4 — Optional Push
 
@@ -287,24 +289,24 @@ Properties:
 - **Not wired to CLI.**
 - **Real repo apply remains disabled for writes.**
 
-### 8.6 Next Recommended Step — Stage 4.3 Actual Local Commit
+### 8.6 Next Recommended Step — Stage 4.4 Push Boundary Audit Plan
 
-Stage 4.2 local file apply is complete. `real-repo-commit <taskId>` pre-commit validation flow is implemented.
+Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented.
 
 Next steps:
 
-1. **Implement actual local commit** only after preserving all pre-commit validation tests. The commit should include only approved applied files, use a safe commit message, and remain local only.
-2. **Do NOT implement push/merge/main touch.** Keep those as future Stage 4.4+ boundaries.
-3. **State write still requires explicit decision** before any auto-commit work.
-4. Keep mock mode as default for tests and local development.
+1. **Audit and plan Stage 4.4 push boundaries.** Define what `ALLOW_REAL_REPO_PUSH=true` would mean, what safety checks are required before any `git push` command, and what the refusal stub behavior should be. Do NOT implement push yet.
+2. **State write still requires explicit decision** before any auto-commit work.
+3. Keep mock mode as default for tests and local development.
+4. Keep no merge, no main touch.
 
-### 8.7 Completed — `real-repo-commit <taskId>` pre-commit validation flow
+### 8.7 Completed — `real-repo-commit <taskId>` local commit
 
 - **Status:** ✅ Implemented and tested.
 - **Location:** `src/cli.ts`
 - **Tests:** `test/cli-real-repo-commit.test.ts`
 
-Pre-commit validation flow behind `ALLOW_REAL_REPO_COMMIT=true`:
+Actual local commit behind `ALLOW_REAL_REPO_COMMIT=true`:
 
 - Requires `ALLOW_REAL_REPO_COMMIT=true`, then `ALLOW_REAL_REPO_APPLY=true`, then `REAL_REPO_PROVIDER_RESPONSE`.
 - Loads task from `tasks.yaml`.
@@ -315,14 +317,18 @@ Pre-commit validation flow behind `ALLOW_REAL_REPO_COMMIT=true`:
 - Accepts only approved changed paths from parsed provider response.
 - Refuses unrelated modified/untracked/staged files.
 - Refuses when no approved working tree changes exist.
-- Prints commit message preview: `ai-orchestrator: apply <taskId>`.
-- Exits non-zero with `pre-commit validation passed, but git commit is not implemented yet`.
-- No git add, no git commit, no provider call, no network, no API keys, no state write, no push, no merge, no checkout, no main touch.
+- Stages only approved changed paths via `git add <path>` (array args, no shell interpolation).
+- Creates local commit via `git commit -m "ai-orchestrator: apply <taskId>" --no-gpg-sign`.
+- Commit message uses taskId only, no provider content, no file content, no env values, no API keys.
+- On success: prints `Commit created`, `Commit message: ...`, `No push was performed`, `No merge was performed`, `Human review required before push`, exits 0.
+- On `git add` failure: prints `Git add failed`, `No commit was made`, exits non-zero.
+- On `git commit` failure: prints `Git commit failed`, `Manual inspection required`, exits non-zero.
+- No provider call, no network, no API keys, no state write, no push, no merge, no checkout, no main touch, no amend, no force, no tag creation.
 
 Properties:
-- 31 CLI tests covering missing opt-in, missing ALLOW_REAL_REPO_APPLY, missing/empty/malformed provider response, guardrails failure, current branch main, work_branch main, branch mismatch, no approved changes, unrelated modified/untracked/staged files, approved modified/new/staged files passing validation then refusing before commit, commit message preview, no commit/add/push/merge/checkout/main touch, no state write, no stack trace leak, no API key leak.
+- 35 CLI tests covering missing opt-in, missing ALLOW_REAL_REPO_APPLY, missing/empty/malformed provider response, guardrails failure, current branch main, work_branch main, branch mismatch, no approved changes, unrelated modified/untracked/staged files, approved modified/new/staged files create local commit, exact commit message, no provider/file content in message, no API key leak, no stack trace, git log +1 on success, git log unchanged on refusal, commit contains only approved files, unrelated files not staged on refusal, working tree clean after commit, git commit failure handling, no push/merge/checkout/main touch, no state write, existing real-repo-apply behavior unchanged.
 - **Wired to CLI.**
-- **Actual local commit remains disabled.**
+- **Actual local commit enabled.**
 
 ---
 
@@ -332,11 +338,11 @@ Properties:
 |-------|--------|
 | Phase 4 Stage 4.1 implemented | ✅ |
 | Phase 4 Stage 4.2 implemented | ✅ |
-| Phase 4 Stage 4.3 pre-commit validation implemented | ✅ |
+| Phase 4 Stage 4.3 local commit implemented | ✅ |
 | No real repo writes in Stage 4.1 | Confirmed |
 | Real repo apply (write) enabled in Stage 4.2 | Confirmed |
 | No commit / no push / no merge / no main touch in Stage 4.2 | Confirmed |
 | No state write in Stage 4.2 | Confirmed |
 | No provider call in Stage 4.2 | Confirmed |
-| Stage 4.3 actual local commit remains disabled | Confirmed |
+| Stage 4.3 actual local commit enabled | Confirmed |
 | Opt-in flags defined | Confirmed |

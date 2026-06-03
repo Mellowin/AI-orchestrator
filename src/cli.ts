@@ -256,14 +256,43 @@ if (command === 'real-repo-commit') {
       throw new Error(`Unrelated changes detected: ${unrelated.join(', ')}`);
     }
 
-    // Pre-commit validation passed
-    console.error('[real-repo-commit] real-repo-commit pre-commit validation passed, but git commit is not implemented yet');
-    console.error(`[real-repo-commit] Commit message: ai-orchestrator: apply ${taskId}`);
-    console.error('[real-repo-commit] No commit was made');
+    // Pre-commit validation passed — stage approved files and create local commit
+    const commitMessage = `ai-orchestrator: apply ${taskId}`;
+
+    for (const p of approvedChanged) {
+      const addResult = spawnSync('git', ['add', p], {
+        cwd: task.repo_path,
+        shell: false,
+        encoding: 'utf-8',
+      });
+      if (addResult.status !== 0) {
+        console.error('[real-repo-commit] Git add failed');
+        console.error('[real-repo-commit] No commit was made');
+        console.error('[real-repo-commit] No push was performed');
+        console.error('[real-repo-commit] No merge was performed');
+        process.exit(1);
+      }
+    }
+
+    const commitResult = spawnSync('git', ['commit', '-m', commitMessage, '--no-gpg-sign'], {
+      cwd: task.repo_path,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    if (commitResult.status !== 0) {
+      console.error('[real-repo-commit] Git commit failed');
+      console.error('[real-repo-commit] Manual inspection required');
+      console.error('[real-repo-commit] No push was performed');
+      console.error('[real-repo-commit] No merge was performed');
+      process.exit(1);
+    }
+
+    console.error('[real-repo-commit] Commit created');
+    console.error(`[real-repo-commit] Commit message: ${commitMessage}`);
     console.error('[real-repo-commit] No push was performed');
     console.error('[real-repo-commit] No merge was performed');
-    console.error('[real-repo-commit] Human review required before commit');
-    process.exit(1);
+    console.error('[real-repo-commit] Human review required before push');
+    process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-repo-commit] Error: ${message}`);

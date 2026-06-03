@@ -1,8 +1,8 @@
 # Stage 4.3 Local Commit Boundary Audit Plan
 
-**Status:** planning/audit + pre-commit validation implemented
+**Status:** planning/audit + local commit implemented
 **Branch:** `feature/mvp-skeleton`
-**Baseline commit:** `dfae23097f4ab1fd51a90376659db6f90a6e646a`
+**Baseline commit:** `06c625c22f4a805e835da52bbaed1425c2035ab7`
 
 ---
 
@@ -58,7 +58,20 @@ The following runtime building blocks have been implemented after this audit doc
   - No git add, no git commit, no provider call, no network, no API keys, no state write, no push, no merge, no checkout, no main touch.
   - 31 CLI tests covering all validation paths and refusal-before-commit paths.
 
-> **Stage 4.3 actual local commit is still not implemented.** `ALLOW_REAL_REPO_COMMIT=true` does not create a commit yet. It only runs pre-commit validation and exits before `git add` / `git commit`.
+- **`real-repo-commit <taskId>` actual local commit** (`src/cli.ts`, `test/cli-real-repo-commit.test.ts`):
+  - Commit hash: `06c625c22f4a805e835da52bbaed1425c2035ab7`
+  - Requires `ALLOW_REAL_REPO_COMMIT=true`, then `ALLOW_REAL_REPO_APPLY=true`, then `REAL_REPO_PROVIDER_RESPONSE`.
+  - All pre-commit validation from above is preserved.
+  - Stages only approved changed paths via `git add <path>` (array args, no shell interpolation).
+  - Creates local commit via `git commit -m "ai-orchestrator: apply <taskId>" --no-gpg-sign`.
+  - Commit message uses taskId only, no provider content, no file content, no env values, no API keys.
+  - On success: prints `Commit created`, `Commit message: ...`, `No push was performed`, `No merge was performed`, `Human review required before push`, exits 0.
+  - On `git add` failure: prints `Git add failed`, `No commit was made`, exits non-zero.
+  - On `git commit` failure: prints `Git commit failed`, `Manual inspection required`, exits non-zero.
+  - No provider call, no network, no API keys, no state write, no push, no merge, no checkout, no main touch, no amend, no force, no tag creation.
+  - 35 CLI tests covering all validation paths, success paths, commit failure handling, and safety paths.
+
+> **Stage 4.3 actual local commit is now implemented.** `ALLOW_REAL_REPO_COMMIT=true` creates a local commit after pre-commit validation passes.
 
 ---
 
@@ -268,20 +281,31 @@ The following are **out of scope** for this document and for Stage 4.3:
 
 ### 13.1 Pre-commit validation flow
 
-The pre-commit validation flow is now implemented. It validates all prerequisites before any `git commit` command:
+The pre-commit validation flow is implemented. It validates all prerequisites before any `git commit` command:
 
 - Opt-in checks (`ALLOW_REAL_REPO_COMMIT`, `ALLOW_REAL_REPO_APPLY`).
 - Provider response parsing and guardrails.
 - Branch safety (current branch, work_branch).
 - Working tree inspection (approved changes only, no unrelated files).
 
-### 13.2 Safer next step recommendation
+### 13.2 Actual local commit
 
-- **Implement actual local commit** only after preserving all pre-commit validation tests.
-- The commit should stage only approved files, create a local commit with a safe message, and exit.
-- **Do NOT implement push/merge/main touch.** Keep those as future Stage 4.4+ boundaries.
+Actual local commit is now implemented:
+
+- Stages only approved changed paths via `git add <path>` (array args, no shell interpolation).
+- Creates local commit via `git commit -m "ai-orchestrator: apply <taskId>" --no-gpg-sign`.
+- Commit message uses taskId only, no provider content, no file content, no env values, no API keys.
+- On success exits 0 with `Commit created` and safety messages.
+- On `git add` failure exits non-zero with `Git add failed`, `No commit was made`.
+- On `git commit` failure exits non-zero with `Git commit failed`, `Manual inspection required`.
+
+### 13.3 Safer next step recommendation
+
+- **Audit and plan Stage 4.4 push boundaries.** Define what `ALLOW_REAL_REPO_PUSH=true` would mean, what safety checks are required before any `git push` command, and what the refusal stub behavior should be. Do NOT implement push yet.
+- **State write still requires explicit decision** before any auto-commit work.
 - Preserve all existing Stage 4.2 tests (34 tests in `test/cli-real-repo-apply.test.ts`).
-- Stage 4.3 must not break Stage 4.2 behavior.
+- Preserve all existing Stage 4.3 tests (35 tests in `test/cli-real-repo-commit.test.ts`).
+- Stage 4.4 must not break Stage 4.2 or Stage 4.3 behavior.
 
 ---
 
@@ -290,8 +314,8 @@ The pre-commit validation flow is now implemented. It validates all prerequisite
 | Check | Status |
 |-------|--------|
 | Stage 4.3 pre-commit validation implemented | Confirmed |
-| Stage 4.3 actual local commit remains disabled | Confirmed |
-| `ALLOW_REAL_REPO_COMMIT=true` runs validation only, no commit | Confirmed |
+| Stage 4.3 actual local commit implemented | Confirmed |
+| `ALLOW_REAL_REPO_COMMIT=true` runs validation and creates local commit | Confirmed |
 | No push / no merge / no main touch | Confirmed |
 | Opt-in flag boundaries defined | Confirmed |
 | Commit boundaries defined | Confirmed |
