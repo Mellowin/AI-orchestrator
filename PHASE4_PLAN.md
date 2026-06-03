@@ -250,7 +250,7 @@ Local file apply behind `ALLOW_REAL_REPO_APPLY=true`:
 - Runs `runChecks` in real repo path after apply.
 - On check failure: calls `rollbackFileUpdates` to restore files.
 - On apply failure: prints `Apply failed`, `Manual inspection required`, and `Rollback could not be attempted because apply manifest was not returned`. Does NOT claim `No files were modified`.
-- On success: prints `Apply: PASS`, `Checks: PASS`, and safety messages (`No commit was made`, `No push was performed`, `No merge was performed`, `Human review required before commit`).
+- On success: prints `real-repo-apply completed local file apply`, lists applied file paths, and safety messages (`No commit was made`, `No push was performed`, `No merge was performed`, `Human review required before commit`).
 - No provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch.
 
 Properties:

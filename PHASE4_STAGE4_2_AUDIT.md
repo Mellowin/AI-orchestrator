@@ -70,7 +70,7 @@ The following runtime building blocks have been implemented **after** this audit
   - Runs `runChecks` in real repo path after apply.
   - On check failure: calls `rollbackFileUpdates` to restore overwritten files and remove newly created files.
   - On apply failure: prints `Apply failed`, `Manual inspection required`, and `Rollback could not be attempted because apply manifest was not returned`. Does NOT claim `No files were modified` after apply-start failure.
-  - On success: prints `Apply: PASS`, `Checks: PASS`, and safety messages. Human review required before commit.
+  - On success: prints `real-repo-apply completed local file apply`, lists applied file paths, and safety messages (`No commit was made`, `No push was performed`, `No merge was performed`, `Human review required before commit`).
   - No provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch.
   - 34 CLI tests covering all refusal paths, success paths, apply failure, check failure with rollback, no stack trace leak, no API key leak.
 
