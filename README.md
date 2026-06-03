@@ -4,11 +4,13 @@
 
 Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `tasks.yaml`, prepares context for AI models, validates outputs, applies safe patches, runs checks, and persists state in `runs/`.
 
-> **Status:** MVP skeleton. Real Kimi end-to-end pipeline (generate → validate → preview → apply → checks) is verified. OpenAI reviewer is not wired yet.
+> **Status:** MVP proof completed. The pipeline from provider call through PR status read-only is implemented and tested.
+> **Not production-ready automation.** Merge remains a manual human decision.
+>
 > Supported workflows:
 > - Manual Kimi JSON workflow (copy prompt to Kimi, save response, validate and apply).
 > - Mock AI workflow via `AI_PROVIDER=mock` (`ai-generate` → `ai-validate` → `ai-preview` → `ai-apply`).
-> - Real Kimi workflow via `AI_PROVIDER=kimi` + `--allow-real-ai` (full pipeline through PR).
+> - Real Kimi workflow via `AI_PROVIDER=kimi` + `--allow-real-ai` (full pipeline through PR creation and status read-only).
 
 Use ai-preview before ai-apply to inspect proposed changes.
 
@@ -36,6 +38,24 @@ Verified safety behavior:
 This remains an MVP skeleton, not production-ready automation.
 
 ---
+
+## Current MVP Pipeline
+
+```
+Provider call → Apply → Checks → Self-repair → Commit → Push
+                ↓
+         Approval Report → PR Readiness → PR Create → PR Status → STOP
+```
+
+After `PR Status`, the system stops. Human review is required before any merge decision.
+
+### Quick Links
+
+- [MVP Final Report](MVP_FINAL_REPORT.md) — current status, demo proof, known limitations
+- [Command Reference](COMMAND_REFERENCE.md) — all real-repo commands with env, outputs, and safety notes
+- [Safety Model](SAFETY_MODEL.md) — opt-in gates, git policy, provider/GitHub API policy, human boundary
+- [Stage 5 Operator Guide](STAGE5_OPERATOR_GUIDE.md) — exact safe operator sequence
+- [Stage 5 PR Boundary Audit](STAGE5_PR_BOUNDARY_AUDIT.md) — what the tool does and does not do at each stage
 
 ## Current MVP workflow
 

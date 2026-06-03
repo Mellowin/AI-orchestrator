@@ -79,15 +79,27 @@ Report location: `runs/<taskId>/approval-report.md`
   - `runs/<taskId>/pr-status.json` — machine-readable status snapshot
 - **Does NOT:** create PR, update PR, comment, approve, merge, auto-merge, checkout/switch, push, call provider, execute `gh`
 
-## Future Possible Stage 5.9
+## Stage 5.9 — MVP Hardening / Final Documentation
 
-- MVP hardening / final demo documentation.
-- Or controlled PR comment/update readiness if needed.
-- Still **no merge**.
-- Still **no main touch**.
-- Still **no automatic checkout/switch**.
+- **Status:** Documentation finalized.
+- **No new code or tests.** Pure documentation stage.
+- **Created:**
+  - `MVP_FINAL_REPORT.md` — MVP status, verified pipeline, demo proof, safety boundaries, known limitations.
+  - `COMMAND_REFERENCE.md` — all real-repo commands with env, outputs, safety notes.
+  - `SAFETY_MODEL.md` — opt-in gates, git policy, provider/GitHub API policy, human boundary.
+- **Updated:**
+  - `README.md` — MVP overview, pipeline diagram, quick links.
+  - `PHASE4_PLAN.md` — Stage 5.9 marked complete.
+  - `TESTING_SUMMARY.md` — docs rules for commit hash accuracy.
+  - `STAGE5_PR_BOUNDARY_AUDIT.md` — this section.
 
 ## Future Possible Stage 6
+
+- Architecture refactor / merge safety design.
+- Merge must not be added without dedicated safety design document.
+- Still **no merge** until Stage 6 is explicitly designed.
+- Still **no main touch**.
+- Still **no automatic checkout/switch**.
 
 - Controlled merge only after explicit separate design document.
 - Merge would require its own opt-in flag, safety checks, and human confirmation.

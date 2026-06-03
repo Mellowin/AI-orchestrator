@@ -526,11 +526,26 @@ Command `real-repo-pr-status <taskId>`:
 - No PR creation, no PR update, no merge, no auto-merge, no checkout/switch, no main touch, no push, no provider call, no gh execution.
 - Safe error on API failure: `GitHub PR status fetch failed`, `Manual inspection required`.
 
-### 8.16 Next Recommended Step — Stage 5.9 MVP Hardening / Final Demo Documentation
+### 8.16 Completed — Stage 5.9 MVP Hardening / Final Documentation
 
-- Final demo documentation and operator guides.
-- Optional controlled PR comment/update readiness if needed.
-- Still no merge, no main touch, no automatic checkout/switch.
+- **Status:** ✅ Documentation finalized.
+- **Location:** `MVP_FINAL_REPORT.md`, `COMMAND_REFERENCE.md`, `SAFETY_MODEL.md`, `README.md`
+
+Final documentation created:
+- `MVP_FINAL_REPORT.md` — current status, verified pipeline, demo proof, safety boundaries, known limitations, recommended next phase.
+- `COMMAND_REFERENCE.md` — all real-repo commands with purpose, required env, allowed mutation, forbidden actions, outputs, success messages, failure behavior.
+- `SAFETY_MODEL.md` — safety philosophy, opt-in table, git operation policy, provider policy, GitHub API policy, state/report file policy, human boundary.
+- `README.md` updated with MVP overview, pipeline diagram, quick links.
+- `PHASE4_PLAN.md` updated with Stage 5.9 completion.
+- `TESTING_SUMMARY.md` updated with docs rules.
+- `STAGE5_PR_BOUNDARY_AUDIT.md` updated with Stage 5.9.
+
+### 8.17 Next Recommended Step — Stage 6.0 Architecture Refactor / Merge Safety Design
+
+- Stage 6 is a separate design phase. No merge currently implemented.
+- `main` remains protected by design.
+- Possible refactor: extract modules from `src/cli.ts` before adding merge.
+- Merge must not be added without dedicated safety design document.
 
 ---
 
@@ -559,4 +574,5 @@ Command `real-repo-pr-status <taskId>`:
 | Phase 4 Stage 5.6 PR readiness / dry-run stub implemented | ✅ |
 | Phase 4 Stage 5.7 real PR creation implemented | ✅ |
 | Phase 4 Stage 5.8 PR status / checks read-only report implemented | ✅ |
+| Phase 4 Stage 5.9 MVP hardening / final documentation | ✅ |
 | Opt-in flags defined | Confirmed |

@@ -1,0 +1,112 @@
+# AI Orchestrator — Safety Model
+
+## 1. Safety Philosophy
+
+The AI Orchestrator follows a **deny-by-default** safety philosophy:
+
+- **Opt-in gates:** Every real action requires an explicit environment variable.
+- **Branch safety:** Work happens only on dedicated work branches. `main` is never touched.
+- **No automatic merge:** Merge decisions are intentionally left to human operators.
+- **Human review boundary:** After PR status report, the system stops. The human decides whether to merge, reject, or clean up.
+
+---
+
+## 2. Opt-In Table
+
+| Opt-In Flag | Stage | Required For |
+|-------------|-------|--------------|
+| `ALLOW_REAL_REPO_APPLY=true` | 4.2+ | Any real-repo file write |
+| `ALLOW_REAL_REPO_COMMIT=true` | 4.3 | Local commit on work branch |
+| `ALLOW_REAL_REPO_PUSH=true` | 4.4 | Pushing work branch to remote |
+| `ALLOW_REAL_PROVIDER=true` | 5.1 | Calling real AI provider |
+| `ALLOW_REAL_REPO_APPROVAL_REPORT=true` | 5.5 | Generating approval report |
+| `ALLOW_REAL_REPO_PR_READINESS=true` | 5.6 | Generating PR readiness report |
+| `ALLOW_GITHUB_PR_CREATE=true` | 5.7 | Creating GitHub Pull Request |
+| `ALLOW_GITHUB_PR_STATUS=true` | 5.8 | Reading PR status from GitHub API |
+
+**Default:** All flags are `false` (deny-by-default).
+
+---
+
+## 3. Git Operation Policy
+
+### Allowed
+
+| Operation | Context | Notes |
+|-----------|---------|-------|
+| `git status` | Read-only inspection | Used for clean-tree checks |
+| `git rev-parse` | Read-only ref validation | Verifies branch/commit existence |
+| `git diff` | Read-only diff inspection | Guardrails post-check |
+| `git add <approved path>` | Staging approved changes | Array args only, no shell interpolation |
+| `git commit` | Local commit on work branch | Exact message: `ai-orchestrator: apply <taskId>` |
+| `git push origin <workBranch>` | Pushing work branch | No force, no tags, no `--all`, no `--mirror` |
+
+### Forbidden
+
+| Operation | Reason |
+|-----------|--------|
+| `git checkout` / `git switch` | No automatic branch switching |
+| `git merge` | Merge is not implemented |
+| `git rebase` | No history rewriting |
+| `git reset` | No destructive history ops |
+| `git pull` / `git fetch` | No remote sync automation |
+| `git push --force` | No force push |
+| `git push --tags` / `--all` / `--mirror` | No bulk push |
+| Direct `main` mutation | `main` is protected by design |
+
+---
+
+## 4. Provider Policy
+
+- **Provider calls only after opt-in and repo safety checks.**
+- **No raw provider output printed** to stdout/stderr in success path.
+- **No API keys printed** in any output or file.
+- **Tests use fake provider** (`KIMI_FAKE_RESPONSE`, `KIMI_FAKE_RESPONSES`) — no real API calls in tests.
+- **Repair prompts do not include** API keys, env values, or remote URL credentials.
+
+---
+
+## 5. GitHub API Policy
+
+- **PR creation only behind `ALLOW_GITHUB_PR_CREATE=true`.**
+- **PR status only behind `ALLOW_GITHUB_PR_STATUS=true`.**
+- **No GitHub API calls in tests.** Tests use injected fake fetch.
+- **Token is never printed or written** to any report or state file.
+- **No merge API** is called.
+- **No PR update/comment/approval** APIs are used.
+
+---
+
+## 6. State / Report File Policy
+
+### Allowed file writes
+
+| File | Purpose | Written By |
+|------|---------|------------|
+| `runs/<taskId>/state.json` | Task progress state | `real-repo-run`, `real-repo-run-ai` |
+| `runs/<taskId>/approval-report.md` | Human review report | `real-repo-approval-report` |
+| `runs/<taskId>/pr-readiness.md` | PR readiness report | `real-repo-pr-readiness` |
+| `runs/<taskId>/pr-body.md` | Suggested PR body | `real-repo-pr-readiness` |
+| `runs/<taskId>/pr-created.json` | PR metadata | `real-repo-pr-create` |
+| `runs/<taskId>/pr-status-report.md` | PR status report | `real-repo-pr-status` |
+| `runs/<taskId>/pr-status.json` | PR status snapshot | `real-repo-pr-status` |
+
+### Must never be stored
+
+- Provider raw output (except in attempt debug files during development)
+- API keys (`KIMI_API_KEY`, `GITHUB_TOKEN`, `OPENAI_API_KEY`)
+- Env values or secrets
+- File contents in state/report files (unless expected output/report)
+- Credentials in URLs (`user:pass@host`)
+
+---
+
+## 7. Human Boundary
+
+After the `real-repo-pr-status` command completes, the system stops. The human operator must decide:
+
+- **Merge** the PR manually after review.
+- **Reject** the PR and clean up the branch.
+- **Request changes** and re-run the workflow.
+
+The tool never makes this decision automatically.

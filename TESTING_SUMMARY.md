@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `04802522e2adacde903bcf09c525b81bfdea9ddc`
+**Last verified:** `pending final Stage 5.9 commit hash`
 
 ## Test metrics
 
 - **Total tests:** 1034
 - **Total suites:** 59
-- **Last verified commit:** 04802522e2adacde903bcf09c525b81bfdea9ddc (includes Stage 5.8 PR status)
+- **Last verified commit:** pending final Stage 5.9 commit hash (Stage 5.9 is documentation-only; no code/tests changed)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
