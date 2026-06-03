@@ -298,15 +298,15 @@ Properties:
 - **Not wired to CLI.**
 - **Real repo apply remains disabled for writes.**
 
-### 8.6 Next Recommended Step — Stage 4.5 State Write or Merge Boundary Audit
+### 8.6 Next Recommended Step — Stage 4.6 Merge Boundary Audit Plan
 
-Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 actual safe push is implemented.
+Stage 4.2 local file apply is complete. Stage 4.3 actual local commit is implemented. Stage 4.4 actual safe push is implemented. Stage 4.5 state write after push is implemented.
 
 Next steps:
 
-1. **Audit and plan Stage 4.5 state write or merge boundary.** Decide whether the orchestrator should write `runs/{taskId}/state.json` automatically after commit/push, or whether that remains a separate explicit decision. Do NOT implement merge yet.
+1. **Audit and plan Stage 4.6 merge boundary.** Define what `ALLOW_REAL_REPO_MERGE=true` would mean, what safety checks are required before any merge operation, and what the refusal stub behavior should be. Do NOT implement merge yet.
 2. Keep mock mode as default for tests and local development.
-3. Keep no merge, no main touch unless explicitly planned.
+3. Keep no main touch unless explicitly planned.
 
 ### 8.7 Completed — `real-repo-commit <taskId>` local commit
 
@@ -355,4 +355,5 @@ Properties:
 | Stage 4.3 actual local commit enabled | Confirmed |
 | Phase 4 Stage 4.4 actual push implemented | ✅ |
 | Phase 4 Stage 4.4 actual push enabled | Confirmed |
+| Phase 4 Stage 4.5 state write after push implemented | ✅ |
 | Opt-in flags defined | Confirmed |

@@ -19,6 +19,7 @@ const VALID_STATUSES: RunStatus[] = [
   'rejected',
   'failed_guardrails',
   'failed_max_attempts',
+  'pushed',
 ];
 
 function validateTaskId(taskId: string): void {

@@ -128,6 +128,29 @@ describe('state-manager', () => {
     }
   });
 
+  test('saveState and loadState accept pushed status', () => {
+    const tempRuns = createTempRunsDir();
+    try {
+      const state = makeState({
+        status: 'pushed',
+        pushed_remote: 'origin',
+        pushed_ref: 'ai/test-branch',
+        commit_sha: 'abc123',
+        safety_note: 'Push completed; human review required',
+      });
+      saveState(TASK_ID, state, tempRuns);
+      const loaded = loadState(TASK_ID, tempRuns);
+      assert.notStrictEqual(loaded, null);
+      assert.strictEqual(loaded!.status, 'pushed');
+      assert.strictEqual(loaded!.pushed_remote, 'origin');
+      assert.strictEqual(loaded!.pushed_ref, 'ai/test-branch');
+      assert.strictEqual(loaded!.commit_sha, 'abc123');
+      assert.strictEqual(loaded!.safety_note, 'Push completed; human review required');
+    } finally {
+      rmSync(tempRuns, { recursive: true });
+    }
+  });
+
   test('loadState throws on missing required field', () => {
     const tempRuns = createTempRunsDir();
     try {

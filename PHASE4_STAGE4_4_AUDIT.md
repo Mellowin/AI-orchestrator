@@ -1,6 +1,6 @@
 # Stage 4.4 Push Boundary Audit Plan
 
-**Baseline commit:** `5574e2a62e986a0b17b32c89fe448a98ddc28264`
+**Baseline commit:** `2eeff22168489555c15a02339524dd04074684a3`
 
 **Status:** planning/audit + actual safe push implemented
 
@@ -146,18 +146,28 @@ Tests verify actual push using a local temporary bare repository as `origin`:
   - Tests verify actual push against local bare remote, never touching real GitHub remote
   - 35 CLI tests
 
-> **Stage 4.4 actual safe push is now implemented.** `ALLOW_REAL_REPO_PUSH=true` performs a real `git push origin <currentBranch>` after validation passes.
+- **`real-repo-push <taskId>` state write after push** (`src/cli.ts`, `test/cli-real-repo-push.test.ts`):
+  - After successful push, writes `RunState` to `runs/{taskId}/state.json`
+  - State status: `pushed`
+  - State fields: task_id, branch, repo_path, pushed_remote (`origin`), pushed_ref, commit_sha, updated_at, safety_note
+  - No state write on validation failure
+  - No state write on push failure
+  - State does not contain provider response, file contents, env values, API keys, or remote URL with credentials
+  - On state write failure after successful push: prints `Push completed`, `State write failed`, `Manual inspection required`, exits non-zero; does NOT retry push
+  - No merge, no checkout, no main touch
+  - 62 CLI tests total (35 push + 27 state)
+
+> **Stage 4.4 actual safe push and Stage 4.5 state write are now implemented.** `ALLOW_REAL_REPO_PUSH=true` performs a real `git push origin <currentBranch>` after validation passes, then writes state if push succeeds.
 
 ---
 
 ## 9. Safer Next Step Recommendation
 
-- **Audit and plan Stage 4.5 state write or merge boundary.** Decide whether the orchestrator should write `runs/{taskId}/state.json` automatically after commit/push, or whether that remains a separate explicit decision.
-- **Do NOT implement merge yet.** Keep merge as a future boundary.
+- **Audit and plan Stage 4.6 merge boundary.** Define what `ALLOW_REAL_REPO_MERGE=true` would mean, what safety checks are required before any merge operation, and what the refusal stub behavior should be. Do NOT implement merge yet.
 - Preserve all existing Stage 4.2 tests (34 tests in `test/cli-real-repo-apply.test.ts`).
 - Preserve all existing Stage 4.3 tests (35 tests in `test/cli-real-repo-commit.test.ts`).
-- Preserve all existing Stage 4.4 tests (35 tests in `test/cli-real-repo-push.test.ts`).
-- Stage 4.5 must not break Stage 4.2, Stage 4.3, or Stage 4.4 behavior.
+- Preserve all existing Stage 4.4/4.5 tests (62 tests in `test/cli-real-repo-push.test.ts`).
+- Stage 4.6 must not break Stage 4.2, Stage 4.3, Stage 4.4, or Stage 4.5 behavior.
 
 ---
 
@@ -165,9 +175,10 @@ Tests verify actual push using a local temporary bare repository as `origin`:
 
 | Checkpoint | Status |
 |---|---|
-| Stage 4.4 refusal stub implemented | Confirmed |
 | Stage 4.4 actual safe push implemented | Confirmed |
 | Stage 4.4 actual push enabled | Confirmed |
+| Stage 4.5 state write after push implemented | Confirmed |
+| State does not leak provider/file/API-key content | Confirmed |
 | Push target only `origin <currentBranch>` | Confirmed |
 | No force/tags/all/mirror | Confirmed |
 | No push / no merge / no checkout / no main touch on failure | Confirmed |

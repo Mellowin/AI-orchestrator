@@ -34,7 +34,8 @@ export type RunStatus =
   | 'approved'
   | 'rejected'
   | 'failed_guardrails'
-  | 'failed_max_attempts';
+  | 'failed_max_attempts'
+  | 'pushed';
 
 export interface RunState {
   task_id: string;
@@ -47,6 +48,10 @@ export interface RunState {
   last_logs?: string;
   created_at: string;
   updated_at: string;
+  pushed_remote?: string;
+  pushed_ref?: string;
+  commit_sha?: string;
+  safety_note?: string;
 }
 
 export interface KimiOutput {

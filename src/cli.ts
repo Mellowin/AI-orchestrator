@@ -16,7 +16,7 @@ import {
   getDiffStat,
 } from './git-manager.js';
 import { parseKimiOutputJson } from './kimi-output-validator.js';
-import type { KimiOutput } from './types.js';
+import type { KimiOutput, RunState } from './types.js';
 import { buildKimiPrompt } from './prompt-builder.js';
 import { runMockApplyFlow } from './mock-apply-flow.js';
 import { runPipelineLoop } from './pipeline-loop.js';
@@ -384,6 +384,41 @@ if (command === 'real-repo-push') {
     });
     if (pushResult.status !== 0) {
       console.error('[real-repo-push] Git push failed');
+      console.error('[real-repo-push] Manual inspection required');
+      console.error('[real-repo-push] No merge was performed');
+      console.error('[real-repo-push] No checkout was performed');
+      console.error('[real-repo-push] No main touch was performed');
+      process.exit(1);
+    }
+
+    // Push succeeded — write state
+    const headSha = headResult.stdout.trim();
+    const now = new Date().toISOString();
+    let existingState: RunState | null = null;
+    try {
+      existingState = loadState(taskId);
+    } catch {
+      // ignore load errors, treat as no existing state
+    }
+    const pushState: RunState = {
+      task_id: taskId,
+      status: 'pushed',
+      current_attempt: existingState?.current_attempt ?? 0,
+      branch: currentBranch,
+      repo_path: task.repo_path,
+      created_at: existingState?.created_at ?? now,
+      updated_at: now,
+      pushed_remote: 'origin',
+      pushed_ref: currentBranch,
+      commit_sha: headSha,
+      safety_note: 'Push completed; merge not performed; human review required before merge',
+    };
+
+    try {
+      saveState(taskId, pushState);
+    } catch (stateErr) {
+      console.error('[real-repo-push] Push completed');
+      console.error('[real-repo-push] State write failed');
       console.error('[real-repo-push] Manual inspection required');
       console.error('[real-repo-push] No merge was performed');
       console.error('[real-repo-push] No checkout was performed');
