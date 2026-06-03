@@ -30,6 +30,12 @@ import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
 import { validateRealRepoApplySafety } from './real-repo-apply-safety.js';
 import { buildRealRepoApplyDryRunSummary } from './real-repo-apply-dry-run.js';
 import { buildRealRepoApplyPlan } from './real-repo-apply-plan.js';
+import { ProviderRegistry } from './providers/provider-registry.js';
+import { createFakeCoderProvider } from './providers/fake/fake-coder-provider.js';
+import { createFakeReviewerProvider } from './providers/fake/fake-reviewer-provider.js';
+import { createKimiCoderProvider } from './providers/kimi/kimi-coder-provider.js';
+import { createKimiReviewerProvider } from './providers/kimi/kimi-reviewer-provider.js';
+import { validateReviewerDecision } from './reviewer/reviewer-schema.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -2384,7 +2390,7 @@ if (command === 'real-repo-pr-status') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status> <taskId> [arg3]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run> <taskId> [arg3]'
   );
   process.exit(1);
 }
@@ -3600,6 +3606,105 @@ if (command === 'real-repo-apply') {
     console.error('[real-repo-apply] No commit was made');
     console.error('[real-repo-apply] No push was performed');
     console.error('[real-repo-apply] No merge was performed');
+    process.exit(1);
+  }
+}
+
+if (command === 'reviewer-gate-dry-run') {
+  try {
+    if (!taskId) {
+      console.error('[reviewer-gate-dry-run] Error: task id is required');
+      console.error('[reviewer-gate-dry-run] No provider call was made');
+      console.error('[reviewer-gate-dry-run] No merge was performed');
+      console.error('[reviewer-gate-dry-run] No checkout was performed');
+      console.error('[reviewer-gate-dry-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    const task = loadTask(getTasksFilePath(), taskId);
+
+    // Build minimal ReviewInput from task
+    const reviewInput = {
+      task_id: taskId,
+      task_title: task.title,
+      task_goal: task.goal,
+      allowed_files: task.guardrails.allow_modify ?? [],
+      denied_files: task.guardrails.deny_modify,
+      max_lines_changed: task.guardrails.max_lines_changed ?? 0,
+      commit_sha: 'dry-run-commit-sha',
+      changed_files: [],
+      diff: '',
+      typecheck_result: 'skipped (dry-run)',
+      build_result: 'skipped (dry-run)',
+      test_result: 'skipped (dry-run)',
+      git_status: 'clean (dry-run)',
+      safety_findings: ['dry-run: no real checks performed'],
+    };
+
+    // Resolve reviewer provider
+    const reviewerProviderId = process.env.REVIEWER_PROVIDER?.trim() || 'fake';
+    const registry = new ProviderRegistry();
+    registry.registerReviewer('fake', () => createFakeReviewerProvider());
+    registry.registerReviewer('kimi', () => {
+      const fakeResponse = process.env.KIMI_FAKE_REVIEWER_RESPONSE;
+      return createKimiReviewerProvider(
+        {
+          provider: 'kimi',
+          model: process.env.KIMI_REVIEWER_MODEL?.trim() || process.env.KIMI_MODEL?.trim() || 'kimi-k2.6',
+        },
+        {
+          allowReal: process.env.ALLOW_KIMI_REVIEWER === 'true',
+          apiKey: process.env.KIMI_API_KEY?.trim(),
+          baseUrl: process.env.KIMI_BASE_URL?.trim(),
+          model: process.env.KIMI_REVIEWER_MODEL?.trim() || process.env.KIMI_MODEL?.trim(),
+          userAgent: process.env.KIMI_USER_AGENT?.trim(),
+          fakeResponse,
+          fetchFn: fakeResponse !== undefined
+            ? async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: fakeResponse } }] }) })
+            : undefined,
+        }
+      );
+    });
+
+    let reviewer;
+    try {
+      reviewer = registry.resolveReviewer({ provider: reviewerProviderId as any, model: 'default' });
+    } catch (resolveErr) {
+      const msg = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
+      console.error(`[reviewer-gate-dry-run] Error: ${msg}`);
+      console.error('[reviewer-gate-dry-run] No provider call was made');
+      console.error('[reviewer-gate-dry-run] No merge was performed');
+      console.error('[reviewer-gate-dry-run] No checkout was performed');
+      console.error('[reviewer-gate-dry-run] No main touch was performed');
+      process.exit(1);
+    }
+
+    const decision = await reviewer.reviewCommit(reviewInput);
+
+    // Validate decision schema
+    const validated = validateReviewerDecision(decision);
+
+    console.log(`[reviewer-gate-dry-run] Reviewer provider: ${reviewerProviderId}`);
+    console.log(`[reviewer-gate-dry-run] Reviewer decision: ${validated.decision}`);
+    console.log(`[reviewer-gate-dry-run] Confidence: ${validated.confidence}`);
+    console.log(`[reviewer-gate-dry-run] Next action: ${validated.next_action}`);
+    console.log(`[reviewer-gate-dry-run] Blocking issues count: ${validated.blocking_issues.length}`);
+    console.log(`[reviewer-gate-dry-run] Non-blocking issues count: ${validated.non_blocking_issues.length}`);
+    if (validated.review_summary) {
+      console.log(`[reviewer-gate-dry-run] Review summary: ${validated.review_summary}`);
+    }
+    console.log('[reviewer-gate-dry-run] No file was modified');
+    console.log('[reviewer-gate-dry-run] No git command was executed');
+    console.log('[reviewer-gate-dry-run] No merge was performed');
+    console.log('[reviewer-gate-dry-run] No checkout was performed');
+    console.log('[reviewer-gate-dry-run] No main touch was performed');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[reviewer-gate-dry-run] Error: ${message}`);
+    console.error('[reviewer-gate-dry-run] No merge was performed');
+    console.error('[reviewer-gate-dry-run] No checkout was performed');
+    console.error('[reviewer-gate-dry-run] No main touch was performed');
     process.exit(1);
   }
 }

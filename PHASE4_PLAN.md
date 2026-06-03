@@ -577,12 +577,27 @@ Documents created:
 - `AUTONOMOUS_BLOCK_ARCHITECTURE.md` — defines block concept, block task concept, task statuses, block statuses, autonomous loop, reviewer gate, deterministic checks before AI review, reviewer input/output schemas, stop conditions, what is not autonomous.
 - `PROVIDER_COMBINATION_ROADMAP.md` — documents provider roles, intended interfaces, current implementation status, immediate roadmap (Stage 6.0–6.7), future provider combinations, configuration examples, product rule against provider hardcoding.
 
-### Stage 6.0 — Provider Abstraction Foundation
+### Stage 6.0 — Provider Abstraction Foundation ✅
 
-- Extract provider-agnostic interfaces (`CoderProvider`, `ReviewerProvider`).
-- Implement fake coder and fake reviewer for tests.
-- Define Kimi reviewer provider contract (same API, different prompt/role).
-- Define reviewer decision schema (JSON schema, strict validation).
+- **Status:** Implemented and tested.
+- **Location:** `src/providers/`, `src/reviewer/`, `test/provider-*.test.ts`, `test/fake-provider.test.ts`, `test/reviewer-schema.test.ts`, `test/kimi-reviewer-provider.test.ts`, `test/cli-reviewer-gate-dry-run.test.ts`
+- **Tests:** 62 tests across 7 new test suites
+
+Implementation:
+- Extracted provider-agnostic interfaces (`CoderProvider`, `ReviewerProvider`) in `src/providers/provider-types.ts`.
+- Implemented `ProviderRegistry` in `src/providers/provider-registry.ts` — registers and resolves providers by id + role, throws safe errors.
+- Implemented fake coder (`fake-coder-provider.ts`) and fake reviewer (`fake-reviewer-provider.ts`) — deterministic, no network, no API keys.
+- Implemented Kimi coder adapter (`kimi-coder-provider.ts`) wrapping existing Kimi coder logic.
+- Implemented Kimi reviewer provider (`kimi-reviewer-provider.ts`) with `ALLOW_KIMI_REVIEWER=true` opt-in, `KIMI_FAKE_REVIEWER_RESPONSE` test seam.
+- Defined strict reviewer decision schema in `src/reviewer/reviewer-schema.ts` (`validateReviewerDecision`) — accepted must have empty blocking_issues, rejected must have blocking_issues or fix_task, safe errors without secret leak.
+- Created reviewer prompt builder in `src/reviewer/reviewer-prompt.ts` — requires factual evidence, does not trust coder self-report.
+- Added `reviewer-gate-dry-run <taskId>` CLI command in `src/cli.ts` — resolves reviewer provider via `REVIEWER_PROVIDER` env, validates provider contract without repo mutation.
+
+Properties:
+- No real provider calls in tests (all use fake seams).
+- No GitHub API calls.
+- No merge, no main touch, no checkout/switch in new code.
+- 62 new tests covering all new modules. All 1096 tests pass (66 suites).
 
 ### Stage 6.1 — Deterministic Commit Verifier for Reviewer Gate
 
@@ -662,4 +677,7 @@ Documents created:
 | Phase 4 Stage 5.7 real PR creation implemented | ✅ |
 | Phase 4 Stage 5.8 PR status / checks read-only report implemented | ✅ |
 | Phase 4 Stage 5.9 MVP hardening / final documentation | ✅ |
+| Phase 4 Stage 5.10 live operator demo evidence pack | ✅ |
+| Phase 4 Stage 6.0A product vision / autonomous architecture docs | ✅ |
+| Phase 4 Stage 6.0 provider abstraction foundation | ✅ |
 | Opt-in flags defined | Confirmed |

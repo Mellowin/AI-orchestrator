@@ -23,6 +23,7 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 | `ALLOW_REAL_REPO_PR_READINESS=true` | 5.6 | Generating PR readiness report |
 | `ALLOW_GITHUB_PR_CREATE=true` | 5.7 | Creating GitHub Pull Request |
 | `ALLOW_GITHUB_PR_STATUS=true` | 5.8 | Reading PR status from GitHub API |
+| `ALLOW_KIMI_REVIEWER=true` | 6.0 | Using Kimi as reviewer provider (default is fake) |
 
 **Default:** All flags are `false` (deny-by-default).
 

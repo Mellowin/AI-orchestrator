@@ -221,6 +221,40 @@
 
 ---
 
+### `reviewer-gate-dry-run <taskId>`
+
+**Purpose:** Validate reviewer provider contract without modifying repo.
+
+**Required env:**
+- `REVIEWER_PROVIDER` — `fake` (default) or `kimi`
+- `KIMI_FAKE_REVIEWER_RESPONSE` — for testing kimi provider without real network
+
+**Allowed mutation:**
+- None. Read-only validation only.
+
+**Forbidden actions:**
+- No file writes
+- No git commands
+- No GitHub API call
+- No merge
+- No checkout/switch
+- No main touch
+
+**Outputs/files:**
+- None
+
+**Normal success message:**
+- `Reviewer decision: accepted/rejected`
+- `Next action: ...`
+- `Blocking issues count: ...`
+
+**Safe failure behavior:**
+- Exits non-zero on invalid reviewer output
+- Prints safe error
+- No side effects
+
+---
+
 ### `real-repo-pr-status <taskId>`
 
 **Purpose:** Fetch read-only PR status and commit check information from GitHub API.

@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `f044e2a50acab1329a4edb151cbbccfc3618d144`
+**Last verified:** `aec2b1cbd0ece60d39357eea3e70260a40f3478a`
 
 ## Test metrics
 
-- **Total tests:** 1034
-- **Total suites:** 59
-- **Last verified commit:** `d1f1850c1eed003151798e548627919eb2987bf7` (baseline before Stage 6.0A; no code/tests changed in this docs stage)
+- **Total tests:** 1096
+- **Total suites:** 66
+- **Last verified commit:** `aec2b1cbd0ece60d39357eea3e70260a40f3478a` (Stage 6.0 Provider Abstraction Foundation)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -19,6 +19,7 @@
 | Stage 5.9 | MVP hardening / final documentation | `9d77ee29427ddb4f1c239df911972b6606b63c1d` |
 | Stage 5.10 | Live operator demo evidence pack | `36d8581f5cc171ebc12a93d10a672a26695984f6` |
 | Stage 6.0A | Product vision and autonomous architecture documentation | `f044e2a50acab1329a4edb151cbbccfc3618d144` |
+| Stage 6.0 | Provider Abstraction Foundation | `aec2b1cbd0ece60d39357eea3e70260a40f3478a` |
 
 ## Covered layers
 
@@ -57,6 +58,11 @@
 | Real repo PR create CLI | `test/cli-real-repo-pr-create.test.ts` | `real-repo-pr-create <taskId>` creates a GitHub Pull Request after successful push. Requires `ALLOW_GITHUB_PR_CREATE=true`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`. Validates task, state (`status: pushed`), commit SHA, approval report, PR readiness report, PR body, base branch ref, work branch ref. Calls GitHub REST API via `fetch` (production) or injected fake fetch via `GITHUB_FAKE_PR_RESPONSE` (tests). Writes `runs/<taskId>/pr-created.json` with task_id, pr_number, pr_url, base, head, commit_sha, created_at, safety_note. No merge, no auto-merge, no checkout/switch, no main touch, no push, no provider call, no gh execution, no apply, no commit. Safe error on API failure with `Manual inspection required`. Token and remote credentials never printed or written. 69 CLI tests. |
 | Real repo PR status CLI | `test/cli-real-repo-pr-status.test.ts` | `real-repo-pr-status <taskId>` read-only PR status/checks report after PR creation. Requires `ALLOW_GITHUB_PR_STATUS=true`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`. Validates task, state (`status: pushed`), commit SHA, approval report, PR readiness, PR body, `pr-created.json` fields (task_id, pr_number, base, head, commit_sha). Calls GitHub REST API read-only GET: `/pulls/{number}`, `/commits/{sha}/status`, `/commits/{sha}/check-runs`. Tests use `GITHUB_FAKE_PR_RESPONSE`, `GITHUB_FAKE_STATUS_RESPONSE`, `GITHUB_FAKE_CHECKS_RESPONSE` injected fake fetch — no real GitHub API calls. Writes `runs/<taskId>/pr-status-report.md` and `runs/<taskId>/pr-status.json` with PR metadata, combined status, check runs summary, next-step guidance. No PR creation, no PR update, no merge, no auto-merge, no checkout/switch, no main touch, no push, no provider call, no gh execution, no apply, no commit. Safe error on API failure. Token and remote credentials never printed or written. 83 CLI tests. |
 | Real repo run AI CLI | `test/cli-real-repo-run-ai.test.ts` | `real-repo-run-ai <taskId>` one-command unified workflow with real AI provider integration behind four opt-ins (`ALLOW_REAL_PROVIDER`, `ALLOW_REAL_REPO_APPLY`, `ALLOW_REAL_REPO_COMMIT`, `ALLOW_REAL_REPO_PUSH`). Validates repo safety BEFORE provider call (clean tree, non-main branch, branch match). Builds prompt via `buildContext` + `buildKimiPrompt`. Calls real provider via `createRealProviderCall` with `KIMI_API_KEY` + `KIMI_BASE_URL` + `KIMI_MODEL`. Tests mock provider via `KIMI_FAKE_RESPONSE`/`KIMI_FAKE_RESPONSES` injected fake fetch — no real API calls in tests. Parses response via `parseKimiOutputJson`, validates guardrails + line deltas, then runs identical apply→check→rollback→commit→push→state sequence as `real-repo-run`. **Self-repair loop:** `REAL_REPO_AI_MAX_ATTEMPTS` (default 2, min 1, max 3). On check failure, rolls back and re-calls provider with repair prompt containing failed check command, check output summary, and previously proposed file paths. No API keys/env values in repair prompt. Final failure prints `Checks failed after N attempt(s)`. Repair success prints `Repair attempt succeeded`. Provider call failure prints `Provider call failed`/`Provider repair call failed` + `Manual inspection required`. Malformed provider output prints `Provider output malformed`/`Provider repair output malformed`. No apply/commit/push/state on provider/guardrails/safety failures. No provider raw output in stdout/stderr. No API key leak. No merge, no checkout, no pull/fetch/rebase/reset, no main touch, no force, no tags, no `--all`/`--mirror`. 67 CLI tests covering missing opt-ins (each individually), repo safety failures before provider call, provider call failure, malformed output, guardrails failure, line delta failure, apply failure, check failure with rollback, max attempts validation (default/1/2/3/0/4/non-numeric), repair success path, repair provider failure/malformed, final failure state, commit/push/state safety on repair, prompt content safety, no force/all/mirror/tags, no merge/checkout/reset/main touch, working tree clean after success, existing commands unchanged. |
+| Provider types + registry | `test/provider-registry.test.ts` | Registers fake/Kimi coder/reviewer, resolves by id+role, refuses unknown provider and unsupported role, registry creation does not call providers or read API keys |
+| Fake providers | `test/fake-provider.test.ts` | Fake coder returns `CoderResult`, fake reviewer returns accepted/rejected decisions, no network, no API keys |
+| Reviewer schema | `test/reviewer-schema.test.ts` | Strict `validateReviewerDecision`: accepted/rejected decisions, missing fields, wrong types, unknown enums, accepted + blocking_issues fails, rejected without blocking_issues/fix_task fails, safe errors without secret leak |
+| Kimi reviewer provider | `test/kimi-reviewer-provider.test.ts` | Requires `ALLOW_KIMI_REVIEWER=true`, opt-in/API key/base URL validation, `KIMI_FAKE_REVIEWER_RESPONSE` test seam, parses accepted/rejected JSON, rejects invalid JSON/schema safely, no API key leak, no raw invalid output, strict reviewer prompt with factual evidence |
+| Reviewer gate dry-run CLI | `test/cli-reviewer-gate-dry-run.test.ts` | `reviewer-gate-dry-run <taskId>`: accepted/rejected output, invalid output exits non-zero, no file writes, no git commands, no merge/checkout/main touch, no stack trace/API key leak, default provider is fake, `REVIEWER_PROVIDER=kimi` uses fake response, missing taskId shows usage and exits non-zero |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
 ## Safety guarantees
@@ -88,6 +94,7 @@
 - **`applyToSandboxRepo` exists as a pure helper.** Applies validated `FileUpdate[]` inside sandbox only, delegates to patch-engine for apply/rollback/path validation. Used indirectly by `sandbox-apply-preview` via `runSandboxApplyFlow`.
 - **`runSandboxApplyFlow` exists as a pure helper.** Orchestrates the full sandbox pipeline: parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Runs checks only in sandbox path. Real repo remains untouched. No state write. Wired to `sandbox-apply-preview` CLI.
 - **`sandbox-apply-preview <taskId>` CLI command is implemented.** Behind `ALLOW_SANDBOX_APPLY_PREVIEW=true`. Requires `SANDBOX_PROVIDER_RESPONSE` and `SANDBOX_ROOT`. Uses `runSandboxApplyFlow`. No real provider call, no network, no API keys, no real repo mutation, no state write, no push/merge/main touch. CLI fails safely when `SANDBOX_ROOT` is inside the real repo.
+- **`reviewer-gate-dry-run <taskId>` CLI command is implemented.** Validates reviewer provider contract without repo mutation. Default provider is `fake` (deterministic, no network). `REVIEWER_PROVIDER=kimi` uses Kimi reviewer behind `ALLOW_KIMI_REVIEWER=true` with `KIMI_FAKE_REVIEWER_RESPONSE` test seam. No file writes, no git commands, no merge/checkout/main touch. 12 CLI tests.
 
 ## Real provider execution plan
 
@@ -95,11 +102,11 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 
 ## Next recommended work
 
-1. Stage 4.1 read-only dry-run CLI is complete and documented.
-2. Stage 4.2 local file apply is implemented and tested behind `ALLOW_REAL_REPO_APPLY=true`. Applies validated files, runs checks, rolls back on failure. No commit, no push, no merge, no state write.
-3. `buildRealRepoApplyPlan` pure helper is implemented and tested (wired to CLI).
-4. `real-repo-commit <taskId>` pre-commit validation flow is implemented and tested behind `ALLOW_REAL_REPO_COMMIT=true`. Validates opt-ins, provider response, guardrails, branch safety, approved working tree changes. Prints commit message preview. Exits non-zero before git add/commit. Stage 4.3 actual local commit remains disabled.
-5. Next: implement actual local commit only after preserving all pre-commit validation tests. Do NOT implement push/merge/main touch. State write still requires explicit decision.
-6. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
-7. Keep mock mode as default for tests and local development.
-8. Keep no push, no merge, no main touch.
+1. Stage 4.x and 5.x pipeline is complete (apply, commit, push, PR create/status, readiness, approval report).
+2. Stage 6.0 Provider Abstraction Foundation is complete: provider types, registry, fake/Kimi adapters, reviewer schema, reviewer gate dry-run CLI.
+3. Next: Stage 6.1 Deterministic Commit Verifier for Reviewer Gate — `buildReviewerInput` pure helper that gathers commit evidence.
+4. Next: Stage 6.2 Block State Runner — `BlockState` data model and `BlockStateManager`.
+5. Next: Stage 6.3 Autonomous One-Task Loop — wire Kimi coder + Kimi reviewer for a single task.
+6. Keep mock mode as default for tests and local development.
+7. Keep no push, no merge, no main touch.
+8. Do not implement merge without dedicated safety design document.
