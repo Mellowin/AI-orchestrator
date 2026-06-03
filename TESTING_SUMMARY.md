@@ -2,7 +2,7 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `pending final Stage 6.0A commit hash`
+**Last verified:** `f044e2a50acab1329a4edb151cbbccfc3618d144`
 
 ## Test metrics
 
@@ -18,7 +18,7 @@
 |---|---|---|
 | Stage 5.9 | MVP hardening / final documentation | `9d77ee29427ddb4f1c239df911972b6606b63c1d` |
 | Stage 5.10 | Live operator demo evidence pack | `36d8581f5cc171ebc12a93d10a672a26695984f6` |
-| Stage 6.0A | Product vision and autonomous architecture documentation | `pending final commit hash` |
+| Stage 6.0A | Product vision and autonomous architecture documentation | `f044e2a50acab1329a4edb151cbbccfc3618d144` |
 
 ## Covered layers
 
