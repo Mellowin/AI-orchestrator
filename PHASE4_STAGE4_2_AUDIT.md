@@ -1,8 +1,8 @@
 # Stage 4.2 Real Repo Apply Audit Plan
 
-**Status:** planning/audit only  
+**Status:** Stage 4.2 implemented  
 **Branch:** `feature/mvp-skeleton`  
-**Baseline commit:** `8cde57d48605243fc78f9d9d0891d0aa19ea7a37`
+**Baseline commit:** `026f5d4eb4cb1a7e613d28f60dba44ce08591def`
 
 ---
 
@@ -54,7 +54,25 @@ The following runtime building blocks have been implemented **after** this audit
   - 100% pure: no fs, no git, no child_process, no env, no network, no API keys, no state writes.
   - **Wired to `real-repo-apply` CLI.**
 
-> **Stage 4.2 write behavior remains pending.** Real repo apply is still disabled. The CLI validates everything but stops before `applyFileUpdates`. No files are written to the real repo.
+> **Stage 4.2 write behavior is now enabled.** Real repo apply applies files locally to the work branch only. No commit, no push, no merge, no main touch.
+
+### Stage 4.2 local apply — implemented
+
+- **`real-repo-apply <taskId>` local file apply CLI** (`src/cli.ts`, `test/cli-real-repo-apply.test.ts`):
+  - Requires `ALLOW_REAL_REPO_APPLY=true`.
+  - Reads `REAL_REPO_PROVIDER_RESPONSE` env var.
+  - Parses via `parseKimiOutputJson`.
+  - Validates file list via `validateFileList`.
+  - Validates line deltas via `validateProposedFileLineDeltas`.
+  - Validates repo safety via `validateRealRepoApplySafety` (clean tree, non-main branch, branch match, auto_commit/push/merge all false).
+  - Builds apply plan via `buildRealRepoApplyPlan`.
+  - Calls `applyFileUpdates` with real repo path and `runDir` from plan.
+  - Runs `runChecks` in real repo path after apply.
+  - On check failure: calls `rollbackFileUpdates` to restore overwritten files and remove newly created files.
+  - On apply failure: prints `Apply failed`, `Manual inspection required`, and `Rollback could not be attempted because apply manifest was not returned`. Does NOT claim `No files were modified` after apply-start failure.
+  - On success: prints `Apply: PASS`, `Checks: PASS`, and safety messages. Human review required before commit.
+  - No provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch.
+  - 34 CLI tests covering all refusal paths, success paths, apply failure, check failure with rollback, no stack trace leak, no API key leak.
 
 ---
 
@@ -280,17 +298,15 @@ The following are **out of scope** for this document and for Stage 4.2:
 
 ## 13. Next Pending Boundaries
 
-### 13.1 Actual apply + rollback
+### 13.1 Stage 4.3 commit boundary
 
-The pre-write validation flow is complete. The remaining work for Stage 4.2 is:
+Stage 4.2 local apply is complete. The next pending boundary is Stage 4.3:
 
-1. **Call `applyFileUpdates`** with real repo path and `runDir` from `buildRealRepoApplyPlan` after all pre-write checks pass.
-2. **Run `runChecks`** in real repo path after successful apply.
-3. **Call `rollbackFileUpdates`** on check failure to restore files.
-4. **Call `rollbackFileUpdates`** on apply failure mid-batch for successfully written files.
-5. **Preserve all 23 existing refusal tests** — every failure path must continue to exit non-zero with safe messages and no file mutation.
-6. **No state write** until a safe point is explicitly defined.
-7. **No commit, no push, no merge, no main touch** — these invariants must hold even after apply is enabled.
+1. **Document/plan Stage 4.3 commit boundary** — define when and how `ALLOW_REAL_REPO_COMMIT=true` would create a local commit on the work branch.
+2. **Add explicit state-write decision** before any auto-commit work. State may only be written after apply + checks succeed and only if explicitly required.
+3. **Do NOT implement auto-commit yet.** Keep `ALLOW_REAL_REPO_COMMIT` as a planned opt-in only.
+4. Keep no push, no merge, no main touch.
+5. Keep mock mode as default for tests and local development.
 
 ### 13.2 Recommended implementation order
 
@@ -306,13 +322,15 @@ The pre-write validation flow is complete. The remaining work for Stage 4.2 is:
 
 | Check | Status |
 |-------|--------|
-| Stage 4.2 is planning only in this commit | Confirmed |
-| No runtime code changes | Confirmed |
-| No test changes | Confirmed |
-| Real repo apply remains disabled | Confirmed |
-| No push / no merge / no main touch | Confirmed |
+| Stage 4.2 local apply implemented | Confirmed |
+| Failed checks trigger rollback | Confirmed |
+| Apply failure without manifest reports manual inspection required | Confirmed |
+| No false "No files were modified" after apply-start failure | Confirmed |
+| No state write | Confirmed |
+| No commit / no push / no merge / no main touch | Confirmed |
+| Human review before commit | Confirmed |
 | Opt-in flag boundaries defined | Confirmed |
 | Rollback boundaries defined | Confirmed |
 | State boundaries defined | Confirmed |
 | Failure boundaries defined for all cases | Confirmed |
-| Required tests listed before implementation | Confirmed |
+| Required tests exist and pass | Confirmed |

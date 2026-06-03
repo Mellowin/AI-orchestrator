@@ -2,11 +2,11 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `73baafa6d8ea6034a9d1ccfa2e98562309f74a9b`
+**Last verified:** `026f5d4eb4cb1a7e613d28f60dba44ce08591def`
 
 ## Test metrics
 
-- **Total tests:** 529
+- **Total tests:** 540
 - **Total suites:** 50
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
@@ -66,7 +66,7 @@
 - **`validateRealRepoApplySafety(task, repoStatus)` is implemented as a pure helper.** Validates all preconditions before any real-repo write: clean working tree, non-main current branch, valid `work_branch`, matching current branch and work_branch, `auto_commit`/`auto_push`/`auto_merge` all `false`. Returns `ValidationResult`. No fs/git/child_process/env/network/API keys/state writes. Unit-tested in isolation. Wired to `real-repo-apply-dry-run` CLI. Real repo apply remains disabled for writes.
 - **`buildRealRepoApplyDryRunSummary(input)` is implemented as a pure helper.** Builds normalized dry-run summary with safety messages. Trims strings, preserves file order, validates inputs (no empty strings, no duplicate paths after trim, finite lineDelta). No fs/git/child_process/env/network/API keys/state writes. Unit-tested in isolation. Wired to `real-repo-apply-dry-run` CLI. Real repo apply remains disabled for writes.
 - **`real-repo-apply-dry-run <taskId>` CLI command is implemented.** Read-only dry-run preview. Does NOT require `ALLOW_REAL_REPO_APPLY`. Reads `REAL_REPO_PROVIDER_RESPONSE` env var. Uses `parseKimiOutputJson` → `validateFileList` → `validateProposedFileLineDeltas` → `validateRealRepoApplySafety` → `buildRealRepoApplyDryRunSummary`. Prints summary with safety messages. Existing empty files correctly reported as `isNew=false` (fixed from `oldContent === ''` to `!fileExists`). No file writes, no patch apply, no state creation, no API calls, no git mutations. 15 CLI tests. |
-- **`real-repo-apply <taskId>` CLI pre-write validation flow is implemented.** Requires `ALLOW_REAL_REPO_APPLY=true`. Reads `REAL_REPO_PROVIDER_RESPONSE` env var. Parses via `parseKimiOutputJson`, validates file list via `validateFileList`, validates line deltas via `validateProposedFileLineDeltas`, validates repo safety via `validateRealRepoApplySafety`, builds plan via `buildRealRepoApplyPlan`. Prints plan summary with task id, current branch, work branch, files (action + backupPath). Still exits non-zero before file apply with message `real-repo-apply pre-write validation passed, but file apply is not implemented yet`. Prints safety messages (`No files were modified`, `No commit was made`, `No push was performed`, `No merge was performed`). No real repo writes, no `applyFileUpdates`, no `rollbackFileUpdates`, no provider call, no network, no API keys, no state write, no checkout/commit/push/merge/main touch. 23 CLI tests. Real repo write behavior still disabled.
+- **`real-repo-apply <taskId>` local file apply is implemented.** Requires `ALLOW_REAL_REPO_APPLY=true`. Uses `REAL_REPO_PROVIDER_RESPONSE` env var. Parses via `parseKimiOutputJson`, validates file list via `validateFileList`, validates line deltas via `validateProposedFileLineDeltas`, validates repo safety via `validateRealRepoApplySafety`, builds plan via `buildRealRepoApplyPlan`. Applies validated file updates via `applyFileUpdates`. Runs checks via `runChecks`. Rolls back on check failure via `rollbackFileUpdates`. Apply failure prints `Apply failed` + `Manual inspection required` + `Rollback could not be attempted because apply manifest was not returned`. Apply failure does NOT claim `No files were modified`. No state write, no provider call, no network, no API keys, no checkout/commit/push/merge/main touch. Human review required before commit. 34 CLI tests.
 - **`buildRealRepoApplyPlan(input)` pure helper is implemented.** Builds create/overwrite plan from `existingPaths` and proposed files. Builds `runDir` and `backupPath` strings. Validates taskId, attempt, paths, duplicates, content type, existingPaths. Rejects Unix absolute, Windows absolute (`C:/...`), traversal (`..`), backslash paths. Allows empty string content. Returns `{ok:false,reason,safetyMessages}` without throwing. No fs/git/child_process/env/network/API keys/state writes. Not wired to CLI. 25 unit tests. |
 - **`applyToSandboxRepo` exists as a pure helper.** Applies validated `FileUpdate[]` inside sandbox only, delegates to patch-engine for apply/rollback/path validation. Used indirectly by `sandbox-apply-preview` via `runSandboxApplyFlow`.
 - **`runSandboxApplyFlow` exists as a pure helper.** Orchestrates the full sandbox pipeline: parse → guardrails → sandbox copy → apply → checks → rollback/cleanup. Runs checks only in sandbox path. Real repo remains untouched. No state write. Wired to `sandbox-apply-preview` CLI.
@@ -79,9 +79,9 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 ## Next recommended work
 
 1. Stage 4.1 read-only dry-run CLI is complete and documented.
-2. `real-repo-apply <taskId>` pre-write validation flow is implemented and tested (requires `ALLOW_REAL_REPO_APPLY=true`, validates parse/guardrails/line-deltas/safety/plan, prints plan summary, refuses before write).
+2. Stage 4.2 local file apply is implemented and tested behind `ALLOW_REAL_REPO_APPLY=true`. Applies validated files, runs checks, rolls back on failure. No commit, no push, no merge, no state write.
 3. `buildRealRepoApplyPlan` pure helper is implemented and tested (wired to CLI).
-4. Next: Stage 4.2 actual file apply and rollback implementation behind `ALLOW_REAL_REPO_APPLY=true`, preserving all existing refusal tests.
+4. Next: document/plan Stage 4.3 commit boundary, or add explicit state-write decision before any auto-commit work. Do NOT implement auto-commit yet.
 5. Keep `createRealProviderCall` and `getProviderRetryDecision` wired only behind opt-in.
 6. Keep mock mode as default for tests and local development.
 7. Keep no push, no merge, no main touch.
