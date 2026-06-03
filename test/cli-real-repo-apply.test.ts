@@ -598,6 +598,176 @@ describe('cli real-repo-apply', () => {
     }
   });
 
+  test('apply failure exits non-zero', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, 'should exit non-zero');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('apply failure prints Apply failed', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(
+        result.stderr.includes('Apply failed'),
+        `Expected Apply failed, got: ${result.stderr}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('apply failure prints Manual inspection required', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(
+        result.stderr.includes('Manual inspection required'),
+        `Expected Manual inspection required, got: ${result.stderr}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('apply failure does NOT print No files were modified', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      const combined = result.stdout + result.stderr;
+      assert(
+        !combined.includes('No files were modified'),
+        `Should not claim no files modified after apply failure: ${combined}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('apply failure does not commit/push/merge/checkout', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const before = spawnSync(
+        'git',
+        ['log', '--oneline'],
+        { cwd: repoPath, encoding: 'utf-8', shell: false }
+      );
+      const beforeCount = before.stdout?.trim().split('\n').length ?? 0;
+      const beforeBranch = spawnSync(
+        'git',
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        { cwd: repoPath, encoding: 'utf-8', shell: false }
+      );
+      const branchBefore = beforeBranch.stdout?.trim() ?? '';
+
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stdout.includes('git push'));
+      assert(!result.stderr.includes('git push'));
+      assert(!result.stdout.includes('git merge'));
+      assert(!result.stderr.includes('git merge'));
+
+      const after = spawnSync(
+        'git',
+        ['log', '--oneline'],
+        { cwd: repoPath, encoding: 'utf-8', shell: false }
+      );
+      const afterCount = after.stdout?.trim().split('\n').length ?? 0;
+      assert.strictEqual(afterCount, beforeCount, 'commit count should not change');
+
+      const afterBranch = spawnSync(
+        'git',
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        { cwd: repoPath, encoding: 'utf-8', shell: false }
+      );
+      const branchAfter = afterBranch.stdout?.trim() ?? '';
+      assert.strictEqual(branchAfter, branchBefore, 'branch should not change');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('no stack trace and no API key leak in apply failure', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+        OPENAI_API_KEY: 'sk-fake-key-12345',
+      });
+      assert.notStrictEqual(result.status, 0);
+      const combined = result.stdout + result.stderr;
+      assert(
+        !combined.includes('    at '),
+        `Expected no stack trace, got: ${combined}`
+      );
+      assert(
+        !combined.includes('sk-fake-key-12345'),
+        `API key leaked in output: ${combined}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   test('check failure after overwrite rolls back original file', () => {
     const { taskId, repoPath, cleanup } = createTempEnv();
     const modifiedTasksPath = join(repoPath, '..', 'tasks-fail.yaml');

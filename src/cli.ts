@@ -1194,6 +1194,7 @@ if (command === 'real-repo-apply-dry-run') {
 }
 
 if (command === 'real-repo-apply') {
+  let applyStarted = false;
   try {
     if (process.env.ALLOW_REAL_REPO_APPLY !== 'true') {
       console.error('[real-repo-apply] ALLOW_REAL_REPO_APPLY=true is required');
@@ -1296,17 +1297,33 @@ if (command === 'real-repo-apply') {
       console.log(`[real-repo-apply]   ${f.path}: action=${f.action}, backupPath=${f.backupPath}`);
     }
 
-    const manifest = applyFileUpdates(task.repo_path, kimiOutput.files, planResult.runDir);
+    let manifest: import('./types.js').PatchManifestEntry[] | undefined;
+    try {
+      applyStarted = true;
+      manifest = applyFileUpdates(task.repo_path, kimiOutput.files, planResult.runDir);
+    } catch (applyErr) {
+      const applyMessage = applyErr instanceof Error ? applyErr.message : String(applyErr);
+      console.error(`[real-repo-apply] Apply failed: ${applyMessage}`);
+      console.error('[real-repo-apply] Manual inspection required');
+      console.error('[real-repo-apply] No commit was made');
+      console.error('[real-repo-apply] No push was performed');
+      console.error('[real-repo-apply] No merge was performed');
+      process.exit(1);
+    }
 
     const checkResult = runChecks(task.repo_path, task.checks);
     if (!checkResult.success) {
       console.error('[real-repo-apply] Checks failed');
-      try {
-        rollbackFileUpdates(task.repo_path, manifest);
-        console.error('[real-repo-apply] Rollback completed');
-      } catch (rollbackErr) {
-        const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
-        console.error(`[real-repo-apply] Rollback failed: ${rollbackMessage}`);
+      if (manifest && manifest.length > 0) {
+        try {
+          rollbackFileUpdates(task.repo_path, manifest);
+          console.error('[real-repo-apply] Rollback completed');
+        } catch (rollbackErr) {
+          const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+          console.error(`[real-repo-apply] Rollback failed: ${rollbackMessage}`);
+        }
+      } else {
+        console.error('[real-repo-apply] Rollback could not be attempted because apply manifest was not returned');
       }
       console.error('[real-repo-apply] No commit was made');
       console.error('[real-repo-apply] No push was performed');
@@ -1326,7 +1343,11 @@ if (command === 'real-repo-apply') {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-repo-apply] Error: ${message}`);
-    console.error('[real-repo-apply] No files were modified');
+    if (applyStarted) {
+      console.error('[real-repo-apply] Manual inspection required');
+    } else {
+      console.error('[real-repo-apply] No files were modified');
+    }
     console.error('[real-repo-apply] No commit was made');
     console.error('[real-repo-apply] No push was performed');
     console.error('[real-repo-apply] No merge was performed');
