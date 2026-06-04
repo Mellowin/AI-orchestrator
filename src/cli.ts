@@ -2412,7 +2412,7 @@ if (command === 'real-repo-pr-status') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }
@@ -4179,6 +4179,55 @@ if (command === 'block-run') {
     console.error('[block-run] No checkout was performed');
     console.error('[block-run] No main touch was performed');
     console.error('[block-run] No PR was created');
+    process.exit(1);
+  }
+}
+
+if (command === 'block-approval-report') {
+  try {
+    const blockJsonPath = taskId;
+    if (!blockJsonPath) {
+      console.error('[block-approval-report] Error: block JSON path is required');
+      process.exit(1);
+    }
+
+    const outputPath = process.env.BLOCK_APPROVAL_REPORT_OUTPUT?.trim();
+    const includeDiff = process.env.BLOCK_APPROVAL_INCLUDE_DIFF_SUMMARY === 'true';
+
+    const { generateBlockApprovalReport } = await import('./block/block-approval-report.js');
+    const result = generateBlockApprovalReport({
+      blockDefinitionPath: blockJsonPath,
+      outputPath: outputPath || undefined,
+      includeGitDiffSummary: includeDiff,
+    });
+
+    console.log(`[block-approval-report] Block: ${result.block_id}`);
+    console.log(`[block-approval-report] Report: ${result.output_path}`);
+    console.log(`[block-approval-report] Block status: ${result.block_status}`);
+    console.log(`[block-approval-report] Tasks accepted: ${result.tasks_accepted}/${result.tasks_total}`);
+    console.log(`[block-approval-report] PR-ready: ${result.pr_ready ? 'yes' : 'no'}`);
+    console.log(`[block-approval-report] Blocking issues: ${result.blocking_issues.length}`);
+    if (result.safety_findings.length > 0) {
+      console.log(`[block-approval-report] Safety findings: ${result.safety_findings.join('; ')}`);
+    }
+    console.log('[block-approval-report] No provider call was made');
+    console.log('[block-approval-report] No GitHub API call was made');
+    console.log('[block-approval-report] No PR was created');
+    console.log('[block-approval-report] No push was performed');
+    console.log('[block-approval-report] No merge was performed');
+    console.log('[block-approval-report] No checkout was performed');
+    console.log('[block-approval-report] No main touch was performed');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[block-approval-report] Error: ${message}`);
+    console.error('[block-approval-report] No provider call was made');
+    console.error('[block-approval-report] No GitHub API call was made');
+    console.error('[block-approval-report] No PR was created');
+    console.error('[block-approval-report] No push was performed');
+    console.error('[block-approval-report] No merge was performed');
+    console.error('[block-approval-report] No checkout was performed');
+    console.error('[block-approval-report] No main touch was performed');
     process.exit(1);
   }
 }

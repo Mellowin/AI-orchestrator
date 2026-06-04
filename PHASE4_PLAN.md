@@ -831,6 +831,49 @@ Properties:
 - Remove fake hashes, skipped/rejected contradictions.
 - No code changes.
 
+### Stage 6.9 — PR-ready Human Approval Package ✅
+
+**Status:** Implemented and tested.
+
+**Goal:** Generate a read-only markdown approval report from block definition + block state. Report is for human review before manual PR creation. No provider calls, no GitHub API, no git mutation, no PR creation, no push, no merge, no checkout/switch, no main touch.
+
+**Files:**
+- `src/block/block-approval-report.ts` — `generateBlockApprovalReport(input)` reads block definition and state, computes `pr_ready` boolean, gathers changed files from git (read-only diff), builds markdown report with secret redaction, writes report to `runs/blocks/<block_id>/approval-report.md` (or custom path under allowed directories).
+- `src/cli.ts` — `block-approval-report <blockJsonPath>` CLI command with optional `BLOCK_APPROVAL_REPORT_OUTPUT` and `BLOCK_APPROVAL_INCLUDE_DIFF_SUMMARY` env vars.
+- `test/block-approval-report.test.ts` — 24 unit tests covering `pr_ready` logic, report content, secret redaction, path safety, read-only behavior.
+
+**Report sections:**
+- Summary (block ID, title, branch, status, PR-ready yes/no)
+- Task Results table (task ID, status, commit SHA, reviewer decision, fix attempts, blocking issues, summary)
+- Commit Evidence (list of commit SHAs)
+- File Scope (allowed files, denied files, actually changed files, optional git diff stat)
+- Safety Checklist (no auto-merge, no PR creation, no main touch, no checkout, no force push, no API keys)
+- Human Decision (PR-ready or not with reasons)
+- Manual Next Commands (git status, git log, git diff suggestions)
+
+**`pr_ready` rules:**
+- Block status must be `completed`
+- All tasks must be `accepted`
+- Every accepted task must have a `commit_sha`
+- No tasks with `fix_required`, `blocked`, or `checks_failed`
+- `current_task_id` must be `null`
+- `work_branch` must not be `main`
+- No secrets detected in block state or definition
+
+**Safety:**
+- Read-only except report file write.
+- No provider calls.
+- No GitHub API.
+- No PR creation.
+- No merge.
+- No push.
+- No checkout/switch.
+- No main touch.
+- Secret redaction via `redactReviewerText` (sk-, Bearer, KIMI_API_KEY, GITHUB_TOKEN, etc.).
+- Output path restricted to `runs/blocks/`, cwd, or system tmpdir.
+
+**Tests:** 24 tests, all pass. Total suite: 1492 tests, 93 suites, 0 failures.
+
 ### Stage 6 Safety Rules
 
 - Do not implement merge in Stage 6.

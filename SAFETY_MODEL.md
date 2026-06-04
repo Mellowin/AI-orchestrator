@@ -25,6 +25,7 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 | `ALLOW_GITHUB_PR_STATUS=true` | 5.8 | Reading PR status from GitHub API |
 | `ALLOW_KIMI_REVIEWER=true` | 6.0 | Using Kimi as reviewer provider (default is fake) |
 | `ALLOW_BLOCK_RUN_ONE=true` | 6.3.1 | Running one-task autonomous loop in real mode |
+| *(none required)* | 6.9 | Generating block approval report (read-only + report write) |
 
 **Stage 6.3.1 / 6.4 Fake Mode Safety:** Fake mode does NOT mutate the real repository. No `git add`, `git commit`, `git push`, `git reset`, file apply, or check execution on the real repo. Fake mode simulates all outcomes and only updates block state.
 
@@ -48,6 +49,14 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 **Stage 6.6 Real Kimi Reviewer One-Task Mode Safety:**
 - All Stage 6.5 safety rules apply.
 - Provider config is resolved BEFORE state mutation (`markTaskInProgress`). Missing `KIMI_API_KEY` fails before task status changes.
+
+**Stage 6.9 Block Approval Report Safety:**
+- No opt-in flag required. The command is read-only except for writing the report file.
+- No provider call, no GitHub API, no git mutation, no PR creation, no push, no merge, no checkout/switch, no main touch.
+- Git operations are read-only: `git diff --name-only` and `git diff --stat` only.
+- Output path is restricted to `runs/blocks/`, current working directory, or system tmpdir.
+- All secrets are redacted from the report before write (`sk-`, `Bearer`, `KIMI_API_KEY`, `GITHUB_TOKEN`, etc.).
+- `pr_ready` is computed deterministically from block state; it is never influenced by external APIs.
 - Real Kimi reviewer is called ONLY after deterministic checks pass. If deterministic checks fail, reviewer is NOT called.
 - Requires `ALLOW_KIMI_REVIEWER=true`, `REVIEWER_PROVIDER=kimi`, `CODER_PROVIDER=kimi`.
 - Invalid reviewer decision schema or API failure throws safely without corrupting the committed state.

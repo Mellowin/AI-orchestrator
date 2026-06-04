@@ -448,6 +448,49 @@
 
 ---
 
+### `block-approval-report <blockJsonPath>`
+
+**Purpose:** Generate a PR-ready human approval markdown report from block definition and block state.
+
+**Required env:** None.
+
+**Optional env:**
+- `BLOCK_APPROVAL_REPORT_OUTPUT` — custom output path (must be under `runs/blocks/`, cwd, or system tmpdir)
+- `BLOCK_APPROVAL_INCLUDE_DIFF_SUMMARY` — include `git diff --stat` in report
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads git diff read-only ( `--name-only`, `--stat`)
+- Writes approval report markdown file
+
+**Forbidden actions:**
+- No provider call
+- No GitHub API
+- No PR creation
+- No merge
+- No push
+- No checkout/switch
+- No main touch
+- No commit
+- No apply
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/approval-report.md` (default)
+- Or custom path if `BLOCK_APPROVAL_REPORT_OUTPUT` is set and safe
+
+**Normal success message:**
+- `Block approval report written: <path>`
+- `PR-ready: yes` or `PR-ready: no`
+- `Tasks: <total>` / `Accepted: <n>` / `Fix required: <n>` / `Blocked: <n>`
+
+**Safe failure behavior:**
+- Missing block state or definition fails safely
+- Invalid output path fails safely
+- No stack trace leak
+- No API key leak
+
+---
+
 ### `block-transition <blockId> <taskId> <transition> [value]`
 
 **Purpose:** Manually apply a state transition.

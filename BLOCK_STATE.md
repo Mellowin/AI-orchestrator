@@ -39,6 +39,15 @@ Stage 6.8 implements **safe real multi-task Kimi→Kimi block loop**:
 - Stops safely on `fix_required`, `blocked`, or completed block
 - Preserves fake mode compatibility
 
+Stage 6.9 implements **PR-ready Human Approval Package**:
+- `block-approval-report <blockJsonPath>` CLI command generates markdown approval report
+- Reads block definition + state, computes `pr_ready` boolean
+- Gathers changed files from git read-only (`git diff --name-only`, `--stat`)
+- Report includes task table, commit evidence, file scope, safety checklist, human decision, manual next commands
+- Secret redaction applied before write (`sk-`, `Bearer`, `KIMI_API_KEY`, `GITHUB_TOKEN`)
+- No provider calls, no GitHub API, no git mutation, no PR creation, no push/merge/checkout/main touch
+- Output path restricted to `runs/blocks/`, cwd, or system tmpdir
+
 ---
 
 ## What this stage does NOT do
