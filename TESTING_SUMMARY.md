@@ -8,7 +8,7 @@
 
 - **Total tests:** 1436
 - **Total suites:** 90
-- **Last verified commit:** `pending final commit hash` (Stage 6.6 Real Kimi Reviewer Gate)
+- **Last verified commit:** `ff47bfaf841f082025843a9933e59baf6fabce28` (Stage 6.6 Real Kimi Reviewer Gate)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -28,7 +28,7 @@
 | Stage 6.4 | Safe Multi-Task Fake Block Loop | `3034a3f074fd107c696813b18591d6c0d5f6da88` |
 | Stage 6.5 | Real Kimi Coder + Fake Reviewer One-Task Loop | `eb1341e8fe8e8dc59f768eaa7cb29a4039ecf322` |
 | Stage 6.5.1 | Real Mode Credential and Push State Fix | `bd962ab31caa197a859d4d2441f25cf5f4294f30` |
-| Stage 6.6 | Real Kimi Reviewer Gate | `pending final commit hash` |
+| Stage 6.6 | Real Kimi Reviewer Gate | `ff47bfaf841f082025843a9933e59baf6fabce28` |
 
 ## Covered layers
 
