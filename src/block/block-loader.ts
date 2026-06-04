@@ -86,6 +86,9 @@ export function loadBlockDefinition(path: string): BlockDefinition {
   if (!coderObj.model || typeof coderObj.model !== 'string') {
     throw new Error('Block definition missing required field: providers.coder.model');
   }
+  if ('apiKey' in coderObj) {
+    throw new Error('Provider apiKey must not be stored in block definition; use environment variables');
+  }
 
   const reviewer = providersObj.reviewer;
   if (typeof reviewer !== 'object' || reviewer === null || Array.isArray(reviewer)) {
@@ -97,6 +100,9 @@ export function loadBlockDefinition(path: string): BlockDefinition {
   }
   if (!reviewerObj.model || typeof reviewerObj.model !== 'string') {
     throw new Error('Block definition missing required field: providers.reviewer.model');
+  }
+  if ('apiKey' in reviewerObj) {
+    throw new Error('Provider apiKey must not be stored in block definition; use environment variables');
   }
 
   // Review policy

@@ -5,6 +5,7 @@ import {
   buildCoderInputFromBlockTask,
   buildTaskGuardrailsFromBlockTask,
   resolveCoderAndReviewerProviders,
+  buildProviderConfigForRuntime,
 } from '../src/block/block-task-runner.js';
 import type { BlockDefinition, BlockState, BlockTaskDefinition } from '../src/block/block-types.js';
 
@@ -176,8 +177,8 @@ describe('block-task-runner', () => {
     it('returns fake providers in fake mode', () => {
       const providers = resolveCoderAndReviewerProviders({
         mode: 'fake',
-        coderConfig: { provider: 'fake', model: 'fake' },
-        reviewerConfig: { provider: 'fake', model: 'fake' },
+        coderBlockConfig: { provider: 'fake', model: 'fake' },
+        reviewerBlockConfig: { provider: 'fake', model: 'fake' },
         allowRealProvider: false,
         allowKimiReviewer: false,
       });
@@ -188,8 +189,8 @@ describe('block-task-runner', () => {
     it('provider resolution fake does not create real providers', () => {
       const providers = resolveCoderAndReviewerProviders({
         mode: 'fake',
-        coderConfig: { provider: 'fake', model: 'fake' },
-        reviewerConfig: { provider: 'fake', model: 'fake' },
+        coderBlockConfig: { provider: 'fake', model: 'fake' },
+        reviewerBlockConfig: { provider: 'fake', model: 'fake' },
         allowRealProvider: false,
         allowKimiReviewer: false,
       });
@@ -203,8 +204,8 @@ describe('block-task-runner', () => {
         () =>
           resolveCoderAndReviewerProviders({
             mode: 'real_kimi_coder_fake_reviewer',
-            coderConfig: { provider: 'kimi', model: 'kimi-k2.6' },
-            reviewerConfig: { provider: 'fake', model: 'fake' },
+            coderBlockConfig: { provider: 'kimi', model: 'kimi-k2.6' },
+            reviewerBlockConfig: { provider: 'fake', model: 'fake' },
             allowRealProvider: false,
             allowKimiReviewer: false,
           }),
@@ -217,8 +218,8 @@ describe('block-task-runner', () => {
         () =>
           resolveCoderAndReviewerProviders({
             mode: 'real_kimi_coder_fake_reviewer',
-            coderConfig: { provider: 'kimi', model: 'kimi-k2.6' },
-            reviewerConfig: { provider: 'fake', model: 'fake' },
+            coderBlockConfig: { provider: 'kimi', model: 'kimi-k2.6' },
+            reviewerBlockConfig: { provider: 'fake', model: 'fake' },
             allowRealProvider: false,
             allowKimiReviewer: false,
           }),
@@ -231,8 +232,8 @@ describe('block-task-runner', () => {
         () =>
           resolveCoderAndReviewerProviders({
             mode: 'real_kimi_coder_kimi_reviewer',
-            coderConfig: { provider: 'kimi', model: 'kimi-k2.6' },
-            reviewerConfig: { provider: 'kimi', model: 'kimi-k2.6' },
+            coderBlockConfig: { provider: 'kimi', model: 'kimi-k2.6' },
+            reviewerBlockConfig: { provider: 'kimi', model: 'kimi-k2.6' },
             allowRealProvider: true,
             allowKimiReviewer: false,
           }),
@@ -245,13 +246,97 @@ describe('block-task-runner', () => {
         () =>
           resolveCoderAndReviewerProviders({
             mode: 'real_kimi_coder_kimi_reviewer',
-            coderConfig: { provider: 'kimi', model: 'kimi-k2.6' },
-            reviewerConfig: { provider: 'kimi', model: 'kimi-k2.6' },
+            coderBlockConfig: { provider: 'kimi', model: 'kimi-k2.6' },
+            reviewerBlockConfig: { provider: 'kimi', model: 'kimi-k2.6' },
             allowRealProvider: true,
             allowKimiReviewer: false,
           }),
         /ALLOW_KIMI_REVIEWER=true/
       );
+    });
+  });
+
+  describe('buildProviderConfigForRuntime', () => {
+    it('copies provider and model from block config', () => {
+      const config = buildProviderConfigForRuntime(
+        { provider: 'fake', model: 'fake-model' },
+        'coder',
+        {}
+      );
+      assert.strictEqual(config.provider, 'fake');
+      assert.strictEqual(config.model, 'fake-model');
+    });
+
+    it('uses KIMI_API_KEY from env for Kimi provider', () => {
+      const config = buildProviderConfigForRuntime(
+        { provider: 'kimi', model: 'kimi-k2.6' },
+        'coder',
+        { KIMI_API_KEY: 'sk-test123' }
+      );
+      assert.strictEqual(config.provider, 'kimi');
+      assert.strictEqual(config.apiKey, 'sk-test123');
+    });
+
+    it('uses KIMI_BASE_URL from env if block config missing', () => {
+      const config = buildProviderConfigForRuntime(
+        { provider: 'kimi', model: 'kimi-k2.6' },
+        'coder',
+        { KIMI_API_KEY: 'sk-test', KIMI_BASE_URL: 'https://api.example.com' }
+      );
+      assert.strictEqual(config.baseUrl, 'https://api.example.com');
+    });
+
+    it('prefers block config baseUrl over env', () => {
+      const config = buildProviderConfigForRuntime(
+        { provider: 'kimi', model: 'kimi-k2.6', baseUrl: 'https://block.config' },
+        'coder',
+        { KIMI_API_KEY: 'sk-test', KIMI_BASE_URL: 'https://env.config' }
+      );
+      assert.strictEqual(config.baseUrl, 'https://block.config');
+    });
+
+    it('uses KIMI_USER_AGENT from env if block config missing', () => {
+      const config = buildProviderConfigForRuntime(
+        { provider: 'kimi', model: 'kimi-k2.6' },
+        'coder',
+        { KIMI_API_KEY: 'sk-test', KIMI_USER_AGENT: 'test-agent' }
+      );
+      assert.strictEqual(config.userAgent, 'test-agent');
+    });
+
+    it('throws if KIMI_API_KEY missing for Kimi provider', () => {
+      assert.throws(
+        () =>
+          buildProviderConfigForRuntime(
+            { provider: 'kimi', model: 'kimi-k2.6' },
+            'coder',
+            {}
+          ),
+        /KIMI_API_KEY is required/
+      );
+    });
+
+    it('error does not leak env key value', () => {
+      try {
+        buildProviderConfigForRuntime(
+          { provider: 'kimi', model: 'kimi-k2.6' },
+          'coder',
+          {}
+        );
+        assert.fail('Expected throw');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        assert.ok(!msg.includes('sk-secret'), 'Error leaked API key');
+      }
+    });
+
+    it('does not require apiKey in block JSON', () => {
+      const config = buildProviderConfigForRuntime(
+        { provider: 'kimi', model: 'kimi-k2.6' },
+        'coder',
+        { KIMI_API_KEY: 'sk-test' }
+      );
+      assert.strictEqual(config.apiKey, 'sk-test');
     });
   });
 });

@@ -192,12 +192,14 @@ The block state runner is **provider-agnostic**. It tracks task and block status
 
 Stage 6.5 wires the real Kimi coder provider into the one-task loop while keeping the reviewer fake:
 
-- **Coder:** `createKimiCoderProvider` with real `KIMI_API_KEY` + `KIMI_BASE_URL`
+- **Coder:** `createKimiCoderProvider` with real `KIMI_API_KEY` + `KIMI_BASE_URL` read from environment variables at runtime via `buildProviderConfigForRuntime`
 - **Reviewer:** `createFakeReviewerProvider` (deterministic gate handles rejection; fake reviewer only called on deterministic pass)
 - **Safety:** `validateRealOneTaskModeSafety` enforces flags + branch + clean tree BEFORE provider call
 - **Git helpers:** `stageOnlyFiles`, `commitStagedChanges`, `pushCurrentBranch`, `assertNoUnrelatedChanges` in `src/block/block-real-mode-git.ts`
 - **Commit message:** `ai-orchestrator: <block_id> <task_id>`
-- **Push:** Optional (`ALLOW_REAL_REPO_PUSH`); if disabled, `pushed=false` in result
+- **Push:** Optional (`ALLOW_REAL_REPO_PUSH`); if disabled, `pushed=false` in result and `pushed_ref` is not set in block state
+- **API keys:** Never stored in block JSON. `block-loader.ts` rejects any block definition containing `providers.coder.apiKey` or `providers.reviewer.apiKey`.
+- **Push state:** `markTaskPushed` is called only when push succeeds. `markTaskAccepted` preserves `pushed_ref` if set.
 
 Real Kimi reviewer (`real_kimi_coder_kimi_reviewer`) is explicitly rejected in Stage 6.5 and will be enabled in Stage 6.6.
 

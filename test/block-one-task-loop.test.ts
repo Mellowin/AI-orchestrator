@@ -499,7 +499,7 @@ describe('block-one-task-loop', () => {
         base_branch: 'main',
         work_branch: 'feature/test',
         providers: {
-          coder: { provider: 'kimi', model: 'kimi-k2.6', apiKey: 'fake-key', baseUrl: 'https://api.moonshot.cn/v1' },
+          coder: { provider: 'kimi', model: 'kimi-k2.6' },
           reviewer: { provider: 'fake', model: 'fake-model' },
         },
         review_policy: {
@@ -531,10 +531,14 @@ describe('block-one-task-loop', () => {
       writeFileSync(join(runDir, 'block-state.json'), JSON.stringify(state, null, 2));
 
       originalFetch = globalThis.fetch;
+      process.env.KIMI_API_KEY = 'fake-key';
+      process.env.KIMI_BASE_URL = 'https://api.moonshot.cn/v1';
     });
 
     afterEach(() => {
       globalThis.fetch = originalFetch;
+      delete process.env.KIMI_API_KEY;
+      delete process.env.KIMI_BASE_URL;
       try {
         const runDir = getBlockRunDir(realBlockId);
         if (existsSync(runDir)) {
@@ -698,7 +702,7 @@ describe('block-one-task-loop', () => {
         base_branch: 'main',
         work_branch: 'feature/test',
         providers: {
-          coder: { provider: 'kimi', model: 'kimi-k2.6', apiKey: 'fake-key', baseUrl: 'https://api.moonshot.cn/v1' },
+          coder: { provider: 'kimi', model: 'kimi-k2.6' },
           reviewer: { provider: 'fake', model: 'fake-model' },
         },
         review_policy: {
@@ -785,6 +789,27 @@ describe('block-one-task-loop', () => {
       });
 
       assert.strictEqual(result.pushed, false);
+      assert.ok(result.safety_findings.some((f) => f.includes('Push not performed')));
+    });
+
+    it('missing KIMI_API_KEY fails safely before provider call', async () => {
+      delete process.env.KIMI_API_KEY;
+      await assert.rejects(
+        runOneTaskLoop({
+          blockId: realBlockId,
+          mode: 'real_kimi_coder_fake_reviewer',
+          allowBlockRunOne: true,
+          allowRealProvider: true,
+          allowRealRepoApply: true,
+          allowRealRepoCommit: true,
+          allowRealRepoPush: false,
+          allowKimiReviewer: false,
+          reviewerProvider: 'fake',
+          coderProvider: 'kimi',
+          blockDefinitionPath: realBlockJsonPath,
+        }),
+        /KIMI_API_KEY is required/
+      );
     });
 
     it('real mode reviewer is fake', async () => {
@@ -836,6 +861,41 @@ describe('block-one-task-loop', () => {
       assert.strictEqual(task!.status, 'accepted');
       assert.ok(task!.commit_sha);
       assert.strictEqual(task!.commit_sha!.length, 40);
+      assert.strictEqual(task!.pushed_ref, null);
+    });
+
+    it('accepted + pushed=true stores pushed_ref in block state', async () => {
+      globalThis.fetch = buildFakeKimiFetchResponse([
+        { path: 'greeting.txt', content: 'hello world\n' },
+      ]);
+
+      // Set up a bare remote so push can succeed
+      const remotePath = mkdtempSync(join(tmpdir(), 'block-git-remote-'));
+      spawnSync('git', ['init', '--bare'], { cwd: remotePath, shell: false, encoding: 'utf-8' });
+      spawnSync('git', ['remote', 'add', 'origin', remotePath], { cwd: realRepoPath, shell: false, encoding: 'utf-8' });
+
+      await runOneTaskLoop({
+        blockId: realBlockId,
+        mode: 'real_kimi_coder_fake_reviewer',
+        allowBlockRunOne: true,
+        allowRealProvider: true,
+        allowRealRepoApply: true,
+        allowRealRepoCommit: true,
+        allowRealRepoPush: true,
+        allowKimiReviewer: false,
+        reviewerProvider: 'fake',
+        coderProvider: 'kimi',
+        blockDefinitionPath: realBlockJsonPath,
+      });
+
+      const state = loadBlockState(realBlockId);
+      assert.ok(state);
+      const task = state!.tasks.find((t) => t.task_id === 'task-1');
+      assert.strictEqual(task!.status, 'accepted');
+      assert.ok(task!.commit_sha);
+      assert.strictEqual(task!.pushed_ref, 'feature/test');
+
+      rmSync(remotePath, { recursive: true, force: true });
     });
 
     it('real mode rejected updates fix_required', async () => {

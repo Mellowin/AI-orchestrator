@@ -43,6 +43,8 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - Check failure triggers `rollbackFileUpdates` before any commit.
 - Push is optional (`ALLOW_REAL_REPO_PUSH`); if disabled, commit is local only.
 - `real_kimi_coder_kimi_reviewer` is explicitly rejected in Stage 6.5.
+- **API keys are never stored in block JSON.** `KIMI_API_KEY` is read from environment variables at runtime. Block JSON rejection guards prevent `apiKey` from being persisted in block definitions.
+- Push state is recorded in block state only when push succeeds.
 
 **Default:** All flags are `false` (deny-by-default).
 

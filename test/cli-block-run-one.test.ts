@@ -204,6 +204,22 @@ describe('cli block-run-one', () => {
     );
   });
 
+  test('real mode missing KIMI_API_KEY fails safely', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'real_kimi_coder_fake_reviewer',
+      ALLOW_BLOCK_RUN_ONE: 'true',
+      ALLOW_REAL_PROVIDER: 'true',
+      ALLOW_REAL_REPO_APPLY: 'true',
+      ALLOW_REAL_REPO_COMMIT: 'true',
+      KIMI_API_KEY: '',
+    });
+    assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);
+    assert.ok(
+      result.stderr.includes('KIMI_API_KEY') || result.stderr.includes('not implemented safely yet'),
+      result.stderr
+    );
+  });
+
   test('no API key leak', () => {
     const result = runCli(['block-run-one', blockJsonPath], {
       BLOCK_RUN_ONE_MODE: 'fake',

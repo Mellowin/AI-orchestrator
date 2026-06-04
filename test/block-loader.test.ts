@@ -234,6 +234,42 @@ describe('block-loader', () => {
     }
   });
 
+  test('rejects providers.coder.apiKey', () => {
+    const b = validBlock();
+    (b.providers as Record<string, unknown>).coder = { provider: 'kimi', model: 'kimi-k2.6', apiKey: 'sk-secret123' };
+    const { path, cleanup } = createTempBlockFile(b);
+    try {
+      assert.throws(() => loadBlockDefinition(path), /apiKey must not be stored/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('rejects providers.reviewer.apiKey', () => {
+    const b = validBlock();
+    (b.providers as Record<string, unknown>).reviewer = { provider: 'kimi', model: 'kimi-k2.6', apiKey: 'sk-secret123' };
+    const { path, cleanup } = createTempBlockFile(b);
+    try {
+      assert.throws(() => loadBlockDefinition(path), /apiKey must not be stored/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('error does not leak key value', () => {
+    const b = validBlock();
+    (b.providers as Record<string, unknown>).coder = { provider: 'kimi', model: 'kimi-k2.6', apiKey: 'sk-secret123' };
+    const { path, cleanup } = createTempBlockFile(b);
+    try {
+      assert.throws(() => loadBlockDefinition(path), (err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        return msg.includes('apiKey must not be stored') && !msg.includes('sk-secret123');
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
   test('no GitHub API call', () => {
     const { path, cleanup } = createTempBlockFile(validBlock());
     try {

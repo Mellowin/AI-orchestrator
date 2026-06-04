@@ -457,10 +457,12 @@
 - `BLOCK_RUN_ONE_MODE` — `fake` (default), `real_kimi_coder_fake_reviewer`, `real_kimi_coder_kimi_reviewer`
 - `ALLOW_BLOCK_RUN_ONE=true` (for any non-fake mode)
 - `ALLOW_REAL_PROVIDER=true` (for real coder)
-- `ALLOW_KIMI_REVIEWER=true` (for real Kimi reviewer)
 - `ALLOW_REAL_REPO_APPLY=true` (for real file apply)
 - `ALLOW_REAL_REPO_COMMIT=true` (for real commit)
-- `ALLOW_REAL_REPO_PUSH=true` (for real push)
+- `ALLOW_REAL_REPO_PUSH=true` (optional, for real push)
+- `KIMI_API_KEY` (for real Kimi coder — never stored in block JSON)
+- `KIMI_BASE_URL` (optional, for real Kimi coder)
+- `KIMI_USER_AGENT` (optional, for real Kimi coder)
 
 **Allowed mutation:**
 - Fake mode: Calls fake coder + fake reviewer. Simulates checks, commit, evidence. **No real repo mutation.** Only writes block state.

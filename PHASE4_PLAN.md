@@ -754,30 +754,37 @@ Properties:
 
 ### Stage 6.5 — Real Kimi Coder + Fake Reviewer One-Task Loop ✅
 
-- Real Kimi coder provider call
+- Real Kimi coder provider call (credentials from env only)
 - Fake reviewer (deterministic gate + fake provider)
 - Real file apply, check, commit on work branch
 - Optional push (`ALLOW_REAL_REPO_PUSH`)
 - Strict allow flags before any mutation
 - Branch safety and dirty repo protection
 - `real_kimi_coder_kimi_reviewer` explicitly rejected
+- API keys never stored in block JSON
+- Push state recorded in block state when push succeeds
 
 **Files:**
 - `src/block/block-real-mode-safety.ts` — pure safety validation
 - `src/block/block-real-mode-git.ts` — git helpers (`stageOnlyFiles`, `commitStagedChanges`, `pushCurrentBranch`, `assertNoUnrelatedChanges`)
-- `src/block/block-one-task-loop.ts` — wired real mode
-- `src/block/block-task-runner.ts` — `convertBlockChecks`
-- `src/block/block-types.ts` — optional `apiKey`/`baseUrl`/`userAgent` on provider config
+- `src/block/block-one-task-loop.ts` — wired real mode, push state recording
+- `src/block/block-task-runner.ts` — `convertBlockChecks`, `buildProviderConfigForRuntime`
+- `src/block/block-loader.ts` — rejects `apiKey` in block JSON
 - `test/block-real-mode-safety.test.ts` (14 tests)
 - `test/block-real-mode-git.test.ts` (12 tests)
-- `test/block-one-task-loop.test.ts` (+16 real mode tests)
-- `test/cli-block-run-one.test.ts` (+1 test)
+- `test/block-one-task-loop.test.ts` (+19 real mode tests)
+- `test/cli-block-run-one.test.ts` (+2 tests)
+- `test/block-loader.test.ts` (+3 tests)
+- `test/block-task-runner.test.ts` (+8 tests)
 
 **Safety:**
 - No `git add -A`
 - No `git reset --hard`
 - No real reviewer call
 - No merge, no PR, no checkout/switch, no main touch
+- API keys rejected in block JSON
+- `KIMI_API_KEY` loaded from env at runtime
+- Missing key fails safely before provider call
 - Tests use temp git repos + injected fake `fetch` — no real API calls
 
 ### Stage 6.6 — Block Completion Report

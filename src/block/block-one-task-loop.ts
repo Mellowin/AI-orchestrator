@@ -10,6 +10,7 @@ import {
   markTaskAccepted,
   markTaskFixRequired,
   markTaskBlocked,
+  markTaskPushed,
 } from './block-transitions.js';
 import {
   getCurrentBlockTaskDefinition,
@@ -148,12 +149,13 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   // 5. Resolve providers
   const providers = resolveCoderAndReviewerProviders({
     mode: input.mode,
-    coderConfig: blockDefinition.providers.coder as import('../providers/provider-types.js').ProviderConfig,
-    reviewerConfig: blockDefinition.providers.reviewer as import('../providers/provider-types.js').ProviderConfig,
+    coderBlockConfig: blockDefinition.providers.coder,
+    reviewerBlockConfig: blockDefinition.providers.reviewer,
     allowRealProvider: input.allowRealProvider,
     allowKimiReviewer: input.reviewerProvider === 'kimi' && input.allowRealProvider,
     fakeCoderOptions: input.fakeCoderOptions,
     fakeReviewerOptions: input.fakeReviewerOptions,
+    env: process.env,
   });
 
   // 6. Build coder input
@@ -374,10 +376,16 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
 
   if (reviewerGateResult.decision.decision === 'accepted') {
     blockState = markTaskCommitted(blockState, taskId, commitSha);
+    if (pushed) {
+      blockState = markTaskPushed(blockState, taskId, commitSha, blockDefinition.work_branch);
+    }
     blockState = markTaskWaitingReview(blockState, taskId);
     blockState = markTaskAccepted(blockState, taskId, reviewerGateResult.decision.review_summary);
     statusAfter = 'accepted';
     nextAction = 'advance_to_next_task';
+    if (!pushed) {
+      safetyFindings.push('Push not performed');
+    }
   } else if (reviewerGateResult.decision.next_action === 'block_for_human') {
     blockState = markTaskBlocked(
       blockState,
@@ -410,6 +418,6 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     pushed,
     reviewer_decision: reviewerGateResult.decision.decision,
     next_action: nextAction,
-    safety_findings: reviewerGateResult.safetyFindings,
+    safety_findings: [...safetyFindings, ...reviewerGateResult.safetyFindings],
   };
 }

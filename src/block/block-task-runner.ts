@@ -4,6 +4,7 @@ import type {
   BlockDefinition,
   BlockState,
   BlockTaskDefinition,
+  BlockProviderRoleConfig,
 } from './block-types.js';
 import type {
   CoderTaskInput,
@@ -88,15 +89,51 @@ export function convertBlockChecks(checks: string[]): Check[] {
   });
 }
 
+export function buildProviderConfigForRuntime(
+  blockConfig: BlockProviderRoleConfig,
+  role: 'coder' | 'reviewer',
+  env: NodeJS.ProcessEnv = process.env
+): ProviderConfig {
+  const config: ProviderConfig = {
+    provider: blockConfig.provider as import('../providers/provider-types.js').ProviderId,
+    model: blockConfig.model,
+  };
+
+  if (blockConfig.baseUrl) {
+    config.baseUrl = blockConfig.baseUrl;
+  }
+  if (blockConfig.userAgent) {
+    config.userAgent = blockConfig.userAgent;
+  }
+
+  if (blockConfig.provider === 'kimi') {
+    const apiKey = env.KIMI_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error('KIMI_API_KEY is required for real Kimi provider');
+    }
+    config.apiKey = apiKey;
+
+    if (!config.baseUrl && env.KIMI_BASE_URL) {
+      config.baseUrl = env.KIMI_BASE_URL.trim();
+    }
+    if (!config.userAgent && env.KIMI_USER_AGENT) {
+      config.userAgent = env.KIMI_USER_AGENT.trim();
+    }
+  }
+
+  return config;
+}
+
 export interface ResolveProvidersInput {
   mode: OneTaskLoopMode;
-  coderConfig: ProviderConfig;
-  reviewerConfig: ProviderConfig;
+  coderBlockConfig: BlockProviderRoleConfig;
+  reviewerBlockConfig: BlockProviderRoleConfig;
   allowRealProvider: boolean;
   allowKimiReviewer: boolean;
   fakeCoderOptions?: FakeCoderOptions;
   fakeReviewerOptions?: FakeReviewerOptions;
   kimiReviewerOptions?: KimiReviewerProviderOptions;
+  env?: NodeJS.ProcessEnv;
 }
 
 export function resolveCoderAndReviewerProviders(
@@ -113,8 +150,9 @@ export function resolveCoderAndReviewerProviders(
       if (!input.allowRealProvider) {
         throw new Error('Mode real_kimi_coder_fake_reviewer requires ALLOW_REAL_PROVIDER=true');
       }
+      const coderConfig = buildProviderConfigForRuntime(input.coderBlockConfig, 'coder', input.env);
       return {
-        coder: createKimiCoderProvider(input.coderConfig),
+        coder: createKimiCoderProvider(coderConfig),
         reviewer: createFakeReviewerProvider(input.fakeReviewerOptions),
       };
     }
@@ -125,9 +163,11 @@ export function resolveCoderAndReviewerProviders(
       if (!input.allowKimiReviewer) {
         throw new Error('Mode real_kimi_coder_kimi_reviewer requires ALLOW_KIMI_REVIEWER=true');
       }
+      const coderConfig = buildProviderConfigForRuntime(input.coderBlockConfig, 'coder', input.env);
+      const reviewerConfig = buildProviderConfigForRuntime(input.reviewerBlockConfig, 'reviewer', input.env);
       return {
-        coder: createKimiCoderProvider(input.coderConfig),
-        reviewer: createKimiReviewerProvider(input.reviewerConfig, input.kimiReviewerOptions),
+        coder: createKimiCoderProvider(coderConfig),
+        reviewer: createKimiReviewerProvider(reviewerConfig, input.kimiReviewerOptions),
       };
     }
     default: {
