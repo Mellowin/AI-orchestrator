@@ -8,7 +8,7 @@
 
 - **Total tests:** 1415
 - **Total suites:** 89
-- **Last verified commit:** `pending final commit hash` (Stage 6.5.1 Real Mode Credential and Push State Fix)
+- **Last verified commit:** `bd962ab31caa197a859d4d2441f25cf5f4294f30` (Stage 6.5.1 Real Mode Credential and Push State Fix)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -27,7 +27,7 @@
 | Stage 6.3.1 | Safe One-Task Loop Rewrite | `18f82098bf960ab429f59c33721e384901808067` |
 | Stage 6.4 | Safe Multi-Task Fake Block Loop | `3034a3f074fd107c696813b18591d6c0d5f6da88` |
 | Stage 6.5 | Real Kimi Coder + Fake Reviewer One-Task Loop | `eb1341e8fe8e8dc59f768eaa7cb29a4039ecf322` |
-| Stage 6.5.1 | Real Mode Credential and Push State Fix | `pending final commit hash` |
+| Stage 6.5.1 | Real Mode Credential and Push State Fix | `bd962ab31caa197a859d4d2441f25cf5f4294f30` |
 
 ## Covered layers
 
