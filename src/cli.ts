@@ -40,6 +40,21 @@ import { buildCommitEvidence, validateCommitSha } from './reviewer/commit-verifi
 import { runDeterministicReviewChecks } from './reviewer/deterministic-review-checks.js';
 import { buildReviewInput } from './reviewer/review-input-builder.js';
 import { runReviewerGate } from './reviewer/reviewer-gate.js';
+import { loadBlockDefinition } from './block/block-loader.js';
+import { initBlockState, loadBlockState, saveBlockState, updateBlockState } from './block/block-state-manager.js';
+import {
+  markTaskInProgress,
+  markTaskCoderDone,
+  markTaskChecksFailed,
+  markTaskCommitted,
+  markTaskPushed,
+  markTaskWaitingReview,
+  markTaskAccepted,
+  markTaskRejected,
+  markTaskFixRequired,
+  markTaskBlocked,
+} from './block/block-transitions.js';
+import { buildBlockStatusReport } from './block/block-report.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -2395,7 +2410,7 @@ if (command === 'real-repo-pr-status') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run> <taskId> [commitSha]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }
@@ -3859,6 +3874,141 @@ if (command === 'reviewer-gate-evidence-dry-run') {
     console.error('[reviewer-gate-evidence-dry-run] No merge was performed');
     console.error('[reviewer-gate-evidence-dry-run] No checkout was performed');
     console.error('[reviewer-gate-evidence-dry-run] No main touch was performed');
+    process.exit(1);
+  }
+}
+
+if (command === 'block-init') {
+  try {
+    const blockJsonPath = taskId;
+    if (!blockJsonPath) {
+      console.error('[block-init] Error: block JSON path is required');
+      process.exit(1);
+    }
+
+    const definition = loadBlockDefinition(blockJsonPath);
+    const state = initBlockState(definition);
+    saveBlockState(state);
+
+    console.log(`[block-init] Block initialized: ${state.block_id}`);
+    console.log(`[block-init] Title: ${state.title}`);
+    console.log(`[block-init] Tasks: ${state.tasks.length}`);
+    console.log(`[block-init] Current task: ${state.current_task_id ?? 'none'}`);
+    console.log('[block-init] No provider call was made');
+    console.log('[block-init] No git command was executed');
+    console.log('[block-init] No merge was performed');
+    console.log('[block-init] No checkout was performed');
+    console.log('[block-init] No main touch was performed');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[block-init] Error: ${message}`);
+    console.error('[block-init] No merge was performed');
+    console.error('[block-init] No checkout was performed');
+    console.error('[block-init] No main touch was performed');
+    process.exit(1);
+  }
+}
+
+if (command === 'block-status') {
+  try {
+    const blockId = taskId;
+    if (!blockId) {
+      console.error('[block-status] Error: block id is required');
+      process.exit(1);
+    }
+
+    const state = loadBlockState(blockId);
+    if (!state) {
+      console.error(`[block-status] Error: block state not found: ${blockId}`);
+      process.exit(1);
+    }
+
+    const report = buildBlockStatusReport(state);
+    console.log(report);
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[block-status] Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+if (command === 'block-transition') {
+  try {
+    const blockId = taskId;
+    const transitionTaskId = commitSha;
+    const transitionName = args[3];
+    const value = args[4];
+
+    if (!blockId || !transitionTaskId || !transitionName) {
+      console.error('[block-transition] Error: block id, task id, and transition are required');
+      console.error('[block-transition] Usage: block-transition <blockId> <taskId> <transition> [value]');
+      process.exit(1);
+    }
+
+    const validTransitions = [
+      'in_progress',
+      'coder_done',
+      'checks_failed',
+      'committed',
+      'pushed',
+      'waiting_review',
+      'accepted',
+      'rejected',
+      'fix_required',
+      'blocked',
+    ];
+    if (!validTransitions.includes(transitionName)) {
+      console.error(`[block-transition] Error: unknown transition "${transitionName}"`);
+      console.error(`[block-transition] Valid transitions: ${validTransitions.join(', ')}`);
+      process.exit(1);
+    }
+
+    const updated = updateBlockState(blockId, (state) => {
+      switch (transitionName) {
+        case 'in_progress':
+          return markTaskInProgress(state, transitionTaskId);
+        case 'coder_done':
+          return markTaskCoderDone(state, transitionTaskId);
+        case 'checks_failed':
+          return markTaskChecksFailed(state, transitionTaskId, value ? [value] : []);
+        case 'committed':
+          return markTaskCommitted(state, transitionTaskId, value || '');
+        case 'pushed':
+          return markTaskPushed(state, transitionTaskId, value || '', 'origin');
+        case 'waiting_review':
+          return markTaskWaitingReview(state, transitionTaskId);
+        case 'accepted':
+          return markTaskAccepted(state, transitionTaskId, value || '');
+        case 'rejected':
+          return markTaskRejected(state, transitionTaskId, value ? [value] : [], '');
+        case 'fix_required':
+          return markTaskFixRequired(state, transitionTaskId, value ? [value] : [], '');
+        case 'blocked':
+          return markTaskBlocked(state, transitionTaskId, value ? [value] : [], '');
+        default:
+          throw new Error(`Unhandled transition: ${transitionName}`);
+      }
+    });
+
+    console.log(`[block-transition] Transition applied: ${transitionName}`);
+    console.log(`[block-transition] Block: ${updated.block_id}`);
+    console.log(`[block-transition] Task: ${transitionTaskId}`);
+    console.log(`[block-transition] Block status: ${updated.status}`);
+    console.log(`[block-transition] Current task: ${updated.current_task_id ?? 'none'}`);
+    console.log('[block-transition] No provider call was made');
+    console.log('[block-transition] No git command was executed');
+    console.log('[block-transition] No merge was performed');
+    console.log('[block-transition] No checkout was performed');
+    console.log('[block-transition] No main touch was performed');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[block-transition] Error: ${message}`);
+    console.error('[block-transition] No merge was performed');
+    console.error('[block-transition] No checkout was performed');
+    console.error('[block-transition] No main touch was performed');
     process.exit(1);
   }
 }

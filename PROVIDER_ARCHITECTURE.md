@@ -179,7 +179,15 @@ The reviewer never sees coder self-report. It sees:
 - Check results
 - Safety findings
 
-## 11. Future Combinations
+## 11. Stage 6.2 — Block State Runner
+
+The block state runner is **provider-agnostic**. It tracks task and block statuses without knowing which provider executes the coder or reviewer.
+
+- `BlockDefinition` stores provider configuration, but the state manager does not read it.
+- `BlockState` tracks `task_id`, `status`, `commit_sha`, `reviewer_decision` — all provider-neutral fields.
+- The autonomous loop (Stage 6.3) will resolve providers from the registry and update block state via transitions.
+
+## 12. Future Combinations
 
 The architecture supports any combination without core loop changes:
 

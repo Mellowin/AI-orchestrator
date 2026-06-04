@@ -119,6 +119,7 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 | `runs/<taskId>/pr-created.json` | PR metadata | `real-repo-pr-create` |
 | `runs/<taskId>/pr-status-report.md` | PR status report | `real-repo-pr-status` |
 | `runs/<taskId>/pr-status.json` | PR status snapshot | `real-repo-pr-status` |
+| `runs/blocks/<blockId>/block-state.json` | Block state | `block-init`, `block-transition` |
 
 ### Must never be stored
 
@@ -127,6 +128,15 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - Env values or secrets
 - File contents in state/report files (unless expected output/report)
 - Credentials in URLs (`user:pass@host`)
+
+## 6.1 Block State Safety
+
+- Block state commands (`block-init`, `block-status`, `block-transition`) do not call providers.
+- Block state commands do not execute git commands.
+- Block state commands do not call GitHub API.
+- Block state files are stored only under `runs/blocks/<block_id>/`.
+- Path validation rejects writes outside the allowed runs directory.
+- Block state does not contain API keys, provider output, or git credentials.
 
 ---
 

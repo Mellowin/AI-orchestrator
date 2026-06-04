@@ -643,11 +643,30 @@ Properties:
 - No merge, no main touch, no checkout/switch.
 - 19 new tests (redaction, current branch, main branch blocking, token redaction in CLI).
 
-### Stage 6.2 — Block State Runner
+### Stage 6.2 — Block State Runner ✅
 
-- Implement `BlockState` data model and `BlockStateManager`.
-- Support save/load block state to `runs/{block_id}/block-state.json`.
-- Track task statuses, fix attempts, commit SHAs, reviewer decisions.
+- **Status:** Implemented and tested.
+- **Location:** `src/block/`, `test/block-*.test.ts`, `test/cli-block-state.test.ts`, `docs/block-example.json`
+- **Tests:** 75 tests across 5 new test suites
+
+Implementation:
+- **Block types** (`block-types.ts`): `BlockTaskStatus`, `BlockStatus`, `BlockDefinition`, `BlockTaskDefinition`, `BlockState`, `BlockTaskState`, `BlockProviderConfig`, `BlockReviewPolicy`.
+- **Block loader** (`block-loader.ts`): `loadBlockDefinition(path)` loads and validates JSON block definitions. Rejects missing fields, main work_branch, empty tasks, duplicate task_ids, invalid max_fix_attempts (1–5), missing providers. No provider/git/GitHub calls.
+- **Block state manager** (`block-state-manager.ts`): `initBlockState`, `saveBlockState` (atomic temp+rename), `loadBlockState`, `updateBlockState`, `getBlockRunDir`. State stored under `runs/blocks/<block_id>/block-state.json`. Path validation rejects writes outside allowed directory.
+- **Block transitions** (`block-transitions.ts`): Pure functions `markTaskInProgress`, `markTaskCoderDone`, `markTaskChecksFailed`, `markTaskCommitted`, `markTaskPushed`, `markTaskWaitingReview`, `markTaskAccepted`, `markTaskRejected`, `markTaskFixRequired`, `markTaskBlocked`. Accepted tasks cannot transition backwards. `markTaskAccepted` advances `current_task_id` or completes block. `markTaskBlocked` sets block status to `blocked`.
+- **Block report** (`block-report.ts`): `buildBlockStatusReport` produces markdown with task table, counts, safety note.
+- **CLI commands**:
+  - `block-init <blockJsonPath>` — loads definition, initializes and saves state.
+  - `block-status <blockId>` — loads state, prints markdown report.
+  - `block-transition <blockId> <taskId> <transition> [value]` — applies transition and saves state.
+- **Example block** (`docs/block-example.json`): 3-task auth block with Kimi coder + reviewer.
+
+Properties:
+- No provider calls.
+- No git commands.
+- No GitHub API calls.
+- No apply/commit/push/merge/checkout/main touch.
+- State files contain no API keys, provider output, or git credentials.
 
 ### Stage 6.3 — Autonomous One-Task Loop
 
@@ -720,4 +739,5 @@ Properties:
 | Phase 4 Stage 6.0 provider abstraction foundation | ✅ |
 | Phase 4 Stage 6.1 deterministic commit verifier / reviewer gate | ✅ |
 | Phase 4 Stage 6.1.1 reviewer gate safety hardening | ✅ |
+| Phase 4 Stage 6.2 block state runner | ✅ |
 | Opt-in flags defined | Confirmed |

@@ -104,6 +104,11 @@
 - **`reviewer-gate-dry-run <taskId>` CLI command is implemented.** Validates reviewer provider contract without repo mutation. Default provider is `fake` (deterministic, no network). `REVIEWER_PROVIDER=kimi` uses Kimi reviewer behind `ALLOW_KIMI_REVIEWER=true` with `KIMI_FAKE_REVIEWER_RESPONSE` test seam. No file writes, no git commands, no merge/checkout/main touch. 12 CLI tests.
 - **`reviewer-gate-evidence-dry-run <taskId> <commitSha>` CLI command is implemented.** Builds real commit evidence and runs deterministic reviewer gate dry-run. Validates commit SHA, reads changed files/diff/git status/current branch from local git, runs deterministic checks (scope, secrets, merge conflicts, branch safety), builds ReviewInput, runs reviewer gate. Default provider is `fake`. No file writes, no state writes, no git mutation, no push/merge/checkout/main touch. 20 CLI tests.
 - **Reviewer gate redaction** (`src/reviewer/reviewer-redaction.ts`) is implemented. Redacts `sk-` tokens, `Bearer` tokens, API key assignments, generic GitHub PATs, and `.env`-like secrets from dynamic text before inclusion in blocking issues, safety findings, review summary, fix task, and CLI output. 6 redaction tests.
+- **Block loader** (`src/block/block-loader.ts`) loads and validates block definition JSON. Rejects missing fields, main work_branch, empty tasks, duplicate task_ids, invalid max_fix_attempts, missing providers. 18 tests.
+- **Block state manager** (`src/block/block-state-manager.ts`) initializes, saves, loads, and updates block state atomically under `runs/blocks/<block_id>/`. 12 tests.
+- **Block transitions** (`src/block/block-transitions.ts`) pure functions for task state transitions. Accepted task cannot go backwards. markTaskAccepted advances current_task_id or completes block. markTaskFixRequired increments fix_attempts. markTaskBlocked blocks block. 18 tests.
+- **Block report** (`src/block/block-report.ts`) builds markdown status report with task table, counts, safety note. 8 tests.
+- **Block CLI** (`test/cli-block-state.test.ts`) `block-init` creates state file, `block-status` prints markdown, `block-transition` applies transitions with validation. 19 tests.
 
 ## Real provider execution plan
 
