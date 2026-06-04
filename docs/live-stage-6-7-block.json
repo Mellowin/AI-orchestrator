@@ -7,11 +7,11 @@
   "providers": {
     "coder": {
       "provider": "kimi",
-      "model": "kimi-for-coding"
+      "model": "kimi-k2.6"
     },
     "reviewer": {
       "provider": "kimi",
-      "model": "kimi-for-coding"
+      "model": "kimi-k2.6"
     }
   },
   "review_policy": {
