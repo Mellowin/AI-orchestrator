@@ -57,4 +57,32 @@ describe('kimi-output-validator', () => {
     assert.strictEqual(result.files.length, 0);
     assert.strictEqual(result.notes, 'Cannot safely modify files because ...');
   });
+
+  test('accepts file_updates alias for files', () => {
+    const raw = '{"file_updates":[{"path":"src/a.ts","content":"x"}]}';
+    const result = parseKimiOutputJson(raw);
+    assert.strictEqual(result.mode, 'file_update');
+    assert.strictEqual(result.files.length, 1);
+    assert.strictEqual(result.files[0].path, 'src/a.ts');
+    assert.strictEqual(result.files[0].content, 'x');
+  });
+
+  test('defaults mode to file_update when files present', () => {
+    const raw = '{"files":[{"path":"src/a.ts","content":"x"}]}';
+    const result = parseKimiOutputJson(raw);
+    assert.strictEqual(result.mode, 'file_update');
+    assert.strictEqual(result.files.length, 1);
+  });
+
+  test('defaults mode to file_update when file_updates present', () => {
+    const raw = '{"file_updates":[{"path":"src/a.ts","content":"x"}]}';
+    const result = parseKimiOutputJson(raw);
+    assert.strictEqual(result.mode, 'file_update');
+    assert.strictEqual(result.files.length, 1);
+  });
+
+  test('still rejects invalid mode value', () => {
+    const raw = '{"mode":"patch","files":[{"path":"src/a.ts","content":"x"}]}';
+    assert.throws(() => parseKimiOutputJson(raw), /Invalid KimiOutput mode/);
+  });
 });

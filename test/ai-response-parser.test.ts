@@ -22,10 +22,16 @@ describe('ai-response-parser', () => {
       assert.strictEqual(result.files.length, 0);
     });
 
-    test('rejects missing mode', () => {
+    test('accepts missing mode when files are present', () => {
+      const result = validateKimiOutput({ files: [{ path: 'src/a.ts', content: 'x' }] });
+      assert.strictEqual(result.mode, 'file_update');
+      assert.strictEqual(result.files.length, 1);
+    });
+
+    test('rejects missing mode when no files or file_updates present', () => {
       assert.throws(
-        () => validateKimiOutput({ files: [] }),
-        /Invalid KimiOutput mode/
+        () => validateKimiOutput({}),
+        /KimiOutput\.files must be an array/
       );
     });
 

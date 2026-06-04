@@ -34,21 +34,31 @@ export function validateKimiOutput(value: unknown): KimiOutput {
     throw new Error('KimiOutput must be an object');
   }
 
-  if (value.mode !== 'file_update') {
-    throw new Error(
-      `Invalid KimiOutput mode: expected "file_update", got "${String(value.mode)}"`
-    );
+  // Support both `files` and `file_updates` keys produced by different models.
+  const rawFiles = Array.isArray(value.files)
+    ? value.files
+    : Array.isArray(value.file_updates)
+      ? value.file_updates
+      : null;
+
+  if (rawFiles === null) {
+    throw new Error('KimiOutput.files must be an array');
   }
 
-  if (!Array.isArray(value.files)) {
-    throw new Error('KimiOutput.files must be an array');
+  // Some real providers omit `mode` and return only the file array.
+  // Default to file_update when a recognizable file list is present.
+  const mode = value.mode;
+  if (mode !== undefined && mode !== 'file_update') {
+    throw new Error(
+      `Invalid KimiOutput mode: expected "file_update", got "${String(mode)}"`
+    );
   }
 
   const seen = new Set<string>();
   const files: { path: string; content: string }[] = [];
 
-  for (let i = 0; i < value.files.length; i++) {
-    const item = value.files[i];
+  for (let i = 0; i < rawFiles.length; i++) {
+    const item = rawFiles[i];
     if (!isObject(item)) {
       throw new Error(`KimiOutput.files[${i}] must be an object`);
     }
