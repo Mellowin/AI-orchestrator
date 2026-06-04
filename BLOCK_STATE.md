@@ -147,9 +147,14 @@ Rules:
 - An `accepted` task cannot transition backwards.
 - `markTaskAccepted` advances `current_task_id` to the next pending task.
 - If all tasks are `accepted`, the block status becomes `completed`.
-- `markTaskFixRequired` increments `fix_attempts`.
+- `markTaskFixRequired` increments `fix_attempts` and uses `state.review_policy.max_fix_attempts`.
+  - If `fix_attempts >= review_policy.max_fix_attempts`, the task becomes `blocked`, the block status becomes `blocked`, and `current_task_id` is cleared.
+  - Otherwise, the task becomes `fix_required` and the block status becomes `fixing`.
 - `markTaskBlocked` sets block status to `blocked` and clears `current_task_id`.
 - `markTaskCommitted` requires a full 40-character hex SHA.
+- `markTaskInProgress` from `rejected`/`fix_required`/`checks_failed` clears stale `blocking_issues`, `reviewer_decision`, `reviewer_summary`, `commit_sha`, and `pushed_ref` so the next review starts clean.
+- `markTaskInProgress` from `blocked` is rejected (human must unblock first).
+- Old state missing `review_policy` fails safely when `markTaskFixRequired` is called.
 
 ---
 
@@ -187,3 +192,8 @@ Supported transitions:
 - Path validation rejects writes outside the allowed directory.
 - No provider, git, or GitHub API calls from block state commands.
 - Safe error messages without secret leakage.
+- `review_policy` is stored in `BlockState` on initialization and is required for `markTaskFixRequired`.
+- `max_fix_attempts` is enforced in `markTaskFixRequired`; exceeding it blocks the task automatically.
+- Restarting a task from `rejected`/`fix_required`/`checks_failed` clears stale reviewer data and blocking issues to prevent false rejections on the next attempt.
+- `blocked` tasks cannot be restarted via `in_progress` without human intervention.
+- No endless retry loops: `max_fix_attempts` is bounded (1–5) and enforced.

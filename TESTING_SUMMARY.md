@@ -6,9 +6,9 @@
 
 ## Test metrics
 
-- **Total tests:** 1272
+- **Total tests:** 1287
 - **Total suites:** 76
-- **Last verified commit:** `15d119d64e0f30ab80e6510690582eb64320839c` (Stage 6.2 Block State Runner)
+- **Last verified commit:** `pending final commit hash` (Stage 6.2.1 Block State Fix Loop Hardening)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -23,6 +23,7 @@
 | Stage 6.1 | Deterministic Commit Verifier for Reviewer Gate | `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38` |
 | Stage 6.1.1 | Reviewer Gate Safety Hardening | `57f340af8de1c3a289d92a0f594959e9e35eeb37` |
 | Stage 6.2 | Block State Runner | `15d119d64e0f30ab80e6510690582eb64320839c` |
+| Stage 6.2.1 | Block State Fix Loop Hardening | `pending final commit hash` |
 
 ## Covered layers
 
@@ -107,9 +108,9 @@
 - **Reviewer gate redaction** (`src/reviewer/reviewer-redaction.ts`) is implemented. Redacts `sk-` tokens, `Bearer` tokens, API key assignments, generic GitHub PATs, and `.env`-like secrets from dynamic text before inclusion in blocking issues, safety findings, review summary, fix task, and CLI output. 6 redaction tests.
 - **Block loader** (`src/block/block-loader.ts`) loads and validates block definition JSON. Rejects missing fields, main work_branch, empty tasks, duplicate task_ids, invalid max_fix_attempts, missing providers. 18 tests.
 - **Block state manager** (`src/block/block-state-manager.ts`) initializes, saves, loads, and updates block state atomically under `runs/blocks/<block_id>/`. 12 tests.
-- **Block transitions** (`src/block/block-transitions.ts`) pure functions for task state transitions. Accepted task cannot go backwards. markTaskAccepted advances current_task_id or completes block. markTaskFixRequired increments fix_attempts. markTaskBlocked blocks block. 18 tests.
-- **Block report** (`src/block/block-report.ts`) builds markdown status report with task table, counts, safety note. 8 tests.
-- **Block CLI** (`test/cli-block-state.test.ts`) `block-init` creates state file, `block-status` prints markdown, `block-transition` applies transitions with validation. 19 tests.
+- **Block transitions** (`src/block/block-transitions.ts`) pure functions for task state transitions. Accepted task cannot go backwards. markTaskAccepted advances current_task_id or completes block. markTaskFixRequired increments fix_attempts and enforces max_fix_attempts. markTaskBlocked blocks block. markTaskInProgress from rejected/fix_required/checks_failed clears stale blocking issues. markTaskInProgress from blocked is rejected. 27 tests.
+- **Block report** (`src/block/block-report.ts`) builds markdown status report with task table, counts, safety note, review policy. 9 tests.
+- **Block CLI** (`test/cli-block-state.test.ts`) `block-init` creates state file, `block-status` prints markdown, `block-transition` applies transitions with validation. Repeated fix_required reaches max and blocks. in_progress after fix_required clears previous issue. Blocked task cannot restart via in_progress. 22 tests.
 
 ## Real provider execution plan
 
@@ -120,8 +121,7 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 1. Stage 4.x and 5.x pipeline is complete (apply, commit, push, PR create/status, readiness, approval report).
 2. Stage 6.0 Provider Abstraction Foundation is complete: provider types, registry, fake/Kimi adapters, reviewer schema, reviewer gate dry-run CLI.
 3. Stage 6.1 Deterministic Commit Verifier for Reviewer Gate is complete: commit verifier, deterministic checks, review input builder, reviewer gate, evidence dry-run CLI.
-4. Next: Stage 6.2 Block State Runner — `BlockState` data model and `BlockStateManager`.
-5. Next: Stage 6.3 Autonomous One-Task Loop — wire Kimi coder + Kimi reviewer for a single task.
+4. Next: Stage 6.3 Autonomous One-Task Loop — wire Kimi coder + Kimi reviewer for a single task.
 6. Keep mock mode as default for tests and local development.
 7. Keep no push, no merge, no main touch.
 8. Do not implement merge without dedicated safety design document.

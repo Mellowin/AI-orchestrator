@@ -84,4 +84,5 @@ export interface BlockState {
   updated_at: string;
   tasks: BlockTaskState[];
   safety_note: string;
+  review_policy: BlockReviewPolicy;
 }

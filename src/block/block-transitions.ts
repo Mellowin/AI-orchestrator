@@ -44,6 +44,17 @@ export function markTaskInProgress(state: BlockState, taskId: string): BlockStat
   if (task.status === 'accepted') {
     throw new Error(`Cannot transition accepted task ${taskId} backwards`);
   }
+  if (task.status === 'blocked') {
+    throw new Error(`Cannot restart blocked task ${taskId} without human intervention`);
+  }
+  // Clear stale data when starting a fix attempt
+  if (task.status === 'rejected' || task.status === 'fix_required' || task.status === 'checks_failed') {
+    task.blocking_issues = [];
+    task.reviewer_decision = null;
+    task.reviewer_summary = null;
+    task.commit_sha = null;
+    task.pushed_ref = null;
+  }
   task.status = 'in_progress';
   task.current_attempt += 1;
   s.status = 'running';
@@ -184,11 +195,21 @@ export function markTaskFixRequired(
 ): BlockState {
   const s = cloneState(state);
   const task = findTask(s, taskId);
-  task.status = 'fix_required';
+  if (!s.review_policy) {
+    throw new Error(`Block state is missing review_policy; cannot enforce max_fix_attempts`);
+  }
   task.fix_attempts += 1;
   task.blocking_issues = blockingIssues.map((i) => String(i));
   task.reviewer_summary = reviewSummary;
-  s.status = 'fixing';
+  const maxFixAttempts = s.review_policy.max_fix_attempts;
+  if (task.fix_attempts >= maxFixAttempts) {
+    task.status = 'blocked';
+    s.status = 'blocked';
+    s.current_task_id = null;
+  } else {
+    task.status = 'fix_required';
+    s.status = 'fixing';
+  }
   task.updated_at = now();
   s.updated_at = now();
   return s;

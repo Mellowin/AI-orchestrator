@@ -54,6 +54,11 @@ function makeState(): BlockState {
       },
     ],
     safety_note: 'No secrets stored',
+    review_policy: {
+      require_deterministic_checks: true,
+      max_fix_attempts: 3,
+      reviewer_mode: 'single',
+    },
   };
 }
 
@@ -105,6 +110,13 @@ describe('block-report', () => {
     assert(report.includes('Rejected: 0'));
     assert(report.includes('Blocked: 1'));
     assert(report.includes('Total: 3'));
+  });
+
+  test('includes review policy summary', () => {
+    const state = makeState();
+    const report = buildBlockStatusReport(state);
+    assert(report.includes('max_fix_attempts=3'));
+    assert(report.includes('reviewer_mode=single'));
   });
 
   test('no file writes', () => {

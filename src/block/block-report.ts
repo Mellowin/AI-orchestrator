@@ -15,13 +15,18 @@ export function buildBlockStatusReport(state: BlockState): string {
     })
     .join('\n');
 
+  const reviewPolicySummary = state.review_policy
+    ? `max_fix_attempts=${state.review_policy.max_fix_attempts}, reviewer_mode=${state.review_policy.reviewer_mode}`
+    : 'unknown';
+
   return (
     `# Block Status Report\n\n` +
     `- **Block ID:** ${state.block_id}\n` +
     `- **Title:** ${state.title}\n` +
     `- **Status:** ${state.status}\n` +
     `- **Current Task:** ${currentTask ? currentTask.task_id : 'none'}\n` +
-    `- **Updated:** ${state.updated_at}\n\n` +
+    `- **Updated:** ${state.updated_at}\n` +
+    `- **Review Policy:** ${reviewPolicySummary}\n\n` +
     `## Tasks\n\n` +
     `| Task ID | Status | Attempt | Fix Attempts | Commit | Reviewer Decision |\n` +
     `|---|---|---|---|---|---|\n` +

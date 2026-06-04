@@ -54,6 +54,11 @@ function makeState(): BlockState {
       },
     ],
     safety_note: 'Safe',
+    review_policy: {
+      require_deterministic_checks: true,
+      max_fix_attempts: 2,
+      reviewer_mode: 'single',
+    },
   };
 }
 
@@ -149,13 +154,91 @@ describe('block-transitions', () => {
     assert.strictEqual(updated.status, 'fixing');
   });
 
-  test('max fix attempts exceeded blocks task', () => {
-    // This is tested at the orchestrator level; transition itself just increments.
-    // We verify the transition works correctly.
+  test('markTaskFixRequired increments fix_attempts', () => {
     const state = makeState();
-    const updated = markTaskFixRequired(state, 'task-1', ['Still broken'], 'Fix it');
+    const updated = markTaskFixRequired(state, 'task-1', ['Typo'], 'Fix typo');
     assert.strictEqual(updated.tasks[0].fix_attempts, 1);
     assert.strictEqual(updated.status, 'fixing');
+  });
+
+  test('markTaskFixRequired below max keeps status fix_required', () => {
+    const state = makeState();
+    state.review_policy.max_fix_attempts = 3;
+    const updated = markTaskFixRequired(state, 'task-1', ['Typo'], 'Fix typo');
+    assert.strictEqual(updated.tasks[0].status, 'fix_required');
+    assert.strictEqual(updated.status, 'fixing');
+  });
+
+  test('markTaskFixRequired at max blocks task', () => {
+    const state = makeState();
+    state.review_policy.max_fix_attempts = 2;
+    state.tasks[0].fix_attempts = 1;
+    const updated = markTaskFixRequired(state, 'task-1', ['Still broken'], 'Fix it');
+    assert.strictEqual(updated.tasks[0].status, 'blocked');
+    assert.strictEqual(updated.tasks[0].fix_attempts, 2);
+  });
+
+  test('markTaskFixRequired at max sets block status blocked', () => {
+    const state = makeState();
+    state.review_policy.max_fix_attempts = 2;
+    state.tasks[0].fix_attempts = 1;
+    const updated = markTaskFixRequired(state, 'task-1', ['Still broken'], 'Fix it');
+    assert.strictEqual(updated.status, 'blocked');
+  });
+
+  test('markTaskFixRequired at max clears current_task_id', () => {
+    const state = makeState();
+    state.review_policy.max_fix_attempts = 2;
+    state.tasks[0].fix_attempts = 1;
+    const updated = markTaskFixRequired(state, 'task-1', ['Still broken'], 'Fix it');
+    assert.strictEqual(updated.current_task_id, null);
+  });
+
+  test('markTaskInProgress after fix_required clears blocking_issues', () => {
+    let state = makeState();
+    state = markTaskFixRequired(state, 'task-1', ['Typo'], 'Fix typo');
+    state = markTaskInProgress(state, 'task-1');
+    assert.deepStrictEqual(state.tasks[0].blocking_issues, []);
+  });
+
+  test('markTaskInProgress after rejected clears reviewer_decision and reviewer_summary', () => {
+    let state = makeState();
+    state = markTaskRejected(state, 'task-1', ['Missing tests'], 'Needs tests');
+    state = markTaskInProgress(state, 'task-1');
+    assert.strictEqual(state.tasks[0].reviewer_decision, null);
+    assert.strictEqual(state.tasks[0].reviewer_summary, null);
+  });
+
+  test('markTaskInProgress after checks_failed clears blocking_issues', () => {
+    let state = makeState();
+    state = markTaskChecksFailed(state, 'task-1', ['Tests failed']);
+    state = markTaskInProgress(state, 'task-1');
+    assert.deepStrictEqual(state.tasks[0].blocking_issues, []);
+  });
+
+  test('markTaskInProgress cannot restart blocked task', () => {
+    let state = makeState();
+    state = markTaskBlocked(state, 'task-1', ['Security issue'], 'Blocked');
+    assert.throws(() => markTaskInProgress(state, 'task-1'), /Cannot restart blocked task/);
+  });
+
+  test('after rejected → fix_required → in_progress → coder_done → committed → pushed → waiting_review, markTaskAccepted succeeds if no new blocking issues', () => {
+    let state = makeState();
+    state = markTaskInProgress(state, 'task-1');
+    state = markTaskCoderDone(state, 'task-1');
+    state = markTaskCommitted(state, 'task-1', 'a'.repeat(40));
+    state = markTaskPushed(state, 'task-1', 'a'.repeat(40), 'origin/ai/test');
+    state = markTaskWaitingReview(state, 'task-1');
+    state = markTaskRejected(state, 'task-1', ['Missing tests'], 'Needs tests');
+    state = markTaskFixRequired(state, 'task-1', ['Missing tests'], 'Needs tests');
+    state = markTaskInProgress(state, 'task-1');
+    state = markTaskCoderDone(state, 'task-1');
+    state = markTaskCommitted(state, 'task-1', 'b'.repeat(40));
+    state = markTaskPushed(state, 'task-1', 'b'.repeat(40), 'origin/ai/test');
+    state = markTaskWaitingReview(state, 'task-1');
+    state = markTaskAccepted(state, 'task-1', 'Looks good');
+    assert.strictEqual(state.tasks[0].status, 'accepted');
+    assert.strictEqual(state.tasks[0].reviewer_decision, 'accepted');
   });
 
   test('markTaskBlocked blocks block', () => {

@@ -668,6 +668,24 @@ Properties:
 - No apply/commit/push/merge/checkout/main touch.
 - State files contain no API keys, provider output, or git credentials.
 
+### Stage 6.2.1 — Block State Fix Loop Hardening ✅
+
+- **Status:** Implemented and tested.
+- **Location:** `src/block/block-types.ts`, `src/block/block-state-manager.ts`, `src/block/block-transitions.ts`, `src/block/block-report.ts`, `test/block-*.test.ts`, `test/cli-block-state.test.ts`
+
+Fixes:
+1. **`review_policy` stored in `BlockState`**: `initBlockState` copies `definition.review_policy` into state. Old state missing `review_policy` fails safely when transition requires it.
+2. **`max_fix_attempts` enforced**: `markTaskFixRequired` uses `state.review_policy.max_fix_attempts`. If `fix_attempts >= max_fix_attempts`, task becomes `blocked`, block status becomes `blocked`, `current_task_id` is cleared.
+3. **Stale blocking issues cleared on fix start**: `markTaskInProgress` from `rejected`/`fix_required`/`checks_failed` clears `blocking_issues`, `reviewer_decision`, `reviewer_summary`, `commit_sha`, `pushed_ref`.
+4. **Blocked task cannot restart**: `markTaskInProgress` from `blocked` throws error.
+5. **Report includes review policy**: `buildBlockStatusReport` shows `max_fix_attempts` and `reviewer_mode`.
+
+Properties:
+- No provider calls.
+- No git commands.
+- No GitHub API calls.
+- No apply/commit/push/merge/checkout/main touch.
+
 ### Stage 6.3 — Autonomous One-Task Loop
 
 - Wire Kimi coder + Kimi reviewer for a single task.

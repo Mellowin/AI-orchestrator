@@ -179,4 +179,17 @@ describe('block-state-manager', () => {
     const state = initBlockState(def);
     assert.strictEqual(true, true);
   });
+
+  test('initBlockState stores review_policy', () => {
+    const def = makeDefinition();
+    const state = initBlockState(def);
+    assert.deepStrictEqual(state.review_policy, def.review_policy);
+  });
+
+  test('max_fix_attempts is preserved in state', () => {
+    const def = makeDefinition();
+    def.review_policy.max_fix_attempts = 3;
+    const state = initBlockState(def);
+    assert.strictEqual(state.review_policy.max_fix_attempts, 3);
+  });
 });

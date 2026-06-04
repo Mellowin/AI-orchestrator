@@ -52,6 +52,7 @@ export function initBlockState(definition: BlockDefinition): BlockState {
     updated_at: now,
     tasks,
     safety_note: 'This block state does not contain API keys, provider output, or git credentials.',
+    review_policy: definition.review_policy,
   };
 }
 

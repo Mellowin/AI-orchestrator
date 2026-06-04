@@ -137,6 +137,11 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - Block state files are stored only under `runs/blocks/<block_id>/`.
 - Path validation rejects writes outside the allowed runs directory.
 - Block state does not contain API keys, provider output, or git credentials.
+- `review_policy` is stored in `BlockState` on initialization and is required for `markTaskFixRequired`.
+- `max_fix_attempts` is enforced in `markTaskFixRequired`; exceeding it blocks the task automatically.
+- Restarting a task from `rejected`/`fix_required`/`checks_failed` clears stale reviewer data and blocking issues to prevent false rejections on the next attempt.
+- `blocked` tasks cannot be restarted via `in_progress` without human intervention.
+- No endless retry loops: `max_fix_attempts` is bounded (1–5) and enforced.
 
 ---
 
