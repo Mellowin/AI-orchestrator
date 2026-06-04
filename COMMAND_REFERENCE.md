@@ -352,6 +352,52 @@
 
 ## Block Commands
 
+### `block-run <blockJsonPath>`
+
+**Purpose:** Run a safe fake multi-task loop over all pending tasks in a block.
+
+**Required env:**
+- `BLOCK_RUN_MODE` — only `fake` is supported
+- `BLOCK_RUN_MAX_TASKS` — max tasks per run (default 10, max 100)
+- `BLOCK_RUN_STOP_ON_REJECTED` — stop on `fix_required` (default `true`)
+- `BLOCK_RUN_STOP_ON_BLOCKED` — stop on `blocked` (default `true`)
+
+**Allowed mutation:**
+- Reads block definition JSON
+- Writes `runs/blocks/<block_id>/block-state.json`
+- Calls fake coder + fake reviewer only
+
+**Forbidden actions:**
+- No merge
+- No checkout/switch
+- No main touch
+- No force push
+- No auto-merge
+- No `git add -A`
+- No `git reset --hard`
+- No real file apply
+- No real provider call
+- No GitHub API
+
+**Normal success message:**
+- `Block: <block_id>`
+- `Mode: fake`
+- `Tasks attempted: <n>`
+- `Accepted: <n>`
+- `Fix required: <n>`
+- `Blocked: <n>`
+- `Final block status: <status>`
+- `Current task: <task_id or none>`
+
+**Safe failure behavior:**
+- Invalid JSON fails safely
+- Non-fake mode rejected
+- Missing block path shows usage
+- No stack trace leak
+- No API key leak
+
+---
+
 ### `block-init <blockJsonPath>`
 
 **Purpose:** Initialize block state from a block definition JSON file.

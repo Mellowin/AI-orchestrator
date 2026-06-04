@@ -184,6 +184,35 @@ Supported transitions:
 - `fix_required` (value = issue text)
 - `blocked` (value = issue text)
 
+### `block-run <blockJsonPath>`
+
+Runs a safe fake multi-task loop over all pending tasks in a block.
+
+**Behavior:**
+1. Load block definition
+2. Initialize block state if missing
+3. Loop while block is not completed/blocked and tasks remain
+4. Call `runOneTaskLoop` in safe fake mode for each task
+5. Stop on `maxTasksPerRun`, `fix_required` (if `stopOnRejected`), or `blocked` (if `stopOnBlocked`)
+6. Print summary
+
+**Env vars:**
+- `BLOCK_RUN_MODE` — only `fake` is supported
+- `BLOCK_RUN_MAX_TASKS` — max tasks per run (default 10, max 100)
+- `BLOCK_RUN_STOP_ON_REJECTED` — stop on `fix_required` (default `true`)
+- `BLOCK_RUN_STOP_ON_BLOCKED` — stop on `blocked` (default `true`)
+
+**Fake mode guarantees:**
+- Same as `block-run-one` fake mode
+- No real repo mutation
+- No provider real calls
+- No git commands
+- No GitHub API
+
+**Real mode:** Not supported. Will fail safely.
+
+---
+
 ### `block-run-one <blockJsonPath>`
 
 Runs one task through the full autonomous loop:

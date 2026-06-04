@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `18f82098bf960ab429f59c33721e384901808067`
+**Last verified:** `pending final commit hash`
 
 ## Test metrics
 
-- **Total tests:** 1325
+- **Total tests:** 1359
 - **Total suites:** 76
-- **Last verified commit:** `18f82098bf960ab429f59c33721e384901808067` (Stage 6.3.1 Safe One-Task Loop Rewrite)
+- **Last verified commit:** `pending final commit hash` (Stage 6.4 Safe Multi-Task Fake Block Loop)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -25,6 +25,7 @@
 | Stage 6.2 | Block State Runner | `15d119d64e0f30ab80e6510690582eb64320839c` |
 | Stage 6.2.1 | Block State Fix Loop Hardening | `6d51ec21c5913afa0dc2d48ec6d93fe858580504` |
 | Stage 6.3.1 | Safe One-Task Loop Rewrite | `18f82098bf960ab429f59c33721e384901808067` |
+| Stage 6.4 | Safe Multi-Task Fake Block Loop | `pending final commit hash` |
 
 ## Covered layers
 
@@ -76,6 +77,8 @@
 | Block task runner | `test/block-task-runner.test.ts` | `getCurrentBlockTaskDefinition`, `buildCoderInputFromBlockTask`, `buildTaskGuardrailsFromBlockTask`, `resolveCoderAndReviewerProviders` — fake mode, real mode env validation, product vision context, no provider call during input building, Kimi reviewer requires explicit allow flag |
 | Block one-task loop | `test/block-one-task-loop.test.ts` | `runOneTaskLoop`: fake mode accepted/rejected/blocked/fix_required, advances current_task_id, completes block on last task, deterministic severe failure (secrets), guardrails failure, only one task changes, no real repo mutation, fake 40-char SHA, real mode gates (ALLOW_BLOCK_RUN_ONE, ALLOW_REAL_PROVIDER, ALLOW_REAL_REPO_APPLY, ALLOW_KIMI_REVIEWER), real mode fails with "not implemented safely yet" |
 | CLI block-run-one | `test/cli-block-run-one.test.ts` | `block-run-one <blockJsonPath>`: requires block JSON path, fake mode runs without git mutation, fake commit SHA in output, real mode missing flags fail safely, Kimi reviewer missing ALLOW_KIMI_REVIEWER fails safely, no API key leak, no stack trace, no merge/checkout/main touch/push |
+| Block multi-task loop | `test/block-multi-task-loop.test.ts` | `runMultiTaskFakeLoop`: initializes missing state, runs first/multiple tasks, stops on completed/blocked, respects maxTasksPerRun, advances current_task_id, stopOnRejected/ stopOnBlocked, no real provider/git/GitHub API, no applyFileUpdates, no git add/commit/push/reset/checkout, no secrets in result, state saved after each task, summary counts correct |
+| CLI block-run | `test/cli-block-run.test.ts` | `block-run <blockJsonPath>`: missing block path fails safely, invalid JSON fails safely, fake mode runs block, output includes block id/tasks attempted/accepted count, respects BLOCK_RUN_MAX_TASKS, rejects non-fake mode, no provider real call, no git call, no GitHub API, no merge/main/checkout/push, no API key leak, no stack trace |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
 ## Safety guarantees

@@ -26,7 +26,14 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 | `ALLOW_KIMI_REVIEWER=true` | 6.0 | Using Kimi as reviewer provider (default is fake) |
 | `ALLOW_BLOCK_RUN_ONE=true` | 6.3.1 | Running one-task autonomous loop in real mode |
 
-**Stage 6.3.1 Fake Mode Safety:** Fake mode does NOT mutate the real repository. No `git add`, `git commit`, `git push`, `git reset`, file apply, or check execution on the real repo. Fake mode simulates all outcomes and only updates block state.
+**Stage 6.3.1 / 6.4 Fake Mode Safety:** Fake mode does NOT mutate the real repository. No `git add`, `git commit`, `git push`, `git reset`, file apply, or check execution on the real repo. Fake mode simulates all outcomes and only updates block state.
+
+**Multi-task fake loop (Stage 6.4):**
+- `maxTasksPerRun` bounded (1–100) to prevent runaway loops
+- `stopOnRejected` and `stopOnBlocked` stop the loop safely
+- If `stopOnRejected=false` and a task remains `fix_required`, the loop stops anyway to avoid infinite loops
+- Only fake providers
+- No real repo mutation across all tasks
 
 **Default:** All flags are `false` (deny-by-default).
 

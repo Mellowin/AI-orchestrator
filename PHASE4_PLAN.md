@@ -724,11 +724,39 @@ Properties:
 
 **Tests:** 37 tests across `test/block-task-runner.test.ts` (9), `test/block-one-task-loop.test.ts` (15), `test/cli-block-run-one.test.ts` (9).
 
-### Stage 6.4 — Autonomous Multi-Task Block Runner
+### Stage 6.4 — Safe Multi-Task Fake Block Loop ✅
 
-- Run multiple tasks in sequence inside one block.
-- Advance to next task only on `accepted`.
-- Stop on `blocked` or `block_for_human`.
+**Status:** Implemented.
+
+**What was built:**
+- `src/block/block-multi-runner-types.ts` — `MultiTaskLoopInput`, `MultiTaskLoopResult`
+- `src/block/block-multi-task-loop.ts` — `runMultiTaskFakeLoop`: safe fake multi-task orchestration
+- `block-run <blockJsonPath>` CLI command
+
+**Behavior:**
+1. Load block definition
+2. Initialize block state if missing
+3. Loop while block not completed/blocked and tasks remain
+4. Call existing safe fake `runOneTaskLoop` for each task
+5. Stop on `maxTasksPerRun`, `fix_required` (if `stopOnRejected`), or `blocked` (if `stopOnBlocked`)
+6. Return summary with counts
+
+**Safety:**
+- `maxTasksPerRun` bounded (1–100)
+- `stopOnRejected` / `stopOnBlocked` prevent runaway loops
+- If `stopOnRejected=false` and task remains `fix_required`, loop stops anyway to avoid infinite loops
+- Only fake providers
+- No real repo mutation
+- No git commands
+- No GitHub API
+
+**Tests:** 34 tests across `test/block-multi-task-loop.test.ts` (20), `test/cli-block-run.test.ts` (14).
+
+### Stage 6.5 — Fix Loop
+
+- Bounded retry with `max_fix_attempts`.
+- Repair prompt includes reviewer feedback + prior attempt context.
+- Final failure stops block, writes report.
 
 ### Stage 6.5 — Fix Loop
 

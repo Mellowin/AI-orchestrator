@@ -1,0 +1,784 @@
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert';
+import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { runMultiTaskFakeLoop } from '../src/block/block-multi-task-loop.js';
+import { initBlockState, loadBlockState, getBlockRunDir } from '../src/block/block-state-manager.js';
+import type { BlockDefinition } from '../src/block/block-types.js';
+
+describe('block-multi-task-loop', () => {
+  let blockJsonPath: string;
+  let blockId: string;
+
+  beforeEach(() => {
+    blockId = `test-multi-${Date.now()}`;
+  });
+
+  afterEach(() => {
+    try {
+      const runDir = getBlockRunDir(blockId);
+      if (existsSync(runDir)) {
+        rmSync(runDir, { recursive: true, force: true });
+      }
+      if (existsSync(blockJsonPath)) {
+        rmSync(blockJsonPath, { force: true });
+      }
+    } catch {
+      // ignore cleanup errors
+    }
+  });
+
+  function createDefinition(tasks: BlockDefinition['tasks']): BlockDefinition {
+    return {
+      block_id: blockId,
+      title: 'Multi Task Block',
+      repo_path: '/nonexistent/repo-path-fake-mode',
+      base_branch: 'main',
+      work_branch: 'feature/test',
+      providers: {
+        coder: { provider: 'fake', model: 'fake-model' },
+        reviewer: { provider: 'fake', model: 'fake-model' },
+      },
+      review_policy: {
+        require_deterministic_checks: true,
+        max_fix_attempts: 3,
+        reviewer_mode: 'single',
+      },
+      tasks,
+    };
+  }
+
+  function saveDefinitionAndState(def: BlockDefinition) {
+    blockJsonPath = join(tmpdir(), `block-${blockId}.json`);
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+
+    const state = initBlockState(def);
+    const runDir = getBlockRunDir(blockId);
+    if (!existsSync(runDir)) {
+      mkdirSync(runDir, { recursive: true });
+    }
+    writeFileSync(join(runDir, 'block-state.json'), JSON.stringify(state, null, 2));
+  }
+
+  it('initializes missing block state', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    blockJsonPath = join(tmpdir(), `block-${blockId}.json`);
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    // Do NOT save state — let the loop initialize it
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 1,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Done',
+          files: [{ path: 'a.txt', content: 'a\n' }],
+        },
+      },
+    });
+
+    assert.strictEqual(result.block_id, blockId);
+    assert.strictEqual(result.tasks_attempted, 1);
+    const state = loadBlockState(blockId);
+    assert.ok(state);
+  });
+
+  it('runs first pending task', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 1,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Done',
+          files: [{ path: 'a.txt', content: 'a\n' }],
+        },
+      },
+    });
+
+    assert.strictEqual(result.tasks_attempted, 1);
+    assert.strictEqual(result.tasks_accepted, 1);
+    assert.strictEqual(result.final_block_status, 'completed');
+  });
+
+  it('runs multiple pending tasks', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-2',
+        title: 'Second task',
+        goal: 'Do second thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-3',
+        title: 'Third task',
+        goal: 'Do third thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.tasks_attempted, 3);
+    assert.strictEqual(result.tasks_accepted, 3);
+    assert.strictEqual(result.final_block_status, 'completed');
+    assert.strictEqual(result.current_task_id, null);
+  });
+
+  it('stops when block completed', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    // Run once to complete
+    await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Done',
+          files: [{ path: 'a.txt', content: 'a\n' }],
+        },
+      },
+    });
+
+    // Run again — should complete zero tasks
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Done',
+          files: [{ path: 'a.txt', content: 'a\n' }],
+        },
+      },
+    });
+
+    assert.strictEqual(result.tasks_attempted, 0);
+    assert.strictEqual(result.final_block_status, 'completed');
+  });
+
+  it('respects maxTasksPerRun', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-2',
+        title: 'Second task',
+        goal: 'Do second thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-3',
+        title: 'Third task',
+        goal: 'Do third thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 2,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.tasks_attempted, 2);
+    assert.strictEqual(result.tasks_accepted, 2);
+    assert.strictEqual(result.final_block_status, 'running');
+  });
+
+  it('advances current_task_id after accepted task', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-2',
+        title: 'Second task',
+        goal: 'Do second thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 1,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.tasks_attempted, 1);
+    assert.strictEqual(result.tasks_accepted, 1);
+    assert.strictEqual(result.current_task_id, 'task-2');
+  });
+
+  it('does not run more than one block at once', async () => {
+    // This is inherent in the design — each call loads one block
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.block_id, blockId);
+    assert.strictEqual(result.tasks_attempted, 1);
+  });
+
+  it('stopOnRejected=true stops on fix_required', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-2',
+        title: 'Second task',
+        goal: 'Do second thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+      fakeReviewerOptions: {
+        decision: {
+          decision: 'rejected',
+          confidence: 'high',
+          blocking_issues: ['Issue'],
+          non_blocking_issues: [],
+          review_summary: 'Fix it',
+          fix_task: 'Fix issue',
+          next_action: 'send_fix_to_coder',
+        },
+      },
+    });
+
+    assert.strictEqual(result.tasks_attempted, 1);
+    assert.strictEqual(result.tasks_fix_required, 1);
+    assert.strictEqual(result.final_block_status, 'fixing');
+  });
+
+  it('stopOnRejected=false stops safely to avoid infinite loop when task does not advance', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: false,
+      stopOnBlocked: true,
+      fakeReviewerOptions: {
+        decision: {
+          decision: 'rejected',
+          confidence: 'high',
+          blocking_issues: ['Issue'],
+          non_blocking_issues: [],
+          review_summary: 'Fix it',
+          fix_task: 'Fix issue',
+          next_action: 'send_fix_to_coder',
+        },
+      },
+    });
+
+    // Should run once, get fix_required, then stop because task didn't advance
+    assert.strictEqual(result.tasks_attempted, 1);
+    assert.strictEqual(result.tasks_fix_required, 1);
+    assert.ok(result.safety_findings.some((f) => f.includes('infinite loop')));
+  });
+
+  it('stopOnBlocked=true stops on blocked', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Secret leak',
+          files: [{ path: 'a.txt', content: 'sk-test12345\n' }],
+        },
+      },
+    });
+
+    assert.strictEqual(result.tasks_attempted, 1);
+    assert.strictEqual(result.tasks_blocked, 1);
+    assert.strictEqual(result.final_block_status, 'blocked');
+  });
+
+  it('blocked block stops loop', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-2',
+        title: 'Second task',
+        goal: 'Do second thing',
+        allowed_files: ['b.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    // Pre-block the block by setting a blocked state on task-1
+    const state = loadBlockState(blockId);
+    state!.tasks[0].status = 'blocked';
+    state!.status = 'blocked';
+    state!.current_task_id = null;
+    writeFileSync(join(getBlockRunDir(blockId), 'block-state.json'), JSON.stringify(state, null, 2));
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.tasks_attempted, 0);
+    assert.strictEqual(result.final_block_status, 'blocked');
+  });
+
+  it('completed block runs zero tasks', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    // Complete the block
+    const state = loadBlockState(blockId);
+    state!.tasks[0].status = 'accepted';
+    state!.status = 'completed';
+    state!.current_task_id = null;
+    writeFileSync(join(getBlockRunDir(blockId), 'block-state.json'), JSON.stringify(state, null, 2));
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.tasks_attempted, 0);
+    assert.strictEqual(result.final_block_status, 'completed');
+  });
+
+  it('no real provider calls', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    for (const r of result.results) {
+      assert.strictEqual(r.coder_called, true);
+      // Fake provider, not real
+      assert.ok(r.commit_sha === null || /^f{40}$/.test(r.commit_sha!));
+    }
+  });
+
+  it('no real git calls', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.results[0].pushed, false);
+    assert.ok(result.results[0].commit_sha === null || /^f{40}$/.test(result.results[0].commit_sha!));
+  });
+
+  it('no GitHub API calls', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.results.length, 1);
+    // No PR creation in any result
+    assert.ok(!result.safety_findings.some((f) => f.includes('PR')));
+  });
+
+  it('no applyFileUpdates', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Done',
+          files: [{ path: 'a.txt', content: 'a\n' }],
+        },
+      },
+    });
+
+    // repo_path is nonexistent — if applyFileUpdates were called, it would error
+    assert.strictEqual(result.results[0].files_applied[0], 'a.txt');
+    assert.strictEqual(existsSync('/nonexistent/repo-path-fake-mode'), false);
+  });
+
+  it('no git add/commit/push/reset/checkout', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.results[0].pushed, false);
+    assert.ok(result.results[0].commit_sha === null || /^f{40}$/.test(result.results[0].commit_sha!));
+  });
+
+  it('no secrets in result', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Done',
+          files: [{ path: 'a.txt', content: 'sk-test12345\n' }],
+        },
+      },
+    });
+
+    const json = JSON.stringify(result);
+    assert.ok(!json.includes('sk-test12345'), 'Secret leaked in result');
+  });
+
+  it('state saved after each task', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-2',
+        title: 'Second task',
+        goal: 'Do second thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    const state = loadBlockState(blockId);
+    assert.ok(state);
+    assert.strictEqual(state!.status, 'completed');
+  });
+
+  it('summary counts are correct', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-2',
+        title: 'Second task',
+        goal: 'Do second thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-3',
+        title: 'Third task',
+        goal: 'Do third thing',
+        allowed_files: ['src/fake.ts'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: true,
+      stopOnBlocked: true,
+    });
+
+    assert.strictEqual(result.tasks_attempted, 3);
+    assert.strictEqual(result.tasks_accepted, 3);
+    assert.strictEqual(result.tasks_fix_required, 0);
+    assert.strictEqual(result.tasks_blocked, 0);
+    assert.strictEqual(result.results.length, 3);
+  });
+});

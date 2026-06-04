@@ -185,7 +185,8 @@ The block state runner is **provider-agnostic**. It tracks task and block status
 
 - `BlockDefinition` stores provider configuration, but the state manager does not read it.
 - `BlockState` tracks `task_id`, `status`, `commit_sha`, `reviewer_decision` — all provider-neutral fields.
-- The autonomous loop (Stage 6.3) will resolve providers from the registry and update block state via transitions.
+- The autonomous loop (Stage 6.3 / 6.4) resolves providers from the registry and updates block state via transitions.
+- **Stage 6.4 multi-task loop uses only fake providers.** Real provider multi-task mode is a future stage.
 
 ## 12. Future Combinations
 

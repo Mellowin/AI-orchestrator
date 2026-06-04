@@ -56,6 +56,7 @@ import {
 } from './block/block-transitions.js';
 import { buildBlockStatusReport } from './block/block-report.js';
 import { runOneTaskLoop } from './block/block-one-task-loop.js';
+import { runMultiTaskFakeLoop } from './block/block-multi-task-loop.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -2411,7 +2412,7 @@ if (command === 'real-repo-pr-status') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }
@@ -4078,6 +4079,62 @@ if (command === 'block-run-one') {
     console.error('[block-run-one] No merge was performed');
     console.error('[block-run-one] No checkout was performed');
     console.error('[block-run-one] No main touch was performed');
+    process.exit(1);
+  }
+}
+
+if (command === 'block-run') {
+  try {
+    const blockJsonPath = taskId;
+    if (!blockJsonPath) {
+      console.error('[block-run] Error: block JSON path is required');
+      process.exit(1);
+    }
+
+    const mode = (process.env.BLOCK_RUN_MODE as import('./block/block-multi-runner-types.js').MultiTaskLoopInput['mode']) || 'fake';
+    if (mode !== 'fake') {
+      console.error('[block-run] Error: only fake mode is supported');
+      process.exit(1);
+    }
+
+    const maxTasksPerRun = parseInt(process.env.BLOCK_RUN_MAX_TASKS || '10', 10);
+    if (!Number.isFinite(maxTasksPerRun) || maxTasksPerRun < 1 || maxTasksPerRun > 100) {
+      console.error('[block-run] Error: BLOCK_RUN_MAX_TASKS must be between 1 and 100');
+      process.exit(1);
+    }
+
+    const stopOnRejected = process.env.BLOCK_RUN_STOP_ON_REJECTED !== 'false';
+    const stopOnBlocked = process.env.BLOCK_RUN_STOP_ON_BLOCKED !== 'false';
+
+    const result = await runMultiTaskFakeLoop({
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun,
+      stopOnRejected,
+      stopOnBlocked,
+    });
+
+    console.log(`[block-run] Block: ${result.block_id}`);
+    console.log(`[block-run] Mode: ${mode}`);
+    console.log(`[block-run] Tasks attempted: ${result.tasks_attempted}`);
+    console.log(`[block-run] Accepted: ${result.tasks_accepted}`);
+    console.log(`[block-run] Fix required: ${result.tasks_fix_required}`);
+    console.log(`[block-run] Blocked: ${result.tasks_blocked}`);
+    console.log(`[block-run] Final block status: ${result.final_block_status}`);
+    console.log(`[block-run] Current task: ${result.current_task_id ?? 'none'}`);
+    if (result.safety_findings.length > 0) {
+      console.log(`[block-run] Safety findings: ${result.safety_findings.join('; ')}`);
+    }
+    console.log('[block-run] No merge was performed');
+    console.log('[block-run] No checkout was performed');
+    console.log('[block-run] No main touch was performed');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[block-run] Error: ${message}`);
+    console.error('[block-run] No merge was performed');
+    console.error('[block-run] No checkout was performed');
+    console.error('[block-run] No main touch was performed');
     process.exit(1);
   }
 }
