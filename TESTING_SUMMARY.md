@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `452175c93cd4e2ea5f41939fa332837207cde8af`
+**Last verified:** `1d4d5eb6c0513b928f3e82291c3e5f727b95009f`
 
 ## Test metrics
 
 - **Total tests:** 1300
 - **Total suites:** 76
-- **Last verified commit:** `452175c93cd4e2ea5f41939fa332837207cde8af` (Stage 6.3 One-Task Autonomous Loop)
+- **Last verified commit:** `1d4d5eb6c0513b928f3e82291c3e5f727b95009f` (Stage 6.3 One-Task Autonomous Loop)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -24,7 +24,7 @@
 | Stage 6.1.1 | Reviewer Gate Safety Hardening | `57f340af8de1c3a289d92a0f594959e9e35eeb37` |
 | Stage 6.2 | Block State Runner | `15d119d64e0f30ab80e6510690582eb64320839c` |
 | Stage 6.2.1 | Block State Fix Loop Hardening | `6d51ec21c5913afa0dc2d48ec6d93fe858580504` |
-| Stage 6.3 | One-Task Autonomous Loop | `452175c93cd4e2ea5f41939fa332837207cde8af` |
+| Stage 6.3 | One-Task Autonomous Loop | `1d4d5eb6c0513b928f3e82291c3e5f727b95009f` |
 
 ## Covered layers
 
