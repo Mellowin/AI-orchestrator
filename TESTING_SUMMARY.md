@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `pending final commit hash`
+**Last verified:** `3034a3f074fd107c696813b18591d6c0d5f6da88`
 
 ## Test metrics
 
 - **Total tests:** 1359
 - **Total suites:** 76
-- **Last verified commit:** `pending final commit hash` (Stage 6.4 Safe Multi-Task Fake Block Loop)
+- **Last verified commit:** `3034a3f074fd107c696813b18591d6c0d5f6da88` (Stage 6.4 Safe Multi-Task Fake Block Loop)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -25,7 +25,7 @@
 | Stage 6.2 | Block State Runner | `15d119d64e0f30ab80e6510690582eb64320839c` |
 | Stage 6.2.1 | Block State Fix Loop Hardening | `6d51ec21c5913afa0dc2d48ec6d93fe858580504` |
 | Stage 6.3.1 | Safe One-Task Loop Rewrite | `18f82098bf960ab429f59c33721e384901808067` |
-| Stage 6.4 | Safe Multi-Task Fake Block Loop | `pending final commit hash` |
+| Stage 6.4 | Safe Multi-Task Fake Block Loop | `3034a3f074fd107c696813b18591d6c0d5f6da88` |
 
 ## Covered layers
 
