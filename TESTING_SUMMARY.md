@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `57f340af8de1c3a289d92a0f594959e9e35eeb37`
+**Last verified:** `15d119d64e0f30ab80e6510690582eb64320839c`
 
 ## Test metrics
 
-- **Total tests:** 1197
-- **Total suites:** 71
-- **Last verified commit:** `57f340af8de1c3a289d92a0f594959e9e35eeb37` (Stage 6.1.1 Reviewer Gate Safety Hardening)
+- **Total tests:** 1272
+- **Total suites:** 76
+- **Last verified commit:** `15d119d64e0f30ab80e6510690582eb64320839c` (Stage 6.2 Block State Runner)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -22,6 +22,7 @@
 | Stage 6.0 | Provider Abstraction Foundation | `7a15f7a66029690940133f2b83b10174a8686623` |
 | Stage 6.1 | Deterministic Commit Verifier for Reviewer Gate | `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38` |
 | Stage 6.1.1 | Reviewer Gate Safety Hardening | `57f340af8de1c3a289d92a0f594959e9e35eeb37` |
+| Stage 6.2 | Block State Runner | `15d119d64e0f30ab80e6510690582eb64320839c` |
 
 ## Covered layers
 
