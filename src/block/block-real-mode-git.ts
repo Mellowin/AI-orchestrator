@@ -8,7 +8,7 @@ function runGit(repoPath: string, args: string[]): { stdout: string; stderr: str
     encoding: 'utf-8',
   });
   return {
-    stdout: (result.stdout ?? '').trim(),
+    stdout: result.stdout ?? '',
     stderr: (result.stderr ?? '').trim(),
     status: result.status,
   };
@@ -19,7 +19,7 @@ export function getCurrentBranchName(repoPath: string): string {
   if (result.status !== 0) {
     throw new Error(`Failed to get current branch: ${result.stderr}`);
   }
-  return result.stdout;
+  return result.stdout.trim();
 }
 
 export function getGitStatusPorcelain(repoPath: string): string {
