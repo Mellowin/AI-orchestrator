@@ -39,7 +39,7 @@
     {
       "task_id": "stage-6-8-doc-2",
       "title": "Create Stage 6.8 safety checklist document",
-      "goal": "Create a markdown document at docs/stage-6-8-doc-2.md that lists the safety invariants enforced during the Stage 6.8 live run: maxTasksPerRun <= 3, ALLOW_REAL_REPO_PUSH=false, no PR/merge/main/checkout/force-push, KIMI_API_KEY env-only, no secrets in logs/state/docs.",
+      "goal": "Create a markdown document at docs/stage-6-8-doc-2.md that lists the safety invariants enforced during the Stage 6.8 live run: maxTasksPerRun <= 3, auto-push disabled, no PR/merge/main/checkout/force-push, provider credentials sourced only from environment variables, no credential strings in logs/state/docs.",
       "allowed_files": ["docs/stage-6-8-doc-2.md"],
       "denied_files": ["src/**/*", "test/**/*", "package.json", "package-lock.json", "tsconfig.json"],
       "max_lines_changed": 80,
