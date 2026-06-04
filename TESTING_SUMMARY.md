@@ -8,7 +8,7 @@
 
 - **Total tests:** 1287
 - **Total suites:** 76
-- **Last verified commit:** `pending final commit hash` (Stage 6.2.1 Block State Fix Loop Hardening)
+- **Last verified commit:** `6d51ec21c5913afa0dc2d48ec6d93fe858580504` (Stage 6.2.1 Block State Fix Loop Hardening)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -23,7 +23,7 @@
 | Stage 6.1 | Deterministic Commit Verifier for Reviewer Gate | `6f6f6e86aaa2e9f0cc4405a286fd14fccc34ba38` |
 | Stage 6.1.1 | Reviewer Gate Safety Hardening | `57f340af8de1c3a289d92a0f594959e9e35eeb37` |
 | Stage 6.2 | Block State Runner | `15d119d64e0f30ab80e6510690582eb64320839c` |
-| Stage 6.2.1 | Block State Fix Loop Hardening | `pending final commit hash` |
+| Stage 6.2.1 | Block State Fix Loop Hardening | `6d51ec21c5913afa0dc2d48ec6d93fe858580504` |
 
 ## Covered layers
 
