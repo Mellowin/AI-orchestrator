@@ -350,6 +350,97 @@
 
 ---
 
+## Block Commands
+
+### `block-init <blockJsonPath>`
+
+**Purpose:** Initialize block state from a block definition JSON file.
+
+**Required env:** None.
+
+**Allowed mutation:**
+- Reads block definition JSON
+- Writes `runs/blocks/<block_id>/block-state.json`
+
+**Forbidden actions:**
+- No provider call
+- No git mutation
+- No GitHub API
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/block-state.json`
+
+**Normal success message:**
+- `Block initialized: <block_id>`
+
+---
+
+### `block-status <blockId>`
+
+**Purpose:** Print markdown status report for a block.
+
+**Required env:** None.
+
+**Allowed mutation:** None (read-only).
+
+**Outputs/files:**
+- Markdown report to stdout
+
+---
+
+### `block-transition <blockId> <taskId> <transition> [value]`
+
+**Purpose:** Manually apply a state transition.
+
+**Supported transitions:** `in_progress`, `coder_done`, `checks_failed`, `committed`, `pushed`, `waiting_review`, `accepted`, `rejected`, `fix_required`, `blocked`.
+
+**Allowed mutation:**
+- Reads and writes `runs/blocks/<block_id>/block-state.json`
+
+**Forbidden actions:**
+- No provider call
+- No git mutation
+
+---
+
+### `block-run-one <blockJsonPath>`
+
+**Purpose:** Run one task through the full autonomous loop.
+
+**Required env:**
+- `BLOCK_RUN_ONE_MODE` — `fake` (default), `real_kimi_coder_fake_reviewer`, `real_kimi_coder_kimi_reviewer`
+- `ALLOW_REAL_PROVIDER=true` (for real coder)
+- `ALLOW_KIMI_REVIEWER=true` (for real Kimi reviewer)
+- `ALLOW_REAL_REPO_COMMIT=true` (for real commit)
+- `ALLOW_REAL_REPO_PUSH=true` (for real push)
+
+**Allowed mutation:**
+- Calls coder provider (fake by default)
+- Applies files via patch-engine
+- Runs checks
+- Commits locally (fake mode commits then resets)
+- Calls reviewer gate (fake by default)
+- Writes `runs/blocks/<block_id>/block-state.json`
+
+**Forbidden actions:**
+- No merge
+- No checkout/switch
+- No main touch
+- No force push
+- No auto-merge
+
+**Normal success message:**
+- `Status: <before> → <after>`
+- `Reviewer decision: accepted`
+- `Next action: advance_to_next_task`
+
+**Safe failure behavior:**
+- Rolls back applied files on check failure
+- Does not commit/review on guardrails failure
+- Prints safe error + `Manual inspection required`
+
+---
+
 ## Common Safety Notes
 
 - **None of these commands checkout/switch branch automatically.**

@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `15d119d64e0f30ab80e6510690582eb64320839c`
+**Last verified:** `452175c93cd4e2ea5f41939fa332837207cde8af`
 
 ## Test metrics
 
-- **Total tests:** 1287
+- **Total tests:** 1300
 - **Total suites:** 76
-- **Last verified commit:** `6d51ec21c5913afa0dc2d48ec6d93fe858580504` (Stage 6.2.1 Block State Fix Loop Hardening)
+- **Last verified commit:** `452175c93cd4e2ea5f41939fa332837207cde8af` (Stage 6.3 One-Task Autonomous Loop)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -24,6 +24,7 @@
 | Stage 6.1.1 | Reviewer Gate Safety Hardening | `57f340af8de1c3a289d92a0f594959e9e35eeb37` |
 | Stage 6.2 | Block State Runner | `15d119d64e0f30ab80e6510690582eb64320839c` |
 | Stage 6.2.1 | Block State Fix Loop Hardening | `6d51ec21c5913afa0dc2d48ec6d93fe858580504` |
+| Stage 6.3 | One-Task Autonomous Loop | `452175c93cd4e2ea5f41939fa332837207cde8af` |
 
 ## Covered layers
 
@@ -72,6 +73,9 @@
 | Review input builder | `test/review-input-builder.test.ts` | `buildReviewInput`: builds valid ReviewInput, trims taskId/title/goal, preserves diff, rejects missing taskId/goal/invalid SHA/non-arrays, no provider raw output, no API keys |
 | Reviewer gate | `test/reviewer-gate.test.ts` | `runReviewerGate`: deterministic fail does not call reviewer, returns rejected, reviewerCalled=false, deterministic pass calls reviewer, validates reviewer decision, invalid decision rejects safely, severe secret issue → block_for_human, denied file → block_for_human, main branch → block_for_human, outside allowed file → send_fix_to_coder, accepted advances, rejected sends fix |
 | Reviewer gate evidence dry-run CLI | `test/cli-reviewer-gate-evidence-dry-run.test.ts` | `reviewer-gate-evidence-dry-run <taskId> <commitSha>`: missing taskId/commitSha fail safely, short hash rejected, valid temp repo produces evidence, deterministic pass + fake reviewer accepted, deterministic fail does not call reviewer, dirty git status rejected, no file writes, no state writes, no push/merge/checkout/switch, no GitHub API, no API key leak, no stack trace |
+| Block task runner | `test/block-task-runner.test.ts` | `getCurrentBlockTaskDefinition`, `buildCoderInputFromBlockTask`, `buildTaskGuardrailsFromBlockTask`, `resolveCoderAndReviewerProviders` — fake mode, real mode env validation. Pure helpers, no provider calls during input building |
+| Block one-task loop | `test/block-one-task-loop.test.ts` | `runOneTaskLoop`: fake mode full pipeline — coder → apply → checks → commit → evidence → deterministic checks → reviewer gate → state update → accepted. Rejects missing block state. Temp git repo, cleanup |
+| CLI block-run-one | `test/cli-block-run-one.test.ts` | `block-run-one <blockJsonPath>`: requires block JSON path, fake mode runs full loop and prints summary, no merge/checkout/main touch |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 
 ## Safety guarantees

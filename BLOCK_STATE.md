@@ -14,7 +14,7 @@ Stage 6.2 implements the **memory layer** for autonomous blocks. It provides:
 - Status reporting
 - CLI commands to inspect and manipulate state
 
-It does **not** implement the autonomous loop itself. That is Stage 6.3.
+Stage 6.3 implements the one-task autonomous loop on top of this state layer.
 
 ---
 
@@ -183,6 +183,30 @@ Supported transitions:
 - `rejected` (value = issue text)
 - `fix_required` (value = issue text)
 - `blocked` (value = issue text)
+
+### `block-run-one <blockJsonPath>`
+
+Runs one task through the full autonomous loop:
+1. Load block definition and state
+2. Mark current task `in_progress`
+3. Call coder provider (fake by default)
+4. Validate output with guardrails
+5. Apply file updates via patch-engine
+6. Run task checks
+7. Commit changes locally (fake mode: commit then reset)
+8. Build commit evidence
+9. Run deterministic review checks
+10. Call reviewer gate (fake reviewer by default)
+11. Update block state based on decision (`accepted`, `fix_required`, or `blocked`)
+
+Modes (set via `BLOCK_RUN_ONE_MODE` env):
+- `fake` (default): fake coder + fake reviewer, no real API calls
+- `real_kimi_coder_fake_reviewer`: real Kimi coder + fake reviewer
+- `real_kimi_coder_kimi_reviewer`: real Kimi coder + real Kimi reviewer
+
+Real modes require opt-in env flags (`ALLOW_REAL_PROVIDER`, `ALLOW_KIMI_REVIEWER`, `ALLOW_REAL_REPO_COMMIT`, `ALLOW_REAL_REPO_PUSH`).
+
+No merge, no checkout, no main touch, no force push, no auto-merge.
 
 ---
 

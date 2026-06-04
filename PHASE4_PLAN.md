@@ -686,11 +686,43 @@ Properties:
 - No GitHub API calls.
 - No apply/commit/push/merge/checkout/main touch.
 
-### Stage 6.3 — Autonomous One-Task Loop
+### Stage 6.3 — Autonomous One-Task Loop ✅
 
-- Wire Kimi coder + Kimi reviewer for a single task.
-- Run full loop: coder → apply → checks → commit → push → reviewer → decision.
-- Support fix loop: reviewer rejects → repair prompt → coder retry.
+**Status:** Implemented.
+
+**What was built:**
+- `src/block/block-runner-types.ts` — input/output types for the one-task loop
+- `src/block/block-task-runner.ts` — task runner helpers: `getCurrentBlockTaskDefinition`, `buildCoderInputFromBlockTask`, `buildTaskGuardrailsFromBlockTask`, `resolveCoderAndReviewerProviders`
+- `src/block/block-one-task-loop.ts` — `runOneTaskLoop`: full pipeline from coder to reviewer gate to state update
+- `block-run-one <blockJsonPath>` CLI command
+
+**Pipeline:**
+1. Load block definition and state
+2. Mark current task `in_progress`
+3. Call coder provider (fake by default)
+4. Validate output with guardrails
+5. Apply file updates via patch-engine
+6. Run task checks
+7. Commit changes locally (fake mode: commit then reset)
+8. Build commit evidence
+9. Run deterministic review checks
+10. Call reviewer gate (fake reviewer by default)
+11. Update block state based on decision (`accepted`, `fix_required`, or `blocked`)
+
+**Modes:**
+- `fake` (default): fake coder + fake reviewer, no real API calls
+- `real_kimi_coder_fake_reviewer`: real Kimi coder + fake reviewer
+- `real_kimi_coder_kimi_reviewer`: real Kimi coder + real Kimi reviewer
+
+**Safety:**
+- Real modes require explicit env flags (`ALLOW_REAL_PROVIDER`, `ALLOW_KIMI_REVIEWER`, `ALLOW_REAL_REPO_COMMIT`, `ALLOW_REAL_REPO_PUSH`)
+- No merge, no checkout, no main touch, no force push, no auto-merge
+- Rollback on check failure
+- Guardrails before apply
+
+**Tests:** 12 new tests across `test/block-task-runner.test.ts`, `test/block-one-task-loop.test.ts`, `test/cli-block-run-one.test.ts`.
+
+**Fix loop:** Reviewer rejection → `markTaskFixRequired` → next `block-run-one` call will restart task with cleared stale data. `max_fix_attempts` enforced by existing `markTaskFixRequired` (Stage 6.2.1).
 
 ### Stage 6.4 — Autonomous Multi-Task Block Runner
 
