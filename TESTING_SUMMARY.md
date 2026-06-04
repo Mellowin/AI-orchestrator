@@ -8,7 +8,7 @@
 
 - **Total tests:** 1401
 - **Total suites:** 88
-- **Last verified commit:** `pending final commit hash` (Stage 6.5 Real Kimi Coder + Fake Reviewer One-Task Loop)
+- **Last verified commit:** `eb1341e8fe8e8dc59f768eaa7cb29a4039ecf322` (Stage 6.5 Real Kimi Coder + Fake Reviewer One-Task Loop)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -26,7 +26,7 @@
 | Stage 6.2.1 | Block State Fix Loop Hardening | `6d51ec21c5913afa0dc2d48ec6d93fe858580504` |
 | Stage 6.3.1 | Safe One-Task Loop Rewrite | `18f82098bf960ab429f59c33721e384901808067` |
 | Stage 6.4 | Safe Multi-Task Fake Block Loop | `3034a3f074fd107c696813b18591d6c0d5f6da88` |
-| Stage 6.5 | Real Kimi Coder + Fake Reviewer One-Task Loop | `pending final commit hash` |
+| Stage 6.5 | Real Kimi Coder + Fake Reviewer One-Task Loop | `eb1341e8fe8e8dc59f768eaa7cb29a4039ecf322` |
 
 ## Covered layers
 
