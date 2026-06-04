@@ -31,6 +31,7 @@
 | Stage 6.6 | Real Kimi Reviewer Gate | `ff47bfaf841f082025843a9933e59baf6fabce28` |
 | Stage 6.7 | Live Proof — Real Kimi Coder + Real Kimi Reviewer | `db5e0ae2be583e0132246361c416161616fb6472` |
 | Stage 6.8 | Safe Real Multi-Task Kimi→Kimi Block Loop | `1116faaebd19370a7aa46836030fd26ae4e9459f` |
+| Stage 6.8.1 | Evidence Docs Cleanup | `1e746c6e78907f2afa1095a8609e9581936b927f` |
 
 ## Covered layers
 

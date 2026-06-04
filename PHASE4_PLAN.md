@@ -818,6 +818,19 @@ Properties:
 - Run end-to-end with real Kimi coder + Kimi reviewer.
 - Document results in `AUTONOMOUS_BLOCK_DEMO_REPORT.md`.
 
+### Stage 6.8 — Safe Real Multi-Task Kimi→Kimi Block Loop ✅
+
+- Extend `MultiTaskLoopMode` and input types for real modes.
+- Implement `runMultiTaskLoop` with `maxTasksPerRun <= 3`, push rejection, explicit allow flag validation.
+- Update CLI `block-run` with mode validation and safety bounds.
+- Live proof: 3 doc-only tasks accepted by real Kimi coder + real Kimi reviewer, block completed, no push/merge/PR.
+
+### Stage 6.8.1 — Evidence Docs Cleanup ✅
+
+- Correct `docs/stage-6-8-doc-3.md` to reflect actual Stage 6.8 results (3 accepted tasks, real commit SHAs).
+- Remove fake hashes, skipped/rejected contradictions.
+- No code changes.
+
 ### Stage 6 Safety Rules
 
 - Do not implement merge in Stage 6.
@@ -860,4 +873,6 @@ Properties:
 | Phase 4 Stage 6.1 deterministic commit verifier / reviewer gate | ✅ |
 | Phase 4 Stage 6.1.1 reviewer gate safety hardening | ✅ |
 | Phase 4 Stage 6.2 block state runner | ✅ |
+| Phase 4 Stage 6.8 safe real multi-task Kimi→Kimi block loop | ✅ |
+| Phase 4 Stage 6.8.1 evidence docs cleanup | ✅ |
 | Opt-in flags defined | Confirmed |
