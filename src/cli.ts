@@ -56,7 +56,7 @@ import {
 } from './block/block-transitions.js';
 import { buildBlockStatusReport } from './block/block-report.js';
 import { runOneTaskLoop } from './block/block-one-task-loop.js';
-import { runMultiTaskFakeLoop } from './block/block-multi-task-loop.js';
+import { runMultiTaskLoop, runMultiTaskFakeLoop } from './block/block-multi-task-loop.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -4091,43 +4091,86 @@ if (command === 'block-run') {
       process.exit(1);
     }
 
-    const mode = (process.env.BLOCK_RUN_MODE as import('./block/block-multi-runner-types.js').MultiTaskLoopInput['mode']) || 'fake';
-    if (mode !== 'fake') {
-      console.error('[block-run] Error: only fake mode is supported');
+    const mode = (process.env.BLOCK_RUN_MODE as import('./block/block-multi-runner-types.js').MultiTaskLoopMode) || 'fake';
+    const validModes: import('./block/block-multi-runner-types.js').MultiTaskLoopMode[] = [
+      'fake',
+      'real_kimi_coder_fake_reviewer',
+      'real_kimi_coder_kimi_reviewer',
+    ];
+    if (!validModes.includes(mode)) {
+      console.error(`[block-run] Error: BLOCK_RUN_MODE must be one of: ${validModes.join(', ')}`);
       process.exit(1);
     }
 
-    const maxTasksPerRun = parseInt(process.env.BLOCK_RUN_MAX_TASKS || '10', 10);
-    if (!Number.isFinite(maxTasksPerRun) || maxTasksPerRun < 1 || maxTasksPerRun > 100) {
-      console.error('[block-run] Error: BLOCK_RUN_MAX_TASKS must be between 1 and 100');
+    const isRealMode = mode !== 'fake';
+    const defaultMaxTasks = isRealMode ? 3 : 10;
+    const rawMaxTasks = process.env.BLOCK_RUN_MAX_TASKS;
+    const maxTasksPerRun = rawMaxTasks ? parseInt(rawMaxTasks, 10) : defaultMaxTasks;
+    const maxLimit = isRealMode ? 3 : 100;
+
+    if (!Number.isFinite(maxTasksPerRun) || maxTasksPerRun < 1 || maxTasksPerRun > maxLimit) {
+      console.error(`[block-run] Error: BLOCK_RUN_MAX_TASKS must be between 1 and ${maxLimit} for ${mode} mode`);
       process.exit(1);
     }
 
     const stopOnRejected = process.env.BLOCK_RUN_STOP_ON_REJECTED !== 'false';
     const stopOnBlocked = process.env.BLOCK_RUN_STOP_ON_BLOCKED !== 'false';
 
-    const result = await runMultiTaskFakeLoop({
+    const allowBlockRunOne = process.env.ALLOW_BLOCK_RUN_ONE === 'true';
+    const allowRealProvider = process.env.ALLOW_REAL_PROVIDER === 'true';
+    const allowRealRepoApply = process.env.ALLOW_REAL_REPO_APPLY === 'true';
+    const allowRealRepoCommit = process.env.ALLOW_REAL_REPO_COMMIT === 'true';
+    const allowRealRepoPush = process.env.ALLOW_REAL_REPO_PUSH === 'true';
+    const allowKimiReviewer = process.env.ALLOW_KIMI_REVIEWER === 'true';
+    const reviewerProvider = (process.env.REVIEWER_PROVIDER as 'fake' | 'kimi') || 'fake';
+    const coderProvider = (process.env.CODER_PROVIDER as 'fake' | 'kimi') || 'fake';
+
+    const result = await runMultiTaskLoop({
       blockDefinitionPath: blockJsonPath,
-      mode: 'fake',
+      mode,
       maxTasksPerRun,
       stopOnRejected,
       stopOnBlocked,
+      allowBlockRunOne,
+      allowRealProvider,
+      allowRealRepoApply,
+      allowRealRepoCommit,
+      allowRealRepoPush,
+      allowKimiReviewer,
+      reviewerProvider,
+      coderProvider,
     });
 
     console.log(`[block-run] Block: ${result.block_id}`);
-    console.log(`[block-run] Mode: ${mode}`);
+    console.log(`[block-run] Mode: ${result.mode}`);
     console.log(`[block-run] Tasks attempted: ${result.tasks_attempted}`);
     console.log(`[block-run] Accepted: ${result.tasks_accepted}`);
     console.log(`[block-run] Fix required: ${result.tasks_fix_required}`);
     console.log(`[block-run] Blocked: ${result.tasks_blocked}`);
     console.log(`[block-run] Final block status: ${result.final_block_status}`);
     console.log(`[block-run] Current task: ${result.current_task_id ?? 'none'}`);
+
+    for (const r of result.results) {
+      console.log(`[block-run] Task ${r.task_id}: ${r.status_before} → ${r.status_after}`);
+      console.log(`[block-run]   Coder called: ${r.coder_called}`);
+      console.log(`[block-run]   Reviewer called: ${r.reviewer_called}`);
+      console.log(`[block-run]   Commit SHA: ${r.commit_sha ?? 'none'}`);
+      console.log(`[block-run]   Pushed: ${r.pushed}`);
+      console.log(`[block-run]   Reviewer decision: ${r.reviewer_decision ?? 'none'}`);
+      console.log(`[block-run]   Next action: ${r.next_action}`);
+    }
+
     if (result.safety_findings.length > 0) {
       console.log(`[block-run] Safety findings: ${result.safety_findings.join('; ')}`);
     }
+
     console.log('[block-run] No merge was performed');
     console.log('[block-run] No checkout was performed');
     console.log('[block-run] No main touch was performed');
+    console.log('[block-run] No PR was created');
+    if (!allowRealRepoPush) {
+      console.log('[block-run] No auto-push was performed');
+    }
     process.exit(0);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -4135,6 +4178,7 @@ if (command === 'block-run') {
     console.error('[block-run] No merge was performed');
     console.error('[block-run] No checkout was performed');
     console.error('[block-run] No main touch was performed');
+    console.error('[block-run] No PR was created');
     process.exit(1);
   }
 }

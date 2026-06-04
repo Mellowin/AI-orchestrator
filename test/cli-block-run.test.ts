@@ -18,6 +18,7 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.KIMI_USER_AGENT;
   delete env.KIMI_FAKE_REVIEWER_RESPONSE;
   delete env.REVIEWER_PROVIDER;
+  delete env.CODER_PROVIDER;
   delete env.ALLOW_KIMI_REVIEWER;
   delete env.OPENAI_API_KEY;
   delete env.MOCK_AI;
@@ -196,12 +197,12 @@ describe('cli block-run', () => {
     assert.strictEqual(attemptedMatch![1], '1');
   });
 
-  test('rejects non-fake BLOCK_RUN_MODE', () => {
+  test('rejects invalid BLOCK_RUN_MODE', () => {
     const result = runCli(['block-run', blockJsonPath], {
       BLOCK_RUN_MODE: 'real',
     });
     assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);
-    assert.ok(result.stderr.includes('only fake mode is supported'), result.stderr);
+    assert.ok(result.stderr.includes('BLOCK_RUN_MODE must be one of'), result.stderr);
   });
 
   test('no provider real call', () => {
@@ -259,5 +260,138 @@ describe('cli block-run', () => {
     });
     assert.strictEqual(result.status, 0, result.stderr);
     assert.ok(!result.stderr.includes('at '), 'Stack trace leaked in stderr');
+  });
+
+  describe('real_kimi_coder_kimi_reviewer', () => {
+    test('requires ALLOW_BLOCK_RUN_ONE before provider call', () => {
+      const result = runCli(['block-run', blockJsonPath], {
+        BLOCK_RUN_MODE: 'real_kimi_coder_kimi_reviewer',
+        BLOCK_RUN_MAX_TASKS: '1',
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'false',
+        ALLOW_KIMI_REVIEWER: 'true',
+        KIMI_API_KEY: 'sk-test12345',
+        KIMI_BASE_URL: 'https://api.kimi.com/coding/v1',
+      });
+      assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}. stderr: ${result.stderr}`);
+      assert.ok(
+        result.stderr.includes('ALLOW_BLOCK_RUN_ONE') || result.stdout.includes('ALLOW_BLOCK_RUN_ONE'),
+        `Expected ALLOW_BLOCK_RUN_ONE error. stdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+    });
+
+    test('requires ALLOW_REAL_PROVIDER before provider call', () => {
+      const result = runCli(['block-run', blockJsonPath], {
+        BLOCK_RUN_MODE: 'real_kimi_coder_kimi_reviewer',
+        BLOCK_RUN_MAX_TASKS: '1',
+        ALLOW_BLOCK_RUN_ONE: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'false',
+        ALLOW_KIMI_REVIEWER: 'true',
+        KIMI_API_KEY: 'sk-test12345',
+        KIMI_BASE_URL: 'https://api.kimi.com/coding/v1',
+      });
+      assert.strictEqual(result.status, 1);
+      assert.ok(
+        result.stderr.includes('ALLOW_REAL_PROVIDER') || result.stdout.includes('ALLOW_REAL_PROVIDER'),
+        `Expected ALLOW_REAL_PROVIDER error. stdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+    });
+
+    test('requires ALLOW_KIMI_REVIEWER before provider call', () => {
+      const result = runCli(['block-run', blockJsonPath], {
+        BLOCK_RUN_MODE: 'real_kimi_coder_kimi_reviewer',
+        BLOCK_RUN_MAX_TASKS: '1',
+        ALLOW_BLOCK_RUN_ONE: 'true',
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'false',
+        KIMI_API_KEY: 'sk-test12345',
+        KIMI_BASE_URL: 'https://api.kimi.com/coding/v1',
+      });
+      assert.strictEqual(result.status, 1);
+      assert.ok(
+        result.stderr.includes('ALLOW_KIMI_REVIEWER') || result.stdout.includes('ALLOW_KIMI_REVIEWER'),
+        `Expected ALLOW_KIMI_REVIEWER error. stdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+    });
+
+    test('rejects BLOCK_RUN_MAX_TASKS > 3', () => {
+      const result = runCli(['block-run', blockJsonPath], {
+        BLOCK_RUN_MODE: 'real_kimi_coder_kimi_reviewer',
+        BLOCK_RUN_MAX_TASKS: '4',
+      });
+      assert.strictEqual(result.status, 1);
+      assert.ok(
+        result.stderr.includes('between 1 and 3') || result.stdout.includes('between 1 and 3'),
+        `Expected max tasks error. stdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+    });
+
+    test('rejects ALLOW_REAL_REPO_PUSH=true', () => {
+      const result = runCli(['block-run', blockJsonPath], {
+        BLOCK_RUN_MODE: 'real_kimi_coder_kimi_reviewer',
+        BLOCK_RUN_MAX_TASKS: '1',
+        ALLOW_BLOCK_RUN_ONE: 'true',
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        ALLOW_KIMI_REVIEWER: 'true',
+        KIMI_API_KEY: 'sk-test12345',
+        KIMI_BASE_URL: 'https://api.kimi.com/coding/v1',
+      });
+      assert.strictEqual(result.status, 1);
+      assert.ok(
+        result.stderr.includes('ALLOW_REAL_REPO_PUSH=false') || result.stdout.includes('ALLOW_REAL_REPO_PUSH=false'),
+        `Expected push rejection. stdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+    });
+
+    test('missing KIMI_API_KEY fails safely before provider call', () => {
+      const result = runCli(['block-run', blockJsonPath], {
+        BLOCK_RUN_MODE: 'real_kimi_coder_kimi_reviewer',
+        BLOCK_RUN_MAX_TASKS: '1',
+        ALLOW_BLOCK_RUN_ONE: 'true',
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'false',
+        ALLOW_KIMI_REVIEWER: 'true',
+        CODER_PROVIDER: 'kimi',
+        REVIEWER_PROVIDER: 'kimi',
+        KIMI_API_KEY: '',
+        KIMI_BASE_URL: 'https://api.kimi.com/coding/v1',
+      });
+      assert.strictEqual(result.status, 1);
+      assert.ok(
+        result.stderr.includes('KIMI_API_KEY') || result.stdout.includes('KIMI_API_KEY'),
+        `Expected KIMI_API_KEY error. stdout: ${result.stdout}\nstderr: ${result.stderr}`
+      );
+    });
+
+    test('no API key leak in real mode refusal', () => {
+      const result = runCli(['block-run', blockJsonPath], {
+        BLOCK_RUN_MODE: 'real_kimi_coder_kimi_reviewer',
+        BLOCK_RUN_MAX_TASKS: '4',
+        KIMI_API_KEY: 'sk-test12345',
+      });
+      assert.strictEqual(result.status, 1);
+      assert.ok(!result.stdout.includes('sk-test12345'), 'API key leaked in stdout');
+      assert.ok(!result.stderr.includes('sk-test12345'), 'API key leaked in stderr');
+    });
+
+    test('no stack trace in real mode refusal', () => {
+      const result = runCli(['block-run', blockJsonPath], {
+        BLOCK_RUN_MODE: 'real_kimi_coder_kimi_reviewer',
+        BLOCK_RUN_MAX_TASKS: '4',
+      });
+      assert.strictEqual(result.status, 1);
+      assert.ok(!result.stderr.includes('at '), 'Stack trace leaked in stderr');
+    });
   });
 });

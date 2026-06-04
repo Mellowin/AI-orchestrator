@@ -1,11 +1,87 @@
-import type { MultiTaskLoopInput, MultiTaskLoopResult } from './block-multi-runner-types.js';
+import type {
+  MultiTaskLoopInput,
+  MultiTaskLoopResult,
+  MultiTaskLoopMode,
+} from './block-multi-runner-types.js';
 import type { OneTaskLoopResult } from './block-runner-types.js';
 import type { BlockState } from './block-types.js';
 import { loadBlockState, saveBlockState, initBlockState } from './block-state-manager.js';
 import { loadBlockDefinition } from './block-loader.js';
 import { runOneTaskLoop } from './block-one-task-loop.js';
 
-export async function runMultiTaskFakeLoop(
+const FAKE_MAX_TASKS_LIMIT = 100;
+const REAL_MAX_TASKS_LIMIT = 3;
+
+function validateMaxTasksPerRun(mode: MultiTaskLoopMode, maxTasksPerRun: number): void {
+  if (!Number.isFinite(maxTasksPerRun) || !Number.isInteger(maxTasksPerRun) || maxTasksPerRun < 1) {
+    throw new Error('maxTasksPerRun must be a positive integer');
+  }
+
+  if (mode === 'fake') {
+    if (maxTasksPerRun > FAKE_MAX_TASKS_LIMIT) {
+      throw new Error(`Fake mode maxTasksPerRun must be <= ${FAKE_MAX_TASKS_LIMIT}`);
+    }
+  } else {
+    if (maxTasksPerRun > REAL_MAX_TASKS_LIMIT) {
+      throw new Error(
+        `Real mode maxTasksPerRun must be <= ${REAL_MAX_TASKS_LIMIT}`
+      );
+    }
+  }
+}
+
+function validateRealModeSafety(
+  mode: MultiTaskLoopMode,
+  input: MultiTaskLoopInput
+): string[] {
+  const issues: string[] = [];
+
+  if (mode === 'fake') {
+    return issues;
+  }
+
+  if (!input.allowBlockRunOne) {
+    issues.push('Real multi-task mode requires ALLOW_BLOCK_RUN_ONE=true');
+  }
+  if (!input.allowRealProvider) {
+    issues.push('Real multi-task mode requires ALLOW_REAL_PROVIDER=true');
+  }
+  if (!input.allowRealRepoApply) {
+    issues.push('Real multi-task mode requires ALLOW_REAL_REPO_APPLY=true');
+  }
+  if (!input.allowRealRepoCommit) {
+    issues.push('Real multi-task mode requires ALLOW_REAL_REPO_COMMIT=true');
+  }
+  if (input.allowRealRepoPush) {
+    issues.push('Stage 6.8 real multi-task mode requires ALLOW_REAL_REPO_PUSH=false');
+  }
+
+  if (mode === 'real_kimi_coder_kimi_reviewer') {
+    if (!input.allowKimiReviewer) {
+      issues.push('Real multi-task mode with Kimi reviewer requires ALLOW_KIMI_REVIEWER=true');
+    }
+    if (input.coderProvider !== 'kimi') {
+      issues.push('Real multi-task mode with Kimi reviewer requires coderProvider=kimi');
+    }
+    if (input.reviewerProvider !== 'kimi') {
+      issues.push('Real multi-task mode with Kimi reviewer requires reviewerProvider=kimi');
+    }
+  } else if (mode === 'real_kimi_coder_fake_reviewer') {
+    if (input.coderProvider !== 'kimi') {
+      issues.push('Real multi-task mode requires coderProvider=kimi');
+    }
+    if (input.reviewerProvider !== 'fake') {
+      issues.push('Real multi-task mode with fake reviewer requires reviewerProvider=fake');
+    }
+    if (input.allowKimiReviewer) {
+      issues.push('Real multi-task mode with fake reviewer must not set ALLOW_KIMI_REVIEWER=true');
+    }
+  }
+
+  return issues;
+}
+
+export async function runMultiTaskLoop(
   input: MultiTaskLoopInput
 ): Promise<MultiTaskLoopResult> {
   const startedAt = new Date().toISOString();
@@ -28,9 +104,13 @@ export async function runMultiTaskFakeLoop(
     saveBlockState(blockState);
   }
 
-  // 3. Validate mode
-  if (input.mode !== 'fake') {
-    throw new Error('Multi-task loop only supports fake mode');
+  // 3. Validate maxTasksPerRun
+  validateMaxTasksPerRun(input.mode, input.maxTasksPerRun);
+
+  // 4. Real-mode safety checks before any mutation
+  const realModeIssues = validateRealModeSafety(input.mode, input);
+  if (realModeIssues.length > 0) {
+    throw new Error(`Real multi-task mode safety check failed: ${realModeIssues.join('; ')}`);
   }
 
   const results: OneTaskLoopResult[] = [];
@@ -39,7 +119,7 @@ export async function runMultiTaskFakeLoop(
   let tasksFixRequired = 0;
   let tasksBlocked = 0;
 
-  // 4. Loop
+  // 5. Loop
   while (tasksAttempted < input.maxTasksPerRun) {
     // Re-read state each iteration
     blockState = loadBlockState(blockId);
@@ -61,18 +141,18 @@ export async function runMultiTaskFakeLoop(
 
     const currentTaskId = blockState.current_task_id;
 
-    // Run one task in safe fake mode
+    // Run one task using the already-accepted one-task loop
     const taskResult = await runOneTaskLoop({
       blockId,
-      mode: 'fake',
-      allowBlockRunOne: false,
-      allowRealProvider: false,
-      allowRealRepoApply: false,
-      allowRealRepoCommit: false,
-      allowRealRepoPush: false,
-      allowKimiReviewer: false,
-      reviewerProvider: 'fake',
-      coderProvider: 'fake',
+      mode: input.mode,
+      allowBlockRunOne: input.allowBlockRunOne,
+      allowRealProvider: input.allowRealProvider,
+      allowRealRepoApply: input.allowRealRepoApply,
+      allowRealRepoCommit: input.allowRealRepoCommit,
+      allowRealRepoPush: input.allowRealRepoPush,
+      allowKimiReviewer: input.allowKimiReviewer,
+      reviewerProvider: input.reviewerProvider,
+      coderProvider: input.coderProvider,
       blockDefinitionPath: input.blockDefinitionPath,
       fakeCoderOptions: input.fakeCoderOptions,
       fakeReviewerOptions: input.fakeReviewerOptions,
@@ -88,9 +168,7 @@ export async function runMultiTaskFakeLoop(
       if (input.stopOnRejected) {
         break;
       }
-      // If stopOnRejected is false, we still need to avoid infinite loops.
-      // Only continue if the task actually advanced (current_task_id changed).
-      // If the same task is still current after fix_required, stop to avoid loop.
+      // Avoid infinite loop if current_task_id did not advance
       const afterState = loadBlockState(blockId);
       if (afterState?.current_task_id === currentTaskId) {
         safetyFindings.push(
@@ -104,7 +182,6 @@ export async function runMultiTaskFakeLoop(
         break;
       }
     } else if (taskResult.status_after === 'checks_failed') {
-      // Treat checks_failed like fix_required for loop control
       tasksFixRequired++;
       if (input.stopOnRejected) {
         break;
@@ -130,6 +207,7 @@ export async function runMultiTaskFakeLoop(
 
   return {
     block_id: blockId,
+    mode: input.mode,
     started_at: startedAt,
     finished_at: new Date().toISOString(),
     tasks_attempted: tasksAttempted,
@@ -141,4 +219,21 @@ export async function runMultiTaskFakeLoop(
     results,
     safety_findings: safetyFindings,
   };
+}
+
+export async function runMultiTaskFakeLoop(
+  input: Omit<MultiTaskLoopInput, 'mode' | 'allowBlockRunOne' | 'allowRealProvider' | 'allowRealRepoApply' | 'allowRealRepoCommit' | 'allowRealRepoPush' | 'allowKimiReviewer' | 'coderProvider' | 'reviewerProvider'>
+): Promise<MultiTaskLoopResult> {
+  return runMultiTaskLoop({
+    ...input,
+    mode: 'fake',
+    allowBlockRunOne: false,
+    allowRealProvider: false,
+    allowRealRepoApply: false,
+    allowRealRepoCommit: false,
+    allowRealRepoPush: false,
+    allowKimiReviewer: false,
+    coderProvider: 'fake',
+    reviewerProvider: 'fake',
+  });
 }
