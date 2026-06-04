@@ -354,18 +354,30 @@
 
 ### `block-run <blockJsonPath>`
 
-**Purpose:** Run a safe fake multi-task loop over all pending tasks in a block.
+**Purpose:** Run a safe multi-task loop over all pending tasks in a block.
 
 **Required env:**
-- `BLOCK_RUN_MODE` — only `fake` is supported
-- `BLOCK_RUN_MAX_TASKS` — max tasks per run (default 10, max 100)
+- `BLOCK_RUN_MODE` — `fake` | `real_kimi_coder_fake_reviewer` | `real_kimi_coder_kimi_reviewer`
+- `BLOCK_RUN_MAX_TASKS` — max tasks per run (fake: default 10, max 100; real: default 3, max 3)
 - `BLOCK_RUN_STOP_ON_REJECTED` — stop on `fix_required` (default `true`)
 - `BLOCK_RUN_STOP_ON_BLOCKED` — stop on `blocked` (default `true`)
+
+**Real mode additional env:**
+- `ALLOW_BLOCK_RUN_ONE` = `true`
+- `ALLOW_REAL_PROVIDER` = `true`
+- `ALLOW_REAL_REPO_APPLY` = `true`
+- `ALLOW_REAL_REPO_COMMIT` = `true`
+- `ALLOW_REAL_REPO_PUSH` = `false` (must be false)
+- `ALLOW_KIMI_REVIEWER` = `true` (for `real_kimi_coder_kimi_reviewer`)
+- `CODER_PROVIDER` = `kimi`
+- `REVIEWER_PROVIDER` = `kimi` | `fake`
+- `KIMI_API_KEY` and `KIMI_BASE_URL`
 
 **Allowed mutation:**
 - Reads block definition JSON
 - Writes `runs/blocks/<block_id>/block-state.json`
-- Calls fake coder + fake reviewer only
+- Fake mode: calls fake coder + fake reviewer only
+- Real mode: calls real Kimi coder and/or real Kimi reviewer, applies files, creates local commits
 
 **Forbidden actions:**
 - No merge
@@ -375,13 +387,12 @@
 - No auto-merge
 - No `git add -A`
 - No `git reset --hard`
-- No real file apply
-- No real provider call
+- No auto-push in Stage 6.8
 - No GitHub API
 
 **Normal success message:**
 - `Block: <block_id>`
-- `Mode: fake`
+- `Mode: <mode>`
 - `Tasks attempted: <n>`
 - `Accepted: <n>`
 - `Fix required: <n>`
@@ -391,8 +402,11 @@
 
 **Safe failure behavior:**
 - Invalid JSON fails safely
-- Non-fake mode rejected
-- Missing block path shows usage
+- Invalid mode rejected with allowed list
+- Real mode with `ALLOW_REAL_REPO_PUSH=true` rejected
+- Real mode with `maxTasksPerRun > 3` rejected
+- Missing allow flags fail safely before provider call
+- Missing `KIMI_API_KEY` fails safely before API call
 - No stack trace leak
 - No API key leak
 

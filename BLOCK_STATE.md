@@ -31,6 +31,14 @@ Stage 6.6 implements **real Kimi coder + real Kimi reviewer one-task mode**:
 - Same git mutation and block state transitions
 - Requires `ALLOW_KIMI_REVIEWER=true`
 
+Stage 6.8 implements **safe real multi-task Kimi→Kimi block loop**:
+- Orchestrates multiple one-task loops automatically
+- `maxTasksPerRun` bounded to `<= 3` for real modes
+- Rejects `ALLOW_REAL_REPO_PUSH=true`
+- Requires explicit allow flags for every real operation
+- Stops safely on `fix_required`, `blocked`, or completed block
+- Preserves fake mode compatibility
+
 ---
 
 ## What this stage does NOT do

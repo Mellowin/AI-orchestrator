@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `db5e0ae2be583e0132246361c416161616fb6472`
+**Last verified:** `1116faaebd19370a7aa46836030fd26ae4e9459f`
 
 ## Test metrics
 
-- **Total tests:** 1436
-- **Total suites:** 90
-- **Last verified commit:** `db5e0ae2be583e0132246361c416161616fb6472` (Stage 6.7 Live Proof Success)
+- **Total tests:** 1466
+- **Total suites:** 92
+- **Last verified commit:** `1116faaebd19370a7aa46836030fd26ae4e9459f` (Stage 6.8 Live Proof Success)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -30,6 +30,7 @@
 | Stage 6.5.1 | Real Mode Credential and Push State Fix | `bd962ab31caa197a859d4d2441f25cf5f4294f30` |
 | Stage 6.6 | Real Kimi Reviewer Gate | `ff47bfaf841f082025843a9933e59baf6fabce28` |
 | Stage 6.7 | Live Proof — Real Kimi Coder + Real Kimi Reviewer | `db5e0ae2be583e0132246361c416161616fb6472` |
+| Stage 6.8 | Safe Real Multi-Task Kimi→Kimi Block Loop | `1116faaebd19370a7aa46836030fd26ae4e9459f` |
 
 ## Covered layers
 
