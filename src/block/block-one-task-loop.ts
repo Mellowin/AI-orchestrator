@@ -1,15 +1,11 @@
-import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
-import { existsSync, mkdirSync } from 'node:fs';
 import type { OneTaskLoopInput, OneTaskLoopResult } from './block-runner-types.js';
-import type { BlockDefinition, BlockState } from './block-types.js';
-import { loadBlockState, saveBlockState, updateBlockState, initBlockState } from './block-state-manager.js';
+import type { BlockDefinition, BlockTaskDefinition } from './block-types.js';
+import { loadBlockState, saveBlockState } from './block-state-manager.js';
 import { loadBlockDefinition } from './block-loader.js';
 import {
   markTaskInProgress,
   markTaskChecksFailed,
   markTaskCommitted,
-  markTaskPushed,
   markTaskWaitingReview,
   markTaskAccepted,
   markTaskFixRequired,
@@ -21,96 +17,65 @@ import {
   buildTaskGuardrailsFromBlockTask,
   resolveCoderAndReviewerProviders,
 } from './block-task-runner.js';
-import { applyFileUpdates, rollbackFileUpdates } from '../patch-engine.js';
-import type { PatchManifestEntry, Check } from '../types.js';
-import { runChecks } from '../runner.js';
 import { validateFileList, validateProposedFileLineDeltas } from '../guardrails.js';
-import { parseKimiOutputJson } from '../kimi-output-validator.js';
-import { buildCommitEvidence } from '../reviewer/commit-verifier.js';
 import { runDeterministicReviewChecks } from '../reviewer/deterministic-review-checks.js';
 import { buildReviewInput } from '../reviewer/review-input-builder.js';
 import { runReviewerGate } from '../reviewer/reviewer-gate.js';
-
-function parseCheckStrings(checks: string[]): Check[] {
-  return checks.map((c) => {
-    const parts = c.trim().split(/\s+/);
-    return { command: parts[0], args: parts.slice(1) };
-  });
-}
+import type { CoderResult } from '../providers/provider-types.js';
 
 function generateFakeCommitSha(): string {
   return 'f'.repeat(40);
 }
 
-function ensureGitUserConfig(repoPath: string): void {
-  spawnSync('git', ['config', 'user.email', 'ai-orchestrator@example.com'], {
-    cwd: repoPath,
-    shell: false,
-    encoding: 'utf-8',
-  });
-  spawnSync('git', ['config', 'user.name', 'AI Orchestrator'], {
-    cwd: repoPath,
-    shell: false,
-    encoding: 'utf-8',
-  });
-}
-
-function getCurrentBranch(repoPath: string): string {
-  const result = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-    cwd: repoPath,
-    shell: false,
-    encoding: 'utf-8',
-  });
-  if (result.status !== 0) {
-    throw new Error('Failed to get current branch');
+function buildFakeCommitEvidence(
+  taskDefinition: BlockTaskDefinition,
+  coderResult: CoderResult,
+  blockDefinition: BlockDefinition
+): {
+  changedFiles: string[];
+  diff: string;
+  gitStatus: string;
+  currentBranch: string;
+  safetyFindings: string[];
+} {
+  const changedFiles = coderResult.files.map((f) => f.path);
+  const diffLines: string[] = [];
+  for (const file of coderResult.files) {
+    const contentLines = file.content.split('\n');
+    diffLines.push(`diff --git a/${file.path} b/${file.path}`);
+    diffLines.push('new file mode 100644');
+    diffLines.push('--- /dev/null');
+    diffLines.push(`+++ b/${file.path}`);
+    diffLines.push(`@@ -0,0 +1,${contentLines.length} @@`);
+    for (const line of contentLines) {
+      diffLines.push(`+${line}`);
+    }
   }
-  return result.stdout.trim();
+  return {
+    changedFiles,
+    diff: diffLines.join('\n'),
+    gitStatus: '',
+    currentBranch: blockDefinition.work_branch,
+    safetyFindings: [],
+  };
 }
 
-function gitAddAll(repoPath: string): void {
-  spawnSync('git', ['add', '-A'], {
-    cwd: repoPath,
-    shell: false,
-    encoding: 'utf-8',
-  });
-}
-
-function gitCommit(repoPath: string, message: string): { ok: boolean; sha: string } {
-  const result = spawnSync('git', ['commit', '-m', message, '--no-gpg-sign'], {
-    cwd: repoPath,
-    shell: false,
-    encoding: 'utf-8',
-  });
-  if (result.status !== 0) {
-    return { ok: false, sha: '' };
+function validateRealModeGates(input: OneTaskLoopInput): void {
+  if (!input.allowBlockRunOne) {
+    throw new Error('Real mode requires ALLOW_BLOCK_RUN_ONE=true');
   }
-  const shaResult = spawnSync('git', ['rev-parse', 'HEAD'], {
-    cwd: repoPath,
-    shell: false,
-    encoding: 'utf-8',
-  });
-  return { ok: true, sha: shaResult.stdout.trim() };
-}
-
-function gitPush(repoPath: string, branch: string): boolean {
-  const result = spawnSync('git', ['push', 'origin', branch], {
-    cwd: repoPath,
-    shell: false,
-    encoding: 'utf-8',
-  });
-  return result.status === 0;
-}
-
-function gitResetHardToParent(repoPath: string): void {
-  spawnSync('git', ['reset', '--hard', 'HEAD~1'], {
-    cwd: repoPath,
-    shell: false,
-    encoding: 'utf-8',
-  });
-}
-
-function getRunDir(blockId: string): string {
-  return join(process.cwd(), 'runs', 'blocks', blockId, 'attempt-1');
+  if (!input.allowRealProvider) {
+    throw new Error('Real mode requires ALLOW_REAL_PROVIDER=true');
+  }
+  if (!input.allowRealRepoApply) {
+    throw new Error('Real mode requires ALLOW_REAL_REPO_APPLY=true');
+  }
+  if (!input.allowRealRepoCommit) {
+    throw new Error('Real mode requires ALLOW_REAL_REPO_COMMIT=true');
+  }
+  if (input.reviewerProvider === 'kimi' && !input.allowKimiReviewer) {
+    throw new Error('Real mode with Kimi reviewer requires ALLOW_KIMI_REVIEWER=true');
+  }
 }
 
 export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLoopResult> {
@@ -123,11 +88,10 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   }
 
   // 2. Load block definition
-  const blockDefinitionPath = input.blockDefinitionPath;
-  if (!blockDefinitionPath) {
+  if (!input.blockDefinitionPath) {
     throw new Error('blockDefinitionPath is required in OneTaskLoopInput');
   }
-  const blockDefinition = loadBlockDefinition(blockDefinitionPath);
+  const blockDefinition = loadBlockDefinition(input.blockDefinitionPath);
 
   if (blockDefinition.block_id !== input.blockId) {
     throw new Error(`Block definition id mismatch: ${blockDefinition.block_id} vs ${input.blockId}`);
@@ -141,6 +105,12 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   // 4. Mark task in_progress
   blockState = markTaskInProgress(blockState, taskId);
   saveBlockState(blockState);
+
+  // Real mode: fail safely before any provider call or mutation
+  if (!isFakeMode) {
+    validateRealModeGates(input);
+    throw new Error('Real mode is not implemented safely yet. Use fake mode.');
+  }
 
   // 5. Resolve providers
   const providers = resolveCoderAndReviewerProviders({
@@ -159,12 +129,11 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   // 7. Call coder provider
   const coderResult = await providers.coder.runTask(coderInput);
 
-  // 8. Validate coder output
+  // 8. Validate coder output with guardrails (path-only, no filesystem mutation)
   const updatePaths = coderResult.files.map((f) => f.path);
   const guardrails = buildTaskGuardrailsFromBlockTask(taskDefinition);
   const guardrailsResult = validateFileList(updatePaths, guardrails);
   if (!guardrailsResult.ok) {
-    // Guardrails failure treated as checks_failed
     blockState = markTaskChecksFailed(blockState, taskId, [guardrailsResult.reason ?? 'Guardrails failed']);
     saveBlockState(blockState);
     return {
@@ -213,180 +182,31 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     }
   }
 
-  // 9. Apply changes
-  const runDir = getRunDir(input.blockId);
-  if (!existsSync(runDir)) {
-    mkdirSync(runDir, { recursive: true });
-  }
+  // 9. Fake mode: simulate checks, commit, evidence
+  // No real file writes, no git commands, no runChecks on real repo
+  const checksPassed = true;
+  const commitSha = generateFakeCommitSha();
+  const pushed = false;
 
-  let manifest: PatchManifestEntry[] | undefined;
-  try {
-    manifest = applyFileUpdates(blockDefinition.repo_path, coderResult.files, runDir);
-  } catch (applyErr) {
-    const msg = applyErr instanceof Error ? applyErr.message : String(applyErr);
-    blockState = markTaskChecksFailed(blockState, taskId, [`Apply failed: ${msg}`]);
-    saveBlockState(blockState);
-    return {
-      block_id: input.blockId,
-      task_id: taskId,
-      status_before: statusBefore,
-      status_after: 'checks_failed',
-      coder_called: true,
-      reviewer_called: false,
-      files_applied: [],
-      checks_passed: false,
-      commit_sha: null,
-      pushed: false,
-      reviewer_decision: null,
-      next_action: 'send_fix_to_coder',
-      safety_findings: [msg],
-    };
-  }
+  // 10. Build fake commit evidence from coder result
+  const fakeEvidence = buildFakeCommitEvidence(taskDefinition, coderResult, blockDefinition);
 
-  // 10. Run checks
-  const checks = parseCheckStrings(taskDefinition.checks);
-  const checkResult = runChecks(blockDefinition.repo_path, checks);
-
-  if (!checkResult.success) {
-    // Rollback
-    if (manifest && manifest.length > 0) {
-      try {
-        rollbackFileUpdates(blockDefinition.repo_path, manifest);
-      } catch {
-        // ignore rollback error
-      }
-    }
-    blockState = markTaskChecksFailed(blockState, taskId, [
-      checkResult.failedStep
-        ? `${checkResult.failedStep.command} ${checkResult.failedStep.args.join(' ')}`
-        : 'Checks failed',
-    ]);
-    saveBlockState(blockState);
-    return {
-      block_id: input.blockId,
-      task_id: taskId,
-      status_before: statusBefore,
-      status_after: 'checks_failed',
-      coder_called: true,
-      reviewer_called: false,
-      files_applied: updatePaths,
-      checks_passed: false,
-      commit_sha: null,
-      pushed: false,
-      reviewer_decision: null,
-      next_action: 'send_fix_to_coder',
-      safety_findings: ['Checks failed'],
-    };
-  }
-
-  // 11. Commit
-  let commitSha: string;
-  let pushed = false;
-
-  if (isFakeMode) {
-    // Fake mode: local commit for evidence, then reset
-    ensureGitUserConfig(blockDefinition.repo_path);
-    gitAddAll(blockDefinition.repo_path);
-    const commitRes = gitCommit(blockDefinition.repo_path, `ai-orchestrator: ${taskId}`);
-    if (!commitRes.ok) {
-      // Commit failed in fake mode — treat as blocked
-      if (manifest && manifest.length > 0) {
-        try {
-          rollbackFileUpdates(blockDefinition.repo_path, manifest);
-        } catch {
-          // ignore
-        }
-      }
-      blockState = markTaskBlocked(blockState, taskId, ['Fake mode commit failed'], 'Commit failure');
-      saveBlockState(blockState);
-      return {
-        block_id: input.blockId,
-        task_id: taskId,
-        status_before: statusBefore,
-        status_after: 'blocked',
-        coder_called: true,
-        reviewer_called: false,
-        files_applied: updatePaths,
-        checks_passed: true,
-        commit_sha: null,
-        pushed: false,
-        reviewer_decision: null,
-        next_action: 'block_for_human',
-        safety_findings: ['Fake mode commit failed'],
-      };
-    }
-    commitSha = commitRes.sha;
-  } else {
-    // Real mode
-    if (!input.allowRealRepoCommit) {
-      throw new Error('Real mode commit requires ALLOW_REAL_REPO_COMMIT=true');
-    }
-    ensureGitUserConfig(blockDefinition.repo_path);
-    gitAddAll(blockDefinition.repo_path);
-    const commitRes = gitCommit(blockDefinition.repo_path, `ai-orchestrator: ${taskId}`);
-    if (!commitRes.ok) {
-      throw new Error('Commit failed in real mode');
-    }
-    commitSha = commitRes.sha;
-
-    if (input.allowRealRepoPush) {
-      const currentBranch = getCurrentBranch(blockDefinition.repo_path);
-      pushed = gitPush(blockDefinition.repo_path, currentBranch);
-    }
-  }
-
-  // 12. Build commit evidence
-  let evidence: import('../reviewer/commit-verifier.js').CommitEvidence;
-  try {
-    evidence = buildCommitEvidence({
-      repoPath: blockDefinition.repo_path,
-      taskId,
-      taskGoal: taskDefinition.goal,
-      allowedFiles: taskDefinition.allowed_files,
-      deniedFiles: taskDefinition.denied_files,
-      maxLinesChanged: taskDefinition.max_lines_changed,
-      commitSha,
-    });
-  } catch (evidenceErr) {
-    const msg = evidenceErr instanceof Error ? evidenceErr.message : String(evidenceErr);
-    if (isFakeMode) {
-      gitResetHardToParent(blockDefinition.repo_path);
-    }
-    blockState = markTaskBlocked(blockState, taskId, [`Evidence build failed: ${msg}`], 'Evidence failure');
-    saveBlockState(blockState);
-    return {
-      block_id: input.blockId,
-      task_id: taskId,
-      status_before: statusBefore,
-      status_after: 'blocked',
-      coder_called: true,
-      reviewer_called: false,
-      files_applied: updatePaths,
-      checks_passed: true,
-      commit_sha: commitSha,
-      pushed: false,
-      reviewer_decision: null,
-      next_action: 'block_for_human',
-      safety_findings: [msg],
-    };
-  }
-
-  // 13. Run deterministic review checks
+  // 11. Run deterministic review checks with explicit fake pass values
   const deterministicResult = runDeterministicReviewChecks({
     allowedFiles: taskDefinition.allowed_files,
     deniedFiles: taskDefinition.denied_files,
     maxLinesChanged: taskDefinition.max_lines_changed,
-    changedFiles: evidence.changedFiles,
-    diff: evidence.diff,
-    typecheckResult: checkResult.logs.includes('pass') || checkResult.logs.includes('success') ? 'pass' : 'pass',
+    changedFiles: fakeEvidence.changedFiles,
+    diff: fakeEvidence.diff,
+    typecheckResult: 'pass',
     buildResult: 'pass',
     testResult: 'pass',
-    gitStatus: evidence.gitStatus,
-    commitSha: evidence.commitSha,
-    currentBranch: evidence.currentBranch,
+    gitStatus: fakeEvidence.gitStatus,
+    commitSha,
+    currentBranch: fakeEvidence.currentBranch,
   });
 
-  // 14. Build ReviewInput
+  // 12. Build ReviewInput
   const reviewInput = buildReviewInput({
     blockId: input.blockId,
     taskId,
@@ -395,17 +215,17 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     allowedFiles: taskDefinition.allowed_files,
     deniedFiles: taskDefinition.denied_files,
     maxLinesChanged: taskDefinition.max_lines_changed,
-    commitSha: evidence.commitSha,
-    changedFiles: evidence.changedFiles,
-    diff: evidence.diff,
+    commitSha,
+    changedFiles: fakeEvidence.changedFiles,
+    diff: fakeEvidence.diff,
     typecheckResult: 'pass',
     buildResult: 'pass',
     testResult: 'pass',
-    gitStatus: evidence.gitStatus,
-    safetyFindings: [...evidence.safetyFindings, ...deterministicResult.safetyFindings],
+    gitStatus: fakeEvidence.gitStatus,
+    safetyFindings: [...fakeEvidence.safetyFindings, ...deterministicResult.safetyFindings],
   });
 
-  // 15. Run reviewer gate
+  // 13. Run reviewer gate
   const reviewerGateResult = await runReviewerGate({
     reviewer: providers.reviewer,
     reviewInput,
@@ -416,15 +236,12 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     },
   });
 
-  // 16. Update block state based on reviewer decision
+  // 14. Update block state based on reviewer decision
   let statusAfter: string;
   let nextAction: string;
 
   if (reviewerGateResult.decision.decision === 'accepted') {
     blockState = markTaskCommitted(blockState, taskId, commitSha);
-    if (pushed) {
-      blockState = markTaskPushed(blockState, taskId, commitSha, 'origin');
-    }
     blockState = markTaskWaitingReview(blockState, taskId);
     blockState = markTaskAccepted(blockState, taskId, reviewerGateResult.decision.review_summary);
     statusAfter = 'accepted';
@@ -439,21 +256,14 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     statusAfter = 'blocked';
     nextAction = 'block_for_human';
   } else {
-    // rejected / send_fix_to_coder
     const fixIssues = reviewerGateResult.decision.blocking_issues;
     const fixSummary = reviewerGateResult.decision.review_summary;
-    // Use markTaskFixRequired which enforces max_fix_attempts
     blockState = markTaskFixRequired(blockState, taskId, fixIssues, fixSummary);
     statusAfter = blockState.tasks.find((t) => t.task_id === taskId)?.status ?? 'fix_required';
     nextAction = 'send_fix_to_coder';
   }
 
   saveBlockState(blockState);
-
-  // 17. Fake mode cleanup: reset commit
-  if (isFakeMode) {
-    gitResetHardToParent(blockDefinition.repo_path);
-  }
 
   return {
     block_id: input.blockId,
@@ -463,7 +273,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     coder_called: true,
     reviewer_called: reviewerGateResult.reviewerCalled,
     files_applied: updatePaths,
-    checks_passed: true,
+    checks_passed: checksPassed,
     commit_sha: commitSha,
     pushed,
     reviewer_decision: reviewerGateResult.decision.decision,

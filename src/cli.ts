@@ -4034,19 +4034,24 @@ if (command === 'block-run-one') {
     }
 
     const mode = (process.env.BLOCK_RUN_ONE_MODE as import('./block/block-runner-types.js').OneTaskLoopMode) || 'fake';
+    const allowBlockRunOne = process.env.ALLOW_BLOCK_RUN_ONE === 'true';
     const allowRealProvider = process.env.ALLOW_REAL_PROVIDER === 'true';
+    const allowRealRepoApply = process.env.ALLOW_REAL_REPO_APPLY === 'true';
     const allowRealRepoCommit = process.env.ALLOW_REAL_REPO_COMMIT === 'true';
     const allowRealRepoPush = process.env.ALLOW_REAL_REPO_PUSH === 'true';
+    const allowKimiReviewer = process.env.ALLOW_KIMI_REVIEWER === 'true';
     const reviewerProvider = (process.env.REVIEWER_PROVIDER as 'fake' | 'kimi') || 'fake';
     const coderProvider = (process.env.CODER_PROVIDER as 'fake' | 'kimi') || 'fake';
 
     const result = await runOneTaskLoop({
       blockId,
       mode,
+      allowBlockRunOne,
       allowRealProvider,
-      allowRealRepoApply: false, // Not used in loop; apply is always done via patch-engine
+      allowRealRepoApply,
       allowRealRepoCommit,
       allowRealRepoPush,
+      allowKimiReviewer,
       reviewerProvider,
       coderProvider,
       blockDefinitionPath: blockJsonPath,

@@ -409,18 +409,16 @@
 
 **Required env:**
 - `BLOCK_RUN_ONE_MODE` — `fake` (default), `real_kimi_coder_fake_reviewer`, `real_kimi_coder_kimi_reviewer`
+- `ALLOW_BLOCK_RUN_ONE=true` (for any non-fake mode)
 - `ALLOW_REAL_PROVIDER=true` (for real coder)
 - `ALLOW_KIMI_REVIEWER=true` (for real Kimi reviewer)
+- `ALLOW_REAL_REPO_APPLY=true` (for real file apply)
 - `ALLOW_REAL_REPO_COMMIT=true` (for real commit)
 - `ALLOW_REAL_REPO_PUSH=true` (for real push)
 
 **Allowed mutation:**
-- Calls coder provider (fake by default)
-- Applies files via patch-engine
-- Runs checks
-- Commits locally (fake mode commits then resets)
-- Calls reviewer gate (fake by default)
-- Writes `runs/blocks/<block_id>/block-state.json`
+- Fake mode: Calls fake coder + fake reviewer. Simulates checks, commit, evidence. **No real repo mutation.** Only writes block state.
+- Real mode: Fails safely before any mutation with "not implemented safely yet".
 
 **Forbidden actions:**
 - No merge
@@ -428,16 +426,22 @@
 - No main touch
 - No force push
 - No auto-merge
+- No `git add -A`
+- No `git reset --hard`
+- No real file apply in fake mode
 
 **Normal success message:**
 - `Status: <before> → <after>`
 - `Reviewer decision: accepted`
 - `Next action: advance_to_next_task`
+- `Commit SHA: <fake-40-char-sha>` (fake mode)
 
 **Safe failure behavior:**
-- Rolls back applied files on check failure
-- Does not commit/review on guardrails failure
-- Prints safe error + `Manual inspection required`
+- Guardrails failure → `checks_failed`, no mutation
+- Deterministic severe failure → `blocked`, no AI reviewer call
+- Real mode without flags → fails before provider call
+- No stack trace leak
+- No API key leak
 
 ---
 

@@ -24,6 +24,9 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 | `ALLOW_GITHUB_PR_CREATE=true` | 5.7 | Creating GitHub Pull Request |
 | `ALLOW_GITHUB_PR_STATUS=true` | 5.8 | Reading PR status from GitHub API |
 | `ALLOW_KIMI_REVIEWER=true` | 6.0 | Using Kimi as reviewer provider (default is fake) |
+| `ALLOW_BLOCK_RUN_ONE=true` | 6.3.1 | Running one-task autonomous loop in real mode |
+
+**Stage 6.3.1 Fake Mode Safety:** Fake mode does NOT mutate the real repository. No `git add`, `git commit`, `git push`, `git reset`, file apply, or check execution on the real repo. Fake mode simulates all outcomes and only updates block state.
 
 **Default:** All flags are `false` (deny-by-default).
 

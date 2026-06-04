@@ -189,22 +189,27 @@ Supported transitions:
 Runs one task through the full autonomous loop:
 1. Load block definition and state
 2. Mark current task `in_progress`
-3. Call coder provider (fake by default)
-4. Validate output with guardrails
-5. Apply file updates via patch-engine
-6. Run task checks
-7. Commit changes locally (fake mode: commit then reset)
-8. Build commit evidence
-9. Run deterministic review checks
-10. Call reviewer gate (fake reviewer by default)
-11. Update block state based on decision (`accepted`, `fix_required`, or `blocked`)
+3. Call coder provider
+4. Validate output with guardrails (path-only, no filesystem mutation)
+5. **Fake mode:** Simulate checks, commit, and evidence. No real repo mutation.
+6. **Real mode:** Fails safely with clear error before any mutation (not implemented safely yet).
+7. Run deterministic review checks
+8. Call reviewer gate
+9. Update block state based on decision (`accepted`, `fix_required`, or `blocked`)
 
 Modes (set via `BLOCK_RUN_ONE_MODE` env):
-- `fake` (default): fake coder + fake reviewer, no real API calls
-- `real_kimi_coder_fake_reviewer`: real Kimi coder + fake reviewer
-- `real_kimi_coder_kimi_reviewer`: real Kimi coder + real Kimi reviewer
+- `fake` (default): fake coder + fake reviewer, no real API calls, no real repo mutation
+- `real_kimi_coder_fake_reviewer`: gated behind `ALLOW_BLOCK_RUN_ONE=true`, `ALLOW_REAL_PROVIDER=true`, `ALLOW_REAL_REPO_APPLY=true`, `ALLOW_REAL_REPO_COMMIT=true`
+- `real_kimi_coder_kimi_reviewer`: additionally requires `ALLOW_KIMI_REVIEWER=true`
 
-Real modes require opt-in env flags (`ALLOW_REAL_PROVIDER`, `ALLOW_KIMI_REVIEWER`, `ALLOW_REAL_REPO_COMMIT`, `ALLOW_REAL_REPO_PUSH`).
+**Fake mode guarantees:**
+- No `applyFileUpdates`, `rollbackFileUpdates`, `runChecks` on real repo
+- No `git add`, `git commit`, `git push`, `git reset`, `git config`, `git checkout`
+- Commit SHA is deterministic fake (`f`.repeat(40))
+- Evidence is simulated from coder result, not read from git
+- Only real filesystem write: block state save
+
+**Real mode:** Fails safely before provider call or mutation. Use fake mode only.
 
 No merge, no checkout, no main touch, no force push, no auto-merge.
 

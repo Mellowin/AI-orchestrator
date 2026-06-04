@@ -6,10 +6,12 @@ export type OneTaskLoopMode =
 export interface OneTaskLoopInput {
   blockId: string;
   mode: OneTaskLoopMode;
+  allowBlockRunOne: boolean;
   allowRealProvider: boolean;
   allowRealRepoApply: boolean;
   allowRealRepoCommit: boolean;
   allowRealRepoPush: boolean;
+  allowKimiReviewer: boolean;
   reviewerProvider: 'fake' | 'kimi';
   coderProvider: 'fake' | 'kimi';
   blockDefinitionPath: string;

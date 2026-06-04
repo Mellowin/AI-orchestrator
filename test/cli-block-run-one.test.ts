@@ -25,8 +25,10 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.DRY_RUN_BUILD_RESULT;
   delete env.DRY_RUN_TEST_RESULT;
   delete env.ALLOW_REAL_PROVIDER;
+  delete env.ALLOW_REAL_REPO_APPLY;
   delete env.ALLOW_REAL_REPO_COMMIT;
   delete env.ALLOW_REAL_REPO_PUSH;
+  delete env.ALLOW_BLOCK_RUN_ONE;
   delete env.BLOCK_RUN_ONE_MODE;
   return env;
 }
@@ -55,32 +57,18 @@ function runCli(args: string[], envOverrides: Record<string, string> = {}): {
   };
 }
 
-function createTempGitRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'cli-block-run-one-'));
-  spawnSync('git', ['init'], { cwd: dir, shell: false, encoding: 'utf-8' });
-  spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, shell: false, encoding: 'utf-8' });
-  spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir, shell: false, encoding: 'utf-8' });
-  writeFileSync(join(dir, 'README.md'), '# Test repo\n');
-  spawnSync('git', ['add', '-A'], { cwd: dir, shell: false, encoding: 'utf-8' });
-  spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], { cwd: dir, shell: false, encoding: 'utf-8' });
-  spawnSync('git', ['checkout', '-b', 'feature/test'], { cwd: dir, shell: false, encoding: 'utf-8' });
-  return dir;
-}
-
 describe('cli block-run-one', () => {
-  let repoPath: string;
   let blockJsonPath: string;
   let blockId: string;
 
   beforeEach(() => {
-    repoPath = createTempGitRepo();
     const id = `${Date.now()}-${counter++}`;
     blockId = `cli-br1-${id}`;
 
     const content = {
       block_id: blockId,
       title: 'CLI Block Run One Test',
-      repo_path: repoPath,
+      repo_path: '/nonexistent/repo-path-fake-mode',
       base_branch: 'main',
       work_branch: 'feature/test',
       providers: {
@@ -97,10 +85,10 @@ describe('cli block-run-one', () => {
           task_id: 'task-1',
           title: 'Add greeting file',
           goal: 'Create a greeting file',
-          allowed_files: ['greeting.txt'],
+          allowed_files: ['greeting.txt', 'src/fake.ts'],
           denied_files: ['secret.txt'],
           max_lines_changed: 50,
-          checks: ['node -e require("fs").existsSync("greeting.txt")||process.exit(1)'],
+          checks: ['node -e "require(\'fs\').existsSync(\'greeting.txt\')||process.exit(1)"'],
         },
       ],
     };
@@ -111,7 +99,6 @@ describe('cli block-run-one', () => {
 
   afterEach(() => {
     try {
-      rmSync(repoPath, { recursive: true, force: true });
       if (existsSync(blockJsonPath)) {
         rmSync(blockJsonPath, { force: true });
       }
@@ -127,14 +114,13 @@ describe('cli block-run-one', () => {
   test('block-run-one requires block JSON path', () => {
     const result = runCli(['block-run-one']);
     assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}. stderr: ${result.stderr}`);
-    // Missing taskId triggers global usage before block-run-one handler
     assert.ok(
       result.stderr.includes('Usage:') || result.stderr.includes('block JSON path is required'),
       result.stderr
     );
   });
 
-  test('block-run-one runs fake mode and outputs summary', () => {
+  test('fake mode runs without git mutation', () => {
     const result = runCli(['block-run-one', blockJsonPath], {
       BLOCK_RUN_ONE_MODE: 'fake',
     });
@@ -145,5 +131,91 @@ describe('cli block-run-one', () => {
     assert.ok(result.stdout.includes('No merge was performed'), result.stdout);
     assert.ok(result.stdout.includes('No checkout was performed'), result.stdout);
     assert.ok(result.stdout.includes('No main touch was performed'), result.stdout);
+    // Fake mode should not mention real git commands
+    assert.ok(!result.stdout.includes('git add'), result.stdout);
+    assert.ok(!result.stdout.includes('git commit'), result.stdout);
+    assert.ok(!result.stdout.includes('git push'), result.stdout);
+    assert.ok(!result.stdout.includes('git reset'), result.stdout);
+  });
+
+  test('fake mode output includes fake commit SHA', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'fake',
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    const shaMatch = result.stdout.match(/Commit SHA: (f{40})/);
+    assert.ok(shaMatch, `Expected fake 40-char f-SHA in stdout: ${result.stdout}`);
+    assert.strictEqual(shaMatch![1].length, 40);
+  });
+
+  test('real mode without ALLOW_BLOCK_RUN_ONE fails safely', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'real_kimi_coder_fake_reviewer',
+      ALLOW_REAL_PROVIDER: 'true',
+      ALLOW_REAL_REPO_APPLY: 'true',
+      ALLOW_REAL_REPO_COMMIT: 'true',
+    });
+    assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);
+    assert.ok(
+      result.stderr.includes('ALLOW_BLOCK_RUN_ONE') || result.stderr.includes('not implemented safely yet'),
+      result.stderr
+    );
+  });
+
+  test('real mode missing flags fails safely', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'real_kimi_coder_fake_reviewer',
+      ALLOW_BLOCK_RUN_ONE: 'true',
+    });
+    assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);
+    assert.ok(
+      result.stderr.includes('ALLOW_REAL_PROVIDER') || result.stderr.includes('not implemented safely yet'),
+      result.stderr
+    );
+  });
+
+  test('Kimi reviewer mode missing ALLOW_KIMI_REVIEWER fails safely', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'real_kimi_coder_kimi_reviewer',
+      ALLOW_BLOCK_RUN_ONE: 'true',
+      ALLOW_REAL_PROVIDER: 'true',
+      ALLOW_REAL_REPO_APPLY: 'true',
+      ALLOW_REAL_REPO_COMMIT: 'true',
+      REVIEWER_PROVIDER: 'kimi',
+    });
+    assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);
+    assert.ok(
+      result.stderr.includes('ALLOW_KIMI_REVIEWER') || result.stderr.includes('not implemented safely yet'),
+      result.stderr
+    );
+  });
+
+  test('no API key leak', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'fake',
+      KIMI_API_KEY: 'sk-test12345',
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(!result.stdout.includes('sk-test12345'), 'API key leaked in stdout');
+    assert.ok(!result.stderr.includes('sk-test12345'), 'API key leaked in stderr');
+  });
+
+  test('no stack trace', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'fake',
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(!result.stderr.includes('at '), 'Stack trace leaked in stderr');
+  });
+
+  test('no merge/main/checkout/push in fake mode', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'fake',
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes('No merge was performed'), result.stdout);
+    assert.ok(result.stdout.includes('No checkout was performed'), result.stdout);
+    assert.ok(result.stdout.includes('No main touch was performed'), result.stdout);
+    assert.ok(result.stdout.includes('Pushed: false'), result.stdout);
   });
 });
