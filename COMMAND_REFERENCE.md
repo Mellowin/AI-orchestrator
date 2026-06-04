@@ -464,7 +464,8 @@
 
 **Allowed mutation:**
 - Fake mode: Calls fake coder + fake reviewer. Simulates checks, commit, evidence. **No real repo mutation.** Only writes block state.
-- Real mode: Fails safely before any mutation with "not implemented safely yet".
+- `real_kimi_coder_fake_reviewer`: Real Kimi coder → validate → apply → run checks → commit → optional push → fake reviewer (deterministic gate). Requires clean working tree, correct branch, and all allow flags.
+- `real_kimi_coder_kimi_reviewer`: Not enabled in Stage 6.5.
 
 **Forbidden actions:**
 - No merge

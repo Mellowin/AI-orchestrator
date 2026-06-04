@@ -16,6 +16,14 @@ Stage 6.2 implements the **memory layer** for autonomous blocks. It provides:
 
 Stage 6.3 implements the one-task autonomous loop on top of this state layer.
 
+Stage 6.5 implements **real Kimi coder + fake reviewer one-task mode**:
+- Real Kimi API call for coder
+- Fake reviewer (deterministic gate)
+- Real file apply, check, commit on work branch
+- Push optional (`ALLOW_REAL_REPO_PUSH`)
+- Strict allow flags before any mutation
+- Branch safety and dirty repo protection
+
 ---
 
 ## What this stage does NOT do

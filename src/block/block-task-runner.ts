@@ -16,7 +16,7 @@ import { createFakeCoderProvider, type FakeCoderOptions } from '../providers/fak
 import { createFakeReviewerProvider, type FakeReviewerOptions } from '../providers/fake/fake-reviewer-provider.js';
 import { createKimiCoderProvider } from '../providers/kimi/kimi-coder-provider.js';
 import { createKimiReviewerProvider, type KimiReviewerProviderOptions } from '../providers/kimi/kimi-reviewer-provider.js';
-import type { Guardrails } from '../types.js';
+import type { Guardrails, Check } from '../types.js';
 
 const PRODUCT_VISION_PATH = resolve(process.cwd(), 'prompts', 'product-vision-for-kimi.md');
 
@@ -75,6 +75,17 @@ export function buildTaskGuardrailsFromBlockTask(taskDefinition: BlockTaskDefini
     auto_push: false,
     auto_merge: false,
   };
+}
+
+export function convertBlockChecks(checks: string[]): Check[] {
+  return checks.map((c) => {
+    const trimmed = c.trim();
+    if (!trimmed) {
+      return { command: '', args: [] };
+    }
+    const parts = trimmed.split(/\s+/);
+    return { command: parts[0], args: parts.slice(1) };
+  });
 }
 
 export interface ResolveProvidersInput {

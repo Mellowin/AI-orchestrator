@@ -6,9 +6,9 @@
 
 ## Test metrics
 
-- **Total tests:** 1359
-- **Total suites:** 76
-- **Last verified commit:** `3034a3f074fd107c696813b18591d6c0d5f6da88` (Stage 6.4 Safe Multi-Task Fake Block Loop)
+- **Total tests:** 1401
+- **Total suites:** 88
+- **Last verified commit:** `pending final commit hash` (Stage 6.5 Real Kimi Coder + Fake Reviewer One-Task Loop)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -26,6 +26,7 @@
 | Stage 6.2.1 | Block State Fix Loop Hardening | `6d51ec21c5913afa0dc2d48ec6d93fe858580504` |
 | Stage 6.3.1 | Safe One-Task Loop Rewrite | `18f82098bf960ab429f59c33721e384901808067` |
 | Stage 6.4 | Safe Multi-Task Fake Block Loop | `3034a3f074fd107c696813b18591d6c0d5f6da88` |
+| Stage 6.5 | Real Kimi Coder + Fake Reviewer One-Task Loop | `pending final commit hash` |
 
 ## Covered layers
 
@@ -75,9 +76,11 @@
 | Reviewer gate | `test/reviewer-gate.test.ts` | `runReviewerGate`: deterministic fail does not call reviewer, returns rejected, reviewerCalled=false, deterministic pass calls reviewer, validates reviewer decision, invalid decision rejects safely, severe secret issue → block_for_human, denied file → block_for_human, main branch → block_for_human, outside allowed file → send_fix_to_coder, accepted advances, rejected sends fix |
 | Reviewer gate evidence dry-run CLI | `test/cli-reviewer-gate-evidence-dry-run.test.ts` | `reviewer-gate-evidence-dry-run <taskId> <commitSha>`: missing taskId/commitSha fail safely, short hash rejected, valid temp repo produces evidence, deterministic pass + fake reviewer accepted, deterministic fail does not call reviewer, dirty git status rejected, no file writes, no state writes, no push/merge/checkout/switch, no GitHub API, no API key leak, no stack trace |
 | Block task runner | `test/block-task-runner.test.ts` | `getCurrentBlockTaskDefinition`, `buildCoderInputFromBlockTask`, `buildTaskGuardrailsFromBlockTask`, `resolveCoderAndReviewerProviders` — fake mode, real mode env validation, product vision context, no provider call during input building, Kimi reviewer requires explicit allow flag |
-| Block one-task loop | `test/block-one-task-loop.test.ts` | `runOneTaskLoop`: fake mode accepted/rejected/blocked/fix_required, advances current_task_id, completes block on last task, deterministic severe failure (secrets), guardrails failure, only one task changes, no real repo mutation, fake 40-char SHA, real mode gates (ALLOW_BLOCK_RUN_ONE, ALLOW_REAL_PROVIDER, ALLOW_REAL_REPO_APPLY, ALLOW_KIMI_REVIEWER), real mode fails with "not implemented safely yet" |
-| CLI block-run-one | `test/cli-block-run-one.test.ts` | `block-run-one <blockJsonPath>`: requires block JSON path, fake mode runs without git mutation, fake commit SHA in output, real mode missing flags fail safely, Kimi reviewer missing ALLOW_KIMI_REVIEWER fails safely, no API key leak, no stack trace, no merge/checkout/main touch/push |
+| Block one-task loop | `test/block-one-task-loop.test.ts` | `runOneTaskLoop`: fake mode accepted/rejected/blocked/fix_required, advances current_task_id, completes block on last task, deterministic severe failure (secrets), guardrails failure, only one task changes, no real repo mutation, fake 40-char SHA, real mode gates (ALLOW_BLOCK_RUN_ONE, ALLOW_REAL_PROVIDER, ALLOW_REAL_REPO_APPLY, ALLOW_KIMI_REVIEWER), real_kimi_coder_kimi_reviewer rejected in Stage 6.5, real mode dirty repo/branch main/branch mismatch fail before provider call, real mode with fake Kimi response calls coder, applies approved file, rejects denied file, check failure rolls back, check success commits, push disabled returns pushed=false, reviewer is fake, accepted updates state, rejected updates fix_required, no merge/checkout/PR/real reviewer |
+| CLI block-run-one | `test/cli-block-run-one.test.ts` | `block-run-one <blockJsonPath>`: requires block JSON path, fake mode runs without git mutation, fake commit SHA in output, real mode missing ALLOW_BLOCK_RUN_ONE/ALLOW_REAL_PROVIDER/ALLOW_REAL_REPO_APPLY/ALLOW_REAL_REPO_COMMIT fail safely, real Kimi reviewer mode fails safely, no API key leak, no stack trace, no merge/checkout/main touch/push |
 | Block multi-task loop | `test/block-multi-task-loop.test.ts` | `runMultiTaskFakeLoop`: initializes missing state, runs first/multiple tasks, stops on completed/blocked, respects maxTasksPerRun, advances current_task_id, stopOnRejected/ stopOnBlocked, no real provider/git/GitHub API, no applyFileUpdates, no git add/commit/push/reset/checkout, no secrets in result, state saved after each task, summary counts correct |
+| Block real-mode safety | `test/block-real-mode-safety.test.ts` | `validateRealOneTaskModeSafety`: fake mode ok, requires ALLOW_BLOCK_RUN_ONE/ALLOW_REAL_PROVIDER/ALLOW_REAL_REPO_APPLY/ALLOW_REAL_REPO_COMMIT, requires coderProvider=kimi and reviewerProvider=fake, rejects real_kimi_coder_kimi_reviewer, rejects currentBranch main/HEAD/mismatch, rejects workBranch main, rejects dirty git status, safe errors do not leak env values |
+| Block real-mode git | `test/block-real-mode-git.test.ts` | `getCurrentBranchName`, `getGitStatusPorcelain`, `stageOnlyFiles` (rejects empty/absolute/traversal, stages only approved file), `assertNoUnrelatedChanges` (passes for approved, rejects unrelated), `commitStagedChanges` returns 40-char SHA, `pushCurrentBranch` does not use force, no git add -A |
 | CLI block-run | `test/cli-block-run.test.ts` | `block-run <blockJsonPath>`: missing block path fails safely, invalid JSON fails safely, fake mode runs block, output includes block id/tasks attempted/accepted count, respects BLOCK_RUN_MAX_TASKS, rejects non-fake mode, no provider real call, no git call, no GitHub API, no merge/main/checkout/push, no API key leak, no stack trace |
 | CI | `.github/workflows/ci.yml` | typecheck / build / test on PR and `feature/mvp-skeleton` push |
 

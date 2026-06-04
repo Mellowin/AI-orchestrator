@@ -174,7 +174,21 @@ describe('cli block-run-one', () => {
     );
   });
 
-  test('Kimi reviewer mode missing ALLOW_KIMI_REVIEWER fails safely', () => {
+  test('real mode missing ALLOW_REAL_REPO_COMMIT fails safely', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'real_kimi_coder_fake_reviewer',
+      ALLOW_BLOCK_RUN_ONE: 'true',
+      ALLOW_REAL_PROVIDER: 'true',
+      ALLOW_REAL_REPO_APPLY: 'true',
+    });
+    assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);
+    assert.ok(
+      result.stderr.includes('ALLOW_REAL_REPO_COMMIT') || result.stderr.includes('not implemented safely yet'),
+      result.stderr
+    );
+  });
+
+  test('real Kimi reviewer mode fails safely', () => {
     const result = runCli(['block-run-one', blockJsonPath], {
       BLOCK_RUN_ONE_MODE: 'real_kimi_coder_kimi_reviewer',
       ALLOW_BLOCK_RUN_ONE: 'true',
@@ -185,7 +199,7 @@ describe('cli block-run-one', () => {
     });
     assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);
     assert.ok(
-      result.stderr.includes('ALLOW_KIMI_REVIEWER') || result.stderr.includes('not implemented safely yet'),
+      result.stderr.includes('not enabled in Stage 6.5') || result.stderr.includes('not implemented safely yet'),
       result.stderr
     );
   });

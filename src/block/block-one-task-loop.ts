@@ -1,6 +1,6 @@
 import type { OneTaskLoopInput, OneTaskLoopResult } from './block-runner-types.js';
 import type { BlockDefinition, BlockTaskDefinition } from './block-types.js';
-import { loadBlockState, saveBlockState } from './block-state-manager.js';
+import { loadBlockState, saveBlockState, getBlockRunDir } from './block-state-manager.js';
 import { loadBlockDefinition } from './block-loader.js';
 import {
   markTaskInProgress,
@@ -16,12 +16,25 @@ import {
   buildCoderInputFromBlockTask,
   buildTaskGuardrailsFromBlockTask,
   resolveCoderAndReviewerProviders,
+  convertBlockChecks,
 } from './block-task-runner.js';
 import { validateFileList, validateProposedFileLineDeltas } from '../guardrails.js';
 import { runDeterministicReviewChecks } from '../reviewer/deterministic-review-checks.js';
 import { buildReviewInput } from '../reviewer/review-input-builder.js';
 import { runReviewerGate } from '../reviewer/reviewer-gate.js';
 import type { CoderResult } from '../providers/provider-types.js';
+import { validateRealOneTaskModeSafety } from './block-real-mode-safety.js';
+import {
+  getCurrentBranchName,
+  getGitStatusPorcelain,
+  stageOnlyFiles,
+  commitStagedChanges,
+  pushCurrentBranch,
+  assertNoUnrelatedChanges,
+  getCommitDiff,
+} from './block-real-mode-git.js';
+import { applyFileUpdates, rollbackFileUpdates } from '../patch-engine.js';
+import { runChecks } from '../runner.js';
 
 function generateFakeCommitSha(): string {
   return 'f'.repeat(40);
@@ -60,24 +73,6 @@ function buildFakeCommitEvidence(
   };
 }
 
-function validateRealModeGates(input: OneTaskLoopInput): void {
-  if (!input.allowBlockRunOne) {
-    throw new Error('Real mode requires ALLOW_BLOCK_RUN_ONE=true');
-  }
-  if (!input.allowRealProvider) {
-    throw new Error('Real mode requires ALLOW_REAL_PROVIDER=true');
-  }
-  if (!input.allowRealRepoApply) {
-    throw new Error('Real mode requires ALLOW_REAL_REPO_APPLY=true');
-  }
-  if (!input.allowRealRepoCommit) {
-    throw new Error('Real mode requires ALLOW_REAL_REPO_COMMIT=true');
-  }
-  if (input.reviewerProvider === 'kimi' && !input.allowKimiReviewer) {
-    throw new Error('Real mode with Kimi reviewer requires ALLOW_KIMI_REVIEWER=true');
-  }
-}
-
 export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLoopResult> {
   const isFakeMode = input.mode === 'fake';
 
@@ -102,15 +97,53 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   const taskId = taskDefinition.task_id;
   const statusBefore = blockState.tasks.find((t) => t.task_id === taskId)?.status ?? 'unknown';
 
+  // Real mode: pure flag checks BEFORE any git or filesystem calls
+  if (!isFakeMode) {
+    if (!input.allowBlockRunOne) {
+      throw new Error('Real mode requires ALLOW_BLOCK_RUN_ONE=true');
+    }
+    if (!input.allowRealProvider) {
+      throw new Error('Real mode requires ALLOW_REAL_PROVIDER=true');
+    }
+    if (!input.allowRealRepoApply) {
+      throw new Error('Real mode requires ALLOW_REAL_REPO_APPLY=true');
+    }
+    if (!input.allowRealRepoCommit) {
+      throw new Error('Real mode requires ALLOW_REAL_REPO_COMMIT=true');
+    }
+    if (input.mode === 'real_kimi_coder_kimi_reviewer') {
+      throw new Error('real Kimi reviewer not enabled in Stage 6.5');
+    }
+    if (input.reviewerProvider === 'kimi' && !input.allowKimiReviewer) {
+      throw new Error('Real mode with Kimi reviewer requires ALLOW_KIMI_REVIEWER=true');
+    }
+
+    // Git-based safety checks
+    const currentBranch = getCurrentBranchName(blockDefinition.repo_path);
+    const gitStatus = getGitStatusPorcelain(blockDefinition.repo_path);
+    const safetyResult = validateRealOneTaskModeSafety({
+      mode: input.mode,
+      allowBlockRunOne: input.allowBlockRunOne,
+      allowRealProvider: input.allowRealProvider,
+      allowRealRepoApply: input.allowRealRepoApply,
+      allowRealRepoCommit: input.allowRealRepoCommit,
+      allowRealRepoPush: input.allowRealRepoPush,
+      allowKimiReviewer: input.allowKimiReviewer,
+      coderProvider: input.coderProvider,
+      reviewerProvider: input.reviewerProvider,
+      repoPath: blockDefinition.repo_path,
+      workBranch: blockDefinition.work_branch,
+      currentBranch,
+      gitStatus,
+    });
+    if (!safetyResult.ok) {
+      throw new Error(`Real mode safety check failed: ${safetyResult.blockingIssues.join('; ')}`);
+    }
+  }
+
   // 4. Mark task in_progress
   blockState = markTaskInProgress(blockState, taskId);
   saveBlockState(blockState);
-
-  // Real mode: fail safely before any provider call or mutation
-  if (!isFakeMode) {
-    validateRealModeGates(input);
-    throw new Error('Real mode is not implemented safely yet. Use fake mode.');
-  }
 
   // 5. Resolve providers
   const providers = resolveCoderAndReviewerProviders({
@@ -182,31 +215,130 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     }
   }
 
-  // 9. Fake mode: simulate checks, commit, evidence
-  // No real file writes, no git commands, no runChecks on real repo
-  const checksPassed = true;
-  const commitSha = generateFakeCommitSha();
-  const pushed = false;
+  // 9. Build execution results (fake vs real)
+  let checksPassed: boolean;
+  let commitSha: string | null;
+  let pushed: boolean;
+  let diff: string;
+  let gitStatus: string;
+  let currentBranch: string;
+  let safetyFindings: string[] = [];
+  let filesApplied: string[] = updatePaths;
 
-  // 10. Build fake commit evidence from coder result
-  const fakeEvidence = buildFakeCommitEvidence(taskDefinition, coderResult, blockDefinition);
+  if (isFakeMode) {
+    checksPassed = true;
+    commitSha = generateFakeCommitSha();
+    pushed = false;
+    const fakeEvidence = buildFakeCommitEvidence(taskDefinition, coderResult, blockDefinition);
+    diff = fakeEvidence.diff;
+    gitStatus = fakeEvidence.gitStatus;
+    currentBranch = fakeEvidence.currentBranch;
+    safetyFindings = fakeEvidence.safetyFindings;
+  } else {
+    // Real mode: apply, check, commit, push
+    const runDir = getBlockRunDir(input.blockId);
+    let manifest: import('../types.js').PatchManifestEntry[] = [];
 
-  // 11. Run deterministic review checks with explicit fake pass values
+    try {
+      // Apply file updates
+      manifest = applyFileUpdates(blockDefinition.repo_path, coderResult.files, runDir);
+
+      // Run checks
+      const checks = convertBlockChecks(taskDefinition.checks);
+      const checkResult = runChecks(blockDefinition.repo_path, checks);
+
+      if (!checkResult.success) {
+        // Rollback applied files
+        rollbackFileUpdates(blockDefinition.repo_path, manifest);
+        const failMsg = `Checks failed: ${checkResult.failedStep?.command ?? 'unknown'}`;
+        blockState = markTaskChecksFailed(blockState, taskId, [failMsg]);
+        saveBlockState(blockState);
+        return {
+          block_id: input.blockId,
+          task_id: taskId,
+          status_before: statusBefore,
+          status_after: 'checks_failed',
+          coder_called: true,
+          reviewer_called: false,
+          files_applied: filesApplied,
+          checks_passed: false,
+          commit_sha: null,
+          pushed: false,
+          reviewer_decision: null,
+          next_action: 'send_fix_to_coder',
+          safety_findings: [failMsg],
+        };
+      }
+
+      checksPassed = true;
+
+      // Assert no unrelated changes
+      assertNoUnrelatedChanges(blockDefinition.repo_path, updatePaths);
+
+      // Stage only approved files
+      stageOnlyFiles(blockDefinition.repo_path, updatePaths);
+
+      // Commit staged changes
+      const commitMessage = `ai-orchestrator: ${input.blockId} ${taskId}`;
+      commitSha = commitStagedChanges(blockDefinition.repo_path, commitMessage);
+
+      // Push if allowed
+      if (input.allowRealRepoPush) {
+        pushed = pushCurrentBranch(blockDefinition.repo_path, blockDefinition.work_branch);
+      } else {
+        pushed = false;
+      }
+
+      // Build real evidence
+      diff = getCommitDiff(blockDefinition.repo_path);
+      gitStatus = getGitStatusPorcelain(blockDefinition.repo_path);
+      currentBranch = getCurrentBranchName(blockDefinition.repo_path);
+    } catch (applyErr) {
+      // Rollback on any apply/check/commit error
+      if (manifest.length > 0) {
+        try {
+          rollbackFileUpdates(blockDefinition.repo_path, manifest);
+        } catch {
+          // ignore rollback errors
+        }
+      }
+      const msg = applyErr instanceof Error ? applyErr.message : String(applyErr);
+      blockState = markTaskChecksFailed(blockState, taskId, [msg]);
+      saveBlockState(blockState);
+      return {
+        block_id: input.blockId,
+        task_id: taskId,
+        status_before: statusBefore,
+        status_after: 'checks_failed',
+        coder_called: true,
+        reviewer_called: false,
+        files_applied: filesApplied,
+        checks_passed: false,
+        commit_sha: null,
+        pushed: false,
+        reviewer_decision: null,
+        next_action: 'send_fix_to_coder',
+        safety_findings: [msg],
+      };
+    }
+  }
+
+  // 10. Run deterministic review checks
   const deterministicResult = runDeterministicReviewChecks({
     allowedFiles: taskDefinition.allowed_files,
     deniedFiles: taskDefinition.denied_files,
     maxLinesChanged: taskDefinition.max_lines_changed,
-    changedFiles: fakeEvidence.changedFiles,
-    diff: fakeEvidence.diff,
+    changedFiles: filesApplied,
+    diff,
     typecheckResult: 'pass',
     buildResult: 'pass',
     testResult: 'pass',
-    gitStatus: fakeEvidence.gitStatus,
-    commitSha,
-    currentBranch: fakeEvidence.currentBranch,
+    gitStatus,
+    commitSha: commitSha!,
+    currentBranch,
   });
 
-  // 12. Build ReviewInput
+  // 11. Build ReviewInput
   const reviewInput = buildReviewInput({
     blockId: input.blockId,
     taskId,
@@ -215,17 +347,17 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     allowedFiles: taskDefinition.allowed_files,
     deniedFiles: taskDefinition.denied_files,
     maxLinesChanged: taskDefinition.max_lines_changed,
-    commitSha,
-    changedFiles: fakeEvidence.changedFiles,
-    diff: fakeEvidence.diff,
+    commitSha: commitSha!,
+    changedFiles: filesApplied,
+    diff,
     typecheckResult: 'pass',
     buildResult: 'pass',
     testResult: 'pass',
-    gitStatus: fakeEvidence.gitStatus,
-    safetyFindings: [...fakeEvidence.safetyFindings, ...deterministicResult.safetyFindings],
+    gitStatus,
+    safetyFindings: [...safetyFindings, ...deterministicResult.safetyFindings],
   });
 
-  // 13. Run reviewer gate
+  // 12. Run reviewer gate
   const reviewerGateResult = await runReviewerGate({
     reviewer: providers.reviewer,
     reviewInput,
@@ -236,7 +368,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     },
   });
 
-  // 14. Update block state based on reviewer decision
+  // 13. Update block state based on reviewer decision
   let statusAfter: string;
   let nextAction: string;
 
@@ -272,7 +404,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     status_after: statusAfter,
     coder_called: true,
     reviewer_called: reviewerGateResult.reviewerCalled,
-    files_applied: updatePaths,
+    files_applied: filesApplied,
     checks_passed: checksPassed,
     commit_sha: commitSha,
     pushed,

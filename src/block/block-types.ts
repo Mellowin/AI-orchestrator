@@ -22,6 +22,9 @@ export type BlockStatus =
 export interface BlockProviderRoleConfig {
   provider: string;
   model: string;
+  apiKey?: string;
+  baseUrl?: string;
+  userAgent?: string;
 }
 
 export interface BlockProviderConfig {

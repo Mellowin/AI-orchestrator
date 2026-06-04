@@ -188,7 +188,20 @@ The block state runner is **provider-agnostic**. It tracks task and block status
 - The autonomous loop (Stage 6.3 / 6.4) resolves providers from the registry and updates block state via transitions.
 - **Stage 6.4 multi-task loop uses only fake providers.** Real provider multi-task mode is a future stage.
 
-## 12. Future Combinations
+## 12. Stage 6.5 — Real Kimi Coder + Fake Reviewer
+
+Stage 6.5 wires the real Kimi coder provider into the one-task loop while keeping the reviewer fake:
+
+- **Coder:** `createKimiCoderProvider` with real `KIMI_API_KEY` + `KIMI_BASE_URL`
+- **Reviewer:** `createFakeReviewerProvider` (deterministic gate handles rejection; fake reviewer only called on deterministic pass)
+- **Safety:** `validateRealOneTaskModeSafety` enforces flags + branch + clean tree BEFORE provider call
+- **Git helpers:** `stageOnlyFiles`, `commitStagedChanges`, `pushCurrentBranch`, `assertNoUnrelatedChanges` in `src/block/block-real-mode-git.ts`
+- **Commit message:** `ai-orchestrator: <block_id> <task_id>`
+- **Push:** Optional (`ALLOW_REAL_REPO_PUSH`); if disabled, `pushed=false` in result
+
+Real Kimi reviewer (`real_kimi_coder_kimi_reviewer`) is explicitly rejected in Stage 6.5 and will be enabled in Stage 6.6.
+
+## 13. Future Combinations
 
 The architecture supports any combination without core loop changes:
 

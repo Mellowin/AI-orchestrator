@@ -752,17 +752,33 @@ Properties:
 
 **Tests:** 34 tests across `test/block-multi-task-loop.test.ts` (20), `test/cli-block-run.test.ts` (14).
 
-### Stage 6.5 — Fix Loop
+### Stage 6.5 — Real Kimi Coder + Fake Reviewer One-Task Loop ✅
 
-- Bounded retry with `max_fix_attempts`.
-- Repair prompt includes reviewer feedback + prior attempt context.
-- Final failure stops block, writes report.
+- Real Kimi coder provider call
+- Fake reviewer (deterministic gate + fake provider)
+- Real file apply, check, commit on work branch
+- Optional push (`ALLOW_REAL_REPO_PUSH`)
+- Strict allow flags before any mutation
+- Branch safety and dirty repo protection
+- `real_kimi_coder_kimi_reviewer` explicitly rejected
 
-### Stage 6.5 — Fix Loop
+**Files:**
+- `src/block/block-real-mode-safety.ts` — pure safety validation
+- `src/block/block-real-mode-git.ts` — git helpers (`stageOnlyFiles`, `commitStagedChanges`, `pushCurrentBranch`, `assertNoUnrelatedChanges`)
+- `src/block/block-one-task-loop.ts` — wired real mode
+- `src/block/block-task-runner.ts` — `convertBlockChecks`
+- `src/block/block-types.ts` — optional `apiKey`/`baseUrl`/`userAgent` on provider config
+- `test/block-real-mode-safety.test.ts` (14 tests)
+- `test/block-real-mode-git.test.ts` (12 tests)
+- `test/block-one-task-loop.test.ts` (+16 real mode tests)
+- `test/cli-block-run-one.test.ts` (+1 test)
 
-- Bounded retry with `max_fix_attempts`.
-- Repair prompt includes reviewer feedback + prior attempt context.
-- Final failure stops block, writes report.
+**Safety:**
+- No `git add -A`
+- No `git reset --hard`
+- No real reviewer call
+- No merge, no PR, no checkout/switch, no main touch
+- Tests use temp git repos + injected fake `fetch` — no real API calls
 
 ### Stage 6.6 — Block Completion Report
 

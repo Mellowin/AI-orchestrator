@@ -35,6 +35,15 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - Only fake providers
 - No real repo mutation across all tasks
 
+**Stage 6.5 Real One-Task Mode Safety:**
+- Pure flag checks (`ALLOW_BLOCK_RUN_ONE`, `ALLOW_REAL_PROVIDER`, `ALLOW_REAL_REPO_APPLY`, `ALLOW_REAL_REPO_COMMIT`) happen BEFORE any git or filesystem call.
+- Git-based safety checks: current branch must equal `work_branch`, `work_branch` must not be `main`, working tree must be clean.
+- `git add -- <file1> <file2>` only — never `git add -A`.
+- `git reset --hard` is never used.
+- Check failure triggers `rollbackFileUpdates` before any commit.
+- Push is optional (`ALLOW_REAL_REPO_PUSH`); if disabled, commit is local only.
+- `real_kimi_coder_kimi_reviewer` is explicitly rejected in Stage 6.5.
+
 **Default:** All flags are `false` (deny-by-default).
 
 ---
