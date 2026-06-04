@@ -338,5 +338,76 @@ describe('block-task-runner', () => {
       );
       assert.strictEqual(config.apiKey, 'sk-test');
     });
+
+    it('runtime reviewer config uses KIMI_API_KEY from env', () => {
+      const config = buildProviderConfigForRuntime(
+        { provider: 'kimi', model: 'kimi-k2.6' },
+        'reviewer',
+        { KIMI_API_KEY: 'sk-reviewer-key' }
+      );
+      assert.strictEqual(config.provider, 'kimi');
+      assert.strictEqual(config.apiKey, 'sk-reviewer-key');
+    });
+
+    it('runtime reviewer config uses KIMI_BASE_URL from env if missing', () => {
+      const config = buildProviderConfigForRuntime(
+        { provider: 'kimi', model: 'kimi-k2.6' },
+        'reviewer',
+        { KIMI_API_KEY: 'sk-test', KIMI_BASE_URL: 'https://reviewer.example.com' }
+      );
+      assert.strictEqual(config.baseUrl, 'https://reviewer.example.com');
+    });
+
+    it('runtime reviewer config throws if KIMI_API_KEY missing', () => {
+      assert.throws(
+        () =>
+          buildProviderConfigForRuntime(
+            { provider: 'kimi', model: 'kimi-k2.6' },
+            'reviewer',
+            {}
+          ),
+        /KIMI_API_KEY is required/
+      );
+    });
+
+    it('reviewer config error does not leak key value', () => {
+      try {
+        buildProviderConfigForRuntime(
+          { provider: 'kimi', model: 'kimi-k2.6' },
+          'reviewer',
+          {}
+        );
+        assert.fail('Expected throw');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        assert.ok(!msg.includes('sk-secret'), 'Error leaked API key');
+      }
+    });
+
+    it('real_kimi_coder_kimi_reviewer resolves Kimi reviewer only with allow flag', () => {
+      const providers = resolveCoderAndReviewerProviders({
+        mode: 'real_kimi_coder_kimi_reviewer',
+        coderBlockConfig: { provider: 'kimi', model: 'kimi-k2.6' },
+        reviewerBlockConfig: { provider: 'kimi', model: 'kimi-k2.6' },
+        allowRealProvider: true,
+        allowKimiReviewer: true,
+        env: { KIMI_API_KEY: 'sk-test', KIMI_BASE_URL: 'https://api.moonshot.cn/v1' },
+      });
+      assert.strictEqual(providers.coder.id, 'kimi');
+      assert.strictEqual(providers.reviewer.id, 'kimi');
+      assert.strictEqual(providers.reviewer.role, 'reviewer');
+    });
+
+    it('fake mode still does not require KIMI_API_KEY', () => {
+      const providers = resolveCoderAndReviewerProviders({
+        mode: 'fake',
+        coderBlockConfig: { provider: 'fake', model: 'fake' },
+        reviewerBlockConfig: { provider: 'fake', model: 'fake' },
+        allowRealProvider: false,
+        allowKimiReviewer: false,
+      });
+      assert.strictEqual(providers.coder.id, 'fake');
+      assert.strictEqual(providers.reviewer.id, 'fake');
+    });
   });
 });

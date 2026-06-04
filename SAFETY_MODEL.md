@@ -42,9 +42,15 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - `git reset --hard` is never used.
 - Check failure triggers `rollbackFileUpdates` before any commit.
 - Push is optional (`ALLOW_REAL_REPO_PUSH`); if disabled, commit is local only.
-- `real_kimi_coder_kimi_reviewer` is explicitly rejected in Stage 6.5.
 - **API keys are never stored in block JSON.** `KIMI_API_KEY` is read from environment variables at runtime. Block JSON rejection guards prevent `apiKey` from being persisted in block definitions.
 - Push state is recorded in block state only when push succeeds.
+
+**Stage 6.6 Real Kimi Reviewer One-Task Mode Safety:**
+- All Stage 6.5 safety rules apply.
+- Provider config is resolved BEFORE state mutation (`markTaskInProgress`). Missing `KIMI_API_KEY` fails before task status changes.
+- Real Kimi reviewer is called ONLY after deterministic checks pass. If deterministic checks fail, reviewer is NOT called.
+- Requires `ALLOW_KIMI_REVIEWER=true`, `REVIEWER_PROVIDER=kimi`, `CODER_PROVIDER=kimi`.
+- Invalid reviewer decision schema or API failure throws safely without corrupting the committed state.
 
 **Default:** All flags are `false` (deny-by-default).
 

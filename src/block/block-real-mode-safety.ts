@@ -29,40 +29,56 @@ export function validateRealOneTaskModeSafety(
   }
 
   if (input.mode === 'real_kimi_coder_kimi_reviewer') {
-    return {
-      ok: false,
-      blockingIssues: ['real Kimi reviewer not enabled in Stage 6.5'],
-    };
-  }
-
-  if (input.mode !== 'real_kimi_coder_fake_reviewer') {
+    // real_kimi_coder_kimi_reviewer gate checks
+    if (!input.allowBlockRunOne) {
+      issues.push('Real mode requires ALLOW_BLOCK_RUN_ONE=true');
+    }
+    if (!input.allowRealProvider) {
+      issues.push('Real mode requires ALLOW_REAL_PROVIDER=true');
+    }
+    if (!input.allowRealRepoApply) {
+      issues.push('Real mode requires ALLOW_REAL_REPO_APPLY=true');
+    }
+    if (!input.allowRealRepoCommit) {
+      issues.push('Real mode requires ALLOW_REAL_REPO_COMMIT=true');
+    }
+    if (!input.allowKimiReviewer) {
+      issues.push('Real mode with Kimi reviewer requires ALLOW_KIMI_REVIEWER=true');
+    }
+    if (input.coderProvider !== 'kimi') {
+      issues.push('Real mode requires coderProvider=kimi');
+    }
+    if (input.reviewerProvider !== 'kimi') {
+      issues.push('Real mode with Kimi reviewer requires reviewerProvider=kimi');
+    }
+  } else if (input.mode === 'real_kimi_coder_fake_reviewer') {
+    // real_kimi_coder_fake_reviewer gate checks
+    if (!input.allowBlockRunOne) {
+      issues.push('Real mode requires ALLOW_BLOCK_RUN_ONE=true');
+    }
+    if (!input.allowRealProvider) {
+      issues.push('Real mode requires ALLOW_REAL_PROVIDER=true');
+    }
+    if (!input.allowRealRepoApply) {
+      issues.push('Real mode requires ALLOW_REAL_REPO_APPLY=true');
+    }
+    if (!input.allowRealRepoCommit) {
+      issues.push('Real mode requires ALLOW_REAL_REPO_COMMIT=true');
+    }
+    if (input.coderProvider !== 'kimi') {
+      issues.push('Real mode requires coderProvider=kimi');
+    }
+    if (input.reviewerProvider !== 'fake') {
+      issues.push('Real mode requires reviewerProvider=fake');
+    }
+    if (input.allowKimiReviewer) {
+      issues.push('Real mode with fake reviewer must not set ALLOW_KIMI_REVIEWER=true');
+    }
+  } else {
     return {
       ok: false,
       blockingIssues: [`Unknown one-task loop mode: ${input.mode}`],
     };
-  }
-
-  // real_kimi_coder_fake_reviewer gate checks
-  if (!input.allowBlockRunOne) {
-    issues.push('Real mode requires ALLOW_BLOCK_RUN_ONE=true');
-  }
-  if (!input.allowRealProvider) {
-    issues.push('Real mode requires ALLOW_REAL_PROVIDER=true');
-  }
-  if (!input.allowRealRepoApply) {
-    issues.push('Real mode requires ALLOW_REAL_REPO_APPLY=true');
-  }
-  if (!input.allowRealRepoCommit) {
-    issues.push('Real mode requires ALLOW_REAL_REPO_COMMIT=true');
-  }
-  if (input.coderProvider !== 'kimi') {
-    issues.push('Real mode requires coderProvider=kimi');
-  }
-  if (input.reviewerProvider !== 'fake') {
-    issues.push('Real mode requires reviewerProvider=fake');
-  }
-  if (input.allowKimiReviewer) {
-    issues.push('Real mode with fake reviewer must not set ALLOW_KIMI_REVIEWER=true');
   }
 
   // Branch safety

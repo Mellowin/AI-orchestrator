@@ -30,6 +30,31 @@ function buildFakeKimiFetchResponse(files: Array<{ path: string; content: string
     }) as unknown as ReturnType<typeof globalThis.fetch>;
 }
 
+function buildFakeKimiFetchForCoderAndReviewer(
+  coderFiles: Array<{ path: string; content: string }>,
+  reviewerDecision: Record<string, unknown>
+): typeof globalThis.fetch {
+  let callCount = 0;
+  return async () => {
+    callCount++;
+    if (callCount === 1) {
+      const payload = JSON.stringify({ mode: 'file_update', files: coderFiles, notes: 'fake' });
+      const content = '```json\n' + payload + '\n```';
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content } }] }),
+      } as unknown as ReturnType<typeof globalThis.fetch>;
+    }
+    const content = JSON.stringify(reviewerDecision);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content } }] }),
+    } as unknown as ReturnType<typeof globalThis.fetch>;
+  };
+}
+
 let originalFetch: typeof globalThis.fetch;
 
 describe('block-one-task-loop', () => {
@@ -462,7 +487,8 @@ describe('block-one-task-loop', () => {
     );
   });
 
-  it('real_kimi_coder_kimi_reviewer rejected in Stage 6.5', async () => {
+  it('real_kimi_coder_kimi_reviewer missing ALLOW_KIMI_REVIEWER fails before state mutation', async () => {
+    const beforeState = loadBlockState(blockId);
     await assert.rejects(
       runOneTaskLoop({
         blockId,
@@ -472,13 +498,15 @@ describe('block-one-task-loop', () => {
         allowRealRepoApply: true,
         allowRealRepoCommit: true,
         allowRealRepoPush: false,
-        allowKimiReviewer: true,
+        allowKimiReviewer: false,
         reviewerProvider: 'kimi',
         coderProvider: 'kimi',
         blockDefinitionPath: blockJsonPath,
       }),
-      /real Kimi reviewer not enabled in Stage 6.5/
+      /ALLOW_KIMI_REVIEWER/
     );
+    const afterState = loadBlockState(blockId);
+    assert.strictEqual(afterState!.tasks[0].status, beforeState!.tasks[0].status);
   });
 
   describe('real mode with temp repo', () => {
@@ -1027,6 +1055,409 @@ describe('block-one-task-loop', () => {
 
       assert.strictEqual(result.reviewer_called, true);
       assert.strictEqual(result.reviewer_decision, 'accepted');
+    });
+
+    describe('real_kimi_coder_kimi_reviewer', () => {
+      let kimiBlockId: string;
+      let kimiBlockJsonPath: string;
+
+      beforeEach(() => {
+        kimiBlockId = `kimi-rev-${Date.now()}`;
+        const definition: BlockDefinition = {
+          block_id: kimiBlockId,
+          title: 'Real Kimi Reviewer Block',
+          repo_path: realRepoPath,
+          base_branch: 'main',
+          work_branch: 'feature/test',
+          providers: {
+            coder: { provider: 'kimi', model: 'kimi-k2.6' },
+            reviewer: { provider: 'kimi', model: 'kimi-k2.6' },
+          },
+          review_policy: {
+            require_deterministic_checks: true,
+            max_fix_attempts: 3,
+            reviewer_mode: 'single',
+          },
+          tasks: [
+            {
+              task_id: 'task-1',
+              title: 'Add greeting file',
+              goal: 'Create a greeting file with hello world',
+              allowed_files: ['greeting.txt'],
+              denied_files: ['secret.txt'],
+              max_lines_changed: 50,
+              checks: ['node -e "require(\'fs\').existsSync(\'greeting.txt\')||process.exit(1)"'],
+            },
+          ],
+        };
+
+        kimiBlockJsonPath = join(tmpdir(), `block-${kimiBlockId}.json`);
+        writeFileSync(kimiBlockJsonPath, JSON.stringify(definition, null, 2));
+
+        const state = initBlockState(definition);
+        const runDir = getBlockRunDir(kimiBlockId);
+        if (!existsSync(runDir)) {
+          mkdirSync(runDir, { recursive: true });
+        }
+        writeFileSync(join(runDir, 'block-state.json'), JSON.stringify(state, null, 2));
+      });
+
+      afterEach(() => {
+        try {
+          const runDir = getBlockRunDir(kimiBlockId);
+          if (existsSync(runDir)) {
+            rmSync(runDir, { recursive: true, force: true });
+          }
+          if (existsSync(kimiBlockJsonPath)) {
+            rmSync(kimiBlockJsonPath, { force: true });
+          }
+        } catch {
+          // ignore cleanup errors
+        }
+      });
+
+      it('missing KIMI_API_KEY does not change block state', async () => {
+        delete process.env.KIMI_API_KEY;
+        const beforeState = loadBlockState(kimiBlockId);
+        await assert.rejects(
+          runOneTaskLoop({
+            blockId: kimiBlockId,
+            mode: 'real_kimi_coder_kimi_reviewer',
+            allowBlockRunOne: true,
+            allowRealProvider: true,
+            allowRealRepoApply: true,
+            allowRealRepoCommit: true,
+            allowRealRepoPush: false,
+            allowKimiReviewer: true,
+            reviewerProvider: 'kimi',
+            coderProvider: 'kimi',
+            blockDefinitionPath: kimiBlockJsonPath,
+          }),
+          /KIMI_API_KEY is required/
+        );
+        const afterState = loadBlockState(kimiBlockId);
+        assert.strictEqual(afterState!.tasks[0].status, beforeState!.tasks[0].status);
+      });
+
+      it('deterministic failure does not call real reviewer', async () => {
+        globalThis.fetch = buildFakeKimiFetchResponse([
+          { path: 'greeting.txt', content: 'hello world\n' },
+        ]);
+
+        // Replace definition with failing check
+        const definition: BlockDefinition = {
+          block_id: kimiBlockId,
+          title: 'Real Kimi Reviewer Block',
+          repo_path: realRepoPath,
+          base_branch: 'main',
+          work_branch: 'feature/test',
+          providers: {
+            coder: { provider: 'kimi', model: 'kimi-k2.6' },
+            reviewer: { provider: 'kimi', model: 'kimi-k2.6' },
+          },
+          review_policy: {
+            require_deterministic_checks: true,
+            max_fix_attempts: 3,
+            reviewer_mode: 'single',
+          },
+          tasks: [
+            {
+              task_id: 'task-1',
+              title: 'Add greeting file',
+              goal: 'Create a greeting file with hello world',
+              allowed_files: ['greeting.txt'],
+              denied_files: ['secret.txt'],
+              max_lines_changed: 50,
+              checks: ['node -e process.exit(1)'],
+            },
+          ],
+        };
+        writeFileSync(kimiBlockJsonPath, JSON.stringify(definition, null, 2));
+
+        const result = await runOneTaskLoop({
+          blockId: kimiBlockId,
+          mode: 'real_kimi_coder_kimi_reviewer',
+          allowBlockRunOne: true,
+          allowRealProvider: true,
+          allowRealRepoApply: true,
+          allowRealRepoCommit: true,
+          allowRealRepoPush: false,
+          allowKimiReviewer: true,
+          reviewerProvider: 'kimi',
+          coderProvider: 'kimi',
+          blockDefinitionPath: kimiBlockJsonPath,
+        });
+
+        assert.strictEqual(result.status_after, 'checks_failed');
+        assert.strictEqual(result.reviewer_called, false);
+        assert.strictEqual(result.checks_passed, false);
+      });
+
+      it('real Kimi coder + real Kimi reviewer accepted updates state to accepted', async () => {
+        globalThis.fetch = buildFakeKimiFetchForCoderAndReviewer(
+          [{ path: 'greeting.txt', content: 'hello world\n' }],
+          {
+            decision: 'accepted',
+            confidence: 'high',
+            blocking_issues: [],
+            non_blocking_issues: [],
+            review_summary: 'Looks good',
+            fix_task: null,
+            next_action: 'advance_to_next_task',
+          }
+        );
+
+        const result = await runOneTaskLoop({
+          blockId: kimiBlockId,
+          mode: 'real_kimi_coder_kimi_reviewer',
+          allowBlockRunOne: true,
+          allowRealProvider: true,
+          allowRealRepoApply: true,
+          allowRealRepoCommit: true,
+          allowRealRepoPush: false,
+          allowKimiReviewer: true,
+          reviewerProvider: 'kimi',
+          coderProvider: 'kimi',
+          blockDefinitionPath: kimiBlockJsonPath,
+        });
+
+        assert.strictEqual(result.status_after, 'accepted');
+        assert.strictEqual(result.coder_called, true);
+        assert.strictEqual(result.reviewer_called, true);
+        assert.strictEqual(result.reviewer_decision, 'accepted');
+        assert.strictEqual(result.next_action, 'advance_to_next_task');
+        assert.ok(result.commit_sha);
+        assert.strictEqual(result.commit_sha!.length, 40);
+
+        const state = loadBlockState(kimiBlockId);
+        const task = state!.tasks.find((t) => t.task_id === 'task-1');
+        assert.strictEqual(task!.status, 'accepted');
+      });
+
+      it('real reviewer rejected with send_fix_to_coder updates fix_required', async () => {
+        globalThis.fetch = buildFakeKimiFetchForCoderAndReviewer(
+          [{ path: 'greeting.txt', content: 'hello world\n' }],
+          {
+            decision: 'rejected',
+            confidence: 'high',
+            blocking_issues: ['Missing newline at EOF'],
+            non_blocking_issues: [],
+            review_summary: 'Fix missing newline',
+            fix_task: 'Add newline',
+            next_action: 'send_fix_to_coder',
+          }
+        );
+
+        const result = await runOneTaskLoop({
+          blockId: kimiBlockId,
+          mode: 'real_kimi_coder_kimi_reviewer',
+          allowBlockRunOne: true,
+          allowRealProvider: true,
+          allowRealRepoApply: true,
+          allowRealRepoCommit: true,
+          allowRealRepoPush: false,
+          allowKimiReviewer: true,
+          reviewerProvider: 'kimi',
+          coderProvider: 'kimi',
+          blockDefinitionPath: kimiBlockJsonPath,
+        });
+
+        assert.strictEqual(result.status_after, 'fix_required');
+        assert.strictEqual(result.reviewer_decision, 'rejected');
+        assert.strictEqual(result.next_action, 'send_fix_to_coder');
+
+        const state = loadBlockState(kimiBlockId);
+        const task = state!.tasks.find((t) => t.task_id === 'task-1');
+        assert.strictEqual(task!.status, 'fix_required');
+        assert.strictEqual(task!.fix_attempts, 1);
+      });
+
+      it('real reviewer rejected with block_for_human updates blocked', async () => {
+        globalThis.fetch = buildFakeKimiFetchForCoderAndReviewer(
+          [{ path: 'greeting.txt', content: 'api_key = sk-test12345\n' }],
+          {
+            decision: 'rejected',
+            confidence: 'high',
+            blocking_issues: ['Secret pattern detected'],
+            non_blocking_issues: [],
+            review_summary: 'Blocked for human review',
+            fix_task: 'Remove secret',
+            next_action: 'block_for_human',
+          }
+        );
+
+        const result = await runOneTaskLoop({
+          blockId: kimiBlockId,
+          mode: 'real_kimi_coder_kimi_reviewer',
+          allowBlockRunOne: true,
+          allowRealProvider: true,
+          allowRealRepoApply: true,
+          allowRealRepoCommit: true,
+          allowRealRepoPush: false,
+          allowKimiReviewer: true,
+          reviewerProvider: 'kimi',
+          coderProvider: 'kimi',
+          blockDefinitionPath: kimiBlockJsonPath,
+        });
+
+        assert.strictEqual(result.status_after, 'blocked');
+        assert.strictEqual(result.next_action, 'block_for_human');
+
+        const state = loadBlockState(kimiBlockId);
+        const task = state!.tasks.find((t) => t.task_id === 'task-1');
+        assert.strictEqual(task!.status, 'blocked');
+      });
+
+      it('accepted + pushed=false keeps pushed_ref null', async () => {
+        globalThis.fetch = buildFakeKimiFetchForCoderAndReviewer(
+          [{ path: 'greeting.txt', content: 'hello world\n' }],
+          {
+            decision: 'accepted',
+            confidence: 'high',
+            blocking_issues: [],
+            non_blocking_issues: [],
+            review_summary: 'Looks good',
+            fix_task: null,
+            next_action: 'advance_to_next_task',
+          }
+        );
+
+        const result = await runOneTaskLoop({
+          blockId: kimiBlockId,
+          mode: 'real_kimi_coder_kimi_reviewer',
+          allowBlockRunOne: true,
+          allowRealProvider: true,
+          allowRealRepoApply: true,
+          allowRealRepoCommit: true,
+          allowRealRepoPush: false,
+          allowKimiReviewer: true,
+          reviewerProvider: 'kimi',
+          coderProvider: 'kimi',
+          blockDefinitionPath: kimiBlockJsonPath,
+        });
+
+        assert.strictEqual(result.pushed, false);
+        assert.ok(result.safety_findings.some((f) => f.includes('Push not performed')));
+
+        const state = loadBlockState(kimiBlockId);
+        const task = state!.tasks.find((t) => t.task_id === 'task-1');
+        assert.strictEqual(task!.pushed_ref, null);
+      });
+
+      it('accepted + pushed=true stores pushed_ref', async () => {
+        globalThis.fetch = buildFakeKimiFetchForCoderAndReviewer(
+          [{ path: 'greeting.txt', content: 'hello world\n' }],
+          {
+            decision: 'accepted',
+            confidence: 'high',
+            blocking_issues: [],
+            non_blocking_issues: [],
+            review_summary: 'Looks good',
+            fix_task: null,
+            next_action: 'advance_to_next_task',
+          }
+        );
+
+        const remotePath = mkdtempSync(join(tmpdir(), 'block-git-remote-kimi-'));
+        spawnSync('git', ['init', '--bare'], { cwd: remotePath, shell: false, encoding: 'utf-8' });
+        spawnSync('git', ['remote', 'add', 'origin', remotePath], { cwd: realRepoPath, shell: false, encoding: 'utf-8' });
+
+        const result = await runOneTaskLoop({
+          blockId: kimiBlockId,
+          mode: 'real_kimi_coder_kimi_reviewer',
+          allowBlockRunOne: true,
+          allowRealProvider: true,
+          allowRealRepoApply: true,
+          allowRealRepoCommit: true,
+          allowRealRepoPush: true,
+          allowKimiReviewer: true,
+          reviewerProvider: 'kimi',
+          coderProvider: 'kimi',
+          blockDefinitionPath: kimiBlockJsonPath,
+        });
+
+        assert.strictEqual(result.pushed, true);
+
+        const state = loadBlockState(kimiBlockId);
+        const task = state!.tasks.find((t) => t.task_id === 'task-1');
+        assert.strictEqual(task!.pushed_ref, 'feature/test');
+
+        rmSync(remotePath, { recursive: true, force: true });
+      });
+
+      it('reviewer result invalid schema fails safely', async () => {
+        globalThis.fetch = buildFakeKimiFetchForCoderAndReviewer(
+          [{ path: 'greeting.txt', content: 'hello world\n' }],
+          {
+            decision: 'accepted',
+            confidence: 'high',
+            blocking_issues: ['should be empty'],
+            non_blocking_issues: [],
+            review_summary: 'Invalid',
+            fix_task: null,
+            next_action: 'advance_to_next_task',
+          }
+        );
+
+        await assert.rejects(
+          runOneTaskLoop({
+            blockId: kimiBlockId,
+            mode: 'real_kimi_coder_kimi_reviewer',
+            allowBlockRunOne: true,
+            allowRealProvider: true,
+            allowRealRepoApply: true,
+            allowRealRepoCommit: true,
+            allowRealRepoPush: false,
+            allowKimiReviewer: true,
+            reviewerProvider: 'kimi',
+            coderProvider: 'kimi',
+            blockDefinitionPath: kimiBlockJsonPath,
+          }),
+          /Accepted decision must have empty blocking_issues/
+        );
+      });
+
+      it('reviewer API failure fails safely and does not corrupt commit state', async () => {
+        let callCount = 0;
+        globalThis.fetch = async () => {
+          callCount++;
+          if (callCount === 1) {
+            const payload = JSON.stringify({ mode: 'file_update', files: [{ path: 'greeting.txt', content: 'hello world\n' }], notes: 'fake' });
+            const content = '```json\n' + payload + '\n```';
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ choices: [{ message: { content } }] }),
+            } as unknown as ReturnType<typeof globalThis.fetch>;
+          }
+          return {
+            ok: false,
+            status: 500,
+            json: async () => ({ error: 'server error' }),
+          } as unknown as ReturnType<typeof globalThis.fetch>;
+        };
+
+        await assert.rejects(
+          runOneTaskLoop({
+            blockId: kimiBlockId,
+            mode: 'real_kimi_coder_kimi_reviewer',
+            allowBlockRunOne: true,
+            allowRealProvider: true,
+            allowRealRepoApply: true,
+            allowRealRepoCommit: true,
+            allowRealRepoPush: false,
+            allowKimiReviewer: true,
+            reviewerProvider: 'kimi',
+            coderProvider: 'kimi',
+            blockDefinitionPath: kimiBlockJsonPath,
+          }),
+          /Kimi reviewer failed/
+        );
+
+        // Commit should still exist in repo (not corrupted/rolled back)
+        const afterCommitCount = spawnSync('git', ['rev-list', '--count', 'HEAD'], { cwd: realRepoPath, shell: false, encoding: 'utf-8' }).stdout.trim();
+        assert.strictEqual(afterCommitCount, '2');
+      });
     });
   });
 });

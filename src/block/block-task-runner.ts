@@ -167,7 +167,10 @@ export function resolveCoderAndReviewerProviders(
       const reviewerConfig = buildProviderConfigForRuntime(input.reviewerBlockConfig, 'reviewer', input.env);
       return {
         coder: createKimiCoderProvider(coderConfig),
-        reviewer: createKimiReviewerProvider(reviewerConfig, input.kimiReviewerOptions),
+        reviewer: createKimiReviewerProvider(reviewerConfig, {
+          ...input.kimiReviewerOptions,
+          allowReal: true,
+        }),
       };
     }
     default: {

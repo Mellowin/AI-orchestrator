@@ -24,6 +24,13 @@ Stage 6.5 implements **real Kimi coder + fake reviewer one-task mode**:
 - Strict allow flags before any mutation
 - Branch safety and dirty repo protection
 
+Stage 6.6 implements **real Kimi coder + real Kimi reviewer one-task mode**:
+- Real Kimi API calls for both coder and reviewer
+- Deterministic checks gate before reviewer call
+- Reviewer called only after deterministic checks pass
+- Same git mutation and block state transitions
+- Requires `ALLOW_KIMI_REVIEWER=true`
+
 ---
 
 ## What this stage does NOT do

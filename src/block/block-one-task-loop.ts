@@ -98,7 +98,19 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   const taskId = taskDefinition.task_id;
   const statusBefore = blockState.tasks.find((t) => t.task_id === taskId)?.status ?? 'unknown';
 
-  // Real mode: pure flag checks BEFORE any git or filesystem calls
+  // 4. Resolve providers BEFORE state mutation so invalid env/config fails early
+  const providers = resolveCoderAndReviewerProviders({
+    mode: input.mode,
+    coderBlockConfig: blockDefinition.providers.coder,
+    reviewerBlockConfig: blockDefinition.providers.reviewer,
+    allowRealProvider: input.allowRealProvider,
+    allowKimiReviewer: input.allowKimiReviewer,
+    fakeCoderOptions: input.fakeCoderOptions,
+    fakeReviewerOptions: input.fakeReviewerOptions,
+    env: process.env,
+  });
+
+  // Real mode: pure flag checks and git safety BEFORE state mutation
   if (!isFakeMode) {
     if (!input.allowBlockRunOne) {
       throw new Error('Real mode requires ALLOW_BLOCK_RUN_ONE=true');
@@ -111,12 +123,6 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     }
     if (!input.allowRealRepoCommit) {
       throw new Error('Real mode requires ALLOW_REAL_REPO_COMMIT=true');
-    }
-    if (input.mode === 'real_kimi_coder_kimi_reviewer') {
-      throw new Error('real Kimi reviewer not enabled in Stage 6.5');
-    }
-    if (input.reviewerProvider === 'kimi' && !input.allowKimiReviewer) {
-      throw new Error('Real mode with Kimi reviewer requires ALLOW_KIMI_REVIEWER=true');
     }
 
     // Git-based safety checks
@@ -142,21 +148,9 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     }
   }
 
-  // 4. Mark task in_progress
+  // 5. Mark task in_progress
   blockState = markTaskInProgress(blockState, taskId);
   saveBlockState(blockState);
-
-  // 5. Resolve providers
-  const providers = resolveCoderAndReviewerProviders({
-    mode: input.mode,
-    coderBlockConfig: blockDefinition.providers.coder,
-    reviewerBlockConfig: blockDefinition.providers.reviewer,
-    allowRealProvider: input.allowRealProvider,
-    allowKimiReviewer: input.reviewerProvider === 'kimi' && input.allowRealProvider,
-    fakeCoderOptions: input.fakeCoderOptions,
-    fakeReviewerOptions: input.fakeReviewerOptions,
-    env: process.env,
-  });
 
   // 6. Build coder input
   const coderInput = buildCoderInputFromBlockTask(blockDefinition, taskDefinition, blockState);

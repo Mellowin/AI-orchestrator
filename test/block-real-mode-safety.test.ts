@@ -61,13 +61,73 @@ describe('block-real-mode-safety', () => {
     assert.ok(result.blockingIssues.some((i) => i.includes('reviewerProvider=fake')));
   });
 
-  it('real_kimi_coder_kimi_reviewer rejected in Stage 6.5', () => {
+  it('real_kimi_coder_kimi_reviewer requires ALLOW_KIMI_REVIEWER', () => {
     const result = validateRealOneTaskModeSafety({
       ...baseInput,
       mode: 'real_kimi_coder_kimi_reviewer' as const,
+      allowKimiReviewer: false,
+      reviewerProvider: 'kimi',
     });
     assert.strictEqual(result.ok, false);
-    assert.ok(result.blockingIssues.some((i) => i.includes('not enabled in Stage 6.5')));
+    assert.ok(result.blockingIssues.some((i) => i.includes('ALLOW_KIMI_REVIEWER')));
+  });
+
+  it('real_kimi_coder_kimi_reviewer requires reviewerProvider=kimi', () => {
+    const result = validateRealOneTaskModeSafety({
+      ...baseInput,
+      mode: 'real_kimi_coder_kimi_reviewer' as const,
+      allowKimiReviewer: true,
+      reviewerProvider: 'fake',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.blockingIssues.some((i) => i.includes('reviewerProvider=kimi')));
+  });
+
+  it('real_kimi_coder_kimi_reviewer requires coderProvider=kimi', () => {
+    const result = validateRealOneTaskModeSafety({
+      ...baseInput,
+      mode: 'real_kimi_coder_kimi_reviewer' as const,
+      allowKimiReviewer: true,
+      reviewerProvider: 'kimi',
+      coderProvider: 'fake',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.blockingIssues.some((i) => i.includes('coderProvider=kimi')));
+  });
+
+  it('real_kimi_coder_kimi_reviewer ok with correct flags', () => {
+    const result = validateRealOneTaskModeSafety({
+      ...baseInput,
+      mode: 'real_kimi_coder_kimi_reviewer' as const,
+      allowKimiReviewer: true,
+      reviewerProvider: 'kimi',
+    });
+    assert.strictEqual(result.ok, true);
+    assert.deepStrictEqual(result.blockingIssues, []);
+  });
+
+  it('real_kimi_coder_kimi_reviewer still rejects main branch', () => {
+    const result = validateRealOneTaskModeSafety({
+      ...baseInput,
+      mode: 'real_kimi_coder_kimi_reviewer' as const,
+      allowKimiReviewer: true,
+      reviewerProvider: 'kimi',
+      currentBranch: 'main',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.blockingIssues.some((i) => i.includes('main')));
+  });
+
+  it('real_kimi_coder_kimi_reviewer still rejects dirty git status', () => {
+    const result = validateRealOneTaskModeSafety({
+      ...baseInput,
+      mode: 'real_kimi_coder_kimi_reviewer' as const,
+      allowKimiReviewer: true,
+      reviewerProvider: 'kimi',
+      gitStatus: 'M file.txt',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.blockingIssues.some((i) => i.includes('not clean')));
   });
 
   it('rejects currentBranch main', () => {

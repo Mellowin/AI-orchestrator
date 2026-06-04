@@ -787,11 +787,30 @@ Properties:
 - Missing key fails safely before provider call
 - Tests use temp git repos + injected fake `fetch` — no real API calls
 
-### Stage 6.6 — Block Completion Report
+### Stage 6.6 — Real Kimi Reviewer Gate ✅
 
-- Generate human-readable block report.
-- Include task list, commit SHAs, reviewer decisions, fix history, safety notes.
-- Write to `runs/{block_id}/block-report.md`.
+- Real Kimi coder + real Kimi reviewer one-task loop
+- Deterministic checks gate before reviewer call — reviewer NOT called if deterministic checks fail
+- Provider config resolved BEFORE `markTaskInProgress` — missing `KIMI_API_KEY` fails before state mutation
+- Requires `ALLOW_KIMI_REVIEWER=true`, `REVIEWER_PROVIDER=kimi`, `CODER_PROVIDER=kimi`
+- Invalid reviewer schema or API failure throws safely without corrupting committed state
+- Push state recording same as Stage 6.5
+
+**Files:**
+- `src/block/block-one-task-loop.ts` — preflight provider resolution before state mutation, removed Stage 6.5 rejection
+- `src/block/block-real-mode-safety.ts` — `real_kimi_coder_kimi_reviewer` validation with `ALLOW_KIMI_REVIEWER` + `reviewerProvider=kimi` + `coderProvider=kimi`
+- `src/block/block-task-runner.ts` — `createKimiReviewerProvider` with `allowReal: true`
+- `test/block-one-task-loop.test.ts` — 9 new tests for real Kimi reviewer mode
+- `test/block-real-mode-safety.test.ts` — 6 new tests for kimi_reviewer safety validation
+- `test/block-task-runner.test.ts` — 6 new tests for reviewer runtime config
+- `test/cli-block-run-one.test.ts` — 1 new test for missing ALLOW_KIMI_REVIEWER
+
+**Safety:**
+- No real Kimi calls in tests (injected fake fetch)
+- No `git add -A`, no `git reset --hard`
+- No merge, no PR, no checkout/switch, no main touch
+- API keys rejected in block JSON
+- `KIMI_API_KEY` loaded from env at runtime
 
 ### Stage 6.7 — Live 3-Task Autonomous Demo
 

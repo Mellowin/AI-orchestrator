@@ -188,7 +188,7 @@ describe('cli block-run-one', () => {
     );
   });
 
-  test('real Kimi reviewer mode fails safely', () => {
+  test('real_kimi_coder_kimi_reviewer missing ALLOW_KIMI_REVIEWER fails safely', () => {
     const result = runCli(['block-run-one', blockJsonPath], {
       BLOCK_RUN_ONE_MODE: 'real_kimi_coder_kimi_reviewer',
       ALLOW_BLOCK_RUN_ONE: 'true',
@@ -196,10 +196,13 @@ describe('cli block-run-one', () => {
       ALLOW_REAL_REPO_APPLY: 'true',
       ALLOW_REAL_REPO_COMMIT: 'true',
       REVIEWER_PROVIDER: 'kimi',
+      CODER_PROVIDER: 'kimi',
+      KIMI_API_KEY: 'fake-key',
+      KIMI_BASE_URL: 'https://api.moonshot.cn/v1',
     });
     assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);
     assert.ok(
-      result.stderr.includes('not enabled in Stage 6.5') || result.stderr.includes('not implemented safely yet'),
+      result.stderr.includes('ALLOW_KIMI_REVIEWER') || result.stderr.includes('not implemented safely yet'),
       result.stderr
     );
   });
@@ -211,6 +214,25 @@ describe('cli block-run-one', () => {
       ALLOW_REAL_PROVIDER: 'true',
       ALLOW_REAL_REPO_APPLY: 'true',
       ALLOW_REAL_REPO_COMMIT: 'true',
+      KIMI_API_KEY: '',
+    });
+    assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);
+    assert.ok(
+      result.stderr.includes('KIMI_API_KEY') || result.stderr.includes('not implemented safely yet'),
+      result.stderr
+    );
+  });
+
+  test('real_kimi_coder_kimi_reviewer missing KIMI_API_KEY fails safely', () => {
+    const result = runCli(['block-run-one', blockJsonPath], {
+      BLOCK_RUN_ONE_MODE: 'real_kimi_coder_kimi_reviewer',
+      ALLOW_BLOCK_RUN_ONE: 'true',
+      ALLOW_REAL_PROVIDER: 'true',
+      ALLOW_REAL_REPO_APPLY: 'true',
+      ALLOW_REAL_REPO_COMMIT: 'true',
+      ALLOW_KIMI_REVIEWER: 'true',
+      REVIEWER_PROVIDER: 'kimi',
+      CODER_PROVIDER: 'kimi',
       KIMI_API_KEY: '',
     });
     assert.strictEqual(result.status, 1, `Expected exit 1, got ${result.status}`);

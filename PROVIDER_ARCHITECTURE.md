@@ -201,7 +201,16 @@ Stage 6.5 wires the real Kimi coder provider into the one-task loop while keepin
 - **API keys:** Never stored in block JSON. `block-loader.ts` rejects any block definition containing `providers.coder.apiKey` or `providers.reviewer.apiKey`.
 - **Push state:** `markTaskPushed` is called only when push succeeds. `markTaskAccepted` preserves `pushed_ref` if set.
 
-Real Kimi reviewer (`real_kimi_coder_kimi_reviewer`) is explicitly rejected in Stage 6.5 and will be enabled in Stage 6.6.
+## 13. Stage 6.6 — Real Kimi Coder + Real Kimi Reviewer
+
+Stage 6.6 enables the real Kimi reviewer in the one-task loop:
+
+- **Coder:** Same as Stage 6.5 — `createKimiCoderProvider` with `KIMI_API_KEY` + `KIMI_BASE_URL` from env
+- **Reviewer:** `createKimiReviewerProvider` with `allowReal: true`, using `KIMI_API_KEY` + `KIMI_BASE_URL` from env
+- **Deterministic gate:** `runReviewerGate` calls the real reviewer ONLY after deterministic checks pass. If deterministic checks fail, reviewer is NOT called and the result is `rejected` with `reviewerCalled: false`.
+- **State transitions:** Same as Stage 6.5 — `accepted`, `fix_required`, or `blocked` based on reviewer decision.
+- **Safety:** Provider resolution happens BEFORE `markTaskInProgress`, so missing `KIMI_API_KEY` fails before state mutation.
+- **Tests:** All real Kimi calls in tests use injected fake `fetch` — no real API calls.
 
 ## 13. Future Combinations
 
