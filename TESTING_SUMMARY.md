@@ -2,7 +2,7 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `a0b6e82415ebd0d9af8b911077a3afee4898654a`
+**Last verified:** `69a727a6f62a2a6d7edf719e323e58eca5063e8a`
 
 ## Test metrics
 
@@ -32,7 +32,7 @@
 | Stage 6.7 | Live Proof — Real Kimi Coder + Real Kimi Reviewer | `db5e0ae2be583e0132246361c416161616fb6472` |
 | Stage 6.8 | Safe Real Multi-Task Kimi→Kimi Block Loop | `1116faaebd19370a7aa46836030fd26ae4e9459f` |
 | Stage 6.8.1 | Evidence Docs Cleanup | `1e746c6e78907f2afa1095a8609e9581936b927f` |
-| Stage 6.9 | PR-ready Human Approval Package | `a0b6e82415ebd0d9af8b911077a3afee4898654a` |
+| Stage 6.9 | PR-ready Human Approval Package | `69a727a6f62a2a6d7edf719e323e58eca5063e8a` |
 
 ## Covered layers
 
