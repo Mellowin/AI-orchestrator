@@ -8,7 +8,7 @@
 
 - **Total tests:** 1668
 - **Total suites:** 98
-- **Last verified commit:** `pending final commit hash` (Stage 6.12.1 PR Status Monitor Live-Proof Hardening)
+- **Last verified commit:** `8cef7a722be0e0c4220b04fccc70ad22216b70c7` (Stage 6.12.1 PR Status Monitor Live-Proof Hardening)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -39,7 +39,7 @@
 | Stage 6.11.1 | Live Draft PR Proof | `d1705b571ef9f6c34b4519baf7736fba7db99c01` |
 | Stage 6.11.2 | PR Body Wording Hardening | `ed9e2abf0b8d6fca7d4fd4f4a32e1e8399df939b` |
 | Stage 6.12 | PR Status Monitoring for Block PR | `6993797d472fdb18fd93e6dfb89c8a69b124f577` |
-| Stage 6.12.1 | PR Status Monitor Live-Proof Hardening | `pending final commit hash` |
+| Stage 6.12.1 | PR Status Monitor Live-Proof Hardening | `8cef7a722be0e0c4220b04fccc70ad22216b70c7` |
 
 ## Covered layers
 
