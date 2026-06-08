@@ -900,4 +900,244 @@ describe('block-pr-cleanup', () => {
     assert.ok(report.includes('No push'), report);
     assert.ok(report.includes('No checkout/switch'), report);
   });
+
+  it('deleteBranch=true, closePr=false, PR open => blocked', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const fakeFetch = createFakeFetch([
+      {
+        url: '/pulls/2',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse(), text: () => '' },
+      },
+    ]);
+
+    process.env.BLOCK_PR_CLEANUP_DRY_RUN = 'false';
+    process.env.ALLOW_GITHUB_BRANCH_DELETE = 'true';
+
+    const result = await cleanupBlockProofPr({
+      blockDefinitionPath: blockJsonPath,
+      fetchFn: fakeFetch,
+      deleteBranch: true,
+      dryRun: false,
+    });
+    assert.strictEqual(result.cleanup_safe, false);
+    assert.ok(
+      result.blocking_issues.some((i) => i.includes('Cannot delete proof branch while PR is still open')),
+      result.blocking_issues.join('; ')
+    );
+    assert.strictEqual(result.branch_deleted, false);
+  });
+
+  it('deleteBranch=true, closePr=false, PR already closed => allowed', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const fakeFetch = createFakeFetch([
+      {
+        url: '/pulls/2',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse({ state: 'closed' }), text: () => '' },
+      },
+      {
+        url: '/git/refs/heads/',
+        method: 'DELETE',
+        response: { ok: true, status: 204, json: () => ({}), text: () => '' },
+      },
+    ]);
+
+    process.env.BLOCK_PR_CLEANUP_DRY_RUN = 'false';
+    process.env.ALLOW_GITHUB_BRANCH_DELETE = 'true';
+
+    const result = await cleanupBlockProofPr({
+      blockDefinitionPath: blockJsonPath,
+      fetchFn: fakeFetch,
+      deleteBranch: true,
+      dryRun: false,
+    });
+    assert.strictEqual(result.cleanup_safe, true);
+    assert.strictEqual(result.branch_deleted, true);
+  });
+
+  it('deleteBranch=true, closePr=true, PR open => PATCH then DELETE', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const methods: string[] = [];
+    const fakeFetch = createFakeFetch([
+      {
+        url: '/pulls/2',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse(), text: () => '' },
+      },
+      {
+        url: '/pulls/2',
+        method: 'PATCH',
+        response: { ok: true, status: 200, json: () => ({ state: 'closed' }), text: () => '' },
+      },
+      {
+        url: '/git/refs/heads/',
+        method: 'DELETE',
+        response: { ok: true, status: 204, json: () => ({}), text: () => '' },
+      },
+    ]);
+
+    const customFetch: typeof fetch = async (url, init) => {
+      const method = init?.method ?? 'GET';
+      methods.push(method);
+      return fakeFetch(url, init);
+    };
+
+    process.env.BLOCK_PR_CLEANUP_DRY_RUN = 'false';
+    process.env.ALLOW_GITHUB_PR_CLOSE = 'true';
+    process.env.ALLOW_GITHUB_BRANCH_DELETE = 'true';
+
+    const result = await cleanupBlockProofPr({
+      blockDefinitionPath: blockJsonPath,
+      fetchFn: customFetch,
+      closePr: true,
+      deleteBranch: true,
+      dryRun: false,
+    });
+    assert.ok(methods.includes('PATCH'), `Methods: ${methods.join(', ')}`);
+    assert.ok(methods.includes('DELETE'), `Methods: ${methods.join(', ')}`);
+    assert.strictEqual(result.pr_closed, true);
+    assert.strictEqual(result.branch_deleted, true);
+  });
+
+  it('close failure prevents branch deletion', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const fakeFetch = createFakeFetch([
+      {
+        url: '/pulls/2',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse(), text: () => '' },
+      },
+      {
+        url: '/pulls/2',
+        method: 'PATCH',
+        response: { ok: false, status: 422, json: () => ({}), text: () => 'Unprocessable' },
+      },
+    ]);
+
+    process.env.BLOCK_PR_CLEANUP_DRY_RUN = 'false';
+    process.env.ALLOW_GITHUB_PR_CLOSE = 'true';
+    process.env.ALLOW_GITHUB_BRANCH_DELETE = 'true';
+
+    const result = await cleanupBlockProofPr({
+      blockDefinitionPath: blockJsonPath,
+      fetchFn: fakeFetch,
+      closePr: true,
+      deleteBranch: true,
+      dryRun: false,
+    });
+    assert.strictEqual(result.pr_closed, false);
+    assert.strictEqual(result.branch_deleted, false);
+    assert.ok(result.blocking_issues.some((i) => i.includes('Failed to close')), result.blocking_issues.join('; '));
+    assert.ok(result.safety_findings.some((f) => f.includes('branch deletion was skipped')), result.safety_findings.join('; '));
+  });
+
+  it('dry-run deleteBranch=true, closePr=false, PR open => blocked, no PATCH/DELETE', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const fakeFetch = createFakeFetch([
+      {
+        url: '/pulls/2',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse(), text: () => '' },
+      },
+    ]);
+
+    const result = await cleanupBlockProofPr({
+      blockDefinitionPath: blockJsonPath,
+      fetchFn: fakeFetch,
+      deleteBranch: true,
+    });
+    assert.strictEqual(result.dry_run, true);
+    assert.strictEqual(result.cleanup_safe, false);
+    assert.ok(
+      result.blocking_issues.some((i) => i.includes('Cannot delete proof branch while PR is still open')),
+      result.blocking_issues.join('; ')
+    );
+    assert.strictEqual(result.pr_closed, false);
+    assert.strictEqual(result.branch_deleted, false);
+  });
+
+  it('report includes branch-delete safety verification', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const fakeFetch = createFakeFetch([
+      {
+        url: '/pulls/2',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse(), text: () => '' },
+      },
+    ]);
+
+    const result = await cleanupBlockProofPr({
+      blockDefinitionPath: blockJsonPath,
+      fetchFn: fakeFetch,
+      deleteBranch: true,
+    });
+    const report = readFileSync(result.output_path, 'utf-8');
+    assert.ok(
+      report.includes('Branch delete requires PR closed or same-command close:'),
+      report
+    );
+  });
+
+  it('blocking issue text is exact and token-safe', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const fakeFetch = createFakeFetch([
+      {
+        url: '/pulls/2',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse(), text: () => '' },
+      },
+    ]);
+
+    const result = await cleanupBlockProofPr({
+      blockDefinitionPath: blockJsonPath,
+      fetchFn: fakeFetch,
+      deleteBranch: true,
+    });
+    const issue = result.blocking_issues.find((i) => i.includes('Cannot delete proof branch'));
+    assert.ok(issue, `Expected exact blocking issue, got: ${result.blocking_issues.join('; ')}`);
+    assert.ok(!issue.includes('ghp_testtoken'), 'token leaked in blocking issue');
+  });
 });

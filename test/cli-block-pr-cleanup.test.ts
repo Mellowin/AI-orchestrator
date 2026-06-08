@@ -626,4 +626,195 @@ describe('cli block-pr-cleanup', () => {
     assert.strictEqual(result.status, 0, result.stderr);
     assert.ok(result.stdout.includes('No provider call was made'), result.stdout);
   });
+
+  test('deleteBranch=true, closePr=false, open PR => Cleanup safe: no', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+    });
+
+    const result = runCli(['block-pr-cleanup', blockJsonPath], {
+      ALLOW_BLOCK_PR_CLEANUP: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      BLOCK_PR_CLEANUP_DELETE_BRANCH: 'true',
+      BLOCK_PR_CLEANUP_DRY_RUN: 'false',
+      ALLOW_GITHUB_BRANCH_DELETE: 'true',
+      MOCK_GITHUB_PR_CLEANUP_RESPONSE: mockPr,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes('Cleanup safe: no'), result.stdout);
+  });
+
+  test('deleteBranch open PR output includes blocking issue count > 0', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+    });
+
+    const result = runCli(['block-pr-cleanup', blockJsonPath], {
+      ALLOW_BLOCK_PR_CLEANUP: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      BLOCK_PR_CLEANUP_DELETE_BRANCH: 'true',
+      BLOCK_PR_CLEANUP_DRY_RUN: 'false',
+      ALLOW_GITHUB_BRANCH_DELETE: 'true',
+      MOCK_GITHUB_PR_CLEANUP_RESPONSE: mockPr,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    const blockingMatch = result.stdout.match(/Blocking issues: (\d+)/);
+    assert.ok(blockingMatch, `Blocking issues count not found in: ${result.stdout}`);
+    const count = parseInt(blockingMatch[1], 10);
+    assert.ok(count > 0, `Expected blocking issues > 0, got ${count}`);
+  });
+
+  test('dry-run deleteBranch open PR does not PATCH/DELETE', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+    });
+
+    const result = runCli(['block-pr-cleanup', blockJsonPath], {
+      ALLOW_BLOCK_PR_CLEANUP: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      BLOCK_PR_CLEANUP_DELETE_BRANCH: 'true',
+      MOCK_GITHUB_PR_CLEANUP_RESPONSE: mockPr,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes('Dry run: yes'), result.stdout);
+    assert.ok(result.stdout.includes('PR closed: no'), result.stdout);
+    assert.ok(result.stdout.includes('Branch deleted: no'), result.stdout);
+  });
+
+  test('close+delete fake success still prints PR closed yes / Branch deleted yes', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+    });
+    const mockClose = JSON.stringify({ ok: true, status: 200 });
+    const mockDelete = JSON.stringify({ ok: true, status: 204 });
+
+    const result = runCli(['block-pr-cleanup', blockJsonPath], {
+      ALLOW_BLOCK_PR_CLEANUP: 'true',
+      ALLOW_GITHUB_PR_CLOSE: 'true',
+      ALLOW_GITHUB_BRANCH_DELETE: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      GITHUB_TOKEN: 'ghp_testtoken1234567890',
+      BLOCK_PR_CLEANUP_CLOSE_PR: 'true',
+      BLOCK_PR_CLEANUP_DELETE_BRANCH: 'true',
+      BLOCK_PR_CLEANUP_DRY_RUN: 'false',
+      MOCK_GITHUB_PR_CLEANUP_RESPONSE: mockPr,
+      MOCK_GITHUB_PR_CLEANUP_CLOSE_RESPONSE: mockClose,
+      MOCK_GITHUB_PR_CLEANUP_DELETE_RESPONSE: mockDelete,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes('PR closed: yes'), result.stdout);
+    assert.ok(result.stdout.includes('Branch deleted: yes'), result.stdout);
+  });
+
+  test('no token leak with open PR delete attempt', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+    });
+
+    const result = runCli(['block-pr-cleanup', blockJsonPath], {
+      ALLOW_BLOCK_PR_CLEANUP: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      GITHUB_TOKEN: 'ghp_testtoken1234567890',
+      BLOCK_PR_CLEANUP_DELETE_BRANCH: 'true',
+      MOCK_GITHUB_PR_CLEANUP_RESPONSE: mockPr,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    const out = result.stdout + result.stderr;
+    assert.ok(!out.includes('ghp_testtoken1234567890'), 'token leaked in output');
+  });
+
+  test('no stack trace on open PR delete attempt', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+    });
+
+    const result = runCli(['block-pr-cleanup', blockJsonPath], {
+      ALLOW_BLOCK_PR_CLEANUP: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      BLOCK_PR_CLEANUP_DELETE_BRANCH: 'true',
+      MOCK_GITHUB_PR_CLEANUP_RESPONSE: mockPr,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    const out = result.stdout + result.stderr;
+    assert.ok(!out.includes('at '), `Stack trace leaked: ${out}`);
+    assert.ok(!out.includes('src/'), `Source path leaked: ${out}`);
+  });
 });

@@ -78,6 +78,7 @@ Before any close/delete, the helper verifies:
 - `pr-created.json` base/head match block definition
 - If `closePr` requested: `ALLOW_GITHUB_PR_CLOSE=true`
 - If `deleteBranch` requested: `ALLOW_GITHUB_BRANCH_DELETE=true`
+- **If `deleteBranch` requested and PR is open: `closePr` must also be requested in the same command**
 - If any blocking issue exists: **no close/delete is performed**
 
 Blocking issues include:
@@ -90,6 +91,7 @@ Blocking issues include:
 - Missing allow env
 - Missing token for real write
 - Malformed GitHub response
+- **Cannot delete proof branch while PR is still open unless closePr is requested**
 
 ## GitHub API usage
 

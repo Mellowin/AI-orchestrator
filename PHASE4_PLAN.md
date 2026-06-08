@@ -1113,6 +1113,26 @@ Properties:
 
 **Tests:** 43 new tests (27 unit + 16 CLI). Total suite: 1710 tests, 102 suites, 0 failures.
 
+### Stage 6.13.1 — PR Cleanup Branch Deletion Safety Hardening ✅
+
+**Status:** Implemented and tested.
+
+**Goal:** Harden cleanup helper so it cannot delete the proof branch while the PR is still open unless the same command also closes the PR.
+
+**Changes:**
+1. `src/block/block-pr-cleanup.ts`:
+   - Added blocking issue when `deleteBranch=true`, PR state is `open`, and `closePr` is not requested
+   - Close PR first, then delete branch when both are requested and PR is open
+   - If close fails, branch deletion is skipped
+   - Report includes `Branch delete requires PR closed or same-command close: PASS/FAIL`
+2. Tests:
+   - `test/block-pr-cleanup.test.ts`: +7 unit tests
+   - `test/cli-block-pr-cleanup.test.ts`: +6 CLI tests
+3. Docs updated:
+   - `docs/STAGE6_13_PR_CLEANUP_HELPER.md`, `COMMAND_REFERENCE.md`, `SAFETY_MODEL.md`
+
+**Tests:** 13 new tests (7 unit + 6 CLI). Total suite: 1723 tests, 102 suites, 0 failures.
+
 **Next possible stage:** Stage 6.x autonomous loop enhancements.
 
 ### Stage 6 Safety Rules

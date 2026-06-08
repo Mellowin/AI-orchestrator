@@ -712,6 +712,7 @@
 - Base/head mismatch blocks cleanup
 - Merged PR blocks cleanup
 - Head/main branch blocks cleanup
+- **Branch deletion of an open PR is blocked unless the same command also requests PR close**
 - Failed close prevents branch deletion
 - No stack trace leak
 - No API key leak

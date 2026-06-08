@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `e88e8d7ef5acf873715b5bc1711eefa14ba0c85c`
+**Last verified:** `pending final commit hash`
 
 ## Test metrics
 
-- **Total tests:** 1710
+- **Total tests:** 1723
 - **Total suites:** 102
-- **Last verified commit:** `e88e8d7ef5acf873715b5bc1711eefa14ba0c85c` (Stage 6.13 Proof PR Cleanup Helper)
+- **Last verified commit:** `pending final commit hash` (Stage 6.13.1 PR Cleanup Branch Deletion Safety Hardening)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -42,6 +42,7 @@
 | Stage 6.12.1 | PR Status Monitor Live-Proof Hardening | `8cef7a722be0e0c4220b04fccc70ad22216b70c7` |
 | Stage 6.12.2 | Testing Metrics Reconciliation | `15f81b3bb6d5549caec9e4d965598ed98305ad34` |
 | Stage 6.13 | Proof PR Cleanup Helper | `e88e8d7ef5acf873715b5bc1711eefa14ba0c85c` |
+| Stage 6.13.1 | PR Cleanup Branch Deletion Safety Hardening | `pending final commit hash` |
 
 ## Covered layers
 
@@ -101,8 +102,8 @@
 | Block PR create CLI | `test/cli-block-pr-create.test.ts` | `block-pr-create <blockJsonPath>`: missing block path, dry-run output, missing allow flags/token/repository, missing draft package, not-PR-ready body, token leak prevention, no stack trace, safety messages (no provider/push/merge/checkout/main/PR update), dry-run no pr-created.json, duplicate pr-created.json blocks. 19 tests. |
 | Block PR status | `test/block-pr-status.test.ts` | `getBlockPrStatus`: reads pr-created.json, fetches PR status via GitHub API GET, accepts open draft PR with correct base/head, flags merged/closed/non-draft/wrong base/wrong head/head main, missing/malformed pr-created.json, malformed GitHub response, checks_status success/failure/pending/unknown, writes pr-status-report.md, report contains no mutation claims, no PR creation/update/close/merge/push/checkout/provider, no token leak, source_mode github_api vs mock, mock safety finding, report includes source fields. 28 tests. |
 | Block PR status CLI | `test/cli-block-pr-status.test.ts` | `block-pr-status <blockJsonPath>`: missing block path/allow flag/repository, successful status prints PR URL, safe for human review yes/no, custom BLOCK_PR_NUMBER/output path, no token leak, no stack trace, no PR created/updated/closed/merged/push/checkout/main/provider, source mode mock prints warning/GitHub API verified no/Mock used yes. 21 tests. |
-| Block PR cleanup | `test/block-pr-cleanup.test.ts` | `cleanupBlockProofPr`: dry-run reads PR and writes report, default is dry-run, missing allow/repository/pr-created.json/malformed fail safely, wrong base/head/merged/head main/base main unexpectedly/non-proof-like branch block cleanup, close/delete missing allow flags block, real close/delete require token, dry-run does not PATCH/DELETE, close+delete with flags calls PATCH then DELETE, failed close prevents delete, failed DELETE records safety, report contains no merge/push/checkout/token persisted, no provider call, no local git mutation. 27 tests. |
-| Block PR cleanup CLI | `test/cli-block-pr-cleanup.test.ts` | `block-pr-cleanup <blockJsonPath>`: missing block path safe error, dry-run prints Dry run yes, close/delete missing allow flags print safe error, close+delete dry-run does not call write endpoints, real close/delete with fake fetch prints success, output path override works, no token leak, no stack trace, no merge/auto-merge/push/checkout/main/provider. 16 tests. |
+| Block PR cleanup | `test/block-pr-cleanup.test.ts` | `cleanupBlockProofPr`: dry-run reads PR and writes report, default is dry-run, missing allow/repository/pr-created.json/malformed fail safely, wrong base/head/merged/head main/base main unexpectedly/non-proof-like branch block cleanup, close/delete missing allow flags block, real close/delete require token, dry-run does not PATCH/DELETE, close+delete with flags calls PATCH then DELETE, failed close prevents delete, failed DELETE records safety, report contains no merge/push/checkout/token persisted, no provider call, no local git mutation. 34 tests. |
+| Block PR cleanup CLI | `test/cli-block-pr-cleanup.test.ts` | `block-pr-cleanup <blockJsonPath>`: missing block path safe error, dry-run prints Dry run yes, close/delete missing allow flags print safe error, close+delete dry-run does not call write endpoints, real close/delete with fake fetch prints success, output path override works, no token leak, no stack trace, no merge/auto-merge/push/checkout/main/provider. 22 tests. |
 | Block real-mode safety | `test/block-real-mode-safety.test.ts` | `validateRealOneTaskModeSafety`: fake mode ok, requires ALLOW_BLOCK_RUN_ONE/ALLOW_REAL_PROVIDER/ALLOW_REAL_REPO_APPLY/ALLOW_REAL_REPO_COMMIT, requires coderProvider=kimi and reviewerProvider=fake, rejects real_kimi_coder_kimi_reviewer, rejects currentBranch main/HEAD/mismatch, rejects workBranch main, rejects dirty git status, safe errors do not leak env values |
 | Block real-mode git | `test/block-real-mode-git.test.ts` | `getCurrentBranchName`, `getGitStatusPorcelain`, `stageOnlyFiles` (rejects empty/absolute/traversal, stages only approved file), `assertNoUnrelatedChanges` (passes for approved, rejects unrelated), `commitStagedChanges` returns 40-char SHA, `pushCurrentBranch` does not use force, no git add -A |
 | CLI block-run | `test/cli-block-run.test.ts` | `block-run <blockJsonPath>`: missing block path fails safely, invalid JSON fails safely, fake mode runs block, output includes block id/tasks attempted/accepted count, respects BLOCK_RUN_MAX_TASKS, rejects non-fake mode, no provider real call, no git call, no GitHub API, no merge/main/checkout/push, no API key leak, no stack trace |

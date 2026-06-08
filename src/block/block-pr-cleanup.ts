@@ -256,6 +256,9 @@ function generateCleanupReport(result: BlockPrCleanupResult, blockDefinition: Bl
   lines.push(`- **Base match:** ${result.base_branch === result.expected_base_branch ? 'PASS' : 'FAIL'}`);
   lines.push(`- **Head match:** ${result.head_branch === result.expected_head_branch ? 'PASS' : 'FAIL'}`);
   lines.push(`- **Head is not main:** ${result.head_branch !== 'main' ? 'PASS' : 'FAIL'}`);
+  lines.push(`- **Branch delete requires PR closed or same-command close:** ${
+    result.delete_branch_requested && result.state_before === 'open' && !result.close_pr_requested ? 'FAIL' : 'PASS'
+  }`);
   lines.push('');
   lines.push('## Blocking issues');
   lines.push('');
@@ -371,6 +374,9 @@ export async function cleanupBlockProofPr(input: CleanupBlockProofPrInput): Prom
   }
   if (!isProofLikeBranch(prData.head.ref)) {
     blockingIssues.push(`Head branch does not look like a proof branch: ${prData.head.ref}`);
+  }
+  if (deleteBranchRequested && prData.state === 'open' && !closePrRequested) {
+    blockingIssues.push('Cannot delete proof branch while PR is still open unless closePr is requested in the same cleanup command');
   }
 
   if (closePrRequested && !isDryRun) {

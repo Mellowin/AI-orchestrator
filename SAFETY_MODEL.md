@@ -97,6 +97,7 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - Merged PR blocks cleanup.
 - Base/head mismatch blocks cleanup.
 - Head or base being `main` blocks cleanup.
+- **Branch deletion of an open PR is blocked unless the same command also requests PR close.**
 - Failed close prevents branch deletion.
 - No merge, no auto-merge, no push, no checkout/switch, no main touch.
 - No provider calls.
