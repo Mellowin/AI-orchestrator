@@ -491,6 +491,55 @@
 
 ---
 
+### `block-pr-draft <blockJsonPath>`
+
+**Purpose:** Generate a manual PR draft package from block definition and block state. Does NOT create a PR.
+
+**Required env:** None.
+
+**Optional env:**
+- `BLOCK_PR_DRAFT_OUTPUT_DIR` — custom output directory (must be under `runs/blocks/`, cwd, or system tmpdir)
+- `BLOCK_PR_DRAFT_INCLUDE_DIFF_STAT` — include `git diff --stat` in PR body
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads git diff read-only (`--name-only`, `--stat`)
+- Writes PR draft files (`pr-title.txt`, `pr-body.md`, `manual-pr-checklist.md`)
+
+**Forbidden actions:**
+- No provider call
+- No GitHub API
+- No PR creation
+- No PR update
+- No merge
+- No push
+- No checkout/switch
+- No main touch
+- No commit
+- No apply
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/pr-draft/pr-title.txt`
+- `runs/blocks/<block_id>/pr-draft/pr-body.md`
+- `runs/blocks/<block_id>/pr-draft/manual-pr-checklist.md`
+- Or custom directory if `BLOCK_PR_DRAFT_OUTPUT_DIR` is set and safe
+
+**Normal success message:**
+- `Block: <id>`
+- `Output dir: <path>`
+- `Title: <path>` / `Body: <path>` / `Checklist: <path>`
+- `PR-ready: yes` or `PR-ready: no`
+- `Tasks accepted: <n>/<total>`
+- `Blocking issues: <count>`
+
+**Safe failure behavior:**
+- Missing block state or definition fails safely
+- Invalid output directory fails safely
+- No stack trace leak
+- No API key leak
+
+---
+
 ### `block-transition <blockId> <taskId> <transition> [value]`
 
 **Purpose:** Manually apply a state transition.

@@ -874,6 +874,41 @@ Properties:
 
 **Tests:** 24 tests, all pass. Total suite: 1492 tests, 93 suites, 0 failures.
 
+### Stage 6.10 — Manual PR Draft Package / PR Body Generator ✅
+
+**Status:** Implemented and tested.
+
+**Goal:** Generate a safe manual PR draft package (`pr-title.txt`, `pr-body.md`, `manual-pr-checklist.md`) from block definition and block state. This stage does NOT create a PR.
+
+**Files:**
+- `src/block/block-pr-draft.ts` — `generateBlockPrDraft(input)` reuses `analyzeBlockForPrReadiness` from `block-approval-report.ts` to avoid logic duplication. Generates title, body, and checklist with secret redaction.
+- `src/cli.ts` — `block-pr-draft <blockJsonPath>` CLI command with optional `BLOCK_PR_DRAFT_OUTPUT_DIR` and `BLOCK_PR_DRAFT_INCLUDE_DIFF_STAT` env vars.
+- `test/block-pr-draft.test.ts` — 32 unit tests covering PR-ready wording, title limits, body sections, checklist items, secret redaction, path safety.
+- `test/cli-block-pr-draft.test.ts` — 19 CLI tests covering missing args, PR-ready output, custom env, no API key leak, no stack trace, safety messages.
+- `docs/STAGE6_10_PR_DRAFT_EXAMPLE.md` — example generated draft with placeholder SHAs and clear safety notes.
+
+**PR draft sections:**
+- PR-ready or NOT PR-READY header
+- Summary (block ID, title, branches, status)
+- What Changed (changed files, optional diff stat)
+- Task Results table (task ID, title, status, commit SHA, reviewer decision, pushed ref)
+- Commit Evidence (list of SHAs)
+- Test Evidence (typecheck/build/tests/CI — CI explicitly marked as not verified unless available)
+- Safety Checklist (no auto-merge, no PR creation/update, no push, no checkout, no main touch, no provider call, no GitHub API call, no secrets)
+- Risks / Reviewer Notes (blocking issues or "Human review is still required")
+- Manual Next Steps (`git status`, `git log`, `git diff` as text only)
+
+**Safety:**
+- Read-only except draft file writes.
+- No provider calls, no GitHub API, no PR creation/update, no push/merge/checkout/main touch.
+- Secret redaction on all files; safety finding recorded if redaction occurs.
+- Output directory restricted to `runs/blocks/`, cwd, or system tmpdir via `isPathInside`.
+- Prefix bypass (`/repo` → `/repo-evil`) rejected.
+
+**Tests:** 51 new tests (32 unit + 19 CLI). Total suite: 1561 tests, 96 suites, 0 failures.
+
+**Next possible stage:** Stage 6.11 — Optional manual PR creation helper, gated and no merge.
+
 ### Stage 6 Safety Rules
 
 - Do not implement merge in Stage 6.

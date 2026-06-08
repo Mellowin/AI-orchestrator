@@ -33,7 +33,7 @@ function redactAll(input: string): string {
   return redactReviewerText(input);
 }
 
-function isPathInside(base: string, target: string): boolean {
+export function isPathInside(base: string, target: string): boolean {
   const rel = relative(base, target);
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
@@ -51,7 +51,7 @@ function runGitReadOnly(repoPath: string, args: string[]): { stdout: string; std
   };
 }
 
-function getChangedFilesSinceBase(repoPath: string, baseBranch: string): string[] {
+export function getChangedFilesSinceBase(repoPath: string, baseBranch: string): string[] {
   const result = runGitReadOnly(repoPath, ['diff', '--name-only', `${baseBranch}...HEAD`]);
   if (result.status !== 0) {
     // Fallback to simpler comparison if triple-dot fails
@@ -64,7 +64,7 @@ function getChangedFilesSinceBase(repoPath: string, baseBranch: string): string[
   return result.stdout.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
 }
 
-function getGitDiffStat(repoPath: string, baseBranch: string): string {
+export function getGitDiffStat(repoPath: string, baseBranch: string): string {
   const result = runGitReadOnly(repoPath, ['diff', '--stat', `${baseBranch}...HEAD`]);
   if (result.status !== 0) {
     const fallback = runGitReadOnly(repoPath, ['diff', '--stat', baseBranch, 'HEAD']);
@@ -76,7 +76,7 @@ function getGitDiffStat(repoPath: string, baseBranch: string): string {
   return result.stdout.trim();
 }
 
-function hasSecretPattern(input: string): boolean {
+export function hasSecretPattern(input: string): boolean {
   const patterns = [
     /sk-[A-Za-z0-9]{10,}/,
     /Bearer\s+[A-Za-z0-9_./+-]{8,}/i,
@@ -87,17 +87,24 @@ function hasSecretPattern(input: string): boolean {
   return patterns.some((p) => p.test(input));
 }
 
-export function generateBlockApprovalReport(
-  input: GenerateBlockApprovalReportInput
-): BlockApprovalReportResult {
-  const blockDefinition = loadBlockDefinition(input.blockDefinitionPath);
-  const blockId = blockDefinition.block_id;
+export interface BlockPrReadinessAnalysis {
+  prReady: boolean;
+  tasksTotal: number;
+  tasksAccepted: number;
+  tasksFixRequired: number;
+  tasksBlocked: number;
+  commits: string[];
+  changedFiles: string[];
+  uniqueBlockingIssues: string[];
+  safetyFindings: string[];
+  diffStat: string | null;
+}
 
-  const blockState = loadBlockState(blockId);
-  if (!blockState) {
-    throw new Error(`Block state not found: ${blockId}`);
-  }
-
+export function analyzeBlockForPrReadiness(
+  blockDefinition: BlockDefinition,
+  blockState: BlockState,
+  includeDiffStat: boolean = false
+): BlockPrReadinessAnalysis {
   const tasks = blockState.tasks;
   const tasksTotal = tasks.length;
   const tasksAccepted = tasks.filter((t) => t.status === 'accepted').length;
@@ -127,10 +134,8 @@ export function generateBlockApprovalReport(
     }
   }
 
-  // De-duplicate blocking issues
   const uniqueBlockingIssues = [...new Set(blockingIssues)];
 
-  // PR-ready rules
   let prReady = true;
 
   if (blockState.status !== 'completed') {
@@ -174,7 +179,6 @@ export function generateBlockApprovalReport(
     prReady = false;
   }
 
-  // Secret scan on state and definition JSON
   const stateJson = JSON.stringify(blockState);
   const definitionJson = JSON.stringify(blockDefinition);
   if (hasSecretPattern(stateJson)) {
@@ -186,8 +190,49 @@ export function generateBlockApprovalReport(
     safetyFindings.push('Possible secret detected in block definition');
   }
 
-  // Gather changed files from git
   const changedFiles = getChangedFilesSinceBase(blockDefinition.repo_path, blockDefinition.base_branch);
+  const diffStat = includeDiffStat
+    ? getGitDiffStat(blockDefinition.repo_path, blockDefinition.base_branch)
+    : null;
+
+  return {
+    prReady,
+    tasksTotal,
+    tasksAccepted,
+    tasksFixRequired,
+    tasksBlocked,
+    commits,
+    changedFiles,
+    uniqueBlockingIssues,
+    safetyFindings,
+    diffStat,
+  };
+}
+
+export function generateBlockApprovalReport(
+  input: GenerateBlockApprovalReportInput
+): BlockApprovalReportResult {
+  const blockDefinition = loadBlockDefinition(input.blockDefinitionPath);
+  const blockId = blockDefinition.block_id;
+
+  const blockState = loadBlockState(blockId);
+  if (!blockState) {
+    throw new Error(`Block state not found: ${blockId}`);
+  }
+
+  const analysis = analyzeBlockForPrReadiness(blockDefinition, blockState, input.includeGitDiffSummary ?? false);
+  const {
+    prReady,
+    tasksTotal,
+    tasksAccepted,
+    tasksFixRequired,
+    tasksBlocked,
+    commits,
+    changedFiles,
+    uniqueBlockingIssues,
+    safetyFindings,
+    diffStat,
+  } = analysis;
 
   const runDir = getBlockRunDir(blockId);
   const outputPath = input.outputPath ?? join(runDir, 'approval-report.md');
@@ -217,14 +262,10 @@ export function generateBlockApprovalReport(
     mkdirSync(reportDir, { recursive: true });
   }
 
-  const diffStat = input.includeGitDiffSummary
-    ? getGitDiffStat(blockDefinition.repo_path, blockDefinition.base_branch)
-    : null;
-
   const report = buildReportMarkdown({
     blockDefinition,
     blockState,
-    tasks,
+    tasks: blockState.tasks,
     tasksTotal,
     tasksAccepted,
     tasksFixRequired,

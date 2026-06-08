@@ -48,6 +48,17 @@ Stage 6.9 implements **PR-ready Human Approval Package**:
 - No provider calls, no GitHub API, no git mutation, no PR creation, no push/merge/checkout/main touch
 - Output path restricted to `runs/blocks/`, cwd, or system tmpdir
 
+Stage 6.10 implements **Manual PR Draft Package / PR Body Generator**:
+- `block-pr-draft <blockJsonPath>` CLI command generates PR draft files (`pr-title.txt`, `pr-body.md`, `manual-pr-checklist.md`)
+- Reuses block analysis logic (`analyzeBlockForPrReadiness`) — no duplication
+- PR body includes summary, what changed, task results table, commit evidence, test evidence, safety checklist, risks/reviewer notes, manual next steps
+- PR title limited to 100 characters, newlines removed, secrets redacted
+- Manual checklist includes branch confirmation, file review, secret check, CI status, manual PR opening, no-merge/auto-merge warnings
+- Generates drafts for both `pr_ready=true` and `pr_ready=false` blocks, with clear header distinction
+- Secret redaction applied to all generated files; safety finding added if redaction occurred
+- Output directory restricted to `runs/blocks/`, cwd, or system tmpdir via `isPathInside`
+- No provider calls, no GitHub API, no PR creation/update, no push/merge/checkout/main touch
+
 ---
 
 ## What this stage does NOT do

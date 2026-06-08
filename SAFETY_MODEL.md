@@ -26,6 +26,7 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 | `ALLOW_KIMI_REVIEWER=true` | 6.0 | Using Kimi as reviewer provider (default is fake) |
 | `ALLOW_BLOCK_RUN_ONE=true` | 6.3.1 | Running one-task autonomous loop in real mode |
 | *(none required)* | 6.9 | Generating block approval report (read-only + report write) |
+| *(none required)* | 6.10 | Generating block PR draft package (read-only + draft files write) |
 
 **Stage 6.3.1 / 6.4 Fake Mode Safety:** Fake mode does NOT mutate the real repository. No `git add`, `git commit`, `git push`, `git reset`, file apply, or check execution on the real repo. Fake mode simulates all outcomes and only updates block state.
 
@@ -57,6 +58,16 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - Output path is restricted to `runs/blocks/`, current working directory, or system tmpdir.
 - All secrets are redacted from the report before write (`sk-`, `Bearer`, `KIMI_API_KEY`, `GITHUB_TOKEN`, etc.).
 - `pr_ready` is computed deterministically from block state; it is never influenced by external APIs.
+
+**Stage 6.10 Block PR Draft Package Safety:**
+- No opt-in flag required. The command is read-only except for writing draft files.
+- No provider call, no GitHub API, no PR creation, no PR update, no push, no merge, no checkout/switch, no main touch.
+- Git operations are read-only: `git diff --name-only` and `git diff --stat` only.
+- Output directory is restricted to `runs/blocks/`, current working directory, or system tmpdir via `isPathInside`.
+- All secrets are redacted from every generated file before write (`sk-`, `Bearer`, `KIMI_API_KEY`, `GITHUB_TOKEN`, etc.).
+- If redaction occurs, a safety finding is recorded.
+- PR title is truncated to 100 characters and newlines are removed.
+- PR body clearly states whether the block is PR-ready or not; it never implies automatic PR creation or merge.
 - Real Kimi reviewer is called ONLY after deterministic checks pass. If deterministic checks fail, reviewer is NOT called.
 - Requires `ALLOW_KIMI_REVIEWER=true`, `REVIEWER_PROVIDER=kimi`, `CODER_PROVIDER=kimi`.
 - Invalid reviewer decision schema or API failure throws safely without corrupting the committed state.
