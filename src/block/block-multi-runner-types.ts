@@ -9,6 +9,7 @@ export interface MultiTaskLoopInput {
   blockDefinitionPath: string;
   blockId?: string;
   maxTasksPerRun: number;
+  maxTotalAttemptsPerRun: number;
   stopOnRejected: boolean;
   stopOnBlocked: boolean;
   mode: MultiTaskLoopMode;

@@ -46,15 +46,45 @@ function loadProductVisionContext(): string {
   }
 }
 
+export interface FixContext {
+  attempt: number;
+  reviewerSummary?: string;
+  fixTask?: string | null;
+  blockingIssues?: string[];
+  checkFailureSummary?: string;
+}
+
 export function buildCoderInputFromBlockTask(
   _blockDefinition: BlockDefinition,
   taskDefinition: BlockTaskDefinition,
-  _blockState: BlockState
+  blockState: BlockState,
+  fixContext?: FixContext
 ): CoderTaskInput {
   const productVision = loadProductVisionContext();
-  const repoContext = productVision
+  let repoContext = productVision
     ? `# Product Vision Context\n\n${productVision}\n\n# Task Goal\n${taskDefinition.goal}`
     : taskDefinition.goal;
+
+  if (fixContext) {
+    const parts: string[] = [];
+    parts.push(`# Fix Attempt ${fixContext.attempt}`);
+    if (fixContext.reviewerSummary) {
+      parts.push(`## Previous Reviewer Summary\n${fixContext.reviewerSummary}`);
+    }
+    if (fixContext.fixTask) {
+      parts.push(`## Fix Task\n${fixContext.fixTask}`);
+    }
+    if (fixContext.blockingIssues && fixContext.blockingIssues.length > 0) {
+      parts.push(`## Blocking Issues\n${fixContext.blockingIssues.map((i) => `- ${i}`).join('\n')}`);
+    }
+    if (fixContext.checkFailureSummary) {
+      parts.push(`## Check Failure Summary\n${fixContext.checkFailureSummary}`);
+    }
+    parts.push(`## Original Task Goal\n${taskDefinition.goal}`);
+    repoContext = productVision
+      ? `# Product Vision Context\n\n${productVision}\n\n${parts.join('\n\n')}`
+      : parts.join('\n\n');
+  }
 
   return {
     task_id: taskDefinition.task_id,
@@ -64,6 +94,7 @@ export function buildCoderInputFromBlockTask(
     denied_files: [...taskDefinition.denied_files],
     max_lines_changed: taskDefinition.max_lines_changed,
     repo_context: repoContext,
+    previous_failure: fixContext?.checkFailureSummary ?? undefined,
   };
 }
 

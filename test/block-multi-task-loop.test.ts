@@ -79,6 +79,7 @@ describe('block-multi-task-loop', () => {
     // Do NOT save state — let the loop initialize it
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 1,
@@ -113,6 +114,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 1,
@@ -164,6 +166,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -193,6 +196,7 @@ describe('block-multi-task-loop', () => {
 
     // Run once to complete
     await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -208,6 +212,7 @@ describe('block-multi-task-loop', () => {
 
     // Run again — should complete zero tasks
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -258,6 +263,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 2,
@@ -294,6 +300,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 1,
@@ -313,7 +320,7 @@ describe('block-multi-task-loop', () => {
         task_id: 'task-1',
         title: 'First task',
         goal: 'Do first thing',
-        allowed_files: ['a.txt'],
+        allowed_files: ['src/fake.ts'],
         denied_files: [],
         max_lines_changed: 50,
         checks: [],
@@ -322,6 +329,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -357,6 +365,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -375,12 +384,12 @@ describe('block-multi-task-loop', () => {
       },
     });
 
-    assert.strictEqual(result.tasks_attempted, 1);
+    assert.strictEqual(result.tasks_attempted, 0);
     assert.strictEqual(result.tasks_fix_required, 1);
     assert.strictEqual(result.final_block_status, 'fixing');
   });
 
-  it('stopOnRejected=false stops safely to avoid infinite loop when task does not advance', async () => {
+  it('stopOnRejected=false retries until max_fix_attempts then blocked', async () => {
     const def = createDefinition([
       {
         task_id: 'task-1',
@@ -395,11 +404,24 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
       stopOnRejected: false,
       stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Done',
+          files: [{ path: 'a.txt', content: 'hello\n' }],
+          notes: '',
+        },
+        fixResponse: {
+          summary: 'Fix done',
+          files: [{ path: 'a.txt', content: 'fixed\n' }],
+          notes: '',
+        },
+      },
       fakeReviewerOptions: {
         decision: {
           decision: 'rejected',
@@ -413,10 +435,11 @@ describe('block-multi-task-loop', () => {
       },
     });
 
-    // Should run once, get fix_required, then stop because task didn't advance
+    // Loop retries until max_fix_attempts (3) is reached, then blocked
     assert.strictEqual(result.tasks_attempted, 1);
-    assert.strictEqual(result.tasks_fix_required, 1);
-    assert.ok(result.safety_findings.some((f) => f.includes('infinite loop')));
+    assert.strictEqual(result.tasks_fix_required, 2);
+    assert.strictEqual(result.tasks_blocked, 1);
+    assert.strictEqual(result.final_block_status, 'blocked');
   });
 
   it('stopOnBlocked=true stops on blocked', async () => {
@@ -434,6 +457,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -483,6 +507,7 @@ describe('block-multi-task-loop', () => {
     writeFileSync(join(getBlockRunDir(blockId), 'block-state.json'), JSON.stringify(state, null, 2));
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -516,6 +541,7 @@ describe('block-multi-task-loop', () => {
     writeFileSync(join(getBlockRunDir(blockId), 'block-state.json'), JSON.stringify(state, null, 2));
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -542,6 +568,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -571,6 +598,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -597,6 +625,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -624,6 +653,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -657,6 +687,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -683,6 +714,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -724,6 +756,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -769,6 +802,7 @@ describe('block-multi-task-loop', () => {
     saveDefinitionAndState(def);
 
     const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
       blockDefinitionPath: blockJsonPath,
       mode: 'fake',
       maxTasksPerRun: 10,
@@ -800,14 +834,20 @@ describe('block-multi-task-loop', () => {
     }
 
     function buildFakeKimiFetchForCoderAndReviewer(
-      coderFiles: Array<{ path: string; content: string }>,
+      coderFiles: Array<{ path: string; content: string }> | Array<Array<{ path: string; content: string }>>,
       reviewerDecision: Record<string, unknown>
     ): typeof globalThis.fetch {
       let callCount = 0;
+      let coderCallIndex = 0;
+      const coderFilesList: Array<Array<{ path: string; content: string }>> = Array.isArray(coderFiles[0])
+        ? (coderFiles as Array<Array<{ path: string; content: string }>>)
+        : [coderFiles as Array<{ path: string; content: string }>];
       return async () => {
         callCount++;
-        if (callCount === 1) {
-          const payload = JSON.stringify({ mode: 'file_update', files: coderFiles, notes: 'fake' });
+        if (callCount % 2 === 1) {
+          const files = coderFilesList[coderCallIndex % coderFilesList.length];
+          coderCallIndex++;
+          const payload = JSON.stringify({ mode: 'file_update', files, notes: 'fake' });
           const content = '```json\n' + payload + '\n```';
           return {
             ok: true,
@@ -901,6 +941,7 @@ describe('block-multi-task-loop', () => {
 
       await assert.rejects(
         runMultiTaskLoop({
+              maxTotalAttemptsPerRun: 20,
           blockDefinitionPath: realBlockJsonPath,
           mode: 'real_kimi_coder_kimi_reviewer',
           maxTasksPerRun: 1,
@@ -935,6 +976,7 @@ describe('block-multi-task-loop', () => {
 
       await assert.rejects(
         runMultiTaskLoop({
+              maxTotalAttemptsPerRun: 20,
           blockDefinitionPath: realBlockJsonPath,
           mode: 'real_kimi_coder_kimi_reviewer',
           maxTasksPerRun: 1,
@@ -969,6 +1011,7 @@ describe('block-multi-task-loop', () => {
 
       await assert.rejects(
         runMultiTaskLoop({
+              maxTotalAttemptsPerRun: 20,
           blockDefinitionPath: realBlockJsonPath,
           mode: 'real_kimi_coder_kimi_reviewer',
           maxTasksPerRun: 1,
@@ -1003,6 +1046,7 @@ describe('block-multi-task-loop', () => {
 
       await assert.rejects(
         runMultiTaskLoop({
+              maxTotalAttemptsPerRun: 20,
           blockDefinitionPath: realBlockJsonPath,
           mode: 'real_kimi_coder_kimi_reviewer',
           maxTasksPerRun: 1,
@@ -1037,6 +1081,7 @@ describe('block-multi-task-loop', () => {
 
       await assert.rejects(
         runMultiTaskLoop({
+              maxTotalAttemptsPerRun: 20,
           blockDefinitionPath: realBlockJsonPath,
           mode: 'real_kimi_coder_kimi_reviewer',
           maxTasksPerRun: 1,
@@ -1071,6 +1116,7 @@ describe('block-multi-task-loop', () => {
 
       await assert.rejects(
         runMultiTaskLoop({
+              maxTotalAttemptsPerRun: 20,
           blockDefinitionPath: realBlockJsonPath,
           mode: 'real_kimi_coder_kimi_reviewer',
           maxTasksPerRun: 1,
@@ -1105,6 +1151,7 @@ describe('block-multi-task-loop', () => {
 
       await assert.rejects(
         runMultiTaskLoop({
+              maxTotalAttemptsPerRun: 20,
           blockDefinitionPath: realBlockJsonPath,
           mode: 'real_kimi_coder_kimi_reviewer',
           maxTasksPerRun: 4,
@@ -1160,6 +1207,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 1,
@@ -1189,6 +1237,7 @@ describe('block-multi-task-loop', () => {
       let callCount = 0;
       globalThis.fetch = async () => {
         callCount++;
+        console.log('TEST_FETCH callCount=', callCount);
         if (callCount % 2 === 1) {
           const payload = JSON.stringify({ mode: 'file_update', files: [{ path: `file-${Math.ceil(callCount / 2)}.txt`, content: 'hello\n' }], notes: 'fake' });
           const content = '```json\n' + payload + '\n```';
@@ -1246,6 +1295,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 2,
@@ -1271,6 +1321,7 @@ describe('block-multi-task-loop', () => {
       let callCount = 0;
       globalThis.fetch = async () => {
         callCount++;
+        console.log('TEST_FETCH callCount=', callCount);
         if (callCount % 2 === 1) {
           const payload = JSON.stringify({ mode: 'file_update', files: [{ path: 'a.txt', content: 'hello\n' }], notes: 'fake' });
           const content = '```json\n' + payload + '\n```';
@@ -1310,6 +1361,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 3,
@@ -1333,7 +1385,11 @@ describe('block-multi-task-loop', () => {
 
     it('stops on fix_required', async () => {
       globalThis.fetch = buildFakeKimiFetchForCoderAndReviewer(
-        [{ path: 'a.txt', content: 'hello\n' }],
+        [
+          [{ path: 'a.txt', content: 'hello\n' }],
+          [{ path: 'a.txt', content: 'fixed\n' }],
+          [{ path: 'a.txt', content: 'fixed2\n' }],
+        ],
         {
           decision: 'rejected',
           confidence: 'high',
@@ -1368,6 +1424,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 3,
@@ -1383,7 +1440,7 @@ describe('block-multi-task-loop', () => {
         reviewerProvider: 'kimi',
       });
 
-      assert.strictEqual(result.tasks_attempted, 1);
+      assert.strictEqual(result.tasks_attempted, 0);
       assert.strictEqual(result.tasks_fix_required, 1);
       assert.strictEqual(result.tasks_accepted, 0);
       assert.strictEqual(result.final_block_status, 'fixing');
@@ -1414,6 +1471,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 3,
@@ -1436,7 +1494,11 @@ describe('block-multi-task-loop', () => {
 
     it('avoids infinite loop if stopOnRejected=false and current_task_id did not advance', async () => {
       globalThis.fetch = buildFakeKimiFetchForCoderAndReviewer(
-        [{ path: 'a.txt', content: 'hello\n' }],
+        [
+          [{ path: 'a.txt', content: 'hello\n' }],
+          [{ path: 'a.txt', content: 'fixed\n' }],
+          [{ path: 'a.txt', content: 'fixed2\n' }],
+        ],
         {
           decision: 'rejected',
           confidence: 'high',
@@ -1462,6 +1524,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 3,
@@ -1477,9 +1540,11 @@ describe('block-multi-task-loop', () => {
         reviewerProvider: 'kimi',
       });
 
+      // Loop retries until max_fix_attempts (3) is reached, then blocked
       assert.strictEqual(result.tasks_attempted, 1);
-      assert.strictEqual(result.tasks_fix_required, 1);
-      assert.ok(result.safety_findings.some((f) => f.includes('infinite loop')));
+      assert.strictEqual(result.tasks_fix_required, 2);
+      assert.strictEqual(result.tasks_blocked, 1);
+      assert.strictEqual(result.final_block_status, 'blocked');
     });
 
     it('collects per-task results', async () => {
@@ -1510,6 +1575,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 1,
@@ -1537,6 +1603,7 @@ describe('block-multi-task-loop', () => {
       let callCount = 0;
       globalThis.fetch = async () => {
         callCount++;
+        console.log('TEST_FETCH callCount=', callCount);
         if (callCount % 2 === 1) {
           const payload = JSON.stringify({ mode: 'file_update', files: [{ path: `file-${Math.ceil(callCount / 2)}.txt`, content: 'hello\n' }], notes: 'fake' });
           const content = '```json\n' + payload + '\n```';
@@ -1585,6 +1652,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 2,
@@ -1610,6 +1678,7 @@ describe('block-multi-task-loop', () => {
       let callCount = 0;
       globalThis.fetch = async () => {
         callCount++;
+        console.log('TEST_FETCH callCount=', callCount);
         if (callCount % 2 === 1) {
           const payload = JSON.stringify({ mode: 'file_update', files: [{ path: `file-${Math.ceil(callCount / 2)}.txt`, content: 'hello\n' }], notes: 'fake' });
           const content = '```json\n' + payload + '\n```';
@@ -1658,6 +1727,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 3,
@@ -1710,6 +1780,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 1,
@@ -1756,6 +1827,7 @@ describe('block-multi-task-loop', () => {
       saveRealDefinitionAndState(def);
 
       const result = await runMultiTaskLoop({
+            maxTotalAttemptsPerRun: 20,
         blockDefinitionPath: realBlockJsonPath,
         mode: 'real_kimi_coder_kimi_reviewer',
         maxTasksPerRun: 1,

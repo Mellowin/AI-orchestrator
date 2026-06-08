@@ -96,7 +96,20 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   // 3. Get current task
   const taskDefinition = getCurrentBlockTaskDefinition(blockDefinition, blockState);
   const taskId = taskDefinition.task_id;
-  const statusBefore = blockState.tasks.find((t) => t.task_id === taskId)?.status ?? 'unknown';
+  const currentTaskState = blockState.tasks.find((t) => t.task_id === taskId);
+  const statusBefore = currentTaskState?.status ?? 'unknown';
+
+  // Capture fix context before markTaskInProgress clears it
+  const isFixAttempt = statusBefore === 'fix_required' || statusBefore === 'checks_failed' || statusBefore === 'rejected';
+  const fixContext = isFixAttempt && currentTaskState
+    ? {
+        attempt: currentTaskState.fix_attempts + 1,
+        reviewerSummary: currentTaskState.reviewer_summary ?? undefined,
+        fixTask: null,
+        blockingIssues: [...currentTaskState.blocking_issues],
+        checkFailureSummary: currentTaskState.blocking_issues.join('; ') || undefined,
+      }
+    : undefined;
 
   // 4. Resolve providers BEFORE state mutation so invalid env/config fails early
   const providers = resolveCoderAndReviewerProviders({
@@ -153,10 +166,12 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   saveBlockState(blockState);
 
   // 6. Build coder input
-  const coderInput = buildCoderInputFromBlockTask(blockDefinition, taskDefinition, blockState);
+  const coderInput = buildCoderInputFromBlockTask(blockDefinition, taskDefinition, blockState, fixContext);
 
   // 7. Call coder provider
-  const coderResult = await providers.coder.runTask(coderInput);
+  const coderResult = isFixAttempt
+    ? await providers.coder.runFix(coderInput)
+    : await providers.coder.runTask(coderInput);
 
   // 8. Validate coder output with guardrails (path-only, no filesystem mutation)
   const updatePaths = coderResult.files.map((f) => f.path);

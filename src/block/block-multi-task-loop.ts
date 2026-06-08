@@ -11,6 +11,8 @@ import { runOneTaskLoop } from './block-one-task-loop.js';
 
 const FAKE_MAX_TASKS_LIMIT = 100;
 const REAL_MAX_TASKS_LIMIT = 3;
+const DEFAULT_MAX_TOTAL_ATTEMPTS = 20;
+const MAX_TOTAL_ATTEMPTS_LIMIT = 100;
 
 function validateMaxTasksPerRun(mode: MultiTaskLoopMode, maxTasksPerRun: number): void {
   if (!Number.isFinite(maxTasksPerRun) || !Number.isInteger(maxTasksPerRun) || maxTasksPerRun < 1) {
@@ -27,6 +29,15 @@ function validateMaxTasksPerRun(mode: MultiTaskLoopMode, maxTasksPerRun: number)
         `Real mode maxTasksPerRun must be <= ${REAL_MAX_TASKS_LIMIT}`
       );
     }
+  }
+}
+
+function validateMaxTotalAttemptsPerRun(maxTotalAttemptsPerRun: number): void {
+  if (!Number.isFinite(maxTotalAttemptsPerRun) || !Number.isInteger(maxTotalAttemptsPerRun) || maxTotalAttemptsPerRun < 1) {
+    throw new Error('maxTotalAttemptsPerRun must be a positive integer');
+  }
+  if (maxTotalAttemptsPerRun > MAX_TOTAL_ATTEMPTS_LIMIT) {
+    throw new Error(`maxTotalAttemptsPerRun must be <= ${MAX_TOTAL_ATTEMPTS_LIMIT}`);
   }
 }
 
@@ -104,8 +115,9 @@ export async function runMultiTaskLoop(
     saveBlockState(blockState);
   }
 
-  // 3. Validate maxTasksPerRun
+  // 3. Validate limits
   validateMaxTasksPerRun(input.mode, input.maxTasksPerRun);
+  validateMaxTotalAttemptsPerRun(input.maxTotalAttemptsPerRun);
 
   // 4. Real-mode safety checks before any mutation
   const realModeIssues = validateRealModeSafety(input.mode, input);
@@ -118,9 +130,10 @@ export async function runMultiTaskLoop(
   let tasksAccepted = 0;
   let tasksFixRequired = 0;
   let tasksBlocked = 0;
+  let totalAttempts = 0;
 
   // 5. Loop
-  while (tasksAttempted < input.maxTasksPerRun) {
+  while (totalAttempts < input.maxTotalAttemptsPerRun) {
     // Re-read state each iteration
     blockState = loadBlockState(blockId);
     if (!blockState) {
@@ -159,40 +172,34 @@ export async function runMultiTaskLoop(
     });
 
     results.push(taskResult);
-    tasksAttempted++;
+    totalAttempts++;
 
     if (taskResult.status_after === 'accepted') {
+      tasksAttempted++;
       tasksAccepted++;
-    } else if (taskResult.status_after === 'fix_required') {
-      tasksFixRequired++;
-      if (input.stopOnRejected) {
-        break;
-      }
-      // Avoid infinite loop if current_task_id did not advance
-      const afterState = loadBlockState(blockId);
-      if (afterState?.current_task_id === currentTaskId) {
-        safetyFindings.push(
-          `Stopped after fix_required on ${currentTaskId} to avoid infinite loop`
-        );
-        break;
-      }
     } else if (taskResult.status_after === 'blocked') {
+      tasksAttempted++;
       tasksBlocked++;
       if (input.stopOnBlocked) {
         break;
       }
-    } else if (taskResult.status_after === 'checks_failed') {
+    } else if (taskResult.status_after === 'fix_required' || taskResult.status_after === 'checks_failed') {
       tasksFixRequired++;
       if (input.stopOnRejected) {
         break;
       }
+      // Continue loop to retry same task if limits allow
       const afterState = loadBlockState(blockId);
-      if (afterState?.current_task_id === currentTaskId) {
-        safetyFindings.push(
-          `Stopped after checks_failed on ${currentTaskId} to avoid infinite loop`
-        );
+      if (afterState?.status === 'blocked') {
         break;
       }
+      // If task is still the same and not blocked, loop will retry
+      continue;
+    }
+
+    // Task-level limit: stop if we have attempted enough distinct tasks
+    if (tasksAttempted >= input.maxTasksPerRun) {
+      break;
     }
 
     // Safety: if block status became blocked during the task, stop
@@ -200,6 +207,10 @@ export async function runMultiTaskLoop(
     if (latestState?.status === 'blocked') {
       break;
     }
+  }
+
+  if (totalAttempts >= input.maxTotalAttemptsPerRun && blockState?.status !== 'completed' && blockState?.status !== 'blocked') {
+    safetyFindings.push(`Stopped after ${totalAttempts} total attempts (maxTotalAttemptsPerRun reached)`);
   }
 
   // Final state read
@@ -227,6 +238,7 @@ export async function runMultiTaskFakeLoop(
   return runMultiTaskLoop({
     ...input,
     mode: 'fake',
+    maxTotalAttemptsPerRun: input.maxTotalAttemptsPerRun ?? DEFAULT_MAX_TOTAL_ATTEMPTS,
     allowBlockRunOne: false,
     allowRealProvider: false,
     allowRealRepoApply: false,
