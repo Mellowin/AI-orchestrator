@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `5b49b80664ff7984537c52a733737d54e0612fc2`
+**Last verified:** `73591d056f8d1192625fc8c569908ea6fafd4acf`
 
 ## Test metrics
 
 - **Total tests:** 1617
 - **Total suites:** 98
-- **Last verified commit:** `5b49b80664ff7984537c52a733737d54e0612fc2` (Stage 6.11 Optional Manual PR Creation Helper)
+- **Last verified commit:** `73591d056f8d1192625fc8c569908ea6fafd4acf` (Stage 6.11.1 Live Draft PR Proof)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -36,6 +36,7 @@
 | Stage 6.9.1 | Approval Report Final Hardening | `363a8baccfdfc6b44c1063bc1e0d0f0417b95df0` |
 | Stage 6.10 | Manual PR Draft Package / PR Body Generator | `9585c42e84ab6ddbe7c32bbd3f3b08cf416ec8e1` |
 | Stage 6.11 | Optional Manual PR Creation Helper | `5b49b80664ff7984537c52a733737d54e0612fc2` |
+| Stage 6.11.1 | Live Draft PR Proof | `73591d056f8d1192625fc8c569908ea6fafd4acf` |
 
 ## Covered layers
 

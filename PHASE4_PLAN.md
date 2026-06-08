@@ -933,6 +933,44 @@ Properties:
 
 **Tests:** 56 new tests (37 unit + 19 CLI). Total suite: 1617 tests, 98 suites, 0 failures.
 
+### Stage 6.11.1 — Live Draft PR Proof ✅
+
+**Status:** Evidence documented.
+
+**Goal:** Prove that `block-pr-create` can create a real GitHub draft PR end-to-end on a live branch.
+
+**What was done:**
+1. Created proof branch `stage-6-11-pr-create-proof` from `feature/mvp-skeleton`.
+2. Added proof file `docs/stage-6-11-pr-create-proof.md`.
+3. Created block definition `docs/stage-6-11-pr-create-proof-block.json` pointing to commit `a9e967128918e908e62e3ca452dd93baec8b5488`.
+4. Generated approval report (`PR-ready: yes`) and PR draft package (`PR-ready: yes`).
+5. Ran dry-run (`BLOCK_PR_CREATE_DRY_RUN=true`) — passed all checks.
+6. Ran real creation with:
+   - `ALLOW_BLOCK_PR_CREATE=true`
+   - `ALLOW_GITHUB_PR_CREATE=true`
+   - `GITHUB_TOKEN=...`
+   - `GITHUB_REPOSITORY=Mellowin/AI-orchestrator`
+7. Draft PR #2 created successfully:
+   - URL: `https://github.com/Mellowin/AI-orchestrator/pull/2`
+   - Base: `feature/mvp-skeleton`
+   - Head: `stage-6-11-pr-create-proof`
+   - Draft: `true`
+   - Output: `runs/blocks/stage-6-11-pr-create-proof/pr-created.json`
+
+**Safety confirmations:**
+- PR created as draft (`draft: true`)
+- `main` untouched
+- No merge performed, no auto-merge enabled
+- No push, no checkout, no provider call by `block-pr-create`
+- No token leak in logs or output files
+- PR left open for human decision
+
+**Files:**
+- `docs/STAGE6_11_LIVE_PR_PROOF.md` — this evidence document.
+- `docs/stage-6-11-pr-create-proof.md` — proof file on proof branch.
+- `docs/stage-6-11-pr-create-proof-block.json` — block definition.
+- `runs/blocks/stage-6-11-pr-create-proof/pr-created.json` — creation record.
+
 **Next possible stage:** Stage 6.12 — PR status monitoring for block PR, no merge.
 
 ### Stage 6 Safety Rules
