@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `0ea4303696f40f72e30bba88eef0f15525022e60`
+**Last verified:** `15f81b3bb6d5549caec9e4d965598ed98305ad34`
 
 ## Test metrics
 
 - **Total tests:** 1667
 - **Total suites:** 100
-- **Last verified commit:** `0ea4303696f40f72e30bba88eef0f15525022e60` (Stage 6.12.2 Testing Metrics Reconciliation)
+- **Last verified commit:** `15f81b3bb6d5549caec9e4d965598ed98305ad34` (Stage 6.12.2 Testing Metrics Reconciliation)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -40,7 +40,7 @@
 | Stage 6.11.2 | PR Body Wording Hardening | `ed9e2abf0b8d6fca7d4fd4f4a32e1e8399df939b` |
 | Stage 6.12 | PR Status Monitoring for Block PR | `6993797d472fdb18fd93e6dfb89c8a69b124f577` |
 | Stage 6.12.1 | PR Status Monitor Live-Proof Hardening | `8cef7a722be0e0c4220b04fccc70ad22216b70c7` |
-| Stage 6.12.2 | Testing Metrics Reconciliation | `0ea4303696f40f72e30bba88eef0f15525022e60` |
+| Stage 6.12.2 | Testing Metrics Reconciliation | `15f81b3bb6d5549caec9e4d965598ed98305ad34` |
 
 ## Covered layers
 
@@ -110,6 +110,10 @@
 - **No destructive git ops:** No `git push`, `git merge`, `git reset --hard`, or `git clean -fd` in test or production code.
 - **Temp directories:** Every filesystem test uses `mkdtempSync` and cleans up in `finally`.
 - **No real secrets required:** `.env` is optional for tests; all sensitive env vars are deleted before spawning child processes.
+
+## Documentation commit note
+
+> This document intentionally references the previous verified docs commit for documentation-only stages to avoid self-referential commit hash churn.
 
 ## Known limitation
 
