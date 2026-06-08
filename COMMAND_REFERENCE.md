@@ -593,6 +593,51 @@
 - `Base: <base>` / `Head: <work>`
 - `Title: <title>` / `Body: <path>`
 
+----
+
+### `block-pr-status <blockJsonPath>`
+
+**Purpose:** Read-only PR status monitor for PRs created by `block-pr-create`. Writes a local report. Does NOT mutate the PR.
+
+**Required env:**
+- `ALLOW_GITHUB_PR_STATUS=true`
+- `GITHUB_REPOSITORY` — `owner/repo` format
+
+**Optional env:**
+- `GITHUB_TOKEN` — for private repos or higher rate limits
+- `BLOCK_PR_NUMBER` — override PR number (default reads from `pr-created.json`)
+- `BLOCK_PR_STATUS_OUTPUT` — custom report path
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads `runs/blocks/<block_id>/pr-created.json`
+- Calls GitHub REST API GET `/repos/{owner}/{repo}/pulls/{number}`
+- Calls GitHub REST API GET `/repos/{owner}/{repo}/commits/{ref}/check-runs`
+- Writes `runs/blocks/<block_id>/pr-status-report.md`
+
+**Forbidden actions:**
+- No POST / PATCH / PUT / DELETE
+- No PR creation, update, close, merge
+- No comment, no review approval
+- No push, no checkout/switch, no main touch
+- No provider call
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/pr-status-report.md`
+- Or custom path if `BLOCK_PR_STATUS_OUTPUT` is set and safe
+
+**Normal success message:**
+- `Block: <id>`
+- `PR number: <number>`
+- `PR URL: <url>`
+- `State: open/closed`
+- `Draft: yes/no`
+- `Merged: yes/no`
+- `Base: <base>` / `Head: <head>`
+- `Checks: success/failure/pending/unknown`
+- `Safe for human review: yes/no`
+- `Report: <path>`
+
 **Safe failure behavior:**
 - Missing allow flags fail safely before GitHub API call
 - Missing token/repository fail safely before GitHub API call

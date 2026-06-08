@@ -75,6 +75,16 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - Instead, the body states that PR creation is handled only by the separate explicitly gated `block-pr-create` command.
 - This ensures the body remains accurate both before and after a real draft PR is created.
 
+**Stage 6.12 PR Status Monitoring Safety:**
+- Requires `ALLOW_GITHUB_PR_STATUS=true` and `GITHUB_REPOSITORY`.
+- GitHub API calls are read-only GET only: `/pulls/{number}` and `/commits/{ref}/check-runs`.
+- No POST, no PATCH, no PUT, no DELETE.
+- No PR creation, update, close, merge, comment, or review approval.
+- No push, no checkout/switch, no main touch.
+- No provider calls.
+- Output path restricted to `runs/blocks/`, cwd, or system tmpdir.
+- `GITHUB_TOKEN` never printed or persisted.
+
 **Stage 6.11 Block PR Create Safety:**
 - Requires explicit opt-in: `ALLOW_BLOCK_PR_CREATE=true` AND `ALLOW_GITHUB_PR_CREATE=true`.
 - GitHub API call is allowed ONLY for creating a draft PR (`POST /repos/{owner}/{repo}/pulls`) and for checking existing open PRs (`GET /pulls`).

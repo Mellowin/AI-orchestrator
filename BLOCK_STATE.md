@@ -73,6 +73,16 @@ Stage 6.11 implements **Optional Manual PR Creation Helper**:
 - Writes `pr-created.json` with PR metadata and safety flags (`no_merge_performed`, `no_push_performed`, etc.)
 - No provider calls, no push, no merge, no checkout/switch, no main touch, no PR update/comment/close
 
+Stage 6.12 implements **PR Status Monitoring for Block PR**:
+- `block-pr-status <blockJsonPath>` CLI command reads PR status from GitHub API and writes a local report
+- Requires `ALLOW_GITHUB_PR_STATUS=true`, `GITHUB_REPOSITORY`
+- Optional `GITHUB_TOKEN` for private repos or rate limits
+- Reads PR number from `pr-created.json` or `BLOCK_PR_NUMBER` env override
+- Calls GitHub API GET only: `/pulls/{number}` and `/commits/{ref}/check-runs`
+- Evaluates PR safety: flags merged, closed, non-draft, branch mismatch, head=main, checks failure as unsafe
+- Generates `pr-status-report.md` with summary, branch verification, safety findings, and no-mutation statement
+- No POST/PATCH/PUT/DELETE, no PR creation/update/close/merge/comment, no push/checkout/main touch, no provider call
+
 ---
 
 ## What this stage does NOT do

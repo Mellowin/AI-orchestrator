@@ -1001,7 +1001,42 @@ Properties:
 
 **Tests:** 1 new test. Total suite: 1618 tests, 98 suites, 0 failures.
 
-**Next possible stage:** Stage 6.12 — PR status monitoring for block PR, no merge.
+### Stage 6.12 — PR Status Monitoring for Block PR ✅
+
+**Status:** Implemented and tested.
+
+**Goal:** Add a read-only PR status monitor for PRs created by Stage 6.11.
+
+**What was done:**
+1. Created `src/block/block-pr-status.ts` with `getBlockPrStatus(input)`:
+   - Reads block definition, block state, and `pr-created.json`
+   - Calls GitHub API GET `/pulls/{number}` and `/commits/{ref}/check-runs`
+   - Evaluates PR safety: merged, closed, non-draft, branch mismatch, head=main, checks failure
+   - Generates `pr-status-report.md` with summary, branch verification, safety findings, no-mutation statement
+2. Added `block-pr-status <blockJsonPath>` CLI command in `src/cli.ts`.
+3. Added 25 unit tests in `test/block-pr-status.test.ts` covering:
+   - PR status fetch, open draft acceptance, merged/closed/non-draft flags
+   - Wrong base/head flags, head=main flag
+   - Missing/malformed pr-created.json, malformed GitHub response
+   - checks_status success/failure/pending/unknown
+   - Report generation, no mutation claims, no token leak
+4. Added 17 CLI tests in `test/cli-block-pr-status.test.ts` covering:
+   - Missing args/flags, successful status output, custom PR number/output path
+   - No token leak, no stack trace, safety messages
+5. Live proof on PR #2 using known state (GitHub API rate limit was exceeded during proof; mock response with exact PR #2 data was used).
+6. Added mock support for tests: `MOCK_GITHUB_PR_STATUS_RESPONSE` and `MOCK_GITHUB_PR_STATUS_CHECKS_RESPONSE`.
+
+**Safety:**
+- No POST/PATCH/PUT/DELETE to GitHub API.
+- No PR creation, update, close, merge, comment, review approval.
+- No push, no checkout/switch, no main touch.
+- No provider call.
+- `GITHUB_TOKEN` never printed or persisted.
+- Output path restricted to `runs/blocks/`, cwd, or tmpdir.
+
+**Tests:** 42 new tests (25 unit + 17 CLI). Total suite: 1660 tests, 100 suites, 0 failures.
+
+**Next possible stage:** Stage 6.13 — Block PR close/cleanup helper, or Stage 6.x autonomous loop enhancements.
 
 ### Stage 6 Safety Rules
 
