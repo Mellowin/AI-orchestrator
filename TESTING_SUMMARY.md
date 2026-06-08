@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `pending final commit hash`
+**Last verified:** `9585c42e84ab6ddbe7c32bbd3f3b08cf416ec8e1`
 
 ## Test metrics
 
 - **Total tests:** 1561
 - **Total suites:** 96
-- **Last verified commit:** `pending final commit hash` (Stage 6.10 Manual PR Draft Package)
+- **Last verified commit:** `9585c42e84ab6ddbe7c32bbd3f3b08cf416ec8e1` (Stage 6.10 Manual PR Draft Package)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -34,7 +34,7 @@
 | Stage 6.8.1 | Evidence Docs Cleanup | `1e746c6e78907f2afa1095a8609e9581936b927f` |
 | Stage 6.9 | PR-ready Human Approval Package | `69a727a6f62a2a6d7edf719e323e58eca5063e8a` |
 | Stage 6.9.1 | Approval Report Final Hardening | `363a8baccfdfc6b44c1063bc1e0d0f0417b95df0` |
-| Stage 6.10 | Manual PR Draft Package / PR Body Generator | `pending final commit hash` |
+| Stage 6.10 | Manual PR Draft Package / PR Body Generator | `9585c42e84ab6ddbe7c32bbd3f3b08cf416ec8e1` |
 
 ## Covered layers
 
