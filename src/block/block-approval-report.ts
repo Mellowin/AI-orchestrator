@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve, normalize } from 'node:path';
+import { join, resolve, normalize, relative, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { BlockDefinition, BlockState, BlockTaskState } from './block-types.js';
 import { loadBlockState, getBlockRunDir } from './block-state-manager.js';
@@ -31,6 +31,11 @@ export interface GenerateBlockApprovalReportInput {
 
 function redactAll(input: string): string {
   return redactReviewerText(input);
+}
+
+function isPathInside(base: string, target: string): boolean {
+  const rel = relative(base, target);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
 function runGitReadOnly(repoPath: string, args: string[]): { stdout: string; stderr: string; status: number | null } {
@@ -192,13 +197,20 @@ export function generateBlockApprovalReport(
   const cwdResolved = resolve(normalize(process.cwd()));
   const runsDirResolved = resolve(normalize(join(process.cwd(), 'runs')));
   const tmpDirResolved = resolve(normalize(tmpdir()));
-  if (!resolvedOutput.startsWith(cwdResolved) && !resolvedOutput.startsWith(runsDirResolved) && !resolvedOutput.startsWith(tmpDirResolved)) {
+  const allowedBases = [runsDirResolved, cwdResolved, tmpDirResolved];
+  const isAllowed = allowedBases.some(
+    (base) => isPathInside(base, resolvedOutput) || resolve(base) === resolve(resolvedOutput)
+  );
+  if (!isAllowed) {
     throw new Error('Output path is outside allowed directory');
   }
 
   const reportDir = join(resolvedOutput, '..');
   const resolvedReportDir = resolve(normalize(reportDir));
-  if (!resolvedReportDir.startsWith(cwdResolved) && !resolvedReportDir.startsWith(runsDirResolved) && !resolvedReportDir.startsWith(tmpDirResolved)) {
+  const isReportDirAllowed = allowedBases.some(
+    (base) => isPathInside(base, resolvedReportDir) || resolve(base) === resolve(resolvedReportDir)
+  );
+  if (!isReportDirAllowed) {
     throw new Error('Output path parent directory is outside allowed directory');
   }
   if (!existsSync(reportDir)) {

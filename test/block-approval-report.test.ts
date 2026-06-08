@@ -642,6 +642,34 @@ describe('block-approval-report', () => {
     rmSync(customPath, { force: true });
   });
 
+  it('rejects prefix bypass output path', () => {
+    const def = createDefinition([
+      {
+        task_id: 'doc-1',
+        title: 'T1',
+        goal: 'G1',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinition(def);
+    const state = initBlockState(def);
+    state.status = 'completed';
+    state.tasks[0].status = 'accepted';
+    state.tasks[0].commit_sha = 'abc123def456abc123def456abc123def456abcd';
+    saveState(state);
+
+    const evilPath = join(process.cwd() + '-evil', 'report.md');
+    assert.throws(() => {
+      generateBlockApprovalReport({
+        blockDefinitionPath: blockJsonPath,
+        outputPath: evilPath,
+      });
+    }, /outside allowed directory/);
+  });
+
   it('missing block state fails safely', () => {
     const def = createDefinition([
       {

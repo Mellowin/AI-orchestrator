@@ -2,12 +2,12 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `1116faaebd19370a7aa46836030fd26ae4e9459f`
+**Last verified:** `a0b6e82415ebd0d9af8b911077a3afee4898654a`
 
 ## Test metrics
 
-- **Total tests:** 1466
-- **Total suites:** 92
+- **Total tests:** 1492
+- **Total suites:** 93
 - **Last verified commit:** `6f8ff5aae26763123939b196850a817ff0782517` (Stage 6.9 PR-ready Human Approval Package)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
@@ -32,6 +32,7 @@
 | Stage 6.7 | Live Proof — Real Kimi Coder + Real Kimi Reviewer | `db5e0ae2be583e0132246361c416161616fb6472` |
 | Stage 6.8 | Safe Real Multi-Task Kimi→Kimi Block Loop | `1116faaebd19370a7aa46836030fd26ae4e9459f` |
 | Stage 6.8.1 | Evidence Docs Cleanup | `1e746c6e78907f2afa1095a8609e9581936b927f` |
+| Stage 6.9 | PR-ready Human Approval Package | `a0b6e82415ebd0d9af8b911077a3afee4898654a` |
 
 ## Covered layers
 
