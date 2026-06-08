@@ -68,6 +68,18 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - If redaction occurs, a safety finding is recorded.
 - PR title is truncated to 100 characters and newlines are removed.
 - PR body clearly states whether the block is PR-ready or not; it never implies automatic PR creation or merge.
+
+**Stage 6.11 Block PR Create Safety:**
+- Requires explicit opt-in: `ALLOW_BLOCK_PR_CREATE=true` AND `ALLOW_GITHUB_PR_CREATE=true`.
+- GitHub API call is allowed ONLY for creating a draft PR (`POST /repos/{owner}/{repo}/pulls`) and for checking existing open PRs (`GET /pulls`).
+- No merge, no auto-merge, no push, no checkout/switch, no main touch.
+- No PR update, no PR comment, no PR review, no PR close.
+- No provider calls.
+- Branch must already be pushed; this command does not push.
+- `GITHUB_TOKEN` is never printed, never written to disk, never included in logs.
+- Duplicate protection by default: existing `pr-created.json` blocks second creation.
+- Dry-run mode performs all local checks without calling GitHub API.
+- PR is always created as draft (`draft: true`).
 - Real Kimi reviewer is called ONLY after deterministic checks pass. If deterministic checks fail, reviewer is NOT called.
 - Requires `ALLOW_KIMI_REVIEWER=true`, `REVIEWER_PROVIDER=kimi`, `CODER_PROVIDER=kimi`.
 - Invalid reviewer decision schema or API failure throws safely without corrupting the committed state.

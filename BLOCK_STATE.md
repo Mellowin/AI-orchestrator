@@ -59,6 +59,20 @@ Stage 6.10 implements **Manual PR Draft Package / PR Body Generator**:
 - Output directory restricted to `runs/blocks/`, cwd, or system tmpdir via `isPathInside`
 - No provider calls, no GitHub API, no PR creation/update, no push/merge/checkout/main touch
 
+Stage 6.11 implements **Optional Manual PR Creation Helper**:
+- `block-pr-create <blockJsonPath>` CLI command creates a draft GitHub PR only when explicitly allowed
+- Requires `ALLOW_BLOCK_PR_CREATE=true`, `ALLOW_GITHUB_PR_CREATE=true`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`
+- Verifies PR readiness prerequisites before any GitHub API call: block completed, all tasks accepted with commit SHAs and pushed refs, work branch not main, branch already pushed to origin
+- Requires PR draft package (`pr-title.txt`, `pr-body.md`, `manual-pr-checklist.md`) and approval report (`approval-report.md`)
+- Rejects PR creation if PR body contains `NOT PR-READY` or obvious secrets in title/body
+- Verifies branch is pushed via read-only `git ls-remote`
+- Checks for existing open PR via GitHub API GET before POST
+- Duplicate protection: existing `pr-created.json` blocks second creation by default
+- Dry-run mode supported (`BLOCK_PR_CREATE_DRY_RUN=true`)
+- Creates PR as `draft: true` only; no auto-merge, no reviewers, no labels
+- Writes `pr-created.json` with PR metadata and safety flags (`no_merge_performed`, `no_push_performed`, etc.)
+- No provider calls, no push, no merge, no checkout/switch, no main touch, no PR update/comment/close
+
 ---
 
 ## What this stage does NOT do

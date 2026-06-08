@@ -540,6 +540,68 @@
 
 ---
 
+### `block-pr-create <blockJsonPath>`
+
+**Purpose:** Create a draft GitHub Pull Request from a completed, PR-ready block. Strictly gated.
+
+**Required env:**
+- `ALLOW_BLOCK_PR_CREATE=true`
+- `ALLOW_GITHUB_PR_CREATE=true`
+- `GITHUB_TOKEN` — GitHub personal access token
+- `GITHUB_REPOSITORY` — `owner/repo` format
+
+**Optional env:**
+- `BLOCK_PR_DRAFT_OUTPUT_DIR` — custom draft directory
+- `BLOCK_PR_CREATE_DRY_RUN=true` — dry-run mode, no actual PR creation
+- `ALLOW_PR_CREATE_WITHOUT_APPROVAL_REPORT=true` — skip approval report requirement
+- `ALLOW_BLOCK_PR_CREATE_DUPLICATE=true` — allow creating PR even if `pr-created.json` exists
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads PR draft files (`pr-title.txt`, `pr-body.md`, `manual-pr-checklist.md`)
+- Reads git remote refs read-only (`git ls-remote`)
+- Calls GitHub REST API POST `/repos/{owner}/{repo}/pulls` to create draft PR
+- Writes `runs/blocks/<block_id>/pr-created.json`
+
+**Forbidden actions:**
+- No provider call
+- No push
+- No merge
+- No auto-merge
+- No checkout/switch
+- No main touch
+- No PR update
+- No PR comment/review/close
+- No source file modification
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/pr-created.json`
+
+**Normal success message:**
+- `Block: <id>`
+- `PR created: yes`
+- `PR number: <number>`
+- `PR URL: <url>`
+- `Draft: true`
+- `Output: <path>`
+
+**Dry-run output:**
+- `Dry run: yes`
+- `Would create draft PR: yes`
+- `Base: <base>` / `Head: <work>`
+- `Title: <title>` / `Body: <path>`
+
+**Safe failure behavior:**
+- Missing allow flags fail safely before GitHub API call
+- Missing token/repository fail safely before GitHub API call
+- PR readiness check fails safely before GitHub API call
+- Duplicate PR protection blocks second creation by default
+- Un-pushed branch fails safely before GitHub API call
+- No stack trace leak
+- No API key leak
+
+---
+
 ### `block-transition <blockId> <taskId> <transition> [value]`
 
 **Purpose:** Manually apply a state transition.

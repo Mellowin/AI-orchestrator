@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `9585c42e84ab6ddbe7c32bbd3f3b08cf416ec8e1`
+**Last verified:** `pending final commit hash`
 
 ## Test metrics
 
-- **Total tests:** 1561
-- **Total suites:** 96
-- **Last verified commit:** `9585c42e84ab6ddbe7c32bbd3f3b08cf416ec8e1` (Stage 6.10 Manual PR Draft Package)
+- **Total tests:** 1617
+- **Total suites:** 98
+- **Last verified commit:** `pending final commit hash` (Stage 6.11 Optional Manual PR Creation Helper)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -35,6 +35,7 @@
 | Stage 6.9 | PR-ready Human Approval Package | `69a727a6f62a2a6d7edf719e323e58eca5063e8a` |
 | Stage 6.9.1 | Approval Report Final Hardening | `363a8baccfdfc6b44c1063bc1e0d0f0417b95df0` |
 | Stage 6.10 | Manual PR Draft Package / PR Body Generator | `9585c42e84ab6ddbe7c32bbd3f3b08cf416ec8e1` |
+| Stage 6.11 | Optional Manual PR Creation Helper | `pending final commit hash` |
 
 ## Covered layers
 
@@ -90,6 +91,8 @@
 | Block approval report | `test/block-approval-report.test.ts` | `generateBlockApprovalReport`: computes `pr_ready` from block state (completed, all accepted, commit SHAs present, no fix_required/blocked/checks_failed, current_task_id null, work_branch not main, no secrets). Generates markdown report with task table, commit evidence, changed files, safety checklist, human decision, manual next commands. Secret redaction (sk-, Bearer, KIMI_API_KEY, GITHUB_TOKEN). Output path safety (runs/blocks/, cwd, tmpdir). No provider call, no GitHub API, no git mutation, no PR creation, no push/merge/checkout/main touch. Read-only except report file write. 24 tests. |
 | Block PR draft | `test/block-pr-draft.test.ts` | `generateBlockPrDraft`: reuses `analyzeBlockForPrReadiness` to generate `pr-title.txt`, `pr-body.md`, `manual-pr-checklist.md`. PR-ready/NOT PR-READY header, summary, what changed, task results table, commit evidence, test evidence (CI explicitly not verified), safety checklist, risks/reviewer notes, manual next steps. Title limited to 100 chars, newlines removed. Secret redaction on all files with safety finding if redaction occurs. Output dir safety via `isPathInside` (runs/blocks/, cwd, tmpdir). Prefix bypass rejected. No provider/GitHub/PR/push/merge/checkout/main. 32 tests. |
 | Block PR draft CLI | `test/cli-block-pr-draft.test.ts` | `block-pr-draft <blockJsonPath>`: missing block path/state, completed/incomplete block PR-ready output, output dir/title/body/checklist paths, accepted count, blocking issues count, custom output env, no API key leak, no stack trace, safety messages (no provider/GitHub/PR/push/merge/checkout/main). 19 tests. |
+| Block PR create | `test/block-pr-create.test.ts` | `createBlockPullRequest`: opt-in flag checks (ALLOW_BLOCK_PR_CREATE, ALLOW_GITHUB_PR_CREATE, GITHUB_TOKEN, GITHUB_REPOSITORY), PR readiness checks (completed, current_task_id null, all accepted, commit SHAs, pushed_ref, work_branch not main, branch pushed), draft package existence, approval report existence, NOT PR-READY body rejection, secret detection in title/body, branch push verification via git ls-remote, existing open PR detection, duplicate protection (pr-created.json), dry-run mode, fake GitHub API POST success/failure/malformed response, pr-created.json output with safety flags. No provider/push/merge/checkout/main/PR update. 37 tests. |
+| Block PR create CLI | `test/cli-block-pr-create.test.ts` | `block-pr-create <blockJsonPath>`: missing block path, dry-run output, missing allow flags/token/repository, missing draft package, not-PR-ready body, token leak prevention, no stack trace, safety messages (no provider/push/merge/checkout/main/PR update), dry-run no pr-created.json, duplicate pr-created.json blocks. 19 tests. |
 | Block real-mode safety | `test/block-real-mode-safety.test.ts` | `validateRealOneTaskModeSafety`: fake mode ok, requires ALLOW_BLOCK_RUN_ONE/ALLOW_REAL_PROVIDER/ALLOW_REAL_REPO_APPLY/ALLOW_REAL_REPO_COMMIT, requires coderProvider=kimi and reviewerProvider=fake, rejects real_kimi_coder_kimi_reviewer, rejects currentBranch main/HEAD/mismatch, rejects workBranch main, rejects dirty git status, safe errors do not leak env values |
 | Block real-mode git | `test/block-real-mode-git.test.ts` | `getCurrentBranchName`, `getGitStatusPorcelain`, `stageOnlyFiles` (rejects empty/absolute/traversal, stages only approved file), `assertNoUnrelatedChanges` (passes for approved, rejects unrelated), `commitStagedChanges` returns 40-char SHA, `pushCurrentBranch` does not use force, no git add -A |
 | CLI block-run | `test/cli-block-run.test.ts` | `block-run <blockJsonPath>`: missing block path fails safely, invalid JSON fails safely, fake mode runs block, output includes block id/tasks attempted/accepted count, respects BLOCK_RUN_MAX_TASKS, rejects non-fake mode, no provider real call, no git call, no GitHub API, no merge/main/checkout/push, no API key leak, no stack trace |

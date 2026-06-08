@@ -907,7 +907,33 @@ Properties:
 
 **Tests:** 51 new tests (32 unit + 19 CLI). Total suite: 1561 tests, 96 suites, 0 failures.
 
-**Next possible stage:** Stage 6.11 — Optional manual PR creation helper, gated and no merge.
+### Stage 6.11 — Optional Manual PR Creation Helper ✅
+
+**Status:** Implemented and tested.
+
+**Goal:** Create a draft GitHub Pull Request from a completed, PR-ready block, strictly gated by opt-in flags and safety prerequisites.
+
+**Files:**
+- `src/block/block-pr-create.ts` — `createBlockPullRequest(input)` with opt-in checks, PR readiness verification, branch pushed check (`git ls-remote`), duplicate protection, dry-run mode, and GitHub API POST for draft PR creation.
+- `src/cli.ts` — `block-pr-create <blockJsonPath>` CLI command with env flags.
+- `test/block-pr-create.test.ts` — 37 unit tests covering opt-in blocks, PR readiness checks, secret detection, branch push verification, duplicate protection, dry-run, fake GitHub API success/failure/malformed response.
+- `test/cli-block-pr-create.test.ts` — 19 CLI tests covering missing args, dry-run output, missing flags/token/repo, missing draft package, not-PR-ready body, token leak prevention, stack trace prevention, safety messages.
+- `docs/STAGE6_11_PR_CREATE_EXAMPLE.md` — example documentation with required flags, prerequisites, dry-run example, successful fake response, safety invariants.
+
+**Safety:**
+- Requires `ALLOW_BLOCK_PR_CREATE=true` + `ALLOW_GITHUB_PR_CREATE=true` + `GITHUB_TOKEN` + `GITHUB_REPOSITORY`.
+- Verifies block completed, all tasks accepted with commit SHAs and pushed refs, work branch not main, branch already pushed.
+- Requires PR draft package and approval report (unless override).
+- Rejects creation if PR body says `NOT PR-READY` or contains secrets.
+- Checks existing open PR via GitHub API GET before POST.
+- Duplicate protection: existing `pr-created.json` blocks second creation by default.
+- Always creates `draft: true` PR; no auto-merge, no reviewers, no labels.
+- No provider calls, no push, no merge, no checkout/switch, no main touch, no PR update/comment/close.
+- `GITHUB_TOKEN` never printed or persisted.
+
+**Tests:** 56 new tests (37 unit + 19 CLI). Total suite: 1617 tests, 98 suites, 0 failures.
+
+**Next possible stage:** Stage 6.12 — PR status monitoring for block PR, no merge.
 
 ### Stage 6 Safety Rules
 

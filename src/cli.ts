@@ -2412,7 +2412,7 @@ if (command === 'real-repo-pr-status') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }
@@ -4281,6 +4281,61 @@ if (command === 'block-pr-draft') {
     console.error('[block-pr-draft] No merge was performed');
     console.error('[block-pr-draft] No checkout was performed');
     console.error('[block-pr-draft] No main touch was performed');
+    process.exit(1);
+  }
+}
+
+if (command === 'block-pr-create') {
+  try {
+    const blockJsonPath = taskId;
+    if (!blockJsonPath) {
+      console.error('[block-pr-create] Error: block JSON path is required');
+      process.exit(1);
+    }
+
+    const draftDir = process.env.BLOCK_PR_DRAFT_OUTPUT_DIR?.trim();
+    const isDryRun = process.env.BLOCK_PR_CREATE_DRY_RUN === 'true';
+
+    const { createBlockPullRequest } = await import('./block/block-pr-create.js');
+    const result = await createBlockPullRequest({
+      blockDefinitionPath: blockJsonPath,
+      draftDir: draftDir || undefined,
+      dryRun: isDryRun,
+    });
+
+    console.log(`[block-pr-create] Block: ${result.block_id}`);
+    console.log(`[block-pr-create] Dry run: ${result.dry_run ? 'yes' : 'no'}`);
+    if (result.dry_run) {
+      console.log(`[block-pr-create] Would create draft PR: yes`);
+      console.log(`[block-pr-create] Base: ${result.base_branch}`);
+      console.log(`[block-pr-create] Head: ${result.work_branch}`);
+      console.log(`[block-pr-create] Title: ${result.title}`);
+      console.log(`[block-pr-create] Body: ${result.body_path}`);
+    } else {
+      console.log(`[block-pr-create] PR created: ${result.pr_created ? 'yes' : 'no'}`);
+      if (result.pr_number) {
+        console.log(`[block-pr-create] PR number: ${result.pr_number}`);
+        console.log(`[block-pr-create] PR URL: ${result.pr_url}`);
+      }
+      if (result.output_path) {
+        console.log(`[block-pr-create] Output: ${result.output_path}`);
+      }
+    }
+    console.log('[block-pr-create] No provider call was made');
+    console.log('[block-pr-create] No push was performed');
+    console.log('[block-pr-create] No merge was performed');
+    console.log('[block-pr-create] No checkout was performed');
+    console.log('[block-pr-create] No main touch was performed');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[block-pr-create] Error: ${message}`);
+    console.error('[block-pr-create] No PR was created');
+    console.error('[block-pr-create] No push was performed');
+    console.error('[block-pr-create] No merge was performed');
+    console.error('[block-pr-create] No checkout was performed');
+    console.error('[block-pr-create] No main touch was performed');
+    console.error('[block-pr-create] No provider call was made');
     process.exit(1);
   }
 }
