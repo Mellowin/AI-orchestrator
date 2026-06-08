@@ -1133,7 +1133,25 @@ Properties:
 
 **Tests:** 13 new tests (7 unit + 6 CLI). Total suite: 1723 tests, 102 suites, 0 failures.
 
-**Next possible stage:** Stage 6.x autonomous loop enhancements.
+### Stage 6.13.2 — Cleanup Dry-Run Proof ✅
+
+**Status:** Evidence documented.
+
+**Goal:** Run and document a dry-run cleanup proof for PR #2 using the Stage 6.13 cleanup helper.
+
+**Proof performed:**
+- Scenario A: read-only dry-run, no actions → cleanup safe: yes, no blocking issues
+- Scenario B: dry-run delete branch only → cleanup safe: no, blocked by open-PR branch deletion rule
+- Scenario C: dry-run close + delete → cleanup safe: yes, dry-run safety findings for both actions
+- All scenarios used mock response to avoid unauthenticated rate limits
+- PR #2 remains open after all scenarios
+- Proof branch `stage-6-11-pr-create-proof` remains on remote after all scenarios
+
+**Evidence doc:** `docs/STAGE6_13_CLEANUP_DRY_RUN_PROOF.md`
+
+**Tests:** 0 new tests. Total suite: 1723 tests, 102 suites, 0 failures.
+
+**Next possible stage:** Real cleanup of PR #2 (human decision), or Stage 6.x autonomous loop enhancements.
 
 ### Stage 6 Safety Rules
 
