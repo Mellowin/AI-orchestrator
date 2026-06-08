@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `pending final commit hash`
+**Last verified:** `6993797d472fdb18fd93e6dfb89c8a69b124f577`
 
 ## Test metrics
 
 - **Total tests:** 1660
 - **Total suites:** 98
-- **Last verified commit:** `pending final commit hash` (Stage 6.12 PR Status Monitoring for Block PR)
+- **Last verified commit:** `6993797d472fdb18fd93e6dfb89c8a69b124f577` (Stage 6.12 PR Status Monitoring for Block PR)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -38,7 +38,7 @@
 | Stage 6.11 | Optional Manual PR Creation Helper | `5b49b80664ff7984537c52a733737d54e0612fc2` |
 | Stage 6.11.1 | Live Draft PR Proof | `d1705b571ef9f6c34b4519baf7736fba7db99c01` |
 | Stage 6.11.2 | PR Body Wording Hardening | `ed9e2abf0b8d6fca7d4fd4f4a32e1e8399df939b` |
-| Stage 6.12 | PR Status Monitoring for Block PR | `pending final commit hash` |
+| Stage 6.12 | PR Status Monitoring for Block PR | `6993797d472fdb18fd93e6dfb89c8a69b124f577` |
 
 ## Covered layers
 
