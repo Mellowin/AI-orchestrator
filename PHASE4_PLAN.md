@@ -1151,7 +1151,24 @@ Properties:
 
 **Tests:** 0 new tests. Total suite: 1723 tests, 102 suites, 0 failures.
 
-**Next possible stage:** Real cleanup of PR #2 (human decision), or Stage 6.x autonomous loop enhancements.
+### Stage 6.13.3 — Real Cleanup of Proof PR #2 ✅
+
+**Status:** Completed and verified.
+
+**Goal:** Perform real cleanup of Stage 6.11/6.12 proof artifacts.
+
+**Actions performed:**
+1. Final dry-run: cleanup safe=yes, no blocking issues
+2. Real cleanup via `block-pr-cleanup`:
+   - Closed draft PR #2 (state: closed, merged: false)
+   - Deleted remote proof branch `stage-6-11-pr-create-proof`
+3. Verified PR #2 is closed and branch no longer exists on origin
+
+**Evidence doc:** `docs/STAGE6_13_REAL_CLEANUP_EVIDENCE.md`
+
+**Tests:** 0 new tests. Total suite: 1723 tests, 102 suites, 0 failures.
+
+**Next possible stage:** Stage 6.x autonomous loop enhancements.
 
 ### Stage 6 Safety Rules
 

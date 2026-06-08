@@ -8,7 +8,7 @@
 
 - **Total tests:** 1723
 - **Total suites:** 102
-- **Last verified commit:** `a599a0d4da822ba95040679f303d8e071506e14f` (Stage 6.13.2 Cleanup Dry-Run Proof)
+- **Last verified commit:** `pending final commit hash` (Stage 6.13.3 Real Cleanup of Proof PR #2)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -44,6 +44,7 @@
 | Stage 6.13 | Proof PR Cleanup Helper | `e88e8d7ef5acf873715b5bc1711eefa14ba0c85c` |
 | Stage 6.13.1 | PR Cleanup Branch Deletion Safety Hardening | `5696794b4ed84bdba684e24fc5148b82dfa12af0` |
 | Stage 6.13.2 | Cleanup Dry-Run Proof | `a599a0d4da822ba95040679f303d8e071506e14f` |
+| Stage 6.13.3 | Real Cleanup of Proof PR #2 | `pending final commit hash` |
 
 ## Covered layers
 
