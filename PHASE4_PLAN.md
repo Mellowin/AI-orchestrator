@@ -1065,7 +1065,25 @@ Properties:
    - `TESTING_SUMMARY.md`: no "Green CI" claim, "Local tests" used instead
    - `COMMAND_REFERENCE.md`, `SAFETY_MODEL.md`: source_mode behavior documented
 
-**Tests:** 8 new tests (4 unit + 4 CLI). Total suite: 1668 tests, 100 suites, 0 failures.
+**Tests:** 8 new tests (4 unit + 4 CLI). Total suite: 1667 tests, 100 suites, 0 failures.
+
+### Stage 6.12.2 — Testing Metrics Reconciliation ✅
+
+**Status:** Implemented.
+
+**Goal:** Reconcile `TESTING_SUMMARY.md` and `PHASE4_PLAN.md` test counts with actual `npm test` output. No source or test code changes.
+
+**Changes:**
+1. `TESTING_SUMMARY.md`:
+   - Corrected total tests: 1668 → 1667
+   - Corrected total suites: 98 → 100
+   - Added Stage 6.12.2 entry
+   - Last verified commit set to pending until final commit
+2. `PHASE4_PLAN.md`:
+   - Corrected Stage 6.12.1 total suite: 1668 → 1667
+   - Added Stage 6.12.2 section
+
+**Tests:** 0 new tests. Total suite: 1667 tests, 100 suites, 0 failures.
 
 **Next possible stage:** Stage 6.13 — Block PR close/cleanup helper, or Stage 6.x autonomous loop enhancements.
 
