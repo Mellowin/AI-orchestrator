@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `69a727a6f62a2a6d7edf719e323e58eca5063e8a`
+**Last verified:** `363a8baccfdfc6b44c1063bc1e0d0f0417b95df0`
 
 ## Test metrics
 
-- **Total tests:** 1492
-- **Total suites:** 93
-- **Last verified commit:** `6f8ff5aae26763123939b196850a817ff0782517` (Stage 6.9 PR-ready Human Approval Package)
+- **Total tests:** 1510
+- **Total suites:** 94
+- **Last verified commit:** `363a8baccfdfc6b44c1063bc1e0d0f0417b95df0` (Stage 6.9.1 PR-ready Human Approval Package hardened)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 
@@ -33,6 +33,7 @@
 | Stage 6.8 | Safe Real Multi-Task Kimi→Kimi Block Loop | `1116faaebd19370a7aa46836030fd26ae4e9459f` |
 | Stage 6.8.1 | Evidence Docs Cleanup | `1e746c6e78907f2afa1095a8609e9581936b927f` |
 | Stage 6.9 | PR-ready Human Approval Package | `69a727a6f62a2a6d7edf719e323e58eca5063e8a` |
+| Stage 6.9.1 | Approval Report Final Hardening | `363a8baccfdfc6b44c1063bc1e0d0f0417b95df0` |
 
 ## Covered layers
 
