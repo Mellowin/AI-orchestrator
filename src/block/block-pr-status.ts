@@ -24,6 +24,9 @@ export interface BlockPrStatusResult {
   blocking_issues: string[];
   safety_findings: string[];
   output_path: string;
+  source_mode: 'github_api' | 'mock';
+  github_api_verified: boolean;
+  mock_used: boolean;
 }
 
 export interface GetBlockPrStatusInput {
@@ -276,6 +279,13 @@ function generatePrStatusReport(result: BlockPrStatusResult, blockDefinition: Bl
   lines.push(`- **Changed files count:** ${result.changed_files_count}`);
   lines.push(`- **Checks status:** ${result.checks_status}`);
   lines.push(`- **Safe for human review:** ${result.pr_safe_for_human_review ? 'yes' : 'no'}`);
+  lines.push(`- **Source mode:** ${result.source_mode}`);
+  lines.push(`- **GitHub API verified:** ${result.github_api_verified ? 'yes' : 'no'}`);
+  lines.push(`- **Mock used:** ${result.mock_used ? 'yes' : 'no'}`);
+  if (result.mock_used) {
+    lines.push('');
+    lines.push('> Mock-based status proof. Real GitHub API was not verified by this run.');
+  }
   lines.push('');
   lines.push('## Branch verification');
   lines.push('');
@@ -365,8 +375,14 @@ export async function getBlockPrStatus(input: GetBlockPrStatusInput): Promise<Bl
 
   const checks = await fetchCheckRuns(owner, repo, prData.head.ref, token, fetchFn);
 
+  const isMock = !!process.env.MOCK_GITHUB_PR_STATUS_RESPONSE?.trim();
+
   const blockingIssues: string[] = [];
   const safetyFindings: string[] = [];
+
+  if (isMock) {
+    safetyFindings.push('PR status came from mock response; real GitHub API status was not verified by this run');
+  }
 
   if (prData.merged) {
     blockingIssues.push('PR is already merged');
@@ -417,6 +433,9 @@ export async function getBlockPrStatus(input: GetBlockPrStatusInput): Promise<Bl
     blocking_issues: blockingIssues,
     safety_findings: safetyFindings,
     output_path: '',
+    source_mode: isMock ? 'mock' : 'github_api',
+    github_api_verified: !isMock,
+    mock_used: isMock,
   };
 
   // Resolve output path

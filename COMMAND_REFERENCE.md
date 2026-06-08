@@ -636,7 +636,13 @@
 - `Base: <base>` / `Head: <head>`
 - `Checks: success/failure/pending/unknown`
 - `Safe for human review: yes/no`
+- `Source mode: github_api` or `mock`
+- `GitHub API verified: yes/no`
+- `Mock used: yes/no`
 - `Report: <path>`
+
+**Mock warning:**
+- `Warning: mock response used; real GitHub API status was not verified by this run` (when `MOCK_GITHUB_PR_STATUS_RESPONSE` is set)
 
 **Safe failure behavior:**
 - Missing allow flags fail safely before GitHub API call

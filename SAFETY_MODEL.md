@@ -84,6 +84,8 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - No provider calls.
 - Output path restricted to `runs/blocks/`, cwd, or system tmpdir.
 - `GITHUB_TOKEN` never printed or persisted.
+- Result and report clearly distinguish real GitHub API (`source_mode: github_api`) from mock response (`source_mode: mock`).
+- Mock usage adds a safety finding and report warning so mock-based proof cannot be confused with live API proof.
 
 **Stage 6.11 Block PR Create Safety:**
 - Requires explicit opt-in: `ALLOW_BLOCK_PR_CREATE=true` AND `ALLOW_GITHUB_PR_CREATE=true`.

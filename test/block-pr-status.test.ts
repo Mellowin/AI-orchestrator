@@ -169,6 +169,9 @@ describe('block-pr-status', () => {
     const result = await getBlockPrStatus({ blockDefinitionPath: blockJsonPath, fetchFn: fakeFetch });
     assert.strictEqual(result.pr_number, 2);
     assert.strictEqual(result.state, 'open');
+    assert.strictEqual(result.source_mode, 'github_api');
+    assert.strictEqual(result.github_api_verified, true);
+    assert.strictEqual(result.mock_used, false);
   });
 
   it('accepts open draft PR with correct base/head', async () => {
@@ -817,6 +820,103 @@ describe('block-pr-status', () => {
 
     await getBlockPrStatus({ blockDefinitionPath: blockJsonPath, fetchFn: fakeFetch });
     // No AI provider called
+  });
+
+  it('mock path sets source_mode mock and adds safety finding', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const originalMock = process.env.MOCK_GITHUB_PR_STATUS_RESPONSE;
+    process.env.MOCK_GITHUB_PR_STATUS_RESPONSE = JSON.stringify(makePrResponse());
+    try {
+      const fakeFetch = createFakeFetch([
+        {
+          url: '/check-runs',
+          method: 'GET',
+          response: { ok: true, status: 200, json: () => makeCheckRunsResponse(), text: () => '' },
+        },
+      ]);
+
+      const result = await getBlockPrStatus({ blockDefinitionPath: blockJsonPath, fetchFn: fakeFetch });
+      assert.strictEqual(result.source_mode, 'mock');
+      assert.strictEqual(result.github_api_verified, false);
+      assert.strictEqual(result.mock_used, true);
+      assert.ok(
+        result.safety_findings.some((f) => f.includes('mock response')),
+        result.safety_findings.join('; ')
+      );
+    } finally {
+      if (originalMock !== undefined) {
+        process.env.MOCK_GITHUB_PR_STATUS_RESPONSE = originalMock;
+      } else {
+        delete process.env.MOCK_GITHUB_PR_STATUS_RESPONSE;
+      }
+    }
+  });
+
+  it('report includes source mode fields', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const fakeFetch = createFakeFetch([
+      {
+        url: '/pulls/2',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse(), text: () => '' },
+      },
+      {
+        url: '/check-runs',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makeCheckRunsResponse(), text: () => '' },
+      },
+    ]);
+
+    const result = await getBlockPrStatus({ blockDefinitionPath: blockJsonPath, fetchFn: fakeFetch });
+    const report = readFileSync(result.output_path, 'utf-8');
+    assert.ok(report.includes('Source mode:'), report);
+    assert.ok(report.includes('GitHub API verified:'), report);
+    assert.ok(report.includes('Mock used:'), report);
+  });
+
+  it('mock report says real GitHub API was not verified', async () => {
+    await setupBlock();
+    writePrCreatedJson(blockId, {
+      pr_number: 2,
+      base: 'feature/mvp-skeleton',
+      head: 'stage-6-11-pr-create-proof',
+    });
+
+    const originalMock = process.env.MOCK_GITHUB_PR_STATUS_RESPONSE;
+    process.env.MOCK_GITHUB_PR_STATUS_RESPONSE = JSON.stringify(makePrResponse());
+    try {
+      const fakeFetch = createFakeFetch([
+        {
+          url: '/check-runs',
+          method: 'GET',
+          response: { ok: true, status: 200, json: () => makeCheckRunsResponse(), text: () => '' },
+        },
+      ]);
+
+      const result = await getBlockPrStatus({ blockDefinitionPath: blockJsonPath, fetchFn: fakeFetch });
+      const report = readFileSync(result.output_path, 'utf-8');
+      assert.ok(report.includes('Mock-based status proof'), report);
+      assert.ok(report.includes('Real GitHub API was not verified'), report);
+      assert.ok(!report.includes('live proof'), report);
+    } finally {
+      if (originalMock !== undefined) {
+        process.env.MOCK_GITHUB_PR_STATUS_RESPONSE = originalMock;
+      } else {
+        delete process.env.MOCK_GITHUB_PR_STATUS_RESPONSE;
+      }
+    }
   });
 
   it('no token leak', async () => {

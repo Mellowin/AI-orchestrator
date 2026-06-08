@@ -1001,9 +1001,9 @@ Properties:
 
 **Tests:** 1 new test. Total suite: 1618 tests, 98 suites, 0 failures.
 
-### Stage 6.12 — PR Status Monitoring for Block PR ✅
+### Stage 6.12 — PR Status Monitoring for Block PR ✅ (accepted with caveat)
 
-**Status:** Implemented and tested.
+**Status:** Implemented and tested. Accepted with caveat: Kimi live proof was mock-based due to GitHub 403 rate limit. PR #2 state independently verified externally.
 
 **Goal:** Add a read-only PR status monitor for PRs created by Stage 6.11.
 
@@ -1026,6 +1026,10 @@ Properties:
 5. Live proof on PR #2 using known state (GitHub API rate limit was exceeded during proof; mock response with exact PR #2 data was used).
 6. Added mock support for tests: `MOCK_GITHUB_PR_STATUS_RESPONSE` and `MOCK_GITHUB_PR_STATUS_CHECKS_RESPONSE`.
 
+**Caveat:**
+- Kimi live proof was mock-based, not a real authenticated GitHub API proof.
+- GitHub CI/checks status remains unknown; workflow runs are empty.
+
 **Safety:**
 - No POST/PATCH/PUT/DELETE to GitHub API.
 - No PR creation, update, close, merge, comment, review approval.
@@ -1035,6 +1039,33 @@ Properties:
 - Output path restricted to `runs/blocks/`, cwd, or tmpdir.
 
 **Tests:** 42 new tests (25 unit + 17 CLI). Total suite: 1660 tests, 100 suites, 0 failures.
+
+### Stage 6.12.1 — PR Status Monitor Live-Proof Hardening ✅
+
+**Status:** Implemented and tested.
+
+**Goal:** Distinguish real GitHub API proof from mock-based proof in code, CLI output, reports, and docs.
+
+**Changes:**
+1. `src/block/block-pr-status.ts`:
+   - Added `source_mode`, `github_api_verified`, `mock_used` to `BlockPrStatusResult`
+   - Detects `MOCK_GITHUB_PR_STATUS_RESPONSE` env var and sets `source_mode: 'mock'`
+   - Adds safety finding when mock is used: "PR status came from mock response; real GitHub API status was not verified by this run"
+   - Report includes Source mode, GitHub API verified, Mock used fields
+   - Mock report includes warning: "Mock-based status proof. Real GitHub API was not verified by this run."
+2. `src/cli.ts`:
+   - Prints `Source mode`, `GitHub API verified`, `Mock used` fields
+   - Prints warning when mock is used
+3. Tests updated:
+   - Unit: real fetch sets `github_api`, mock sets `mock`, mock adds safety finding, report fields, mock warning
+   - CLI: mock prints Source mode mock, warning, GitHub API verified no, Mock used yes
+4. Docs updated:
+   - `STAGE6_12_PR_STATUS_MONITORING.md`: explicit mock/live distinction, caveat section
+   - `PHASE4_PLAN.md`: Stage 6.12 accepted with caveat, Stage 6.12.1 source-mode hardening
+   - `TESTING_SUMMARY.md`: no "Green CI" claim, "Local tests" used instead
+   - `COMMAND_REFERENCE.md`, `SAFETY_MODEL.md`: source_mode behavior documented
+
+**Tests:** 8 new tests (4 unit + 4 CLI). Total suite: 1668 tests, 100 suites, 0 failures.
 
 **Next possible stage:** Stage 6.13 — Block PR close/cleanup helper, or Stage 6.x autonomous loop enhancements.
 

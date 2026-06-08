@@ -357,6 +357,133 @@ describe('cli block-pr-status', () => {
     rmSync(customOutput, { force: true });
   });
 
+  test('env mock prints Source mode mock', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+      commits: 1,
+      changed_files: 1,
+    });
+    const mockChecks = JSON.stringify({ check_runs: [{ name: 'CI', status: 'completed', conclusion: 'success' }] });
+
+    const result = runCli(['block-pr-status', blockJsonPath], {
+      ALLOW_GITHUB_PR_STATUS: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      MOCK_GITHUB_PR_STATUS_RESPONSE: mockPr,
+      MOCK_GITHUB_PR_STATUS_CHECKS_RESPONSE: mockChecks,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes('Source mode: mock'), result.stdout);
+  });
+
+  test('env mock prints warning', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+      commits: 1,
+      changed_files: 1,
+    });
+    const mockChecks = JSON.stringify({ check_runs: [{ name: 'CI', status: 'completed', conclusion: 'success' }] });
+
+    const result = runCli(['block-pr-status', blockJsonPath], {
+      ALLOW_GITHUB_PR_STATUS: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      MOCK_GITHUB_PR_STATUS_RESPONSE: mockPr,
+      MOCK_GITHUB_PR_STATUS_CHECKS_RESPONSE: mockChecks,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(
+      result.stdout.includes('Warning: mock response used') || result.stdout.includes('real GitHub API status was not verified'),
+      result.stdout
+    );
+  });
+
+  test('env mock prints GitHub API verified: no', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+      commits: 1,
+      changed_files: 1,
+    });
+    const mockChecks = JSON.stringify({ check_runs: [{ name: 'CI', status: 'completed', conclusion: 'success' }] });
+
+    const result = runCli(['block-pr-status', blockJsonPath], {
+      ALLOW_GITHUB_PR_STATUS: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      MOCK_GITHUB_PR_STATUS_RESPONSE: mockPr,
+      MOCK_GITHUB_PR_STATUS_CHECKS_RESPONSE: mockChecks,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes('GitHub API verified: no'), result.stdout);
+  });
+
+  test('env mock prints Mock used: yes', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+    const state = makeCompletedState(def);
+    saveBlockState(state);
+    const runDir = getBlockRunDir(blockId);
+    mkdirSync(runDir, { recursive: true });
+    writePrCreatedJson(runDir);
+
+    const mockPr = JSON.stringify({
+      state: 'open',
+      draft: true,
+      merged: false,
+      base: { ref: 'feature/mvp-skeleton' },
+      head: { ref: 'stage-6-11-pr-create-proof' },
+      html_url: 'https://github.com/Mellowin/AI-orchestrator/pull/2',
+      commits: 1,
+      changed_files: 1,
+    });
+    const mockChecks = JSON.stringify({ check_runs: [{ name: 'CI', status: 'completed', conclusion: 'success' }] });
+
+    const result = runCli(['block-pr-status', blockJsonPath], {
+      ALLOW_GITHUB_PR_STATUS: 'true',
+      GITHUB_REPOSITORY: 'Mellowin/AI-orchestrator',
+      MOCK_GITHUB_PR_STATUS_RESPONSE: mockPr,
+      MOCK_GITHUB_PR_STATUS_CHECKS_RESPONSE: mockChecks,
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes('Mock used: yes'), result.stdout);
+  });
+
   test('no token leak', () => {
     const def = makeDefinition();
     writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));

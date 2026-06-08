@@ -20,33 +20,49 @@ npx tsx src/cli.ts block-pr-status docs/stage-6-11-pr-create-proof-block.json
 Optional env:
 - `BLOCK_PR_STATUS_OUTPUT=<path>` — custom report path
 - `BLOCK_PR_NUMBER=<number>` — override PR number (defaults to `pr-created.json`)
+- `GITHUB_TOKEN` — for private repos or higher rate limits
 
-## Live proof summary (PR #2)
+## Source mode distinction
 
-**Note:** During the live proof session, the GitHub API rate limit was exceeded for the unauthenticated IP. The proof was completed using `MOCK_GITHUB_PR_STATUS_RESPONSE` with the exact known state of PR #2.
+`block-pr-status` clearly reports whether it used the real GitHub API or a mock response:
+
+- **Real GitHub API:** `source_mode: github_api`, `github_api_verified: true`, `mock_used: false`
+- **Mock response:** `source_mode: mock`, `github_api_verified: false`, `mock_used: true`
+
+When mock is used, the report includes:
+
+> Mock-based status proof. Real GitHub API was not verified by this run.
+
+And the CLI prints:
 
 ```
-[block-pr-status] Block: stage-6-11-pr-create-proof
-[block-pr-status] PR number: 2
-[block-pr-status] PR URL: https://github.com/Mellowin/AI-orchestrator/pull/2
-[block-pr-status] State: open
-[block-pr-status] Draft: yes
-[block-pr-status] Merged: no
-[block-pr-status] Base: feature/mvp-skeleton
-[block-pr-status] Head: stage-6-11-pr-create-proof
-[block-pr-status] Checks: unknown
-[block-pr-status] Safe for human review: yes
-[block-pr-status] Report: runs/blocks/stage-6-11-pr-create-proof/pr-status-report.md
+[block-pr-status] Warning: mock response used; real GitHub API status was not verified by this run
 ```
+
+## Stage 6.12 proof summary
+
+**Caveat:** During the initial Kimi live proof session, the GitHub API rate limit was exceeded for the unauthenticated IP. The proof was completed using `MOCK_GITHUB_PR_STATUS_RESPONSE` with the exact known state of PR #2. This is recorded as a **mock-based proof**, not a real authenticated GitHub API proof.
+
+Mock data used:
+- state: `open`
+- draft: `true`
+- merged: `false`
+- base: `feature/mvp-skeleton`
+- head: `stage-6-11-pr-create-proof`
+- html_url: `https://github.com/Mellowin/AI-orchestrator/pull/2`
+
+The real PR #2 state was independently verified externally and matches the mock data.
+
+**Authenticated live proof:** remains pending until an authenticated run with `GITHUB_TOKEN` is performed.
 
 ## Report output
 
 `runs/blocks/<block_id>/pr-status-report.md`
 
 Sections:
-- **Summary** — PR number, URL, state, draft, merged, branches, counts, checks status, safety flag
+- **Summary** — PR number, URL, state, draft, merged, branches, counts, checks status, safety flag, source mode, GitHub API verified, mock used
 - **Branch verification** — expected vs actual base/head with match indicators
-- **Safety findings** — blocking issues or warnings (e.g., CI not verified)
+- **Safety findings** — blocking issues or warnings (e.g., CI not verified, mock used)
 - **What this command did NOT do** — explicit no-mutation statement
 
 ## Safety invariants

@@ -4369,6 +4369,12 @@ if (command === 'block-pr-status') {
     console.log(`[block-pr-status] Head: ${result.head_branch}`);
     console.log(`[block-pr-status] Checks: ${result.checks_status}`);
     console.log(`[block-pr-status] Safe for human review: ${result.pr_safe_for_human_review ? 'yes' : 'no'}`);
+    console.log(`[block-pr-status] Source mode: ${result.source_mode}`);
+    console.log(`[block-pr-status] GitHub API verified: ${result.github_api_verified ? 'yes' : 'no'}`);
+    console.log(`[block-pr-status] Mock used: ${result.mock_used ? 'yes' : 'no'}`);
+    if (result.mock_used) {
+      console.log('[block-pr-status] Warning: mock response used; real GitHub API status was not verified by this run');
+    }
     console.log(`[block-pr-status] Report: ${result.output_path}`);
     if (result.safety_findings.length > 0) {
       console.log(`[block-pr-status] Safety findings: ${result.safety_findings.join('; ')}`);
