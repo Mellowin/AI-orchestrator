@@ -69,6 +69,12 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - PR title is truncated to 100 characters and newlines are removed.
 - PR body clearly states whether the block is PR-ready or not; it never implies automatic PR creation or merge.
 
+**Stage 6.11.2 PR Body Wording Hardening:**
+- No GitHub API call, no PR creation, no PR update, no PR close, no merge.
+- Wording-only fix: the generated `pr-body.md` no longer claims "no PR was created automatically."
+- Instead, the body states that PR creation is handled only by the separate explicitly gated `block-pr-create` command.
+- This ensures the body remains accurate both before and after a real draft PR is created.
+
 **Stage 6.11 Block PR Create Safety:**
 - Requires explicit opt-in: `ALLOW_BLOCK_PR_CREATE=true` AND `ALLOW_GITHUB_PR_CREATE=true`.
 - GitHub API call is allowed ONLY for creating a draft PR (`POST /repos/{owner}/{repo}/pulls`) and for checking existing open PRs (`GET /pulls`).

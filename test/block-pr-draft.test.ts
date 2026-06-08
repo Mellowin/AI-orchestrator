@@ -351,9 +351,10 @@ describe('block-pr-draft', () => {
     const result = generateBlockPrDraft({ blockDefinitionPath: blockJsonPath });
     const body = readFileSync(result.body_path, 'utf-8');
     assert.ok(body.includes('Safety Checklist'), body);
-    assert.ok(body.includes('No auto-merge'), body);
-    assert.ok(body.includes('No PR was created'), body);
-    assert.ok(body.includes('No provider call'), body);
+    assert.ok(body.includes('No auto-merge was performed by this draft package'), body);
+    assert.ok(body.includes('No PR creation was performed by this draft package'), body);
+    assert.ok(body.includes('No provider call was made by this draft package'), body);
+    assert.ok(body.includes('No GitHub API call was made by this draft package'), body);
   });
 
   it('body includes manual next steps', () => {
@@ -532,7 +533,7 @@ describe('block-pr-draft', () => {
     // No assertion needed — if GitHub API were called, it would fail without token
   });
 
-  it('no PR creation', () => {
+  it('no PR creation by draft package', () => {
     const def = createDefinition([
       { task_id: 'doc-1', title: 'T1', goal: 'G1', allowed_files: ['a.txt'], denied_files: [], max_lines_changed: 50, checks: [] },
     ]);
@@ -546,7 +547,10 @@ describe('block-pr-draft', () => {
 
     const result = generateBlockPrDraft({ blockDefinitionPath: blockJsonPath });
     const body = readFileSync(result.body_path, 'utf-8');
-    assert.ok(body.includes('no PR was created automatically'), body);
+    assert.ok(!body.includes('No PR was created by this tool'), body);
+    assert.ok(!body.includes('no PR was created automatically'), body);
+    assert.ok(body.includes('separate explicitly gated'), body);
+    assert.ok(body.includes('block-pr-create'), body);
   });
 
   it('no push', () => {
@@ -615,6 +619,29 @@ describe('block-pr-draft', () => {
     const result = generateBlockPrDraft({ blockDefinitionPath: blockJsonPath });
     const body = readFileSync(result.body_path, 'utf-8');
     assert.ok(body.includes('No main branch touch'), body);
+  });
+
+  it('body hardening wording stays valid after PR creation', () => {
+    const def = createDefinition([
+      { task_id: 'doc-1', title: 'T1', goal: 'G1', allowed_files: ['a.txt'], denied_files: [], max_lines_changed: 50, checks: [] },
+    ]);
+    saveDefinition(def);
+    const state = initBlockState(def);
+    state.status = 'completed';
+    state.tasks[0].status = 'accepted';
+    state.tasks[0].commit_sha = 'abc123def456abc123def456abc123def456abcd';
+    state.current_task_id = null;
+    saveState(state);
+
+    const result = generateBlockPrDraft({ blockDefinitionPath: blockJsonPath });
+    const body = readFileSync(result.body_path, 'utf-8');
+    assert.ok(body.includes('human review is still required') || body.includes('human manual review'), body);
+    assert.ok(body.includes('No auto-merge was performed by this draft package'), body);
+    assert.ok(body.includes('No provider call was made by this draft package'), body);
+    assert.ok(body.includes('No GitHub API call was made by this draft package'), body);
+    assert.ok(body.includes('No push was performed by this command'), body);
+    assert.ok(body.includes('No checkout or branch switch occurred'), body);
+    assert.ok(body.includes('No main branch touch occurred'), body);
   });
 
   it('no git mutation commands', () => {

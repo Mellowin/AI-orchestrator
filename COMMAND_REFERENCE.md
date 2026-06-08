@@ -495,6 +495,8 @@
 
 **Purpose:** Generate a manual PR draft package from block definition and block state. Does NOT create a PR.
 
+**Note:** The generated `pr-body.md` wording remains valid both before and after `block-pr-create` creates a real draft PR. It states that PR creation is handled only by the separate explicitly gated `block-pr-create` command.
+
 **Required env:** None.
 
 **Optional env:**

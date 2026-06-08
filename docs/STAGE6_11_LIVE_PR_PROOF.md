@@ -84,6 +84,10 @@
 - No checkout/switch by `block-pr-create`
 - No source file modification
 
+## Stage 6.11.2 — Wording Hardening
+
+After the live proof, PR draft body wording was hardened so the generated body remains accurate both before and after `block-pr-create` creates a real draft PR. The body no longer claims "no PR was created automatically" — instead it states that PR creation is handled only by the separate explicitly gated `block-pr-create` command.
+
 ## Evidence commit
 
 The evidence docs were committed to `feature/mvp-skeleton` after the live proof.
