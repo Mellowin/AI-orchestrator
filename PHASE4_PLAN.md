@@ -1085,7 +1085,35 @@ Properties:
 
 **Tests:** 0 new tests. Total suite: 1667 tests, 100 suites, 0 failures.
 
-**Next possible stage:** Stage 6.13 — Block PR close/cleanup helper, or Stage 6.x autonomous loop enhancements.
+### Stage 6.13 — Proof PR Cleanup Helper ✅
+
+**Status:** Implemented and tested.
+
+**Goal:** Add a strictly gated cleanup helper for proof PR branches created during live proof stages.
+
+**Changes:**
+1. `src/block/block-pr-cleanup.ts`:
+   - `cleanupBlockProofPr` reads PR status, verifies it is the expected proof PR
+   - Optional close PR via PATCH `/pulls/{number}` (requires `ALLOW_GITHUB_PR_CLOSE=true`)
+   - Optional delete branch via DELETE `/git/refs/heads/{branch}` (requires `ALLOW_GITHUB_BRANCH_DELETE=true`)
+   - Dry-run by default
+   - Safety gates: merged PR, base/head mismatch, head/main, base/main unexpectedly, non-proof-like branch name
+   - Failed close prevents branch deletion
+   - Writes `pr-cleanup-report.md`
+2. `src/cli.ts`:
+   - Added `block-pr-cleanup <blockJsonPath>` command
+   - Reads env: `BLOCK_PR_NUMBER`, `BLOCK_PR_CLEANUP_DRY_RUN`, `BLOCK_PR_CLEANUP_CLOSE_PR`, `BLOCK_PR_CLEANUP_DELETE_BRANCH`, `BLOCK_PR_CLEANUP_OUTPUT`
+   - Prints all result fields + safety messages
+3. Tests:
+   - `test/block-pr-cleanup.test.ts`: 27 unit tests
+   - `test/cli-block-pr-cleanup.test.ts`: 16 CLI tests
+4. Docs:
+   - `docs/STAGE6_13_PR_CLEANUP_HELPER.md`
+   - `COMMAND_REFERENCE.md`, `SAFETY_MODEL.md` updated
+
+**Tests:** 43 new tests (27 unit + 16 CLI). Total suite: 1710 tests, 102 suites, 0 failures.
+
+**Next possible stage:** Stage 6.x autonomous loop enhancements.
 
 ### Stage 6 Safety Rules
 

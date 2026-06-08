@@ -87,6 +87,22 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - Result and report clearly distinguish real GitHub API (`source_mode: github_api`) from mock response (`source_mode: mock`).
 - Mock usage adds a safety finding and report warning so mock-based proof cannot be confused with live API proof.
 
+**Stage 6.13 PR Cleanup Helper Safety:**
+- Requires `ALLOW_BLOCK_PR_CLEANUP=true` and `GITHUB_REPOSITORY`.
+- Dry-run by default. Real write actions require explicit flags.
+- GitHub API GET `/pulls/{number}` is always allowed for read-only verification.
+- GitHub API PATCH `/pulls/{number}` (close) is allowed only with `ALLOW_GITHUB_PR_CLOSE=true` and not in dry-run.
+- GitHub API DELETE `/git/refs/heads/{branch}` is allowed only with `ALLOW_GITHUB_BRANCH_DELETE=true` and not in dry-run.
+- Proof branch name validation: head must start with `stage-` or contain `proof`.
+- Merged PR blocks cleanup.
+- Base/head mismatch blocks cleanup.
+- Head or base being `main` blocks cleanup.
+- Failed close prevents branch deletion.
+- No merge, no auto-merge, no push, no checkout/switch, no main touch.
+- No provider calls.
+- Output path restricted to `runs/blocks/`, cwd, or system tmpdir.
+- `GITHUB_TOKEN` never printed or persisted.
+
 **Stage 6.11 Block PR Create Safety:**
 - Requires explicit opt-in: `ALLOW_BLOCK_PR_CREATE=true` AND `ALLOW_GITHUB_PR_CREATE=true`.
 - GitHub API call is allowed ONLY for creating a draft PR (`POST /repos/{owner}/{repo}/pulls`) and for checking existing open PRs (`GET /pulls`).

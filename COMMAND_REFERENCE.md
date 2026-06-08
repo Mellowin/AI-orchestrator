@@ -653,6 +653,69 @@
 - No stack trace leak
 - No API key leak
 
+----
+
+### `block-pr-cleanup <blockJsonPath>`
+
+**Purpose:** Gated cleanup helper for proof PRs. Can read PR status, optionally close the PR, and optionally delete the proof branch. Dry-run by default.
+
+**Required env:**
+- `ALLOW_BLOCK_PR_CLEANUP=true`
+- `GITHUB_REPOSITORY` — `owner/repo` format
+
+**Optional env:**
+- `GITHUB_TOKEN` — required for real close/delete
+- `ALLOW_GITHUB_PR_CLOSE=true` — required to close PR
+- `ALLOW_GITHUB_BRANCH_DELETE=true` — required to delete branch
+- `BLOCK_PR_NUMBER` — override PR number (default reads from `pr-created.json`)
+- `BLOCK_PR_CLEANUP_DRY_RUN=true/false` — default dry-run
+- `BLOCK_PR_CLEANUP_CLOSE_PR=true/false`
+- `BLOCK_PR_CLEANUP_DELETE_BRANCH=true/false`
+- `BLOCK_PR_CLEANUP_OUTPUT` — custom report path
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads `runs/blocks/<block_id>/pr-created.json`
+- Calls GitHub REST API GET `/repos/{owner}/{repo}/pulls/{number}`
+- Calls GitHub REST API PATCH `/repos/{owner}/{repo}/pulls/{number}` (only with `ALLOW_GITHUB_PR_CLOSE=true` and not dry-run)
+- Calls GitHub REST API DELETE `/repos/{owner}/{repo}/git/refs/heads/{head}` (only with `ALLOW_GITHUB_BRANCH_DELETE=true` and not dry-run)
+- Writes `runs/blocks/<block_id>/pr-cleanup-report.md`
+
+**Forbidden actions:**
+- No merge, no auto-merge
+- No push, no checkout/switch, no main touch
+- No provider call
+- No token persisted
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/pr-cleanup-report.md`
+- Or custom path if `BLOCK_PR_CLEANUP_OUTPUT` is set and safe
+
+**Normal success message:**
+- `Block: <id>`
+- `PR number: <number>`
+- `PR URL: <url>`
+- `Dry run: yes/no`
+- `Close PR requested: yes/no`
+- `Delete branch requested: yes/no`
+- `PR closed: yes/no`
+- `Branch deleted: yes/no`
+- `Cleanup safe: yes/no`
+- `Report: <path>`
+- `Blocking issues: <count>`
+- `Safety findings: <count>`
+
+**Safe failure behavior:**
+- Missing allow flags fail safely before GitHub API call
+- Missing token/repository fail safely before GitHub API call
+- Proof branch name validation blocks non-proof branches
+- Base/head mismatch blocks cleanup
+- Merged PR blocks cleanup
+- Head/main branch blocks cleanup
+- Failed close prevents branch deletion
+- No stack trace leak
+- No API key leak
+
 ---
 
 ### `block-transition <blockId> <taskId> <transition> [value]`
