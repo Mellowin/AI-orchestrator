@@ -22,13 +22,7 @@
       "denied_files": [],
       "max_lines_changed": 80,
       "checks": [
-        "node -e \"const fs=require('fs'); if(!fs.existsSync('docs/live-stage-6-15-proof.md')){console.log('FAIL: file missing');process.exit(1)}\"",
-        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('Stage 6.15')){console.log('FAIL: missing Stage 6.15');process.exit(1)}\"",
-        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('FIX_LOOP_PROOF')){console.log('FAIL: missing FIX_LOOP_PROOF');process.exit(1)}\"",
-        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('FINAL_ACCEPTED')){console.log('FAIL: missing FINAL_ACCEPTED');process.exit(1)}\"",
-        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('KIMI_CODER')){console.log('FAIL: missing KIMI_CODER');process.exit(1)}\"",
-        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('KIMI_REVIEWER')){console.log('FAIL: missing KIMI_REVIEWER');process.exit(1)}\"",
-        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('## Fix Loop Evidence')){console.log('FAIL: missing ## Fix Loop Evidence');process.exit(1)}\""
+        "node checks/stage-6-15-verify.js"
       ]
     }
   ]
