@@ -42,6 +42,23 @@ function generateFakeCommitSha(): string {
   return 'f'.repeat(40);
 }
 
+function buildCheckFailureMessage(
+  checkResult: import('../types.js').RunResult
+): string {
+  const command = checkResult.failedStep?.command ?? 'unknown';
+  const rawLogs = checkResult.logs?.trim() ?? '';
+  let message = `Checks failed: ${command}`;
+  if (rawLogs) {
+    message += `\n${rawLogs}`;
+  }
+  message = redactReviewerText(message);
+  const MAX_LEN = 4000;
+  if (message.length > MAX_LEN) {
+    message = message.slice(0, MAX_LEN) + '\n[truncated]';
+  }
+  return message;
+}
+
 function buildFakeCommitEvidence(
   taskDefinition: BlockTaskDefinition,
   coderResult: CoderResult,
@@ -266,7 +283,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
       if (!checkResult.success) {
         // Rollback applied files
         rollbackFileUpdates(blockDefinition.repo_path, manifest);
-        const failMsg = `Checks failed: ${checkResult.failedStep?.command ?? 'unknown'}`;
+        const failMsg = buildCheckFailureMessage(checkResult);
         blockState = markTaskChecksFailed(blockState, taskId, [failMsg]);
         saveBlockState(blockState);
         return {
@@ -318,7 +335,8 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
           // ignore rollback errors
         }
       }
-      const msg = applyErr instanceof Error ? applyErr.message : String(applyErr);
+      const rawMsg = applyErr instanceof Error ? applyErr.message : String(applyErr);
+      const msg = redactReviewerText(rawMsg);
       blockState = markTaskChecksFailed(blockState, taskId, [msg]);
       saveBlockState(blockState);
       return {

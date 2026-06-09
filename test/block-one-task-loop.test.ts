@@ -1749,5 +1749,261 @@ describe('block-one-task-loop', () => {
         assert.strictEqual(afterCommitCount, '2');
       });
     });
+
+    it('real mode check failure includes checker logs in safety findings and state', async () => {
+      globalThis.fetch = buildFakeKimiFetchResponse([
+        { path: 'greeting.txt', content: 'hello world\n' },
+      ]);
+
+      const checkScript = join(tmpdir(), `check-1-${Date.now()}.mjs`);
+      writeFileSync(checkScript, `console.error('Missing marker: SECOND_ATTEMPT_FIX');\nprocess.exit(1);\n`);
+
+      const definition: BlockDefinition = {
+        block_id: realBlockId,
+        title: 'Real Test Block',
+        repo_path: realRepoPath,
+        base_branch: 'main',
+        work_branch: 'feature/test',
+        providers: {
+          coder: { provider: 'kimi', model: 'kimi-k2.6' },
+          reviewer: { provider: 'fake', model: 'fake-model' },
+        },
+        review_policy: {
+          require_deterministic_checks: true,
+          max_fix_attempts: 3,
+          reviewer_mode: 'single',
+        },
+        tasks: [
+          {
+            task_id: 'task-1',
+            title: 'Add greeting file',
+            goal: 'Create a greeting file with hello world',
+            allowed_files: ['greeting.txt'],
+            denied_files: ['secret.txt'],
+            max_lines_changed: 50,
+            checks: [`node ${checkScript}`],
+          },
+        ],
+      };
+      writeFileSync(realBlockJsonPath, JSON.stringify(definition, null, 2));
+
+      const result = await runOneTaskLoop({
+        blockId: realBlockId,
+        mode: 'real_kimi_coder_fake_reviewer',
+        allowBlockRunOne: true,
+        allowRealProvider: true,
+        allowRealRepoApply: true,
+        allowRealRepoCommit: true,
+        allowRealRepoPush: false,
+        allowKimiReviewer: false,
+        reviewerProvider: 'fake',
+        coderProvider: 'kimi',
+        blockDefinitionPath: realBlockJsonPath,
+      });
+
+      assert.strictEqual(result.status_after, 'checks_failed');
+      assert.ok(result.safety_findings[0].includes('Missing marker: SECOND_ATTEMPT_FIX'), `Expected safety_findings to include checker logs, got: ${result.safety_findings[0]}`);
+
+      const state = loadBlockState(realBlockId);
+      const task = state!.tasks.find((t) => t.task_id === 'task-1');
+      assert.ok(task!.blocking_issues[0].includes('Missing marker: SECOND_ATTEMPT_FIX'), `Expected blocking_issues to include checker logs, got: ${task!.blocking_issues[0]}`);
+    });
+
+    it('real mode check failure logs are redacted before storage', async () => {
+      globalThis.fetch = buildFakeKimiFetchResponse([
+        { path: 'greeting.txt', content: 'hello world\n' },
+      ]);
+
+      const checkScript = join(tmpdir(), `check-redact-${Date.now()}.mjs`);
+      writeFileSync(checkScript, `console.log('GITHUB_TOKEN=fake-secret');\nconsole.log('Bearer fake-secret');\nconsole.log('sk-fake-secret');\nprocess.exit(1);\n`);
+
+      const definition: BlockDefinition = {
+        block_id: realBlockId,
+        title: 'Real Test Block',
+        repo_path: realRepoPath,
+        base_branch: 'main',
+        work_branch: 'feature/test',
+        providers: {
+          coder: { provider: 'kimi', model: 'kimi-k2.6' },
+          reviewer: { provider: 'fake', model: 'fake-model' },
+        },
+        review_policy: {
+          require_deterministic_checks: true,
+          max_fix_attempts: 3,
+          reviewer_mode: 'single',
+        },
+        tasks: [
+          {
+            task_id: 'task-1',
+            title: 'Add greeting file',
+            goal: 'Create a greeting file with hello world',
+            allowed_files: ['greeting.txt'],
+            denied_files: ['secret.txt'],
+            max_lines_changed: 50,
+            checks: [`node ${checkScript}`],
+          },
+        ],
+      };
+      writeFileSync(realBlockJsonPath, JSON.stringify(definition, null, 2));
+
+      const result = await runOneTaskLoop({
+        blockId: realBlockId,
+        mode: 'real_kimi_coder_fake_reviewer',
+        allowBlockRunOne: true,
+        allowRealProvider: true,
+        allowRealRepoApply: true,
+        allowRealRepoCommit: true,
+        allowRealRepoPush: false,
+        allowKimiReviewer: false,
+        reviewerProvider: 'fake',
+        coderProvider: 'kimi',
+        blockDefinitionPath: realBlockJsonPath,
+      });
+
+      assert.strictEqual(result.status_after, 'checks_failed');
+      const msg = result.safety_findings[0];
+      assert.ok(msg.includes('[REDACTED]'), `Expected redaction marker, got: ${msg}`);
+      assert.ok(!msg.includes('fake-secret'), `Expected raw secret to be absent, got: ${msg}`);
+      assert.ok(!msg.includes('sk-fake-secret'), `Expected raw sk- token to be absent, got: ${msg}`);
+    });
+
+    it('real mode long check logs are truncated', async () => {
+      globalThis.fetch = buildFakeKimiFetchResponse([
+        { path: 'greeting.txt', content: 'hello world\n' },
+      ]);
+
+      const longLog = 'x'.repeat(5000);
+      const checkScript = join(tmpdir(), `check-long-${Date.now()}.mjs`);
+      writeFileSync(checkScript, `console.log('${longLog}');\nprocess.exit(1);\n`);
+
+      const definition: BlockDefinition = {
+        block_id: realBlockId,
+        title: 'Real Test Block',
+        repo_path: realRepoPath,
+        base_branch: 'main',
+        work_branch: 'feature/test',
+        providers: {
+          coder: { provider: 'kimi', model: 'kimi-k2.6' },
+          reviewer: { provider: 'fake', model: 'fake-model' },
+        },
+        review_policy: {
+          require_deterministic_checks: true,
+          max_fix_attempts: 3,
+          reviewer_mode: 'single',
+        },
+        tasks: [
+          {
+            task_id: 'task-1',
+            title: 'Add greeting file',
+            goal: 'Create a greeting file with hello world',
+            allowed_files: ['greeting.txt'],
+            denied_files: ['secret.txt'],
+            max_lines_changed: 50,
+            checks: [`node ${checkScript}`],
+          },
+        ],
+      };
+      writeFileSync(realBlockJsonPath, JSON.stringify(definition, null, 2));
+
+      const result = await runOneTaskLoop({
+        blockId: realBlockId,
+        mode: 'real_kimi_coder_fake_reviewer',
+        allowBlockRunOne: true,
+        allowRealProvider: true,
+        allowRealRepoApply: true,
+        allowRealRepoCommit: true,
+        allowRealRepoPush: false,
+        allowKimiReviewer: false,
+        reviewerProvider: 'fake',
+        coderProvider: 'kimi',
+        blockDefinitionPath: realBlockJsonPath,
+      });
+
+      assert.strictEqual(result.status_after, 'checks_failed');
+      assert.ok(result.safety_findings[0].endsWith('[truncated]'), `Expected truncated marker, got: ${result.safety_findings[0].slice(-50)}`);
+      assert.ok(result.safety_findings[0].length <= 4100, `Expected message to be truncated, got length ${result.safety_findings[0].length}`);
+    });
+
+    it('real mode retry succeeds when fix context contains actionable missing marker message', async () => {
+      // First attempt: file without SECOND_ATTEMPT_FIX, check fails with actionable message
+      globalThis.fetch = buildFakeKimiFetchResponse([
+        { path: 'greeting.txt', content: 'hello world\n' },
+      ]);
+
+      const checkScript = join(tmpdir(), `check-retry-${Date.now()}.mjs`);
+      writeFileSync(checkScript, `console.error('Missing marker: SECOND_ATTEMPT_FIX');\nprocess.exit(1);\n`);
+
+      const definition: BlockDefinition = {
+        block_id: realBlockId,
+        title: 'Real Test Block',
+        repo_path: realRepoPath,
+        base_branch: 'main',
+        work_branch: 'feature/test',
+        providers: {
+          coder: { provider: 'kimi', model: 'kimi-k2.6' },
+          reviewer: { provider: 'fake', model: 'fake-model' },
+        },
+        review_policy: {
+          require_deterministic_checks: true,
+          max_fix_attempts: 3,
+          reviewer_mode: 'single',
+        },
+        tasks: [
+          {
+            task_id: 'task-1',
+            title: 'Add greeting file',
+            goal: 'Create a greeting file with hello world',
+            allowed_files: ['greeting.txt'],
+            denied_files: ['secret.txt'],
+            max_lines_changed: 50,
+            checks: [`node ${checkScript}`],
+          },
+        ],
+      };
+      writeFileSync(realBlockJsonPath, JSON.stringify(definition, null, 2));
+
+      const firstResult = await runOneTaskLoop({
+        blockId: realBlockId,
+        mode: 'real_kimi_coder_fake_reviewer',
+        allowBlockRunOne: true,
+        allowRealProvider: true,
+        allowRealRepoApply: true,
+        allowRealRepoCommit: true,
+        allowRealRepoPush: false,
+        allowKimiReviewer: false,
+        reviewerProvider: 'fake',
+        coderProvider: 'kimi',
+        blockDefinitionPath: realBlockJsonPath,
+      });
+
+      assert.strictEqual(firstResult.status_after, 'checks_failed');
+      const stateAfterFirst = loadBlockState(realBlockId);
+      assert.ok(stateAfterFirst!.tasks[0].blocking_issues[0].includes('Missing marker: SECOND_ATTEMPT_FIX'));
+
+      // Second attempt: fake fetch returns file WITH SECOND_ATTEMPT_FIX, check passes
+      globalThis.fetch = buildFakeKimiFetchResponse([
+        { path: 'greeting.txt', content: 'hello world\nSECOND_ATTEMPT_FIX\n' },
+      ]);
+      writeFileSync(checkScript, `console.log('PASS');\nprocess.exit(0);\n`);
+
+      const secondResult = await runOneTaskLoop({
+        blockId: realBlockId,
+        mode: 'real_kimi_coder_fake_reviewer',
+        allowBlockRunOne: true,
+        allowRealProvider: true,
+        allowRealRepoApply: true,
+        allowRealRepoCommit: true,
+        allowRealRepoPush: false,
+        allowKimiReviewer: false,
+        reviewerProvider: 'fake',
+        coderProvider: 'kimi',
+        blockDefinitionPath: realBlockJsonPath,
+      });
+
+      assert.strictEqual(secondResult.status_after, 'accepted');
+      assert.ok(secondResult.commit_sha);
+      const stateAfterSecond = loadBlockState(realBlockId);
+      assert.strictEqual(stateAfterSecond!.tasks[0].status, 'accepted');
+    });
   });
 });
