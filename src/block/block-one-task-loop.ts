@@ -389,6 +389,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     testResult: 'pass',
     gitStatus,
     safetyFindings: [...safetyFindings, ...deterministicResult.safetyFindings],
+    previousFailure: fixContext?.checkFailureSummary,
   });
 
   // 12. Run reviewer gate

@@ -18,6 +18,7 @@ export function buildReviewInput(input: {
   testResult: string;
   gitStatus: string;
   safetyFindings: string[];
+  previousFailure?: string;
 }): ReviewInput {
   if (!input.taskId || typeof input.taskId !== 'string') {
     throw new Error('taskId is required and must be a string');
@@ -60,5 +61,6 @@ export function buildReviewInput(input: {
     test_result: input.testResult,
     git_status: input.gitStatus,
     safety_findings: input.safetyFindings.map((f) => (typeof f === 'string' ? f.trim() : String(f))),
+    previous_failure: input.previousFailure,
   };
 }

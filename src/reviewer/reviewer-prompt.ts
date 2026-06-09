@@ -6,10 +6,15 @@ export function buildReviewerPrompt(input: ReviewInput): string {
       ? input.safety_findings.map((f) => `- ${f}`).join('\n')
       : '- No safety issues detected';
 
+  const previousFailureSection = input.previous_failure
+    ? `\n# Previous Failure\n${input.previous_failure}\n`
+    : '';
+
   return (
     `You are a strict AI code reviewer.\n\n` +
     `You review factual evidence only. You do NOT trust the coder's self-report. You look at actual commits, diffs, and check results.\n\n` +
     `# Task Goal\n${input.task_goal}\n\n` +
+    `${previousFailureSection}` +
     `# Allowed Files\n${input.allowed_files.map((f) => `- ${f}`).join('\n') || '- none specified'}\n\n` +
     `# Denied Files\n${input.denied_files.map((f) => `- ${f}`).join('\n') || '- none specified'}\n\n` +
     `# Max Lines Changed\n${input.max_lines_changed}\n\n` +

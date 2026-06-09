@@ -48,6 +48,7 @@ export interface ReviewInput {
   test_result: string;
   git_status: string;
   safety_findings: string[];
+  previous_failure?: string;
 }
 
 export type ReviewerDecisionValue = 'accepted' | 'rejected';
