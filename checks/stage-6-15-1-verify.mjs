@@ -8,6 +8,7 @@ if (!existsSync(path)) {
 }
 
 const content = readFileSync(path, 'utf-8');
+const lines = content.split(/\r?\n/).map(l => l.trim());
 
 const required = [
   'Stage 6.15.1',
@@ -16,14 +17,19 @@ const required = [
   'KIMI_REVIEWER',
   'FINAL_ACCEPTED',
   '## Fix Loop Evidence',
-  'SECOND_ATTEMPT_FIX',
 ];
 
 for (const marker of required) {
   if (!content.includes(marker)) {
-    console.error(`Missing required marker: ${marker}. Add this exact marker in the next fix attempt.`);
+    console.error(`Missing required marker: ${marker}.`);
     process.exit(1);
   }
+}
+
+const hasSecondAttempt = lines.some(line => line === 'SECOND_ATTEMPT_FIX');
+if (!hasSecondAttempt) {
+  console.error('Missing required marker: SECOND_ATTEMPT_FIX. Add this exact marker on its own line in the next fix attempt.');
+  process.exit(1);
 }
 
 console.log('PASS: all markers found');
