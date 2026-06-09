@@ -82,6 +82,10 @@ function buildCoderPrompt(input: CoderTaskInput): string {
       ? `Denied files (DO NOT touch):\n${input.denied_files.map((f) => `- ${f}`).join('\n')}`
       : '';
 
+  const repoContextSection = input.repo_context
+    ? `\n# Context\n${input.repo_context}\n`
+    : '';
+
   const failureSection = input.previous_failure
     ? `\n# Previous Failure\n${input.previous_failure}\n`
     : '';
@@ -90,7 +94,8 @@ function buildCoderPrompt(input: CoderTaskInput): string {
     `# Task\n` +
     `ID: ${input.task_id}\n` +
     `Title: ${input.title}\n` +
-    `Goal: ${input.goal}\n\n` +
+    `Goal: ${input.goal}\n` +
+    `${repoContextSection}\n` +
     `${allowedSection}\n` +
     `${deniedSection}\n\n` +
     `Max lines changed: ${input.max_lines_changed}\n\n` +
