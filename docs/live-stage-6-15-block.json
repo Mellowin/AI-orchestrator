@@ -1,0 +1,35 @@
+{
+  "block_id": "stage-6-15-fix-loop-live-proof",
+  "title": "Stage 6.15 Real Kimi Fix Loop Live Proof",
+  "repo_path": ".",
+  "base_branch": "feature/mvp-skeleton",
+  "work_branch": "feature/mvp-skeleton",
+  "providers": {
+    "coder": { "provider": "kimi", "model": "kimi-k2.6" },
+    "reviewer": { "provider": "kimi", "model": "kimi-k2.6" }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 2,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "doc-1",
+      "title": "Create Stage 6.15 fix-loop proof document",
+      "goal": "Create a markdown file at docs/live-stage-6-15-proof.md that serves as a live proof of the autonomous fix loop. The file MUST contain ALL of the following exact markers anywhere in its content:\n- Stage 6.15\n- FIX_LOOP_PROOF\n- FINAL_ACCEPTED\n- KIMI_CODER\n- KIMI_REVIEWER\n- ## Fix Loop Evidence\n\nThe file should be a short, coherent markdown document. Do not include any secrets, API keys, or tokens.",
+      "allowed_files": ["docs/live-stage-6-15-proof.md"],
+      "denied_files": [],
+      "max_lines_changed": 80,
+      "checks": [
+        "node -e \"const fs=require('fs'); if(!fs.existsSync('docs/live-stage-6-15-proof.md')){console.log('FAIL: file missing');process.exit(1)}\"",
+        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('Stage 6.15')){console.log('FAIL: missing Stage 6.15');process.exit(1)}\"",
+        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('FIX_LOOP_PROOF')){console.log('FAIL: missing FIX_LOOP_PROOF');process.exit(1)}\"",
+        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('FINAL_ACCEPTED')){console.log('FAIL: missing FINAL_ACCEPTED');process.exit(1)}\"",
+        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('KIMI_CODER')){console.log('FAIL: missing KIMI_CODER');process.exit(1)}\"",
+        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('KIMI_REVIEWER')){console.log('FAIL: missing KIMI_REVIEWER');process.exit(1)}\"",
+        "node -e \"const fs=require('fs'); const c=fs.readFileSync('docs/live-stage-6-15-proof.md','utf8'); if(!c.includes('## Fix Loop Evidence')){console.log('FAIL: missing ## Fix Loop Evidence');process.exit(1)}\""
+      ]
+    }
+  ]
+}
