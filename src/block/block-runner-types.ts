@@ -17,7 +17,6 @@ export interface OneTaskLoopInput {
   blockDefinitionPath: string;
   fakeCoderOptions?: import('../providers/fake/fake-coder-provider.js').FakeCoderOptions;
   fakeReviewerOptions?: import('../providers/fake/fake-reviewer-provider.js').FakeReviewerOptions;
-  maxAttempts?: number;
 }
 
 export interface OneTaskLoopResult {

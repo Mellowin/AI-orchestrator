@@ -519,6 +519,157 @@ describe('block-multi-task-loop', () => {
     assert.strictEqual(result.final_block_status, 'blocked');
   });
 
+  it('checks_failed retries same task while attempts remain', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: false,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Bad file',
+          files: [{ path: 'denied.txt', content: 'x\n' }],
+        },
+        fixResponse: {
+          summary: 'Fixed',
+          files: [{ path: 'a.txt', content: 'ok\n' }],
+        },
+      },
+      fakeReviewerOptions: {
+        decision: {
+          decision: 'accepted',
+          confidence: 'high',
+          blocking_issues: [],
+          non_blocking_issues: [],
+          review_summary: 'LGTM',
+          fix_task: null,
+          next_action: 'advance_to_next_task',
+        },
+      },
+    });
+
+    assert.strictEqual(result.tasks_attempted, 1);
+    assert.strictEqual(result.tasks_accepted, 1);
+    assert.strictEqual(result.tasks_fix_required, 1);
+    assert.strictEqual(result.final_block_status, 'completed');
+  });
+
+  it('repeated checks_failed blocks at max_fix_attempts', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+    // Override review_policy to small limit
+    const state = loadBlockState(blockId);
+    state!.review_policy!.max_fix_attempts = 2;
+    writeFileSync(join(getBlockRunDir(blockId), 'block-state.json'), JSON.stringify(state, null, 2));
+
+    const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: false,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Bad file',
+          files: [{ path: 'denied.txt', content: 'x\n' }],
+        },
+        fixResponse: {
+          summary: 'Still bad',
+          files: [{ path: 'denied.txt', content: 'y\n' }],
+        },
+      },
+    });
+
+    assert.strictEqual(result.tasks_attempted, 1);
+    assert.strictEqual(result.tasks_blocked, 1);
+    assert.strictEqual(result.final_block_status, 'blocked');
+  });
+
+  it('accepted after check-fix path advances to next task', async () => {
+    const def = createDefinition([
+      {
+        task_id: 'task-1',
+        title: 'First task',
+        goal: 'Do first thing',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+      {
+        task_id: 'task-2',
+        title: 'Second task',
+        goal: 'Do second thing',
+        allowed_files: ['b.txt'],
+        denied_files: [],
+        max_lines_changed: 50,
+        checks: [],
+      },
+    ]);
+    saveDefinitionAndState(def);
+
+    const result = await runMultiTaskFakeLoop({
+          maxTotalAttemptsPerRun: 20,
+      blockDefinitionPath: blockJsonPath,
+      mode: 'fake',
+      maxTasksPerRun: 10,
+      stopOnRejected: false,
+      stopOnBlocked: true,
+      fakeCoderOptions: {
+        taskResponses: [
+          { summary: 'Bad file', files: [{ path: 'denied.txt', content: 'x\n' }] },
+          { summary: 'Good', files: [{ path: 'b.txt', content: 'ok\n' }] },
+        ],
+        fixResponse: {
+          summary: 'Fixed',
+          files: [{ path: 'a.txt', content: 'ok\n' }],
+        },
+      },
+      fakeReviewerOptions: {
+        decision: {
+          decision: 'accepted',
+          confidence: 'high',
+          blocking_issues: [],
+          non_blocking_issues: [],
+          review_summary: 'LGTM',
+          fix_task: null,
+          next_action: 'advance_to_next_task',
+        },
+      },
+    });
+
+    assert.strictEqual(result.tasks_attempted, 2);
+    assert.strictEqual(result.tasks_accepted, 2);
+    assert.strictEqual(result.tasks_fix_required, 1);
+    assert.strictEqual(result.final_block_status, 'completed');
+  });
+
   it('completed block runs zero tasks', async () => {
     const def = createDefinition([
       {

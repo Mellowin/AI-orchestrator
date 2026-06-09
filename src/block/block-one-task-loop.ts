@@ -23,6 +23,7 @@ import { validateFileList, validateProposedFileLineDeltas } from '../guardrails.
 import { runDeterministicReviewChecks } from '../reviewer/deterministic-review-checks.js';
 import { buildReviewInput } from '../reviewer/review-input-builder.js';
 import { runReviewerGate } from '../reviewer/reviewer-gate.js';
+import { redactReviewerText, redactReviewerList } from '../reviewer/reviewer-redaction.js';
 import type { CoderResult } from '../providers/provider-types.js';
 import { validateRealOneTaskModeSafety } from './block-real-mode-safety.js';
 import {
@@ -104,10 +105,14 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   const fixContext = isFixAttempt && currentTaskState
     ? {
         attempt: currentTaskState.fix_attempts + 1,
-        reviewerSummary: currentTaskState.reviewer_summary ?? undefined,
+        reviewerSummary: currentTaskState.reviewer_summary
+          ? redactReviewerText(currentTaskState.reviewer_summary)
+          : undefined,
         fixTask: null,
-        blockingIssues: [...currentTaskState.blocking_issues],
-        checkFailureSummary: currentTaskState.blocking_issues.join('; ') || undefined,
+        blockingIssues: redactReviewerList([...currentTaskState.blocking_issues]),
+        checkFailureSummary: currentTaskState.blocking_issues.length > 0
+          ? redactReviewerText(currentTaskState.blocking_issues.join('; '))
+          : undefined,
       }
     : undefined;
 
@@ -184,7 +189,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
       block_id: input.blockId,
       task_id: taskId,
       status_before: statusBefore,
-      status_after: 'checks_failed',
+      status_after: blockState.tasks.find((t) => t.task_id === taskId)?.status ?? 'checks_failed',
       coder_called: true,
       reviewer_called: false,
       files_applied: [],
@@ -212,7 +217,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
         block_id: input.blockId,
         task_id: taskId,
         status_before: statusBefore,
-        status_after: 'checks_failed',
+        status_after: blockState.tasks.find((t) => t.task_id === taskId)?.status ?? 'checks_failed',
         coder_called: true,
         reviewer_called: false,
         files_applied: [],
@@ -268,7 +273,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
           block_id: input.blockId,
           task_id: taskId,
           status_before: statusBefore,
-          status_after: 'checks_failed',
+          status_after: blockState.tasks.find((t) => t.task_id === taskId)?.status ?? 'checks_failed',
           coder_called: true,
           reviewer_called: false,
           files_applied: filesApplied,
@@ -320,7 +325,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
         block_id: input.blockId,
         task_id: taskId,
         status_before: statusBefore,
-        status_after: 'checks_failed',
+        status_after: blockState.tasks.find((t) => t.task_id === taskId)?.status ?? 'checks_failed',
         coder_called: true,
         reviewer_called: false,
         files_applied: filesApplied,
@@ -430,3 +435,4 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     safety_findings: [...safetyFindings, ...reviewerGateResult.safetyFindings],
   };
 }
+

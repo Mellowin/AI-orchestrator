@@ -89,6 +89,41 @@ describe('block-transitions', () => {
     const updated = markTaskChecksFailed(state, 'task-1', ['Tests failed']);
     assert.strictEqual(updated.tasks[0].status, 'checks_failed');
     assert.deepStrictEqual(updated.tasks[0].blocking_issues, ['Tests failed']);
+    assert.strictEqual(updated.tasks[0].fix_attempts, 1);
+    assert.strictEqual(updated.status, 'fixing');
+  });
+
+  test('markTaskChecksFailed increments fix_attempts', () => {
+    const state = makeState();
+    let updated = markTaskChecksFailed(state, 'task-1', ['First failure']);
+    assert.strictEqual(updated.tasks[0].fix_attempts, 1);
+    updated = markTaskChecksFailed(updated, 'task-1', ['Second failure']);
+    assert.strictEqual(updated.tasks[0].fix_attempts, 2);
+  });
+
+  test('markTaskChecksFailed below max keeps status checks_failed', () => {
+    const state = makeState();
+    const updated = markTaskChecksFailed(state, 'task-1', ['Still failing']);
+    assert.strictEqual(updated.tasks[0].status, 'checks_failed');
+    assert.strictEqual(updated.status, 'fixing');
+  });
+
+  test('markTaskChecksFailed at max blocks task', () => {
+    let state = makeState();
+    state = markTaskChecksFailed(state, 'task-1', ['First failure']);
+    const updated = markTaskChecksFailed(state, 'task-1', ['Still failing']);
+    assert.strictEqual(updated.tasks[0].status, 'blocked');
+    assert.strictEqual(updated.status, 'blocked');
+    assert.strictEqual(updated.current_task_id, null);
+  });
+
+  test('markTaskChecksFailed requires review_policy', () => {
+    const state = makeState();
+    delete (state as unknown as Record<string, unknown>).review_policy;
+    assert.throws(
+      () => markTaskChecksFailed(state, 'task-1', ['Tests failed']),
+      /review_policy/
+    );
   });
 
   test('markTaskCommitted requires full SHA', () => {

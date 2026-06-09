@@ -85,8 +85,20 @@ export function markTaskChecksFailed(
   if (task.status === 'accepted') {
     throw new Error(`Cannot transition accepted task ${taskId} backwards`);
   }
-  task.status = 'checks_failed';
+  if (!s.review_policy) {
+    throw new Error(`Block state is missing review_policy; cannot enforce max_fix_attempts`);
+  }
+  task.fix_attempts += 1;
   task.blocking_issues = blockingIssues.map((i) => String(i));
+  const maxFixAttempts = s.review_policy.max_fix_attempts;
+  if (task.fix_attempts >= maxFixAttempts) {
+    task.status = 'blocked';
+    s.status = 'blocked';
+    s.current_task_id = null;
+  } else {
+    task.status = 'checks_failed';
+    s.status = 'fixing';
+  }
   task.updated_at = now();
   s.updated_at = now();
   return s;

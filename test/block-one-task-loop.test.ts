@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runOneTaskLoop } from '../src/block/block-one-task-loop.js';
-import { initBlockState, loadBlockState, getBlockRunDir } from '../src/block/block-state-manager.js';
+import { initBlockState, loadBlockState, saveBlockState, getBlockRunDir } from '../src/block/block-state-manager.js';
 import type { BlockDefinition } from '../src/block/block-types.js';
 
 function initGitRepo(repoPath: string): void {
@@ -507,6 +507,164 @@ describe('block-one-task-loop', () => {
     );
     const afterState = loadBlockState(blockId);
     assert.strictEqual(afterState!.tasks[0].status, beforeState!.tasks[0].status);
+  });
+
+  it('redacts sk- tokens in fix context repo_context', async () => {
+    let capturedFixInput: import('../src/providers/provider-types.js').CoderTaskInput | undefined;
+
+    await runOneTaskLoop({
+      blockId,
+      mode: 'fake',
+      allowBlockRunOne: false,
+      allowRealProvider: false,
+      allowRealRepoApply: false,
+      allowRealRepoCommit: false,
+      allowRealRepoPush: false,
+      allowKimiReviewer: false,
+      reviewerProvider: 'fake',
+      coderProvider: 'fake',
+      blockDefinitionPath: blockJsonPath,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Done',
+          files: [{ path: 'greeting.txt', content: 'hello\n' }],
+          notes: '',
+        },
+      },
+      fakeReviewerOptions: {
+        decision: {
+          decision: 'rejected',
+          confidence: 'high',
+          blocking_issues: ['Use sk-abc123 token for auth'],
+          non_blocking_issues: [],
+          review_summary: 'Needs fix',
+          fix_task: 'Fix auth',
+          next_action: 'send_fix_to_coder',
+        },
+      },
+    });
+
+    await runOneTaskLoop({
+      blockId,
+      mode: 'fake',
+      allowBlockRunOne: false,
+      allowRealProvider: false,
+      allowRealRepoApply: false,
+      allowRealRepoCommit: false,
+      allowRealRepoPush: false,
+      allowKimiReviewer: false,
+      reviewerProvider: 'fake',
+      coderProvider: 'fake',
+      blockDefinitionPath: blockJsonPath,
+      fakeCoderOptions: {
+        fixResponse: {
+          summary: 'Fix done',
+          files: [{ path: 'greeting.txt', content: 'hello fixed\n' }],
+          notes: '',
+        },
+        onFixInput: (input) => {
+          capturedFixInput = input;
+        },
+      },
+      fakeReviewerOptions: {
+        decision: {
+          decision: 'accepted',
+          confidence: 'high',
+          blocking_issues: [],
+          non_blocking_issues: [],
+          review_summary: 'LGTM',
+          fix_task: null,
+          next_action: 'advance_to_next_task',
+        },
+      },
+    });
+
+    assert.ok(capturedFixInput, 'Fix input should be captured');
+    assert.ok(
+      capturedFixInput!.repo_context.includes('[REDACTED]'),
+      'Expected repo_context to redact secret token'
+    );
+    assert.ok(
+      !capturedFixInput!.repo_context.includes('sk-abc123'),
+      'Expected raw sk- token to be absent'
+    );
+  });
+
+  it('redacts Bearer tokens and GITHUB_TOKEN in fix context', async () => {
+    let capturedFixInput: import('../src/providers/provider-types.js').CoderTaskInput | undefined;
+
+    await runOneTaskLoop({
+      blockId,
+      mode: 'fake',
+      allowBlockRunOne: false,
+      allowRealProvider: false,
+      allowRealRepoApply: false,
+      allowRealRepoCommit: false,
+      allowRealRepoPush: false,
+      allowKimiReviewer: false,
+      reviewerProvider: 'fake',
+      coderProvider: 'fake',
+      blockDefinitionPath: blockJsonPath,
+      fakeCoderOptions: {
+        taskResponse: {
+          summary: 'Done',
+          files: [{ path: 'greeting.txt', content: 'hello\n' }],
+          notes: '',
+        },
+      },
+      fakeReviewerOptions: {
+        decision: {
+          decision: 'rejected',
+          confidence: 'high',
+          blocking_issues: ['Set GITHUB_TOKEN=ghp_deadbeef in env', 'Use Bearer tok_secret'],
+          non_blocking_issues: [],
+          review_summary: 'Needs fix',
+          fix_task: 'Fix auth',
+          next_action: 'send_fix_to_coder',
+        },
+      },
+    });
+
+    await runOneTaskLoop({
+      blockId,
+      mode: 'fake',
+      allowBlockRunOne: false,
+      allowRealProvider: false,
+      allowRealRepoApply: false,
+      allowRealRepoCommit: false,
+      allowRealRepoPush: false,
+      allowKimiReviewer: false,
+      reviewerProvider: 'fake',
+      coderProvider: 'fake',
+      blockDefinitionPath: blockJsonPath,
+      fakeCoderOptions: {
+        fixResponse: {
+          summary: 'Fix done',
+          files: [{ path: 'greeting.txt', content: 'hello fixed\n' }],
+          notes: '',
+        },
+        onFixInput: (input) => {
+          capturedFixInput = input;
+        },
+      },
+      fakeReviewerOptions: {
+        decision: {
+          decision: 'accepted',
+          confidence: 'high',
+          blocking_issues: [],
+          non_blocking_issues: [],
+          review_summary: 'LGTM',
+          fix_task: null,
+          next_action: 'advance_to_next_task',
+        },
+      },
+    });
+
+    assert.ok(capturedFixInput, 'Fix input should be captured');
+    const ctx = capturedFixInput!.repo_context;
+    assert.ok(ctx.includes('[REDACTED]'), 'Expected repo_context to redact secrets');
+    assert.ok(!ctx.includes('ghp_deadbeef'), 'Expected raw ghp token to be absent');
+    assert.ok(!ctx.includes('tok_secret'), 'Expected raw Bearer token to be absent');
   });
 
   describe('real mode with temp repo', () => {
@@ -1055,6 +1213,138 @@ describe('block-one-task-loop', () => {
 
       assert.strictEqual(result.reviewer_called, true);
       assert.strictEqual(result.reviewer_decision, 'accepted');
+    });
+
+    it('real mode check failure increments fix_attempts', async () => {
+      const failingDefinition: BlockDefinition = {
+        block_id: realBlockId,
+        title: 'Real Test Block',
+        repo_path: realRepoPath,
+        base_branch: 'main',
+        work_branch: 'feature/test',
+        providers: {
+          coder: { provider: 'kimi', model: 'kimi-k2.6' },
+          reviewer: { provider: 'fake', model: 'fake-model' },
+        },
+        review_policy: {
+          require_deterministic_checks: true,
+          max_fix_attempts: 3,
+          reviewer_mode: 'single',
+        },
+        tasks: [
+          {
+            task_id: 'task-1',
+            title: 'Add greeting file',
+            goal: 'Create a greeting file with hello world',
+            allowed_files: ['greeting.txt'],
+            denied_files: ['secret.txt'],
+            max_lines_changed: 50,
+            checks: ['node -e process.exit(1)'],
+          },
+        ],
+      };
+      writeFileSync(realBlockJsonPath, JSON.stringify(failingDefinition, null, 2));
+      const failingState = initBlockState(failingDefinition);
+      saveBlockState(failingState);
+
+      globalThis.fetch = buildFakeKimiFetchResponse([
+        { path: 'greeting.txt', content: 'hello world\n' },
+      ]);
+
+      const result = await runOneTaskLoop({
+        blockId: realBlockId,
+        mode: 'real_kimi_coder_fake_reviewer',
+        allowBlockRunOne: true,
+        allowRealProvider: true,
+        allowRealRepoApply: true,
+        allowRealRepoCommit: true,
+        allowRealRepoPush: false,
+        allowKimiReviewer: false,
+        reviewerProvider: 'fake',
+        coderProvider: 'kimi',
+        blockDefinitionPath: realBlockJsonPath,
+      });
+
+      assert.strictEqual(result.status_after, 'checks_failed');
+      const state = loadBlockState(realBlockId);
+      assert.strictEqual(state!.tasks[0].fix_attempts, 1);
+      assert.strictEqual(state!.current_task_id, 'task-1');
+    });
+
+    it('real mode check failure blocks when max_fix_attempts reached', async () => {
+      const blockingDefinition: BlockDefinition = {
+        block_id: realBlockId,
+        title: 'Real Test Block',
+        repo_path: realRepoPath,
+        base_branch: 'main',
+        work_branch: 'feature/test',
+        providers: {
+          coder: { provider: 'kimi', model: 'kimi-k2.6' },
+          reviewer: { provider: 'fake', model: 'fake-model' },
+        },
+        review_policy: {
+          require_deterministic_checks: true,
+          max_fix_attempts: 2,
+          reviewer_mode: 'single',
+        },
+        tasks: [
+          {
+            task_id: 'task-1',
+            title: 'Add greeting file',
+            goal: 'Create a greeting file with hello world',
+            allowed_files: ['greeting.txt'],
+            denied_files: ['secret.txt'],
+            max_lines_changed: 50,
+            checks: ['node -e process.exit(1)'],
+          },
+        ],
+      };
+      writeFileSync(realBlockJsonPath, JSON.stringify(blockingDefinition, null, 2));
+      const blockingState = initBlockState(blockingDefinition);
+      saveBlockState(blockingState);
+
+      globalThis.fetch = buildFakeKimiFetchResponse([
+        { path: 'greeting.txt', content: 'hello world\n' },
+      ]);
+
+      const first = await runOneTaskLoop({
+        blockId: realBlockId,
+        mode: 'real_kimi_coder_fake_reviewer',
+        allowBlockRunOne: true,
+        allowRealProvider: true,
+        allowRealRepoApply: true,
+        allowRealRepoCommit: true,
+        allowRealRepoPush: false,
+        allowKimiReviewer: false,
+        reviewerProvider: 'fake',
+        coderProvider: 'kimi',
+        blockDefinitionPath: realBlockJsonPath,
+      });
+      assert.strictEqual(first.status_after, 'checks_failed');
+
+      globalThis.fetch = buildFakeKimiFetchResponse([
+        { path: 'greeting.txt', content: 'hello again\n' },
+      ]);
+
+      const second = await runOneTaskLoop({
+        blockId: realBlockId,
+        mode: 'real_kimi_coder_fake_reviewer',
+        allowBlockRunOne: true,
+        allowRealProvider: true,
+        allowRealRepoApply: true,
+        allowRealRepoCommit: true,
+        allowRealRepoPush: false,
+        allowKimiReviewer: false,
+        reviewerProvider: 'fake',
+        coderProvider: 'kimi',
+        blockDefinitionPath: realBlockJsonPath,
+      });
+      assert.strictEqual(second.status_after, 'blocked');
+
+      const state = loadBlockState(realBlockId);
+      assert.strictEqual(state!.tasks[0].status, 'blocked');
+      assert.strictEqual(state!.status, 'blocked');
+      assert.strictEqual(state!.current_task_id, null);
     });
 
     describe('real_kimi_coder_kimi_reviewer', () => {

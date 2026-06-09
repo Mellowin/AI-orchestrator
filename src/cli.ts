@@ -4043,13 +4043,6 @@ if (command === 'block-run-one') {
     const allowKimiReviewer = process.env.ALLOW_KIMI_REVIEWER === 'true';
     const reviewerProvider = (process.env.REVIEWER_PROVIDER as 'fake' | 'kimi') || 'fake';
     const coderProvider = (process.env.CODER_PROVIDER as 'fake' | 'kimi') || 'fake';
-    const rawMaxAttempts = process.env.BLOCK_RUN_ONE_MAX_ATTEMPTS;
-    const maxAttempts = rawMaxAttempts ? parseInt(rawMaxAttempts, 10) : 1;
-    if (!Number.isFinite(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) {
-      console.error('[block-run-one] Error: BLOCK_RUN_ONE_MAX_ATTEMPTS must be between 1 and 10');
-      process.exit(1);
-    }
-
     const result = await runOneTaskLoop({
       blockId,
       mode,
@@ -4062,7 +4055,6 @@ if (command === 'block-run-one') {
       reviewerProvider,
       coderProvider,
       blockDefinitionPath: blockJsonPath,
-      maxAttempts,
     });
 
     console.log(`[block-run-one] Block: ${result.block_id}`);

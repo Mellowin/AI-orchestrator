@@ -3,6 +3,7 @@ import type { ReviewerProvider, ReviewInput, ReviewerDecision, ProviderId } from
 export interface FakeReviewerOptions {
   decision?: ReviewerDecision;
   decisions?: ReviewerDecision[];
+  decisionIndex?: number;
 }
 
 export function createFakeReviewerProvider(options: FakeReviewerOptions = {}): ReviewerProvider {
@@ -20,8 +21,9 @@ export function createFakeReviewerProvider(options: FakeReviewerOptions = {}): R
 
   function nextDecision(): ReviewerDecision {
     if (options.decisions && options.decisions.length > 0) {
-      const result = options.decisions[index % options.decisions.length];
-      index++;
+      const idx = options.decisionIndex ?? 0;
+      const result = options.decisions[idx % options.decisions.length];
+      options.decisionIndex = idx + 1;
       return result;
     }
     return options.decision ?? defaultAccepted;

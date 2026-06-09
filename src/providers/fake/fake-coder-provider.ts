@@ -5,6 +5,10 @@ export interface FakeCoderOptions {
   fixResponse?: CoderResult;
   taskResponses?: CoderResult[];
   fixResponses?: CoderResult[];
+  taskResponseIndex?: number;
+  fixResponseIndex?: number;
+  onTaskInput?: (input: CoderTaskInput) => void;
+  onFixInput?: (input: CoderTaskInput) => void;
 }
 
 export function createFakeCoderProvider(options: FakeCoderOptions = {}): CoderProvider {
@@ -19,8 +23,9 @@ export function createFakeCoderProvider(options: FakeCoderOptions = {}): CoderPr
 
   function nextTaskResult(): CoderResult {
     if (options.taskResponses && options.taskResponses.length > 0) {
-      const result = options.taskResponses[taskIndex % options.taskResponses.length];
-      taskIndex++;
+      const idx = options.taskResponseIndex ?? 0;
+      const result = options.taskResponses[idx % options.taskResponses.length];
+      options.taskResponseIndex = idx + 1;
       return result;
     }
     return options.taskResponse ?? defaultResult;
@@ -28,8 +33,9 @@ export function createFakeCoderProvider(options: FakeCoderOptions = {}): CoderPr
 
   function nextFixResult(): CoderResult {
     if (options.fixResponses && options.fixResponses.length > 0) {
-      const result = options.fixResponses[fixIndex % options.fixResponses.length];
-      fixIndex++;
+      const idx = options.fixResponseIndex ?? 0;
+      const result = options.fixResponses[idx % options.fixResponses.length];
+      options.fixResponseIndex = idx + 1;
       return result;
     }
     return options.fixResponse ?? defaultResult;
@@ -38,10 +44,12 @@ export function createFakeCoderProvider(options: FakeCoderOptions = {}): CoderPr
   return {
     id: 'fake' as ProviderId,
     role: 'coder',
-    async runTask(_input: CoderTaskInput): Promise<CoderResult> {
+    async runTask(input: CoderTaskInput): Promise<CoderResult> {
+      options.onTaskInput?.(input);
       return nextTaskResult();
     },
-    async runFix(_input: CoderTaskInput): Promise<CoderResult> {
+    async runFix(input: CoderTaskInput): Promise<CoderResult> {
+      options.onFixInput?.(input);
       return nextFixResult();
     },
   };
