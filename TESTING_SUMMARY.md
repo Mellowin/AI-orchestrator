@@ -50,7 +50,7 @@
 | Stage 6.14.1 | Fix Loop Attempt Enforcement and Redaction Hardening | `d67c4845ba1fbe79d53b48592150f41cc7d1cacc` |
 | Stage 6.15 | Real Kimi→Kimi Autonomous Block Run Live Proof | `e639bbe28806cdff76fcdb43e6d03bd167a104af` |
 | Stage 6.15.1 | Deterministic Real Kimi→Kimi Fix-Loop Trigger Proof | `5378f468e8e70acf08c9e4087948bc6466e18d42` |
-| Stage 6.15.2 | Full Multi-Scenario Fix-Loop Matrix Proof | `pending final commit hash` |
+| Stage 6.15.2 | Full Multi-Scenario Fix-Loop Matrix Proof | `ccc5168d91f028a60da24f8565965579edd0ce24` |
 
 ## Covered layers
 
