@@ -49,7 +49,7 @@
 | Stage 6.13.3 | Real Cleanup of Proof PR #2 | `f1cf7cf98400e071cb1c7c9dd61b6eb15fa94b59` |
 | Stage 6.14.1 | Fix Loop Attempt Enforcement and Redaction Hardening | `d67c4845ba1fbe79d53b48592150f41cc7d1cacc` |
 | Stage 6.15 | Real Kimi→Kimi Autonomous Block Run Live Proof | `e639bbe28806cdff76fcdb43e6d03bd167a104af` |
-| Stage 6.15.1 | Deterministic Real Kimi→Kimi Fix-Loop Trigger Proof | `pending final commit hash` |
+| Stage 6.15.1 | Deterministic Real Kimi→Kimi Fix-Loop Trigger Proof | `5378f468e8e70acf08c9e4087948bc6466e18d42` |
 
 ## Covered layers
 
