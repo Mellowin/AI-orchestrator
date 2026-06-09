@@ -10,14 +10,14 @@
   },
   "review_policy": {
     "require_deterministic_checks": true,
-    "max_fix_attempts": 2,
+    "max_fix_attempts": 3,
     "reviewer_mode": "single"
   },
   "tasks": [
     {
       "task_id": "doc-1",
       "title": "Create Stage 6.15 fix-loop proof document",
-      "goal": "Create a markdown file at docs/live-stage-6-15-proof.md. The file must contain these exact text markers: Stage 6.15, FIX_LOOP_PROOF, FINAL_ACCEPTED, KIMI_CODER, KIMI_REVIEWER, and a heading ## Fix Loop Evidence. Do not include any secrets or API keys.",
+      "goal": "Create a markdown file at docs/live-stage-6-15-proof.md. Return a JSON object with this exact shape (no markdown outside the JSON): {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-15-proof.md\",\"content\":\"# Stage 6.15\\n\\nFIX_LOOP_PROOF\\nFINAL_ACCEPTED\\nKIMI_CODER\\nKIMI_REVIEWER\\n\\n## Fix Loop Evidence\\n\\nThis document proves the autonomous fix loop.\"}],\"notes\":\"proof\"}. Do not include any secrets or API keys.",
       "allowed_files": ["docs/live-stage-6-15-proof.md"],
       "denied_files": [],
       "max_lines_changed": 80,
