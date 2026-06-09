@@ -1,0 +1,27 @@
+{
+  "block_id": "stage-6-15-2-multi-retry-proof",
+  "title": "Stage 6.15.2 Real Kimi Multi-Retry Fix Loop Proof",
+  "repo_path": ".",
+  "base_branch": "feature/mvp-skeleton",
+  "work_branch": "feature/mvp-skeleton",
+  "providers": {
+    "coder": { "provider": "kimi", "model": "kimi-k2.6" },
+    "reviewer": { "provider": "kimi", "model": "kimi-k2.6" }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 3,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "doc-1",
+      "title": "Create Stage 6.15.2 multi-retry fix-loop proof document",
+      "goal": "Create docs/live-stage-6-15-2-multi-retry-proof.md. Return ONLY a JSON object (no markdown, no explanation) with this exact shape: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-15-2-multi-retry-proof.md\",\"content\":\"# Stage 6.15.2...\"}],\"notes\":\"\"}. The file must contain markers: Stage 6.15.2, FULL_FIX_LOOP_MATRIX, KIMI_CODER, KIMI_REVIEWER, FINAL_ACCEPTED, and heading ## Multi-Retry Evidence. Important: on the initial attempt, do NOT include FIRST_FIX_MARKER or SECOND_FIX_MARKER. On each fix attempt, add only the exact marker requested by the checker. Do not add future markers early. If a check says FIRST_FIX_MARKER is missing, add exactly FIRST_FIX_MARKER. If a check says SECOND_FIX_MARKER is missing, add exactly SECOND_FIX_MARKER.",
+      "allowed_files": ["docs/live-stage-6-15-2-multi-retry-proof.md"],
+      "denied_files": [],
+      "max_lines_changed": 100,
+      "checks": ["node checks/stage-6-15-2-multi-retry-verify.mjs"]
+    }
+  ]
+}
