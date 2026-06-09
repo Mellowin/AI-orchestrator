@@ -17,12 +17,12 @@
     {
       "task_id": "doc-1",
       "title": "Create Stage 6.15 fix-loop proof document",
-      "goal": "Create a markdown file at docs/live-stage-6-15-proof.md. Return a JSON object with this exact shape (no markdown outside the JSON): {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-15-proof.md\",\"content\":\"# Stage 6.15\\n\\nFIX_LOOP_PROOF\\nFINAL_ACCEPTED\\nKIMI_CODER\\nKIMI_REVIEWER\\n\\n## Fix Loop Evidence\\n\\nThis document proves the autonomous fix loop.\"}],\"notes\":\"proof\"}. Do not include any secrets or API keys.",
+      "goal": "Create a markdown file at docs/live-stage-6-15-proof.md with this exact content (preserve newlines): Stage 6.15\\n\\nFIX_LOOP_PROOF\\nFINAL_ACCEPTED\\nKIMI_CODER\\nKIMI_REVIEWER\\n\\n## Fix Loop Evidence\\n\\nAutonomous fix loop proof. Return JSON: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-15-proof.md\",\"content\":\"Stage 6.15\\n\\nFIX_LOOP_PROOF\\nFINAL_ACCEPTED\\nKIMI_CODER\\nKIMI_REVIEWER\\n\\n## Fix Loop Evidence\\n\\nAutonomous fix loop proof.\"}],\"notes\":\"proof\"}.",
       "allowed_files": ["docs/live-stage-6-15-proof.md"],
       "denied_files": [],
       "max_lines_changed": 80,
       "checks": [
-        "node checks/stage-6-15-verify.js"
+        "node checks/stage-6-15-verify.mjs"
       ]
     }
   ]
