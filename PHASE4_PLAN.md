@@ -1208,7 +1208,14 @@ Properties:
 - Block state: `completed`, `fix_attempts: 1`, `reviewer_decision: accepted`.
 - Evidence: `STAGE6_15_1_FIX_LOOP_MATRIX_PROOF.md`.
 
-**Next possible stage:** Stage 6.15.2 — Multi-task real Kimi→Kimi block run with fix loop.
+**Stage 6.15.2 — Full Multi-Scenario Fix-Loop Matrix Proof ✅**
+
+- Scenario A (live): Real Kimi→Kimi with 2 failed attempts before acceptance.
+- Scenario B (fake API): `max_fix_attempts=2` exhaustion → task blocked.
+- Scenario C (fake API): `maxTotalAttemptsPerRun=2` global cap → loop stops safely, state resumable.
+- Evidence: `STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md`.
+
+**Next possible stage:** Stage 6.16 — Multi-task real Kimi→Kimi block run with PR creation.
 
 ### Stage 6 Safety Rules
 
@@ -1259,4 +1266,5 @@ Properties:
 | Phase 4 Stage 6.14.1 fix loop attempt enforcement and redaction hardening | ✅ |
 | Phase 4 Stage 6.15 real Kimi→Kimi autonomous block run live proof | ✅ |
 | Phase 4 Stage 6.15.1 deterministic real Kimi→Kimi fix-loop trigger proof | ✅ |
+| Phase 4 Stage 6.15.2 full multi-scenario fix-loop matrix proof | ✅ |
 | Opt-in flags defined | Confirmed |

@@ -10,7 +10,7 @@
   },
   "review_policy": {
     "require_deterministic_checks": true,
-    "max_fix_attempts": 10,
+    "max_fix_attempts": 5,
     "reviewer_mode": "single"
   },
   "tasks": [
