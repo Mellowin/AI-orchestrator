@@ -104,6 +104,15 @@ The AI Orchestrator follows a **deny-by-default** safety philosophy:
 - Output path restricted to `runs/blocks/`, cwd, or system tmpdir.
 - `GITHUB_TOKEN` never printed or persisted.
 
+**Stage 6.14.1 Fix Loop Attempt Enforcement and Redaction Hardening:**
+- `block-run-one` executes exactly one coder→reviewer cycle; it does not retry internally.
+- `block-run` owns the autonomous fix loop: retries the same task on `fix_required` or `checks_failed` while `fix_attempts < max_fix_attempts`.
+- Both `markTaskFixRequired` and `markTaskChecksFailed` increment `fix_attempts` and enforce `review_policy.max_fix_attempts`.
+- When `fix_attempts >= max_fix_attempts`, the task and block become `blocked`; no further automatic retries occur.
+- Fix context (reviewer summary, fix task, blocking issues, check failure summary) is redacted via `redactReviewerText`/`redactReviewerList` before inclusion in the coder prompt.
+- Redaction prevents secret propagation in the autonomous fix loop.
+- No GitHub API calls, no provider calls, no real repo mutation in fake tests.
+
 **Stage 6.11 Block PR Create Safety:**
 - Requires explicit opt-in: `ALLOW_BLOCK_PR_CREATE=true` AND `ALLOW_GITHUB_PR_CREATE=true`.
 - GitHub API call is allowed ONLY for creating a draft PR (`POST /repos/{owner}/{repo}/pulls`) and for checking existing open PRs (`GET /pulls`).

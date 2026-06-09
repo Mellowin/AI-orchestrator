@@ -1168,7 +1168,29 @@ Properties:
 
 **Tests:** 0 new tests. Total suite: 1723 tests, 102 suites, 0 failures.
 
-**Next possible stage:** Stage 6.x autonomous loop enhancements.
+### Stage 6.14.1 — Fix Loop Attempt Enforcement and Redaction Hardening ✅
+
+**Status:** Implemented and verified.
+
+**Accepted implementation commit:** `d67c4845ba1fbe79d53b48592150f41cc7d1cacc`
+
+**Changes:**
+1. **One-task loop is single attempt only.** Removed `maxAttempts` from `OneTaskLoopInput` and `BLOCK_RUN_ONE_MAX_ATTEMPTS` from CLI. `block-run-one` runs exactly one coder→reviewer cycle.
+2. **Multi-task loop owns retries.** `block-run` controls the autonomous fix loop via `BLOCK_RUN_MAX_TOTAL_ATTEMPTS`.
+3. **`checks_failed` increments `fix_attempts`.** `markTaskChecksFailed` now increments `fix_attempts` and respects `review_policy.max_fix_attempts`, mirroring `markTaskFixRequired`.
+4. **`checks_failed` blocks at limit.** When `fix_attempts >= max_fix_attempts`, the task and block become `blocked` and `current_task_id` is cleared.
+5. **Fix context is redacted before coder prompt.** `buildCoderInputFromBlockTask` applies `redactReviewerText`/`redactReviewerList` to `reviewerSummary`, `fixTask`, `blockingIssues`, and `checkFailureSummary` before building the coder `repo_context`.
+6. **Fake provider sequential response indexes fixed.** `fake-coder-provider` and `fake-reviewer-provider` now use shared mutable indexes on `options` (`taskResponseIndex`, `fixResponseIndex`, `decisionIndex`) so multi-task loops correctly consume sequential responses across provider instances.
+
+**Test impact:**
+- New block-transitions tests: `markTaskChecksFailed` increments `fix_attempts`, redacts blocking issues, blocks at `max_fix_attempts`.
+- New block-one-task-loop tests: check failure increments `fix_attempts`, blocks at limit, redacts `sk-`/`Bearer`/`GITHUB_TOKEN` in fix context.
+- New block-multi-task-loop tests: `checks_failed` retries same task, blocks at max, accepted after check-fix advances to next task.
+- Full suite after implementation: **1734 tests, 102 suites, 0 failures.**
+
+**Next possible stage:** Stage 6.15 — Real Kimi→Kimi autonomous fix-loop live proof on a small block.
+
+### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules
 
@@ -1214,4 +1236,5 @@ Properties:
 | Phase 4 Stage 6.2 block state runner | ✅ |
 | Phase 4 Stage 6.8 safe real multi-task Kimi→Kimi block loop | ✅ |
 | Phase 4 Stage 6.8.1 evidence docs cleanup | ✅ |
+| Phase 4 Stage 6.14.1 fix loop attempt enforcement and redaction hardening | ✅ |
 | Opt-in flags defined | Confirmed |

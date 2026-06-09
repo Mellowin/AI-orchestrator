@@ -2,15 +2,17 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `5696794b4ed84bdba684e24fc5148b82dfa12af0`
+**Last verified:** `d67c4845ba1fbe79d53b48592150f41cc7d1cacc`
 
 ## Test metrics
 
-- **Total tests:** 1723
+- **Total tests:** 1734
 - **Total suites:** 102
-- **Last verified commit:** `951d85ce05719810115d5cd73155daeef363d090` (Stage 6.14 Autonomous Fix Loop)
+- **Last verified commit:** `d67c4845ba1fbe79d53b48592150f41cc7d1cacc` (Stage 6.14.1 Fix Loop Attempt Enforcement and Redaction Hardening)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
+- **Test runner:** Local tests (`tsx --test`)
+- **GitHub CI:** not verified / no workflow runs
 
 ## Documentation stages
 
@@ -45,6 +47,7 @@
 | Stage 6.13.1 | PR Cleanup Branch Deletion Safety Hardening | `5696794b4ed84bdba684e24fc5148b82dfa12af0` |
 | Stage 6.13.2 | Cleanup Dry-Run Proof | `a599a0d4da822ba95040679f303d8e071506e14f` |
 | Stage 6.13.3 | Real Cleanup of Proof PR #2 | `f1cf7cf98400e071cb1c7c9dd61b6eb15fa94b59` |
+| Stage 6.14.1 | Fix Loop Attempt Enforcement and Redaction Hardening | `d67c4845ba1fbe79d53b48592150f41cc7d1cacc` |
 
 ## Covered layers
 

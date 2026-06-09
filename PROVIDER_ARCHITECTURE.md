@@ -68,7 +68,16 @@ The core loop calls these interfaces without knowing which backend serves them.
 
 ---
 
-## 5. Not Implemented Yet
+## 5. Fake Provider Shared Mutable Indexes
+
+Fake providers support sequential responses via `taskResponses`, `fixResponses`, and `decisions` arrays. Because the multi-task loop creates a new provider instance on every iteration, local counters would reset. To prevent this, fake providers store mutable counters on the shared `options` object:
+
+- `fakeCoderOptions.taskResponseIndex` / `fakeCoderOptions.fixResponseIndex`
+- `fakeReviewerOptions.decisionIndex`
+
+This ensures `block-run` consumes responses in the expected order across multiple `runOneTaskLoop` invocations.
+
+## 7. Not Implemented Yet
 
 - OpenAI real adapter
 - Claude real adapter
@@ -88,7 +97,7 @@ No changes to the block runner, task state machine, or reviewer gate.
 
 ---
 
-## 6. Provider Registry
+## 8. Provider Registry
 
 The `ProviderRegistry` class registers and resolves providers by ID and role.
 
@@ -109,7 +118,7 @@ Rules:
 
 ---
 
-## 7. Why the Reviewer Cannot Trust the Coder
+## 9. Why the Reviewer Cannot Trust the Coder
 
 The reviewer receives **factual evidence**, not the coder's self-report:
 
@@ -130,7 +139,7 @@ This prevents the coder from claiming correctness without proof.
 
 ---
 
-## 8. Deterministic Checks Before AI Review
+## 10. Deterministic Checks Before AI Review
 
 Before the AI reviewer is ever called, the system runs deterministic checks:
 
@@ -151,7 +160,7 @@ If any check fails, the task is rolled back and retried. The AI reviewer is not 
 
 ---
 
-## 9. First Target: Kimi Coder + Kimi Reviewer
+## 11. First Target: Kimi Coder + Kimi Reviewer
 
 The first autonomous implementation target uses the same Kimi API key in two roles:
 
@@ -162,7 +171,7 @@ Both use `src/providers/kimi/kimi-*.ts` adapters with different prompts.
 
 ---
 
-## 10. Stage 6.1 — Evidence Layer
+## 12. Stage 6.1 — Evidence Layer
 
 Before the AI reviewer is called, the system builds factual evidence:
 
@@ -179,7 +188,7 @@ The reviewer never sees coder self-report. It sees:
 - Check results
 - Safety findings
 
-## 11. Stage 6.2 — Block State Runner
+## 13. Stage 6.2 — Block State Runner
 
 The block state runner is **provider-agnostic**. It tracks task and block statuses without knowing which provider executes the coder or reviewer.
 
@@ -188,7 +197,7 @@ The block state runner is **provider-agnostic**. It tracks task and block status
 - The autonomous loop (Stage 6.3 / 6.4) resolves providers from the registry and updates block state via transitions.
 - **Stage 6.4 multi-task loop uses only fake providers.** Real provider multi-task mode is a future stage.
 
-## 12. Stage 6.5 — Real Kimi Coder + Fake Reviewer
+## 14. Stage 6.5 — Real Kimi Coder + Fake Reviewer
 
 Stage 6.5 wires the real Kimi coder provider into the one-task loop while keeping the reviewer fake:
 
@@ -201,7 +210,7 @@ Stage 6.5 wires the real Kimi coder provider into the one-task loop while keepin
 - **API keys:** Never stored in block JSON. `block-loader.ts` rejects any block definition containing `providers.coder.apiKey` or `providers.reviewer.apiKey`.
 - **Push state:** `markTaskPushed` is called only when push succeeds. `markTaskAccepted` preserves `pushed_ref` if set.
 
-## 13. Stage 6.6 — Real Kimi Coder + Real Kimi Reviewer
+## 15. Stage 6.6 — Real Kimi Coder + Real Kimi Reviewer
 
 Stage 6.6 enables the real Kimi reviewer in the one-task loop:
 
@@ -212,7 +221,7 @@ Stage 6.6 enables the real Kimi reviewer in the one-task loop:
 - **Safety:** Provider resolution happens BEFORE `markTaskInProgress`, so missing `KIMI_API_KEY` fails before state mutation.
 - **Tests:** All real Kimi calls in tests use injected fake `fetch` — no real API calls.
 
-## 13. Future Combinations
+## 16. Future Combinations
 
 The architecture supports any combination without core loop changes:
 

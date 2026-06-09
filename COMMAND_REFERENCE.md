@@ -354,11 +354,12 @@
 
 ### `block-run <blockJsonPath>`
 
-**Purpose:** Run a safe multi-task loop over all pending tasks in a block.
+**Purpose:** Run a safe multi-task loop over all pending tasks in a block. Owns the autonomous fix loop: retries the same task on `fix_required` or `checks_failed` while attempts remain.
 
 **Required env:**
 - `BLOCK_RUN_MODE` — `fake` | `real_kimi_coder_fake_reviewer` | `real_kimi_coder_kimi_reviewer`
 - `BLOCK_RUN_MAX_TASKS` — max tasks per run (fake: default 10, max 100; real: default 3, max 3)
+- `BLOCK_RUN_MAX_TOTAL_ATTEMPTS` — global runaway guard (default 100)
 - `BLOCK_RUN_STOP_ON_REJECTED` — stop on `fix_required` (default `true`)
 - `BLOCK_RUN_STOP_ON_BLOCKED` — stop on `blocked` (default `true`)
 
@@ -736,7 +737,7 @@
 
 ### `block-run-one <blockJsonPath>`
 
-**Purpose:** Run one task through the full autonomous loop.
+**Purpose:** Run one task through the full autonomous loop. Executes exactly one coder→reviewer cycle; does not retry internally. The caller (e.g. `block-run`) decides whether to invoke again.
 
 **Required env:**
 - `BLOCK_RUN_ONE_MODE` — `fake` (default), `real_kimi_coder_fake_reviewer`, `real_kimi_coder_kimi_reviewer`
