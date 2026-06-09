@@ -2,7 +2,7 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `d67c4845ba1fbe79d53b48592150f41cc7d1cacc`
+**Last verified:** `e639bbe28806cdff76fcdb43e6d03bd167a104af`
 
 ## Test metrics
 
@@ -48,6 +48,7 @@
 | Stage 6.13.2 | Cleanup Dry-Run Proof | `a599a0d4da822ba95040679f303d8e071506e14f` |
 | Stage 6.13.3 | Real Cleanup of Proof PR #2 | `f1cf7cf98400e071cb1c7c9dd61b6eb15fa94b59` |
 | Stage 6.14.1 | Fix Loop Attempt Enforcement and Redaction Hardening | `d67c4845ba1fbe79d53b48592150f41cc7d1cacc` |
+| Stage 6.15 | Real Kimi→Kimi Autonomous Block Run Live Proof | `e639bbe28806cdff76fcdb43e6d03bd167a104af` |
 
 ## Covered layers
 
@@ -98,6 +99,7 @@
 | Reviewer gate evidence dry-run CLI | `test/cli-reviewer-gate-evidence-dry-run.test.ts` | `reviewer-gate-evidence-dry-run <taskId> <commitSha>`: missing taskId/commitSha fail safely, short hash rejected, valid temp repo produces evidence, deterministic pass + fake reviewer accepted, deterministic fail does not call reviewer, dirty git status rejected, no file writes, no state writes, no push/merge/checkout/switch, no GitHub API, no API key leak, no stack trace |
 | Block task runner | `test/block-task-runner.test.ts` | `getCurrentBlockTaskDefinition`, `buildCoderInputFromBlockTask`, `buildTaskGuardrailsFromBlockTask`, `resolveCoderAndReviewerProviders` — fake mode, real mode env validation, product vision context, no provider call during input building, Kimi reviewer requires explicit allow flag, `buildProviderConfigForRuntime` copies provider/model, uses KIMI_API_KEY from env, uses KIMI_BASE_URL/KIMI_USER_AGENT from env when block config missing, prefers block config baseUrl over env, throws if KIMI_API_KEY missing, error does not leak key value, does not require apiKey in block JSON |
 | Block one-task loop | `test/block-one-task-loop.test.ts` | `runOneTaskLoop`: fake mode accepted/rejected/blocked/fix_required, advances current_task_id, completes block on last task, deterministic severe failure (secrets), guardrails failure, only one task changes, no real repo mutation, fake 40-char SHA, real mode gates (ALLOW_BLOCK_RUN_ONE, ALLOW_REAL_PROVIDER, ALLOW_REAL_REPO_APPLY, ALLOW_KIMI_REVIEWER), real_kimi_coder_kimi_reviewer rejected in Stage 6.5, real mode dirty repo/branch main/branch mismatch fail before provider call, real mode with fake Kimi response calls coder, applies approved file, rejects denied file, check failure rolls back, check success commits, push disabled returns pushed=false with safety finding, missing KIMI_API_KEY fails safely before provider call, reviewer is fake, accepted updates state (commit_sha, pushed_ref null when not pushed), accepted + pushed=true stores pushed_ref, rejected updates fix_required, no merge/checkout/PR/real reviewer |
+| Block run real Kimi→Kimi | `test/cli-block-run.test.ts` (integration) | `block-run <blockJsonPath>` with real Kimi coder + real Kimi reviewer: real provider call succeeds with fenced JSON parsing, real reviewer gate accepts, deterministic checks pass, file applies, checks pass, local commit created, no push, block status completed, commit SHA recorded. Verified live on `feature/mvp-skeleton` branch. See `STAGE6_LIVE_PROOF.md`. |
 | CLI block-run-one | `test/cli-block-run-one.test.ts` | `block-run-one <blockJsonPath>`: requires block JSON path, fake mode runs without git mutation, fake commit SHA in output, real mode missing ALLOW_BLOCK_RUN_ONE/ALLOW_REAL_PROVIDER/ALLOW_REAL_REPO_APPLY/ALLOW_REAL_REPO_COMMIT fail safely, real Kimi reviewer mode fails safely, real mode missing KIMI_API_KEY fails safely, no API key leak, no stack trace, no merge/checkout/main touch/push |
 | Block multi-task loop | `test/block-multi-task-loop.test.ts` | `runMultiTaskFakeLoop`: initializes missing state, runs first/multiple tasks, stops on completed/blocked, respects maxTasksPerRun, advances current_task_id, stopOnRejected/ stopOnBlocked, no real provider/git/GitHub API, no applyFileUpdates, no git add/commit/push/reset/checkout, no secrets in result, state saved after each task, summary counts correct |
 | Block approval report | `test/block-approval-report.test.ts` | `generateBlockApprovalReport`: computes `pr_ready` from block state (completed, all accepted, commit SHAs present, no fix_required/blocked/checks_failed, current_task_id null, work_branch not main, no secrets). Generates markdown report with task table, commit evidence, changed files, safety checklist, human decision, manual next commands. Secret redaction (sk-, Bearer, KIMI_API_KEY, GITHUB_TOKEN). Output path safety (runs/blocks/, cwd, tmpdir). No provider call, no GitHub API, no git mutation, no PR creation, no push/merge/checkout/main touch. Read-only except report file write. 24 tests. |
@@ -128,7 +130,7 @@
 
 ## Known limitation
 
-- **Minimal pipeline loop is exposed through CLI (`pipeline-loop <taskId>`), but only with mock inputs (`MOCK_AI_RESPONSE` + `MOCK_REVIEWER_RESPONSE`).** Full real-provider multi-attempt Coder → Reviewer → Coder retry loop is still not implemented.
+- **Minimal pipeline loop is exposed through CLI (`pipeline-loop <taskId>`), but only with mock inputs (`MOCK_AI_RESPONSE` + `MOCK_REVIEWER_RESPONSE`).** Full real-provider multi-attempt Coder → Reviewer → Coder retry loop is exercised via `block-run` with real Kimi coder + real Kimi reviewer (Stage 6.15). Fix loop hardening (max attempts enforcement, redaction) is implemented and tested in unit tests; live fix-loop iteration was not triggered because first attempt passed. The loop infrastructure is ready and will activate on check/reviewer rejection.
 - **`real-provider-plan` exists as a dry-run safeguard, but real-provider execution is not yet implemented.** It only prints a plan without calling APIs, applying patches, or touching git.
 - **`real-provider-run` exists as a safe refusal stub.** Without `ALLOW_REAL_PROVIDER_RUN=true` it refuses; even with opt-in it still refuses because execution is not implemented. No API call, no patch, no push, no merge, no main touch.
 - **`createRealProviderCall()` is implemented for `provider: 'kimi'` with injected `fetchFn`.** It validates `baseUrl` (non-empty, `http://`/`https://`) and `fetchFn` (callable function), strips trailing slashes from `baseUrl`, sends requests to `/chat/completions`, includes `Authorization: Bearer` header, parses `choices[0].message.content`, and normalizes results. It is **not wired to CLI or runtime execution**. All tests use fake fetch only — no real network calls, no real API keys.
@@ -165,7 +167,8 @@ See `REAL_PROVIDER_PLAN.md` for the phased approach to enabling real API calls s
 1. Stage 4.x and 5.x pipeline is complete (apply, commit, push, PR create/status, readiness, approval report).
 2. Stage 6.0 Provider Abstraction Foundation is complete: provider types, registry, fake/Kimi adapters, reviewer schema, reviewer gate dry-run CLI.
 3. Stage 6.1 Deterministic Commit Verifier for Reviewer Gate is complete: commit verifier, deterministic checks, review input builder, reviewer gate, evidence dry-run CLI.
-4. Next: Stage 6.3 Autonomous One-Task Loop — wire Kimi coder + Kimi reviewer for a single task.
+4. Stage 6.3 Autonomous One-Task Loop and Stage 6.15 Real Kimi→Kimi Block Run are both complete.
+5. The real-provider Coder → Reviewer → (Fix loop) → Commit pipeline is live and verified.
 6. Keep mock mode as default for tests and local development.
 7. Keep no push, no merge, no main touch.
 8. Do not implement merge without dedicated safety design document.

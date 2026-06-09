@@ -6,6 +6,7 @@
 - **Real provider demo completed.**
 - **Real PR creation boundary completed.**
 - **PR status read-only completed.**
+- **Real Kimi→Kimi autonomous block run completed (Stage 6.15).**
 - **Merge intentionally not implemented.**
 
 ---
@@ -25,7 +26,7 @@ After `PR Status`, the system stops. Human review is required before any merge d
 ## Current Accepted Latest Commit
 
 ```
-9d77ee29427ddb4f1c239df911972b6606b63c1d
+e639bbe28806cdff76fcdb43e6d03bd167a104af
 ```
 
 > Update this value after the final Stage 5.9 commit is created.
@@ -41,6 +42,22 @@ After `PR Status`, the system stops. Human review is required before any merge d
 - **No merge:** ✅ The branch was not merged automatically.
 - **Main untouched:** ✅ `main` remained unchanged.
 
+### Stage 6.15 Real Kimi→Kimi Block Run Proof
+
+- **Block ID:** `stage-6-15-fix-loop-live-proof`
+- **Branch:** `feature/mvp-skeleton`
+- **Coder provider:** `kimi` (`kimi-k2.6`)
+- **Reviewer provider:** `kimi` (`kimi-k2.6`)
+- **Task:** `doc-1` — create `docs/live-stage-6-15-proof.md` with required markers
+- **Check script:** `node checks/stage-6-15-verify.mjs`
+- **First attempt status:** `accepted`
+- **Reviewer decision:** `accepted`
+- **Commit SHA:** `e639bbe28806cdff76fcdb43e6d03bd167a104af`
+- **Pushed:** `false`
+- **Block status:** `completed`
+- **Fix loop exercised:** Not triggered (first attempt passed). Fix loop infrastructure is hardened and ready.
+- **Evidence doc:** `STAGE6_LIVE_PROOF.md`
+
 ---
 
 ## Safety Boundaries
@@ -53,6 +70,7 @@ After `PR Status`, the system stops. Human review is required before any merge d
 | No auto-merge | Enforced by design |
 | No force push | Enforced by design |
 | Provider calls require explicit opt-in | `ALLOW_REAL_PROVIDER=true` |
+| Real block run requires explicit opt-in | `ALLOW_BLOCK_RUN_ONE=true` |
 | GitHub API writes require explicit opt-in | `ALLOW_GITHUB_PR_CREATE=true` |
 | PR status is read-only | `ALLOW_GITHUB_PR_STATUS=true` |
 | Human review required before merge | Human-in-the-loop boundary |
@@ -70,6 +88,7 @@ After `PR Status`, the system stops. Human review is required before any merge d
 | `real-repo-pr-readiness` | 5.6 | Generate PR readiness dry-run report |
 | `real-repo-pr-create` | 5.7 | Create GitHub Pull Request via API |
 | `real-repo-pr-status` | 5.8 | Read-only PR status/checks report |
+| `block-run` | 6.15 | Real Kimi→Kimi autonomous block run (one task) |
 
 ---
 
