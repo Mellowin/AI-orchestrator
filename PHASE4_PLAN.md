@@ -1188,7 +1188,27 @@ Properties:
 - New block-multi-task-loop tests: `checks_failed` retries same task, blocks at max, accepted after check-fix advances to next task.
 - Full suite after implementation: **1734 tests, 102 suites, 0 failures.**
 
-**Next possible stage:** Stage 6.15 — Real Kimi→Kimi autonomous fix-loop live proof on a small block.
+**Stage 6.15 — Real Kimi→Kimi Autonomous Block Run Live Proof ✅**
+
+- Live proof with real Kimi coder + real Kimi reviewer on one-task block.
+- First-attempt success path verified.
+- Commit `e639bbe28806cdff76fcdb43e6d03bd167a104af` created `docs/live-stage-6-15-proof.md`.
+- No push, no merge, no main touch.
+- Evidence: `STAGE6_LIVE_PROOF.md`.
+
+**Stage 6.15.1 — Deterministic Real Kimi→Kimi Fix-Loop Trigger Proof ✅**
+
+- Forced deterministic first-attempt failure via exact-line verifier (`SECOND_ATTEMPT_FIX`).
+- Source fixes applied to propagate check failure logs into coder/reviewer fix context:
+  - `buildCheckFailureMessage` with redaction + 4000-char truncation in `block-one-task-loop.ts`
+  - `repo_context` included in Kimi coder prompt
+  - `previous_failure` propagated to reviewer prompt
+- Second attempt: coder received actionable check message, added missing marker, checks passed, reviewer accepted.
+- Commit `6b3bb7c75e46d1afdaa679cfefde2a94b4332a04` created `docs/live-stage-6-15-1-proof.md`.
+- Block state: `completed`, `fix_attempts: 1`, `reviewer_decision: accepted`.
+- Evidence: `STAGE6_15_1_FIX_LOOP_MATRIX_PROOF.md`.
+
+**Next possible stage:** Stage 6.15.2 — Multi-task real Kimi→Kimi block run with fix loop.
 
 ### Stage 6 Safety Rules
 
@@ -1237,4 +1257,6 @@ Properties:
 | Phase 4 Stage 6.8 safe real multi-task Kimi→Kimi block loop | ✅ |
 | Phase 4 Stage 6.8.1 evidence docs cleanup | ✅ |
 | Phase 4 Stage 6.14.1 fix loop attempt enforcement and redaction hardening | ✅ |
+| Phase 4 Stage 6.15 real Kimi→Kimi autonomous block run live proof | ✅ |
+| Phase 4 Stage 6.15.1 deterministic real Kimi→Kimi fix-loop trigger proof | ✅ |
 | Opt-in flags defined | Confirmed |
