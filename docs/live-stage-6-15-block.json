@@ -17,7 +17,7 @@
     {
       "task_id": "doc-1",
       "title": "Create Stage 6.15 fix-loop proof document",
-      "goal": "Create a markdown file at docs/live-stage-6-15-proof.md that serves as a live proof of the autonomous fix loop. The file MUST contain ALL of the following exact markers anywhere in its content:\n- Stage 6.15\n- FIX_LOOP_PROOF\n- FINAL_ACCEPTED\n- KIMI_CODER\n- KIMI_REVIEWER\n- ## Fix Loop Evidence\n\nThe file should be a short, coherent markdown document. Do not include any secrets, API keys, or tokens.",
+      "goal": "Create a markdown file at docs/live-stage-6-15-proof.md. The file must contain these exact text markers: Stage 6.15, FIX_LOOP_PROOF, FINAL_ACCEPTED, KIMI_CODER, KIMI_REVIEWER, and a heading ## Fix Loop Evidence. Do not include any secrets or API keys.",
       "allowed_files": ["docs/live-stage-6-15-proof.md"],
       "denied_files": [],
       "max_lines_changed": 80,
