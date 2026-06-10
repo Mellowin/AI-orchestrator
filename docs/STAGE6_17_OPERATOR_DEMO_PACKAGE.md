@@ -57,7 +57,7 @@ git status --short  # clean
 docs: add operator-ready demo package
 ```
 
-Full hash: `pending final commit hash`
+Full hash: `e22b11ce1f5bc5f3ddbe21af1de57db6309150d3`
 
 ---
 
