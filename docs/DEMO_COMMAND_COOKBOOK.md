@@ -156,7 +156,43 @@ npx tsx src/cli.ts block-pr-submit docs/<block>.json
 - Does **not** call GitHub API.
 - Safe to run anytime.
 
-## 10. CI verification
+## 10. PR readiness gate
+
+Check whether a draft PR is ready for human review (CI must pass, PR must be open/draft/not merged).
+
+### Dry-run (default)
+
+```bash
+ALLOW_BLOCK_PR_READINESS=true \
+GITHUB_REPOSITORY=Mellowin/AI-orchestrator \
+BLOCK_PR_NUMBER=3 \
+BLOCK_PR_READINESS_DRY_RUN=true \
+npx tsx src/cli.ts block-pr-readiness docs/<block>.json
+```
+
+- Generates readiness report.
+- Does **not** mark PR ready for review.
+- Safe to run anytime.
+
+### Real mark-ready (explicit gates)
+
+```bash
+ALLOW_BLOCK_PR_READINESS=true \
+ALLOW_GITHUB_MARK_READY=true \
+BLOCK_PR_READINESS_DRY_RUN=false \
+GITHUB_TOKEN=<env only> \
+GITHUB_REPOSITORY=Mellowin/AI-orchestrator \
+BLOCK_PR_NUMBER=3 \
+npx tsx src/cli.ts block-pr-readiness docs/<block>.json
+```
+
+- Only marks ready if all readiness checks pass.
+- Does **not** merge.
+- Does **not** approve.
+
+---
+
+## 11. CI verification
 
 The project has a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs automatically on PRs and pushes to key branches.
 

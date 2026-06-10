@@ -49,6 +49,15 @@ This document lists the hard safety invariants enforced by the AI Orchestrator. 
 | 21 | CI does not mutate repo state | Workflow runs read-only checks (typecheck, build, test) only |
 | 22 | CI does not auto-merge | No merge or deployment steps in workflow |
 
+## PR readiness invariants
+
+| # | Invariant | Enforcement |
+|---|---|---|
+| 23 | Readiness gate default is dry-run | `BLOCK_PR_READINESS_DRY_RUN` defaults to `true`; only `'false'` disables |
+| 24 | Mark-ready requires explicit gate | `ALLOW_GITHUB_MARK_READY=true` required for draft→ready PATCH |
+| 25 | Readiness gate never merges | No merge or auto-merge steps in readiness logic |
+| 26 | Readiness gate checks CI before ready | `checks_status` must be `success` unless explicitly disabled |
+
 ## Loop invariants
 
 | # | Invariant | Enforcement |

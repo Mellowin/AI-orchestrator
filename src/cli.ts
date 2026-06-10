@@ -2412,7 +2412,7 @@ if (command === 'real-repo-pr-status') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-cleanup|block-pr-submit> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }
@@ -4409,6 +4409,66 @@ if (command === 'block-pr-status') {
     console.error('[block-pr-status] No checkout was performed');
     console.error('[block-pr-status] No main touch was performed');
     console.error('[block-pr-status] No provider call was made');
+    process.exit(1);
+  }
+}
+
+if (command === 'block-pr-readiness') {
+  try {
+    const blockJsonPath = taskId;
+    if (!blockJsonPath) {
+      console.error('[block-pr-readiness] Error: block JSON path is required');
+      process.exit(1);
+    }
+
+    const outputPath = process.env.BLOCK_PR_READINESS_OUTPUT?.trim();
+    const prNumberEnv = process.env.BLOCK_PR_NUMBER?.trim();
+    const prNumber = prNumberEnv ? parseInt(prNumberEnv, 10) : undefined;
+
+    const { checkBlockPrReadiness } = await import('./block/block-pr-readiness.js');
+    const result = await checkBlockPrReadiness({
+      blockDefinitionPath: blockJsonPath,
+      prNumber,
+      outputPath: outputPath || undefined,
+    });
+
+    console.log(`[block-pr-readiness] Block: ${result.block_id}`);
+    console.log(`[block-pr-readiness] PR number: ${result.pr_number}`);
+    console.log(`[block-pr-readiness] PR URL: ${result.pr_url}`);
+    console.log(`[block-pr-readiness] State: ${result.state}`);
+    console.log(`[block-pr-readiness] Draft: ${result.draft ? 'yes' : 'no'}`);
+    console.log(`[block-pr-readiness] Merged: ${result.merged ? 'yes' : 'no'}`);
+    console.log(`[block-pr-readiness] Base: ${result.base_branch}`);
+    console.log(`[block-pr-readiness] Head: ${result.head_branch}`);
+    console.log(`[block-pr-readiness] Head SHA: ${result.head_sha}`);
+    console.log(`[block-pr-readiness] Checks: ${result.checks_status}`);
+    console.log(`[block-pr-readiness] Readiness: ${result.readiness}`);
+    console.log(`[block-pr-readiness] Dry run: ${result.dry_run ? 'yes' : 'no'}`);
+    console.log(`[block-pr-readiness] Would mark ready: ${result.would_mark_ready ? 'yes' : 'no'}`);
+    console.log(`[block-pr-readiness] Marked ready: ${result.marked_ready ? 'yes' : 'no'}`);
+    console.log(`[block-pr-readiness] Report: ${result.output_path}`);
+    if (result.safety_findings.length > 0) {
+      console.log(`[block-pr-readiness] Safety findings: ${result.safety_findings.join('; ')}`);
+    }
+    if (result.blocking_issues.length > 0) {
+      console.log(`[block-pr-readiness] Blocking issues: ${result.blocking_issues.join('; ')}`);
+    }
+    console.log('[block-pr-readiness] No merge was performed');
+    console.log('[block-pr-readiness] No auto-merge was performed');
+    console.log('[block-pr-readiness] No push was performed');
+    console.log('[block-pr-readiness] No checkout was performed');
+    console.log('[block-pr-readiness] No main touch was performed');
+    console.log('[block-pr-readiness] No provider call was made');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[block-pr-readiness] Error: ${message}`);
+    console.error('[block-pr-readiness] No merge was performed');
+    console.error('[block-pr-readiness] No auto-merge was performed');
+    console.error('[block-pr-readiness] No push was performed');
+    console.error('[block-pr-readiness] No checkout was performed');
+    console.error('[block-pr-readiness] No main touch was performed');
+    console.error('[block-pr-readiness] No provider call was made');
     process.exit(1);
   }
 }

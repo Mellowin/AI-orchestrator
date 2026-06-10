@@ -1,0 +1,40 @@
+{
+  "block_id": "stage-6-21-proof",
+  "version": "0.1.0",
+  "title": "Stage 6.21 Proof Block",
+  "description": "Minimal proof block for automated draft PR submission.",
+  "repo_path": ".",
+  "base_branch": "feature/mvp-skeleton",
+  "work_branch": "stage-6-21-proof",
+  "providers": {
+    "coder": {
+      "provider": "kimi",
+      "model": "kimi-k2.6"
+    },
+    "reviewer": {
+      "provider": "openai",
+      "model": "gpt-4o"
+    }
+  },
+  "review_policy": {
+    "reviewer_mode": "single",
+    "max_fix_attempts": 2,
+    "require_deterministic_checks": true
+  },
+  "tasks": [
+    {
+      "task_id": "proof-1",
+      "title": "Create proof artifact",
+      "goal": "Add docs/stage-6-21-proof.md to verify branch and commit flow.",
+      "auto_commit": false,
+      "allowed_files": [
+        "docs/stage-6-21-proof.md"
+      ],
+      "denied_files": [],
+      "max_lines_changed": 20,
+      "checks": [
+        "echo OK"
+      ]
+    }
+  ]
+}

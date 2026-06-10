@@ -1285,6 +1285,17 @@ Properties:
 - Evidence: `docs/STAGE6_22_GITHUB_CI_WORKFLOW.md`.
 - **Status:** Verified — Mini-MVP CI run `27298560333` completed with `success` on commit `114e0ec36698aafec3ec2d1ca6ce53c3c6054ec1`.
 
+**Stage 6.23 — PR Readiness Gate with CI Verification ✅**
+
+- Implemented `src/block/block-pr-readiness.ts` — checks PR status + CI status before allowing mark-ready.
+- Added `block-pr-readiness <blockJsonPath>` CLI command in `src/cli.ts`.
+- Dry-run by default; real mark-ready requires explicit `ALLOW_GITHUB_MARK_READY=true` + `BLOCK_PR_READINESS_DRY_RUN=false` + `GITHUB_TOKEN`.
+- Reuses GitHub API patterns from existing PR helpers.
+- Readiness requirements: PR open, draft, not merged, head not main/master, base matches block, CI success.
+- Live dry-run checked PR #3: readiness=ready, checks=success, dry-run=yes, marked_ready=no.
+- Tests: 24 new tests (16 unit + 8 CLI). Total suite: 1781 tests, 106 suites, 0 failures.
+- Evidence: `docs/STAGE6_23_PR_READINESS_GATE.md`.
+
 ### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules

@@ -113,6 +113,25 @@ The repository includes a GitHub Actions workflow (`.github/workflows/ci.yml`) t
 
 ---
 
+## PR readiness before merge
+
+Before merging any PR:
+
+1. Run the PR readiness gate in dry-run mode:
+   ```bash
+   ALLOW_BLOCK_PR_READINESS=true \
+   GITHUB_REPOSITORY=Mellowin/AI-orchestrator \
+   BLOCK_PR_NUMBER=<pr_number> \
+   npx tsx src/cli.ts block-pr-readiness docs/<block>.json
+   ```
+2. Verify the report says `Readiness: ready` and `Checks: success`.
+3. Only then consider marking the PR ready for review (never auto-merge).
+4. Human review is still required after the PR leaves draft state.
+
+> **Note:** The readiness gate never merges, never auto-merges, and never touches `main`.
+
+---
+
 ## What to do if a block gets stuck
 
 1. Check `runs/blocks/<block_id>/block-state.json` for the current task status and blocking issues.

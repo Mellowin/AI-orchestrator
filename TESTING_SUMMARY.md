@@ -8,7 +8,7 @@
 
 - **Total tests:** 1757
 - **Total suites:** 104
-- **Last verified commit:** `fc90b3259751442c8b1569ac5f8165e5821bcb08` (Stage 6.22.1 Mark GitHub CI Verified)
+- **Last verified commit:** `pending final commit hash` (Stage 6.23 PR Readiness Gate with CI Verification)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** Local tests (`tsx --test`)
@@ -58,6 +58,7 @@
 | Stage 6.20 | Automated Draft PR Submission Flow | `41c296497a11ff5ef16d78d4a7ac7ec2cb3dc0cc` |
 | Stage 6.21 | Real Automated Draft PR Submission Proof | `c2e47c50ec88e696fadc27f806cf53e82939d4de` |
 | Stage 6.22 | GitHub CI Workflow for Mini-MVP Checks | `fc90b3259751442c8b1569ac5f8165e5821bcb08` |
+| Stage 6.23 | PR Readiness Gate with CI Verification | `pending final commit hash` |
 
 ## Covered layers
 
