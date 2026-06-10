@@ -8,7 +8,7 @@
 
 - **Total tests:** 1757
 - **Total suites:** 104
-- **Last verified commit:** `41c296497a11ff5ef16d78d4a7ac7ec2cb3dc0cc` (Stage 6.20 Automated Draft PR Submission Flow)
+- **Last verified commit:** `fc90b3259751442c8b1569ac5f8165e5821bcb08` (Stage 6.22.1 Mark GitHub CI Verified)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** Local tests (`tsx --test`)
@@ -57,7 +57,7 @@
 | Stage 6.19 | Final Human Review / Manual PR Package | `8f467e21f03218dc8a1ce26d45182f429f58df0d` |
 | Stage 6.20 | Automated Draft PR Submission Flow | `41c296497a11ff5ef16d78d4a7ac7ec2cb3dc0cc` |
 | Stage 6.21 | Real Automated Draft PR Submission Proof | `c2e47c50ec88e696fadc27f806cf53e82939d4de` |
-| Stage 6.22 | GitHub CI Workflow for Mini-MVP Checks | `e8bbfd32634b52096bc1b98fb735dadde24548e0` |
+| Stage 6.22 | GitHub CI Workflow for Mini-MVP Checks | `fc90b3259751442c8b1569ac5f8165e5821bcb08` |
 
 ## Covered layers
 
