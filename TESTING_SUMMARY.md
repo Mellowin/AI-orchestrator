@@ -53,7 +53,7 @@
 | Stage 6.15.2 | Full Multi-Scenario Fix-Loop Matrix Proof | `ccc5168d91f028a60da24f8565965579edd0ce24` |
 | Stage 6.16 | Real Kimi Multi-Task Block with One Fix Loop | `cf9068e7683d91b27140b1838ed165e5110315a4` |
 | Stage 6.17 | Operator-Ready Runbook and Demo Package | `e22b11ce1f5bc5f3ddbe21af1de57db6309150d3` |
-| Stage 6.18 | Mini-MVP Release Candidate Audit | `pending final commit hash` |
+| Stage 6.18 | Mini-MVP Release Candidate Audit | `cd10d4a134f4bc30b5f6d8b01da3e53a6fcc7e19` |
 
 ## Covered layers
 

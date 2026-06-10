@@ -6,7 +6,7 @@
 
 ## Audited commit/head
 
-`94488e049026a18453f65f653a45c4cc19f93bba`
+`cd10d4a134f4bc30b5f6d8b01da3e53a6fcc7e19`
 
 ---
 
