@@ -157,6 +157,17 @@ Notes: verifies Stage 6.23.1 GraphQL mark-ready source changes.
 
 ---
 
+## Stage 6.24 — Live Mark-Ready Proof
+
+Live mark-ready proof succeeded. PR #3 was transitioned from draft to ready for review via GraphQL `markPullRequestReadyForReview` mutation.
+
+- Evidence: `docs/STAGE6_24_LIVE_MARK_READY_PROOF.md`
+- Result: `marked_ready: yes`
+- PR #3 draft after run: `false`
+- PR #3 merged: `false`
+
+---
+
 ## Operator note
 
 - Always run with `BLOCK_PR_READINESS_DRY_RUN=true` first to review the report.

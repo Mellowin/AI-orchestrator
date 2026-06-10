@@ -1307,6 +1307,12 @@ Properties:
 - GitHub Actions CI re-verified on latest HEAD after Stage 6.23.1.
 - Mini-MVP CI run `27302936731` completed with `success` on `496eaeb5d525e599e7f0363d493f84cf8f46135f`.
 
+**Stage 6.24 — Live Mark-Ready Proof ✅**
+
+- Live mark-ready performed on PR #3 via `block-pr-readiness` using GraphQL `markPullRequestReadyForReview`.
+- PR #3 transitioned from draft to ready for review. No merge, no auto-merge, no PR metadata update.
+- Evidence: `docs/STAGE6_24_LIVE_MARK_READY_PROOF.md`.
+
 ### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules
