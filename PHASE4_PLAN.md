@@ -1215,7 +1215,23 @@ Properties:
 - Scenario C (fake API): `maxTotalAttemptsPerRun=2` global cap → loop stops safely, state resumable.
 - Evidence: `STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md`.
 
-**Next possible stage:** Stage 6.16 — Multi-task real Kimi→Kimi block run with PR creation.
+**Next possible stage:** Stage 6.17 — Operator-ready runbook and demo package.
+
+**Stage 6.16 — Real Kimi Multi-Task Block with One Fix Loop ✅**
+
+- Real Kimi→Kimi autonomous multi-task block executed end-to-end.
+- Task doc-1 accepted on first attempt.
+- Task doc-2 went through fix-loop: `pending → checks_failed → accepted`.
+- Task doc-3 accepted on first attempt.
+- Final block status: `completed`.
+- Evidence: `docs/STAGE6_16_REAL_MULTITASK_BLOCK_PROOF.md`.
+
+**Stage 6.17 — Operator-Ready Runbook and Demo Package ✅**
+
+- Documentation-only stage. No source/test changes.
+- Created: `OPERATOR_RUNBOOK.md`, `MINI_MVP_DEMO_PACKAGE.md`, `DEMO_COMMAND_COOKBOOK.md`, `SAFETY_INVARIANTS.md`.
+- Updated: `README.md`, `PHASE4_PLAN.md`, `TESTING_SUMMARY.md`.
+- Purpose: package proven MVP so operators can run and verify without prior knowledge.
 
 ### Stage 6 Safety Rules
 
@@ -1267,4 +1283,6 @@ Properties:
 | Phase 4 Stage 6.15 real Kimi→Kimi autonomous block run live proof | ✅ |
 | Phase 4 Stage 6.15.1 deterministic real Kimi→Kimi fix-loop trigger proof | ✅ |
 | Phase 4 Stage 6.15.2 full multi-scenario fix-loop matrix proof | ✅ |
+| Phase 4 Stage 6.16 real Kimi multi-task block with one fix loop | ✅ |
+| Phase 4 Stage 6.17 operator-ready runbook and demo package | ✅ |
 | Opt-in flags defined | Confirmed |

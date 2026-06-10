@@ -39,18 +39,23 @@ This remains an MVP skeleton, not production-ready automation.
 
 ---
 
-## Current MVP Pipeline
+## Mini-MVP Status
 
-```
-Provider call → Apply → Checks → Self-repair → Commit → Push
-                ↓
-         Approval Report → PR Readiness → PR Create → PR Status → STOP
-```
+The autonomous block execution pipeline is proven and documented:
 
-After `PR Status`, the system stops. Human review is required before any merge decision.
+- **Real Kimi coder + real Kimi reviewer** — live multi-task block with fix loop (Stage 6.16)
+- **Local commits only** — push disabled by default during autonomous run
+- **1739 tests / 102 suites / 0 failures** — local test suite passes
+- **GitHub CI** — not verified / no workflow runs
 
 ### Quick Links
 
+- [Operator Runbook](docs/OPERATOR_RUNBOOK.md) — one-page overview, core loop, modes, safety defaults
+- [Demo Command Cookbook](docs/DEMO_COMMAND_COOKBOOK.md) — exact commands for fake, real coder, real reviewer runs
+- [Mini-MVP Demo Package](docs/MINI_MVP_DEMO_PACKAGE.md) — what is proven, what is not claimed, known limitations
+- [Safety Invariants](docs/SAFETY_INVARIANTS.md) — hard design-level guarantees
+- [Stage 6.16 Proof](docs/STAGE6_16_REAL_MULTITASK_BLOCK_PROOF.md) — real Kimi multi-task block with fix loop
+- [Stage 6.15.2 Proof](docs/STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md) — multi-scenario fix-loop matrix
 - [MVP Final Report](MVP_FINAL_REPORT.md) — current status, demo proof, known limitations
 - [Command Reference](COMMAND_REFERENCE.md) — all real-repo commands with env, outputs, and safety notes
 - [Safety Model](SAFETY_MODEL.md) — opt-in gates, git policy, provider/GitHub API policy, human boundary
