@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `773a30392c811fa99427597efb32a31094b2bada`
+**Last verified:** `pending final commit hash`
 
 ## Test metrics
 
 - **Total tests:** 1734
 - **Total suites:** 102
-- **Last verified commit:** `773a30392c811fa99427597efb32a31094b2bada` (Stage 6.16 Real Kimi Multi-Task Block with Fix Loop)
+- **Last verified commit:** `pending final commit hash` (Stage 6.16 Real Kimi Multi-Task Block with Fix Loop)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** Local tests (`tsx --test`)
@@ -51,7 +51,7 @@
 | Stage 6.15 | Real Kimi→Kimi Autonomous Block Run Live Proof | `e639bbe28806cdff76fcdb43e6d03bd167a104af` |
 | Stage 6.15.1 | Deterministic Real Kimi→Kimi Fix-Loop Trigger Proof | `5378f468e8e70acf08c9e4087948bc6466e18d42` |
 | Stage 6.15.2 | Full Multi-Scenario Fix-Loop Matrix Proof | `ccc5168d91f028a60da24f8565965579edd0ce24` |
-| Stage 6.16 | Real Kimi Multi-Task Block with One Fix Loop | `773a30392c811fa99427597efb32a31094b2bada` |
+| Stage 6.16 | Real Kimi Multi-Task Block with One Fix Loop | `pending final commit hash` |
 
 ## Covered layers
 
