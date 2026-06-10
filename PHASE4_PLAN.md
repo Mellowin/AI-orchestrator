@@ -1275,7 +1275,7 @@ Properties:
 - Evidence: `docs/STAGE6_21_REAL_DRAFT_PR_SUBMIT_PROOF.md`.
 - PR link: https://github.com/Mellowin/AI-orchestrator/pull/3
 
-**Stage 6.22 — GitHub CI Workflow for Mini-MVP Checks 🟡**
+**Stage 6.22 — GitHub CI Workflow for Mini-MVP Checks ✅**
 
 - Added `.github/workflows/ci.yml` — GitHub Actions workflow for automated checks.
 - Triggers: `pull_request`, push to `feature/mvp-skeleton` / `stage-6-21-proof` / `stage-6-22-ci-proof`, `workflow_dispatch`.
@@ -1283,7 +1283,7 @@ Properties:
 - Steps: checkout → setup-node → `npm ci` → `npm run typecheck` → `npm run build` → `npm test`.
 - No secrets in workflow file; no provider calls; no merge/deployment actions.
 - Evidence: `docs/STAGE6_22_GITHUB_CI_WORKFLOW.md`.
-- **Status:** Workflow added; CI pass not yet verified until workflow run completes.
+- **Status:** Verified — Mini-MVP CI run `27298560333` completed with `success` on commit `114e0ec36698aafec3ec2d1ca6ce53c3c6054ec1`.
 
 ### Stage 6 Safety Rules
 

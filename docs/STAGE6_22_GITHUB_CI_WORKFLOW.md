@@ -1,6 +1,6 @@
 # Stage 6.22 — GitHub CI Workflow for Mini-MVP Checks
 
-**Status:** 🟡 Workflow added; CI pass not yet verified until workflow run completes.
+**Status:** ✅ Verified — Mini-MVP CI run `27298560333` completed with `success` on commit `114e0ec36698aafec3ec2d1ca6ce53c3c6054ec1`.
 **Branch:** `feature/mvp-skeleton`
 **Date:** 2026-06-10
 
@@ -85,13 +85,20 @@ After the workflow is pushed to `feature/mvp-skeleton`, GitHub Actions should:
 
 ## Verification status
 
-> **GitHub CI workflow added; CI pass not yet verified until workflow run completes.**
+> **GitHub CI workflow verified successful.**
 
-A follow-up stage will verify the first successful workflow run and update this document with:
-- Run ID
-- Branch
-- Status and conclusion
-- Job logs summary
+### Verified run details
+
+| Property | Value |
+|---|---|
+| Run ID | `27298560333` |
+| Workflow | Mini-MVP CI |
+| Branch | `feature/mvp-skeleton` |
+| Commit SHA | `114e0ec36698aafec3ec2d1ca6ce53c3c6054ec1` |
+| Status | `completed` |
+| Conclusion | `success` |
+| Job | `checks` |
+| Steps passed | Checkout repository, Setup Node.js, Install dependencies, Type check, Build, Test |
 
 ---
 

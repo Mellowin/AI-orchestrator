@@ -109,7 +109,7 @@ The repository includes a GitHub Actions workflow (`.github/workflows/ci.yml`) t
 - The workflow is read-only — it does not push, merge, or deploy.
 - A green CI check is required before any PR should be merged.
 
-> **Note:** GitHub CI workflow added; CI pass not yet verified until workflow run completes.
+> **Note:** GitHub CI verified successful — run `27298560333` completed with `success`. CI passing does not mean automatic merge is allowed; human review remains required.
 
 ---
 

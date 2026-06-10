@@ -50,7 +50,7 @@
 - Runs on `ubuntu-latest` with Node.js 20.
 - No secrets, no provider calls, no merge/deployment actions.
 - Evidence: `docs/STAGE6_22_GITHUB_CI_WORKFLOW.md`.
-- **Status:** Workflow added; CI pass pending first successful run.
+- **Status:** Verified — Mini-MVP CI run `27298560333` completed with `success` on `114e0ec36698aafec3ec2d1ca6ce53c3c6054ec1`.
 
 ### Stage 6.18 — Mini-MVP Release Candidate Audit
 

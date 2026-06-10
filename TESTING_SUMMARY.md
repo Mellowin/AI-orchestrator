@@ -12,7 +12,7 @@
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** Local tests (`tsx --test`)
-- **GitHub CI:** not verified / no workflow runs
+- **GitHub CI:** verified successful — Mini-MVP CI run `27298560333` completed with `success` on `114e0ec36698aafec3ec2d1ca6ce53c3c6054ec1`
 
 ## Documentation stages
 
