@@ -1389,4 +1389,5 @@ Properties:
 | Phase 4 Stage 6.18 mini-MVP release candidate audit | ✅ |
 | Phase 4 Stage 6.19 final human review / manual PR package | ✅ |
 | Phase 4 Stage 6.20 automated draft PR submission flow | ✅ |
+| Stage 7.1 Sandboxed worktree execution | ✅ |
 | Opt-in flags defined | Confirmed |

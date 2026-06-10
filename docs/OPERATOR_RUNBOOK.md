@@ -173,6 +173,20 @@ This command orchestrates:
 
 It is dry-run by default. Real mode requires explicit `BLOCK_PR_SUBMIT_DRY_RUN=false` plus all `block-pr-create` gates.
 
+### block-sandbox
+
+Run checks in an isolated git worktree without touching the main working directory.
+
+```bash
+ALLOW_BLOCK_SANDBOX=true \
+npx tsx src/cli.ts block-sandbox docs/<block>.json
+```
+
+Environment variables:
+- `BLOCK_SANDBOX_PATH` — custom sandbox directory
+- `BLOCK_SANDBOX_BASE` — base ref (branch or SHA)
+- `BLOCK_SANDBOX_KEEP=true` — keep sandbox after run for inspection
+
 ---
 
 ## See also

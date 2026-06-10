@@ -2412,7 +2412,7 @@ if (command === 'real-repo-pr-status') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }
@@ -4581,6 +4581,66 @@ if (command === 'block-pr-cleanup') {
     console.error('[block-pr-cleanup] No main touch was performed');
     console.error('[block-pr-cleanup] No provider call was made');
     console.error('[block-pr-cleanup] No token was persisted');
+    process.exit(1);
+  }
+}
+
+if (command === 'block-sandbox') {
+  try {
+    const blockJsonPath = taskId;
+    if (!blockJsonPath) {
+      console.error('[block-sandbox] Error: block JSON path is required');
+      process.exit(1);
+    }
+
+    const outputPath = process.env.BLOCK_SANDBOX_OUTPUT?.trim();
+    const sandboxPath = process.env.BLOCK_SANDBOX_PATH?.trim();
+    const baseRef = process.env.BLOCK_SANDBOX_BASE?.trim();
+    const keep = process.env.BLOCK_SANDBOX_KEEP === 'true';
+
+    const { runBlockSandbox } = await import('./block/block-sandbox.js');
+    const result = runBlockSandbox({
+      blockDefinitionPath: blockJsonPath,
+      outputPath: outputPath || undefined,
+      sandboxPath: sandboxPath || undefined,
+      baseRef: baseRef || undefined,
+      keep,
+    });
+
+    console.log(`[block-sandbox] Block: ${result.block_id}`);
+    console.log(`[block-sandbox] Base branch: ${result.base_branch}`);
+    console.log(`[block-sandbox] Base commit: ${result.base_commit}`);
+    console.log(`[block-sandbox] Sandbox path: ${result.sandbox_path}`);
+    console.log(`[block-sandbox] Type check: ${result.typecheck_result}`);
+    console.log(`[block-sandbox] Build: ${result.build_result}`);
+    console.log(`[block-sandbox] Tests: ${result.test_result}`);
+    console.log(`[block-sandbox] Main status before: ${result.main_status_before}`);
+    console.log(`[block-sandbox] Main status after: ${result.main_status_after}`);
+    console.log(`[block-sandbox] Sandbox status: ${result.sandbox_status}`);
+    console.log(`[block-sandbox] Cleanup: ${result.cleanup_result}`);
+    console.log(`[block-sandbox] Report: ${result.output_path}`);
+    if (result.safety_findings.length > 0) {
+      console.log(`[block-sandbox] Safety findings: ${result.safety_findings.join('; ')}`);
+    }
+    if (result.blocking_issues.length > 0) {
+      console.log(`[block-sandbox] Blocking issues: ${result.blocking_issues.join('; ')}`);
+    }
+    console.log('[block-sandbox] No merge was performed');
+    console.log('[block-sandbox] No auto-merge was performed');
+    console.log('[block-sandbox] No push was performed');
+    console.log('[block-sandbox] No checkout was performed');
+    console.log('[block-sandbox] No main touch was performed');
+    console.log('[block-sandbox] No provider call was made');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[block-sandbox] Error: ${message}`);
+    console.error('[block-sandbox] No merge was performed');
+    console.error('[block-sandbox] No auto-merge was performed');
+    console.error('[block-sandbox] No push was performed');
+    console.error('[block-sandbox] No checkout was performed');
+    console.error('[block-sandbox] No main touch was performed');
+    console.error('[block-sandbox] No provider call was made');
     process.exit(1);
   }
 }
