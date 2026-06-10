@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve, normalize } from 'node:path';
+import { join, resolve, normalize, sep } from 'node:path';
 import { sync as spawnSync } from 'cross-spawn';
 import { loadBlockDefinition } from './block-loader.js';
 import { getBlockRunDir } from './block-state-manager.js';
@@ -28,8 +28,14 @@ export interface BlockSandboxResult {
   test_result: 'pass' | 'fail';
   main_status_before: string;
   main_status_after: string;
+  main_head_before: string;
+  main_head_after: string;
   sandbox_status: string;
   cleanup_result: 'success' | 'failed' | 'skipped';
+  cleanup_verified: boolean;
+  path_validation: 'pass' | 'fail';
+  worktree_registered: boolean;
+  redaction_applied: boolean;
   safety_findings: string[];
   blocking_issues: string[];
   output_path: string;
@@ -66,7 +72,68 @@ function redact(text: string): string {
     .replace(/ghp_[a-zA-Z0-9]{36,}/g, '[REDACTED]')
     .replace(/github_pat_[a-zA-Z0-9_]{22,}/g, '[REDACTED]')
     .replace(/sk-[a-zA-Z0-9]{48,}/g, '[REDACTED]')
-    .replace(/Bearer\s+[a-zA-Z0-9_-]+/g, 'Bearer [REDACTED]');
+    .replace(/Bearer\s+[a-zA-Z0-9_-]+/g, 'Bearer [REDACTED]')
+    .replace(/GITHUB_TOKEN=[a-zA-Z0-9_\-\/+=]+/gi, 'GITHUB_TOKEN=[REDACTED]')
+    .replace(/KIMI_API_KEY=[a-zA-Z0-9_\-\/+=]+/gi, 'KIMI_API_KEY=[REDACTED]')
+    .replace(/[A-Z_]*_TOKEN=[a-zA-Z0-9_\-\/+=]+/gi, '[REDACTED_TOKEN]')
+    .replace(/[A-Z_]*_API_KEY=[a-zA-Z0-9_\-\/+=]+/gi, '[REDACTED_API_KEY]');
+}
+
+export function validateSandboxPath(
+  sandboxPath: string,
+  repoPath: string,
+  isCustomPath: boolean
+): { ok: boolean; reason?: string } {
+  const resolvedSandbox = resolve(normalize(sandboxPath));
+  const resolvedRepo = resolve(normalize(repoPath));
+
+  if (resolvedSandbox === resolvedRepo) {
+    return { ok: false, reason: 'Sandbox path must not be the repository root' };
+  }
+
+  const gitDir = join(resolvedRepo, '.git');
+  if (
+    resolvedSandbox === gitDir ||
+    resolvedSandbox.startsWith(gitDir + sep)
+  ) {
+    return { ok: false, reason: 'Sandbox path must not be inside .git directory' };
+  }
+
+  const repoWithSep = resolvedRepo.endsWith(sep) ? resolvedRepo : resolvedRepo + sep;
+  if (resolvedSandbox.startsWith(repoWithSep)) {
+    return { ok: false, reason: 'Sandbox path must not be inside the source repository' };
+  }
+
+  const cwd = resolve(process.cwd());
+  const cwdWithSep = cwd.endsWith(sep) ? cwd : cwd + sep;
+  const insideCwd = resolvedSandbox === cwd || resolvedSandbox.startsWith(cwdWithSep);
+  if (!insideCwd && !isCustomPath) {
+    return { ok: false, reason: 'Sandbox path must be inside the project directory or explicitly provided as a custom path' };
+  }
+
+  return { ok: true };
+}
+
+function isWorktreeRegistered(
+  repoPath: string,
+  sandboxPath: string,
+  run: (cwd: string, command: string, args: string[]) => { stdout: string; stderr: string; status: number | null }
+): boolean {
+  const listResult = run(repoPath, 'git', ['worktree', 'list', '--porcelain']);
+  if (listResult.status !== 0) {
+    return false;
+  }
+  const resolvedSandbox = resolve(normalize(sandboxPath));
+  const lines = listResult.stdout.split('\n');
+  for (const line of lines) {
+    if (line.startsWith('worktree ')) {
+      const path = line.slice('worktree '.length).trim();
+      if (resolve(normalize(path)) === resolvedSandbox) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 export function runBlockSandbox(input: BlockSandboxInput): BlockSandboxResult {
@@ -103,7 +170,7 @@ export function runBlockSandbox(input: BlockSandboxInput): BlockSandboxResult {
   const baseCommitResult = run(repoPath, 'git', ['rev-parse', 'HEAD']);
   const baseCommit = baseCommitResult.stdout.trim();
 
-  // 5. Determine sandbox path
+  // 5. Determine and validate sandbox path
   const defaultSandboxPath = join(
     process.cwd(),
     'tmp',
@@ -114,16 +181,10 @@ export function runBlockSandbox(input: BlockSandboxInput): BlockSandboxResult {
     ? resolve(normalize(input.sandboxPath))
     : defaultSandboxPath;
 
-  // Ensure sandbox path is not inside repoPath
-  const resolvedRepo = resolve(repoPath);
-  const resolvedSandbox = resolve(sandboxPath);
-  if (
-    resolvedSandbox === resolvedRepo ||
-    resolvedSandbox.startsWith(resolvedRepo + normalize('/'))
-  ) {
-    throw new Error(
-      'Sandbox path must not be inside the source repository'
-    );
+  const isCustomPath = input.sandboxPath !== undefined && input.sandboxPath.trim().length > 0;
+  const pathValidation = validateSandboxPath(sandboxPath, repoPath, isCustomPath);
+  if (!pathValidation.ok) {
+    throw new Error(pathValidation.reason ?? 'Invalid sandbox path');
   }
 
   // 6. Create worktree
@@ -138,6 +199,13 @@ export function runBlockSandbox(input: BlockSandboxInput): BlockSandboxResult {
       `git worktree add failed: ${redact(addResult.stderr)}`
     );
   }
+
+  // Verify worktree registration
+  const worktreeRegistered = isWorktreeRegistered(repoPath, sandboxPath, run);
+
+  // Record main HEAD before checks
+  const mainHeadBeforeResult = run(repoPath, 'git', ['rev-parse', 'HEAD']);
+  const mainHeadBefore = mainHeadBeforeResult.stdout.trim();
 
   // 7. Run checks inside sandbox
   const commandsExecuted: string[] = [];
@@ -161,20 +229,34 @@ export function runBlockSandbox(input: BlockSandboxInput): BlockSandboxResult {
   const mainStatusAfterResult = run(repoPath, 'git', ['status', '--porcelain']);
   const mainStatusAfter = mainStatusAfterResult.stdout.trim();
 
+  // Record main HEAD after checks
+  const mainHeadAfterResult = run(repoPath, 'git', ['rev-parse', 'HEAD']);
+  const mainHeadAfter = mainHeadAfterResult.stdout.trim();
+
   // 9. Cleanup
   const keep =
     input.keep === true || process.env.BLOCK_SANDBOX_KEEP?.trim() === 'true';
 
   let cleanupResult: 'success' | 'failed' | 'skipped';
+  let cleanupVerified = false;
   if (!keep) {
-    const removeResult = run(repoPath, 'git', [
-      'worktree',
-      'remove',
-      sandboxPath,
-    ]);
-    cleanupResult = removeResult.status === 0 ? 'success' : 'failed';
+    // Verify the path is still a registered worktree before removing
+    if (isWorktreeRegistered(repoPath, sandboxPath, run)) {
+      const removeResult = run(repoPath, 'git', [
+        'worktree',
+        'remove',
+        sandboxPath,
+      ]);
+      cleanupResult = removeResult.status === 0 ? 'success' : 'failed';
+      if (cleanupResult === 'success') {
+        cleanupVerified = !isWorktreeRegistered(repoPath, sandboxPath, run);
+      }
+    } else {
+      cleanupResult = 'failed';
+    }
   } else {
     cleanupResult = 'skipped';
+    cleanupVerified = worktreeRegistered;
   }
 
   // 10. Safety findings and blocking issues
@@ -183,6 +265,9 @@ export function runBlockSandbox(input: BlockSandboxInput): BlockSandboxResult {
 
   if (mainStatusAfter.length > 0) {
     safetyFindings.push('Main working tree changed during sandbox execution');
+  }
+  if (mainHeadBefore !== mainHeadAfter) {
+    blockingIssues.push('Main repo HEAD changed during sandbox execution');
   }
   if (!typecheckOk) blockingIssues.push('typecheck failed');
   if (!buildOk) blockingIssues.push('build failed');
@@ -203,15 +288,22 @@ export function runBlockSandbox(input: BlockSandboxInput): BlockSandboxResult {
     `- Base branch: ${baseRef}`,
     `- Base commit: ${baseCommit}`,
     `- Sandbox path: ${sandboxPath}`,
+    `- Path validation: ${pathValidation.ok ? 'pass' : 'fail'}`,
+    `- Worktree registered: ${worktreeRegistered ? 'yes' : 'no'}`,
     `- Commands executed:`,
     ...commandsExecuted.map((c) => `  - ${c}`),
     `- Type check: ${typecheckOk ? 'pass' : 'fail'}`,
     `- Build: ${buildOk ? 'pass' : 'fail'}`,
     `- Tests: ${testOk ? 'pass' : 'fail'}`,
+    `- Main HEAD before: ${mainHeadBefore}`,
+    `- Main HEAD after: ${mainHeadAfter}`,
+    `- Main HEAD changed: ${mainHeadBefore !== mainHeadAfter ? 'yes' : 'no'}`,
     `- Main status before: ${mainStatusBefore.length === 0 ? 'clean' : 'dirty'}`,
     `- Main status after: ${mainStatusAfter.length === 0 ? 'clean' : 'dirty'}`,
     `- Sandbox status: ${sandboxStatus.length === 0 ? 'clean' : 'dirty'}`,
     `- Cleanup: ${cleanupResult}`,
+    `- Cleanup verified via worktree list: ${cleanupVerified ? 'yes' : 'no'}`,
+    `- Redaction applied: yes`,
     `- Safety findings: ${safetyFindings.length > 0 ? safetyFindings.join('; ') : 'none'}`,
     `- Blocking issues: ${blockingIssues.length > 0 ? blockingIssues.join('; ') : 'none'}`,
     '',
@@ -246,8 +338,14 @@ export function runBlockSandbox(input: BlockSandboxInput): BlockSandboxResult {
     test_result: testOk ? 'pass' : 'fail',
     main_status_before: mainStatusBefore.length === 0 ? 'clean' : 'dirty',
     main_status_after: mainStatusAfter.length === 0 ? 'clean' : 'dirty',
+    main_head_before: mainHeadBefore,
+    main_head_after: mainHeadAfter,
     sandbox_status: sandboxStatus.length === 0 ? 'clean' : 'dirty',
     cleanup_result: cleanupResult,
+    cleanup_verified: cleanupVerified,
+    path_validation: pathValidation.ok ? 'pass' : 'fail',
+    worktree_registered: worktreeRegistered,
+    redaction_applied: true,
     safety_findings: safetyFindings,
     blocking_issues: blockingIssues,
     output_path: outputPath,

@@ -4616,8 +4616,14 @@ if (command === 'block-sandbox') {
     console.log(`[block-sandbox] Tests: ${result.test_result}`);
     console.log(`[block-sandbox] Main status before: ${result.main_status_before}`);
     console.log(`[block-sandbox] Main status after: ${result.main_status_after}`);
+    console.log(`[block-sandbox] Main HEAD before: ${result.main_head_before}`);
+    console.log(`[block-sandbox] Main HEAD after: ${result.main_head_after}`);
     console.log(`[block-sandbox] Sandbox status: ${result.sandbox_status}`);
+    console.log(`[block-sandbox] Path validation: ${result.path_validation}`);
+    console.log(`[block-sandbox] Worktree registered: ${result.worktree_registered ? 'yes' : 'no'}`);
     console.log(`[block-sandbox] Cleanup: ${result.cleanup_result}`);
+    console.log(`[block-sandbox] Cleanup verified: ${result.cleanup_verified ? 'yes' : 'no'}`);
+    console.log(`[block-sandbox] Redaction applied: ${result.redaction_applied ? 'yes' : 'no'}`);
     console.log(`[block-sandbox] Report: ${result.output_path}`);
     if (result.safety_findings.length > 0) {
       console.log(`[block-sandbox] Safety findings: ${result.safety_findings.join('; ')}`);
