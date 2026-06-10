@@ -2,13 +2,13 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `41c296497a11ff5ef16d78d4a7ac7ec2cb3dc0cc`
+**Last verified:** `pending final commit hash`
 
 ## Test metrics
 
 - **Total tests:** 1757
 - **Total suites:** 104
-- **Last verified commit:** `41c296497a11ff5ef16d78d4a7ac7ec2cb3dc0cc` (Stage 6.20 Automated Draft PR Submission Flow)
+- **Last verified commit:** `pending final commit hash` (Stage 6.21 Real Automated Draft PR Submission Proof)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** Local tests (`tsx --test`)
@@ -56,6 +56,7 @@
 | Stage 6.18 | Mini-MVP Release Candidate Audit | `cd10d4a134f4bc30b5f6d8b01da3e53a6fcc7e19` |
 | Stage 6.19 | Final Human Review / Manual PR Package | `8f467e21f03218dc8a1ce26d45182f429f58df0d` |
 | Stage 6.20 | Automated Draft PR Submission Flow | `41c296497a11ff5ef16d78d4a7ac7ec2cb3dc0cc` |
+| Stage 6.21 | Real Automated Draft PR Submission Proof | `pending final commit hash` |
 
 ## Covered layers
 

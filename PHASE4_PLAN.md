@@ -1264,6 +1264,18 @@ Properties:
 - Evidence: `docs/STAGE6_20_AUTOMATED_DRAFT_PR_SUBMISSION.md`.
 - No real GitHub API call performed; fake-fetch proof only.
 
+**Stage 6.21 — Real Automated Draft PR Submission Proof ✅**
+
+- Created proof branch `stage-6-21-proof` with a single doc commit (`52ea841`).
+- Pushed branch to origin.
+- Built valid block definition (`docs/stage-6-21-proof-block.json`) and block state (`runs/blocks/stage-6-21-proof/block-state.json`).
+- **Dry-run:** validated all gates, generated approval report + PR draft, no GitHub API call.
+- **Real mode:** created draft PR #3 via GitHub API.
+- **Status check:** verified PR is open, draft, not merged, safe for human review.
+- Safety invariants confirmed: no merge, no push, no main touch, no provider call, token redacted.
+- Evidence: `docs/STAGE6_21_REAL_DRAFT_PR_SUBMIT_PROOF.md`.
+- PR link: https://github.com/Mellowin/AI-orchestrator/pull/3
+
 ### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules
