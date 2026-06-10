@@ -133,3 +133,5 @@ PR #3 is now **ready for review** but **not merged**.
 ## Operator note
 
 PR #3 is now ready for human review. Merge remains a separate future stage requiring explicit operator approval.
+
+> **Note:** PR #3 was subsequently closed as a proof PR in Stage 6.25. See `docs/STAGE6_25_PROOF_PR_CLEANUP.md`.

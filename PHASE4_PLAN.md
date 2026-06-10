@@ -1313,6 +1313,12 @@ Properties:
 - PR #3 transitioned from draft to ready for review. No merge, no auto-merge, no PR metadata update.
 - Evidence: `docs/STAGE6_24_LIVE_MARK_READY_PROOF.md`.
 
+**Stage 6.25 — Proof PR Cleanup ✅**
+
+- Closed proof PR #3 and deleted branch `stage-6-21-proof` via `block-pr-cleanup` helper.
+- No merge, no auto-merge, no PR metadata update. Cleanup explicitly gated with `ALLOW_GITHUB_PR_CLOSE` and `ALLOW_GITHUB_BRANCH_DELETE`.
+- Evidence: `docs/STAGE6_25_PROOF_PR_CLEANUP.md`.
+
 ### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules
