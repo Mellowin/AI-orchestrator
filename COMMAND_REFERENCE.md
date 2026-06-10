@@ -1,0 +1,789 @@
+# AI Orchestrator — Command Reference
+
+## Real Repo Commands
+
+### `real-repo-run <taskId>`
+
+**Purpose:** One-command unified workflow using a pre-canned provider response.
+
+**Required env:**
+- `ALLOW_REAL_REPO_APPLY=true`
+- `ALLOW_REAL_REPO_COMMIT=true`
+- `ALLOW_REAL_REPO_PUSH=true`
+- `REAL_REPO_PROVIDER_RESPONSE` — JSON string with file updates
+
+**Allowed mutation:**
+- Applies files to working tree
+- Creates local commit
+- Pushes work branch to origin
+- Writes `runs/<taskId>/state.json`
+
+**Forbidden actions:**
+- No provider call
+- No merge
+- No checkout/switch
+- No main touch
+
+**Outputs/files:**
+- `runs/<taskId>/state.json` — status `pushed`
+
+**Normal success message:**
+- `Push completed`
+- `Push target: origin <workBranch>`
+
+**Safe failure behavior:**
+- Rolls back applied files on check failure
+- Does not commit/push/write state on any failure
+- Prints safe error + `Manual inspection required`
+
+---
+
+### `real-repo-run-ai-readiness <taskId>`
+
+**Purpose:** Validate that `real-repo-run-ai` is safe to start without calling the provider or mutating the repo.
+
+**Required env:**
+- `ALLOW_REAL_PROVIDER=true`
+- `ALLOW_REAL_REPO_APPLY=true`
+- `ALLOW_REAL_REPO_COMMIT=true`
+- `ALLOW_REAL_REPO_PUSH=true`
+- `KIMI_API_KEY`
+- `KIMI_BASE_URL`
+
+**Allowed mutation:**
+- None. Read-only validation only.
+
+**Forbidden actions:**
+- No provider call
+- No file apply
+- No commit
+- No push
+- No state write
+- No merge
+- No checkout/switch
+- No main touch
+
+**Outputs/files:**
+- None
+
+**Normal success message:**
+- `Readiness check passed`
+- Lists provider call, apply, commit, push as `not performed`
+
+**Safe failure behavior:**
+- Prints the failed safety condition
+- No side effects
+
+---
+
+### `real-repo-run-ai <taskId>`
+
+**Purpose:** Full unified workflow with real AI provider (Kimi). Includes self-repair loop.
+
+**Required env:**
+- `ALLOW_REAL_PROVIDER=true`
+- `ALLOW_REAL_REPO_APPLY=true`
+- `ALLOW_REAL_REPO_COMMIT=true`
+- `ALLOW_REAL_REPO_PUSH=true`
+- `KIMI_API_KEY`
+- `KIMI_BASE_URL`
+- `KIMI_MODEL` (optional)
+
+**Allowed mutation:**
+- Calls AI provider
+- Applies files to working tree
+- Creates local commit
+- Pushes work branch to origin
+- Writes `runs/<taskId>/state.json`
+
+**Forbidden actions:**
+- No merge
+- No checkout/switch
+- No main touch
+- No force push
+
+**Outputs/files:**
+- `runs/<taskId>/state.json` — status `pushed`
+- `runs/<taskId>/attempt-{n}/` — attempt artifacts
+
+**Normal success message:**
+- `Real provider run completed`
+- `Push completed`
+
+**Safe failure behavior:**
+- Rolls back on check failure
+- Re-calls provider for self-repair if attempts remain
+- Does not commit/push/state on final failure
+- Prints `Checks failed after N attempt(s)`
+
+---
+
+### `real-repo-approval-report <taskId>`
+
+**Purpose:** Generate a local approval report after successful push.
+
+**Required env:**
+- `ALLOW_REAL_REPO_APPROVAL_REPORT=true`
+
+**Allowed mutation:**
+- Writes `runs/<taskId>/approval-report.md`
+
+**Forbidden actions:**
+- No provider call
+- No apply
+- No commit
+- No push
+- No PR creation
+- No merge
+- No checkout/switch
+- No main touch
+
+**Outputs/files:**
+- `runs/<taskId>/approval-report.md`
+
+**Normal success message:**
+- `Approval report written`
+
+**Safe failure behavior:**
+- Prints safe error
+- No file mutation other than the report
+
+---
+
+### `real-repo-pr-readiness <taskId>`
+
+**Purpose:** Generate PR readiness dry-run report and suggested PR body.
+
+**Required env:**
+- `ALLOW_REAL_REPO_PR_READINESS=true`
+
+**Allowed mutation:**
+- Writes `runs/<taskId>/pr-readiness.md`
+- Writes `runs/<taskId>/pr-body.md`
+
+**Forbidden actions:**
+- No PR creation
+- No GitHub API call
+- No gh execution
+- No merge
+- No checkout/switch
+- No main touch
+
+**Outputs/files:**
+- `runs/<taskId>/pr-readiness.md`
+- `runs/<taskId>/pr-body.md`
+
+**Normal success message:**
+- `PR readiness report written`
+
+**Safe failure behavior:**
+- Prints safe error
+- No files mutated except the two reports
+
+---
+
+### `real-repo-pr-create <taskId>`
+
+**Purpose:** Create a GitHub Pull Request via REST API.
+
+> **Important:** This command creates a PR but does **not** merge it.
+
+**Required env:**
+- `ALLOW_GITHUB_PR_CREATE=true`
+- `GITHUB_TOKEN`
+- `GITHUB_REPOSITORY` (`owner/repo`)
+
+**Allowed mutation:**
+- Calls GitHub REST API `POST /repos/{owner}/{repo}/pulls`
+- Writes `runs/<taskId>/pr-created.json`
+
+**Forbidden actions:**
+- No merge
+- No auto-merge
+- No checkout/switch
+- No main touch
+- No push
+- No provider call
+- No gh execution
+- No PR update after creation
+
+**Outputs/files:**
+- `runs/<taskId>/pr-created.json`
+
+**Normal success message:**
+- `PR created`
+- `PR URL: <url>`
+
+**Safe failure behavior:**
+- Does not write `pr-created.json` on API failure
+- Prints `GitHub PR creation failed`
+- Prints `Manual inspection required`
+
+---
+
+### `reviewer-gate-dry-run <taskId>`
+
+**Purpose:** Validate reviewer provider contract with minimal fake input. Does not inspect real repo or commit.
+
+**Required env:**
+- `REVIEWER_PROVIDER` — `fake` (default) or `kimi`
+- `KIMI_FAKE_REVIEWER_RESPONSE` — for testing kimi provider without real network
+
+**Allowed mutation:**
+- None. Read-only validation only.
+
+**Forbidden actions:**
+- No file writes
+- No git commands
+- No GitHub API call
+- No merge
+- No checkout/switch
+- No main touch
+
+**Outputs/files:**
+- None
+
+**Normal success message:**
+- `Reviewer decision: accepted/rejected`
+- `Next action: ...`
+- `Blocking issues count: ...`
+
+**Safe failure behavior:**
+- Exits non-zero on invalid reviewer output
+- Prints safe error
+- No side effects
+
+---
+
+### `reviewer-gate-evidence-dry-run <taskId> <commitSha>`
+
+**Purpose:** Build real commit evidence and run deterministic reviewer gate dry-run. Inspects actual local git state, validates commit SHA, changed files, diff, and runs deterministic checks before optionally calling the reviewer.
+
+**Required env:**
+- `REVIEWER_PROVIDER` — `fake` (default) or `kimi`
+- `KIMI_FAKE_REVIEWER_RESPONSE` — for testing kimi provider without real network
+- `DRY_RUN_TYPECHECK_RESULT` — override typecheck result (default: `skipped (dry-run)`)
+- `DRY_RUN_BUILD_RESULT` — override build result (default: `skipped (dry-run)`)
+- `DRY_RUN_TEST_RESULT` — override test result (default: `skipped (dry-run)`)
+
+**Allowed mutation:**
+- None. Read-only validation only.
+
+**Forbidden actions:**
+- No file writes
+- No state writes
+- No push
+- No merge
+- No checkout/switch
+- No main touch
+- No GitHub API call
+
+**Outputs/files:**
+- None
+
+**Normal success message:**
+- `Commit: <sha>`
+- `Current branch: <branch>`
+- `Changed files: <count>`
+- `Deterministic checks: PASS/FAIL`
+- `Reviewer called: yes/no`
+- `Reviewer decision: accepted/rejected`
+- `Next action: ...`
+- `Blocking issues count: ...`
+
+**Safe failure behavior:**
+- Exits non-zero on invalid commit SHA or missing args
+- If current branch is `main`, deterministic checks FAIL, reviewer is NOT called, next action is `block_for_human`
+- Dynamic failure text (typecheck/build/test output) is redacted before printing
+- Prints safe error
+- No side effects
+
+> **Difference from `reviewer-gate-dry-run`:**
+> - `reviewer-gate-dry-run` validates the **provider contract** with a minimal fake `ReviewInput`.
+> - `reviewer-gate-evidence-dry-run` validates **actual local commit evidence** against deterministic checks and the full reviewer gate.
+
+---
+
+### `real-repo-pr-status <taskId>`
+
+**Purpose:** Fetch read-only PR status and commit check information from GitHub API.
+
+> **Important:** This command is read-only and does **not** update the PR.
+
+**Required env:**
+- `ALLOW_GITHUB_PR_STATUS=true`
+- `GITHUB_TOKEN`
+- `GITHUB_REPOSITORY` (`owner/repo`)
+
+**Allowed mutation:**
+- Calls GitHub REST API read-only GET:
+  - `/repos/{owner}/{repo}/pulls/{number}`
+  - `/repos/{owner}/{repo}/commits/{sha}/status`
+  - `/repos/{owner}/{repo}/commits/{sha}/check-runs`
+- Writes `runs/<taskId>/pr-status-report.md`
+- Writes `runs/<taskId>/pr-status.json`
+
+**Forbidden actions:**
+- No PR creation
+- No PR update
+- No PR comment
+- No approval
+- No merge
+- No checkout/switch
+- No main touch
+- No push
+- No provider call
+- No gh execution
+
+**Outputs/files:**
+- `runs/<taskId>/pr-status-report.md`
+- `runs/<taskId>/pr-status.json`
+
+**Normal success message:**
+- `PR status report written`
+- `Report path: runs/<taskId>/pr-status-report.md`
+
+**Safe failure behavior:**
+- Does not write report/json on API failure
+- Prints `GitHub PR status fetch failed`
+- Prints `Manual inspection required`
+
+---
+
+## Block Commands
+
+### `block-run <blockJsonPath>`
+
+**Purpose:** Run a safe multi-task loop over all pending tasks in a block. Owns the autonomous fix loop: retries the same task on `fix_required` or `checks_failed` while attempts remain.
+
+**Required env:**
+- `BLOCK_RUN_MODE` — `fake` | `real_kimi_coder_fake_reviewer` | `real_kimi_coder_kimi_reviewer`
+- `BLOCK_RUN_MAX_TASKS` — max tasks per run (fake: default 10, max 100; real: default 3, max 3)
+- `BLOCK_RUN_MAX_TOTAL_ATTEMPTS` — global runaway guard (default 100)
+- `BLOCK_RUN_STOP_ON_REJECTED` — stop on `fix_required` (default `true`)
+- `BLOCK_RUN_STOP_ON_BLOCKED` — stop on `blocked` (default `true`)
+
+**Real mode additional env:**
+- `ALLOW_BLOCK_RUN_ONE` = `true`
+- `ALLOW_REAL_PROVIDER` = `true`
+- `ALLOW_REAL_REPO_APPLY` = `true`
+- `ALLOW_REAL_REPO_COMMIT` = `true`
+- `ALLOW_REAL_REPO_PUSH` = `false` (must be false)
+- `ALLOW_KIMI_REVIEWER` = `true` (for `real_kimi_coder_kimi_reviewer`)
+- `CODER_PROVIDER` = `kimi`
+- `REVIEWER_PROVIDER` = `kimi` | `fake`
+- `KIMI_API_KEY` and `KIMI_BASE_URL`
+
+**Allowed mutation:**
+- Reads block definition JSON
+- Writes `runs/blocks/<block_id>/block-state.json`
+- Fake mode: calls fake coder + fake reviewer only
+- Real mode: calls real Kimi coder and/or real Kimi reviewer, applies files, creates local commits
+
+**Forbidden actions:**
+- No merge
+- No checkout/switch
+- No main touch
+- No force push
+- No auto-merge
+- No `git add -A`
+- No `git reset --hard`
+- No auto-push in Stage 6.8
+- No GitHub API
+
+**Normal success message:**
+- `Block: <block_id>`
+- `Mode: <mode>`
+- `Tasks attempted: <n>`
+- `Accepted: <n>`
+- `Fix required: <n>`
+- `Blocked: <n>`
+- `Final block status: <status>`
+- `Current task: <task_id or none>`
+
+**Safe failure behavior:**
+- Invalid JSON fails safely
+- Invalid mode rejected with allowed list
+- Real mode with `ALLOW_REAL_REPO_PUSH=true` rejected
+- Real mode with `maxTasksPerRun > 3` rejected
+- Missing allow flags fail safely before provider call
+- Missing `KIMI_API_KEY` fails safely before API call
+- No stack trace leak
+- No API key leak
+
+---
+
+### `block-init <blockJsonPath>`
+
+**Purpose:** Initialize block state from a block definition JSON file.
+
+**Required env:** None.
+
+**Allowed mutation:**
+- Reads block definition JSON
+- Writes `runs/blocks/<block_id>/block-state.json`
+
+**Forbidden actions:**
+- No provider call
+- No git mutation
+- No GitHub API
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/block-state.json`
+
+**Normal success message:**
+- `Block initialized: <block_id>`
+
+---
+
+### `block-status <blockId>`
+
+**Purpose:** Print markdown status report for a block.
+
+**Required env:** None.
+
+**Allowed mutation:** None (read-only).
+
+**Outputs/files:**
+- Markdown report to stdout
+
+---
+
+### `block-approval-report <blockJsonPath>`
+
+**Purpose:** Generate a PR-ready human approval markdown report from block definition and block state.
+
+**Required env:** None.
+
+**Optional env:**
+- `BLOCK_APPROVAL_REPORT_OUTPUT` — custom output path (must be under `runs/blocks/`, cwd, or system tmpdir)
+- `BLOCK_APPROVAL_INCLUDE_DIFF_SUMMARY` — include `git diff --stat` in report
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads git diff read-only ( `--name-only`, `--stat`)
+- Writes approval report markdown file
+
+**Forbidden actions:**
+- No provider call
+- No GitHub API
+- No PR creation
+- No merge
+- No push
+- No checkout/switch
+- No main touch
+- No commit
+- No apply
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/approval-report.md` (default)
+- Or custom path if `BLOCK_APPROVAL_REPORT_OUTPUT` is set and safe
+
+**Normal success message:**
+- `Block approval report written: <path>`
+- `PR-ready: yes` or `PR-ready: no`
+- `Tasks: <total>` / `Accepted: <n>` / `Fix required: <n>` / `Blocked: <n>`
+
+**Safe failure behavior:**
+- Missing block state or definition fails safely
+- Invalid output path fails safely
+- No stack trace leak
+- No API key leak
+
+---
+
+### `block-pr-draft <blockJsonPath>`
+
+**Purpose:** Generate a manual PR draft package from block definition and block state. Does NOT create a PR.
+
+**Note:** The generated `pr-body.md` wording remains valid both before and after `block-pr-create` creates a real draft PR. It states that PR creation is handled only by the separate explicitly gated `block-pr-create` command.
+
+**Required env:** None.
+
+**Optional env:**
+- `BLOCK_PR_DRAFT_OUTPUT_DIR` — custom output directory (must be under `runs/blocks/`, cwd, or system tmpdir)
+- `BLOCK_PR_DRAFT_INCLUDE_DIFF_STAT` — include `git diff --stat` in PR body
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads git diff read-only (`--name-only`, `--stat`)
+- Writes PR draft files (`pr-title.txt`, `pr-body.md`, `manual-pr-checklist.md`)
+
+**Forbidden actions:**
+- No provider call
+- No GitHub API
+- No PR creation
+- No PR update
+- No merge
+- No push
+- No checkout/switch
+- No main touch
+- No commit
+- No apply
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/pr-draft/pr-title.txt`
+- `runs/blocks/<block_id>/pr-draft/pr-body.md`
+- `runs/blocks/<block_id>/pr-draft/manual-pr-checklist.md`
+- Or custom directory if `BLOCK_PR_DRAFT_OUTPUT_DIR` is set and safe
+
+**Normal success message:**
+- `Block: <id>`
+- `Output dir: <path>`
+- `Title: <path>` / `Body: <path>` / `Checklist: <path>`
+- `PR-ready: yes` or `PR-ready: no`
+- `Tasks accepted: <n>/<total>`
+- `Blocking issues: <count>`
+
+**Safe failure behavior:**
+- Missing block state or definition fails safely
+- Invalid output directory fails safely
+- No stack trace leak
+- No API key leak
+
+---
+
+### `block-pr-create <blockJsonPath>`
+
+**Purpose:** Create a draft GitHub Pull Request from a completed, PR-ready block. Strictly gated.
+
+**Required env:**
+- `ALLOW_BLOCK_PR_CREATE=true`
+- `ALLOW_GITHUB_PR_CREATE=true`
+- `GITHUB_TOKEN` — GitHub personal access token
+- `GITHUB_REPOSITORY` — `owner/repo` format
+
+**Optional env:**
+- `BLOCK_PR_DRAFT_OUTPUT_DIR` — custom draft directory
+- `BLOCK_PR_CREATE_DRY_RUN=true` — dry-run mode, no actual PR creation
+- `ALLOW_PR_CREATE_WITHOUT_APPROVAL_REPORT=true` — skip approval report requirement
+- `ALLOW_BLOCK_PR_CREATE_DUPLICATE=true` — allow creating PR even if `pr-created.json` exists
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads PR draft files (`pr-title.txt`, `pr-body.md`, `manual-pr-checklist.md`)
+- Reads git remote refs read-only (`git ls-remote`)
+- Calls GitHub REST API POST `/repos/{owner}/{repo}/pulls` to create draft PR
+- Writes `runs/blocks/<block_id>/pr-created.json`
+
+**Forbidden actions:**
+- No provider call
+- No push
+- No merge
+- No auto-merge
+- No checkout/switch
+- No main touch
+- No PR update
+- No PR comment/review/close
+- No source file modification
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/pr-created.json`
+
+**Normal success message:**
+- `Block: <id>`
+- `PR created: yes`
+- `PR number: <number>`
+- `PR URL: <url>`
+- `Draft: true`
+- `Output: <path>`
+
+**Dry-run output:**
+- `Dry run: yes`
+- `Would create draft PR: yes`
+- `Base: <base>` / `Head: <work>`
+- `Title: <title>` / `Body: <path>`
+
+----
+
+### `block-pr-status <blockJsonPath>`
+
+**Purpose:** Read-only PR status monitor for PRs created by `block-pr-create`. Writes a local report. Does NOT mutate the PR.
+
+**Required env:**
+- `ALLOW_GITHUB_PR_STATUS=true`
+- `GITHUB_REPOSITORY` — `owner/repo` format
+
+**Optional env:**
+- `GITHUB_TOKEN` — for private repos or higher rate limits
+- `BLOCK_PR_NUMBER` — override PR number (default reads from `pr-created.json`)
+- `BLOCK_PR_STATUS_OUTPUT` — custom report path
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads `runs/blocks/<block_id>/pr-created.json`
+- Calls GitHub REST API GET `/repos/{owner}/{repo}/pulls/{number}`
+- Calls GitHub REST API GET `/repos/{owner}/{repo}/commits/{ref}/check-runs`
+- Writes `runs/blocks/<block_id>/pr-status-report.md`
+
+**Forbidden actions:**
+- No POST / PATCH / PUT / DELETE
+- No PR creation, update, close, merge
+- No comment, no review approval
+- No push, no checkout/switch, no main touch
+- No provider call
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/pr-status-report.md`
+- Or custom path if `BLOCK_PR_STATUS_OUTPUT` is set and safe
+
+**Normal success message:**
+- `Block: <id>`
+- `PR number: <number>`
+- `PR URL: <url>`
+- `State: open/closed`
+- `Draft: yes/no`
+- `Merged: yes/no`
+- `Base: <base>` / `Head: <head>`
+- `Checks: success/failure/pending/unknown`
+- `Safe for human review: yes/no`
+- `Source mode: github_api` or `mock`
+- `GitHub API verified: yes/no`
+- `Mock used: yes/no`
+- `Report: <path>`
+
+**Mock warning:**
+- `Warning: mock response used; real GitHub API status was not verified by this run` (when `MOCK_GITHUB_PR_STATUS_RESPONSE` is set)
+
+**Safe failure behavior:**
+- Missing allow flags fail safely before GitHub API call
+- Missing token/repository fail safely before GitHub API call
+- PR readiness check fails safely before GitHub API call
+- Duplicate PR protection blocks second creation by default
+- Un-pushed branch fails safely before GitHub API call
+- No stack trace leak
+- No API key leak
+
+----
+
+### `block-pr-cleanup <blockJsonPath>`
+
+**Purpose:** Gated cleanup helper for proof PRs. Can read PR status, optionally close the PR, and optionally delete the proof branch. Dry-run by default.
+
+**Required env:**
+- `ALLOW_BLOCK_PR_CLEANUP=true`
+- `GITHUB_REPOSITORY` — `owner/repo` format
+
+**Optional env:**
+- `GITHUB_TOKEN` — required for real close/delete
+- `ALLOW_GITHUB_PR_CLOSE=true` — required to close PR
+- `ALLOW_GITHUB_BRANCH_DELETE=true` — required to delete branch
+- `BLOCK_PR_NUMBER` — override PR number (default reads from `pr-created.json`)
+- `BLOCK_PR_CLEANUP_DRY_RUN=true/false` — default dry-run
+- `BLOCK_PR_CLEANUP_CLOSE_PR=true/false`
+- `BLOCK_PR_CLEANUP_DELETE_BRANCH=true/false`
+- `BLOCK_PR_CLEANUP_OUTPUT` — custom report path
+
+**Allowed mutation:**
+- Reads block definition JSON and block state
+- Reads `runs/blocks/<block_id>/pr-created.json`
+- Calls GitHub REST API GET `/repos/{owner}/{repo}/pulls/{number}`
+- Calls GitHub REST API PATCH `/repos/{owner}/{repo}/pulls/{number}` (only with `ALLOW_GITHUB_PR_CLOSE=true` and not dry-run)
+- Calls GitHub REST API DELETE `/repos/{owner}/{repo}/git/refs/heads/{head}` (only with `ALLOW_GITHUB_BRANCH_DELETE=true` and not dry-run)
+- Writes `runs/blocks/<block_id>/pr-cleanup-report.md`
+
+**Forbidden actions:**
+- No merge, no auto-merge
+- No push, no checkout/switch, no main touch
+- No provider call
+- No token persisted
+
+**Outputs/files:**
+- `runs/blocks/<block_id>/pr-cleanup-report.md`
+- Or custom path if `BLOCK_PR_CLEANUP_OUTPUT` is set and safe
+
+**Normal success message:**
+- `Block: <id>`
+- `PR number: <number>`
+- `PR URL: <url>`
+- `Dry run: yes/no`
+- `Close PR requested: yes/no`
+- `Delete branch requested: yes/no`
+- `PR closed: yes/no`
+- `Branch deleted: yes/no`
+- `Cleanup safe: yes/no`
+- `Report: <path>`
+- `Blocking issues: <count>`
+- `Safety findings: <count>`
+
+**Safe failure behavior:**
+- Missing allow flags fail safely before GitHub API call
+- Missing token/repository fail safely before GitHub API call
+- Proof branch name validation blocks non-proof branches
+- Base/head mismatch blocks cleanup
+- Merged PR blocks cleanup
+- Head/main branch blocks cleanup
+- **Branch deletion of an open PR is blocked unless the same command also requests PR close**
+- Failed close prevents branch deletion
+- No stack trace leak
+- No API key leak
+
+---
+
+### `block-transition <blockId> <taskId> <transition> [value]`
+
+**Purpose:** Manually apply a state transition.
+
+**Supported transitions:** `in_progress`, `coder_done`, `checks_failed`, `committed`, `pushed`, `waiting_review`, `accepted`, `rejected`, `fix_required`, `blocked`.
+
+**Allowed mutation:**
+- Reads and writes `runs/blocks/<block_id>/block-state.json`
+
+**Forbidden actions:**
+- No provider call
+- No git mutation
+
+---
+
+### `block-run-one <blockJsonPath>`
+
+**Purpose:** Run one task through the full autonomous loop. Executes exactly one coder→reviewer cycle; does not retry internally. The caller (e.g. `block-run`) decides whether to invoke again.
+
+**Required env:**
+- `BLOCK_RUN_ONE_MODE` — `fake` (default), `real_kimi_coder_fake_reviewer`, `real_kimi_coder_kimi_reviewer`
+- `ALLOW_BLOCK_RUN_ONE=true` (for any non-fake mode)
+- `ALLOW_REAL_PROVIDER=true` (for real coder)
+- `ALLOW_REAL_REPO_APPLY=true` (for real file apply)
+- `ALLOW_REAL_REPO_COMMIT=true` (for real commit)
+- `ALLOW_REAL_REPO_PUSH=true` (optional, for real push)
+- `KIMI_API_KEY` (for real Kimi coder — never stored in block JSON)
+- `KIMI_BASE_URL` (optional, for real Kimi coder)
+- `KIMI_USER_AGENT` (optional, for real Kimi coder)
+
+**Allowed mutation:**
+- Fake mode: Calls fake coder + fake reviewer. Simulates checks, commit, evidence. **No real repo mutation.** Only writes block state.
+- `real_kimi_coder_fake_reviewer`: Real Kimi coder → validate → apply → run checks → commit → optional push → fake reviewer (deterministic gate). Requires clean working tree, correct branch, and all allow flags.
+- `real_kimi_coder_kimi_reviewer`: Real Kimi coder → validate → apply → run checks → commit → optional push → real Kimi reviewer (called only after deterministic checks pass). Requires `ALLOW_KIMI_REVIEWER=true`, `REVIEWER_PROVIDER=kimi`, `CODER_PROVIDER=kimi`.
+
+**Forbidden actions:**
+- No merge
+- No checkout/switch
+- No main touch
+- No force push
+- No auto-merge
+- No `git add -A`
+- No `git reset --hard`
+- No real file apply in fake mode
+
+**Normal success message:**
+- `Status: <before> → <after>`
+- `Reviewer decision: accepted`
+- `Next action: advance_to_next_task`
+- `Commit SHA: <fake-40-char-sha>` (fake mode)
+
+**Safe failure behavior:**
+- Guardrails failure → `checks_failed`, no mutation
+- Deterministic severe failure → `blocked`, no AI reviewer call
+- Real mode without flags → fails before provider call
+- No stack trace leak
+- No API key leak
+
+---
+
+## Common Safety Notes
+
+- **None of these commands checkout/switch branch automatically.**
+- **Merge is not implemented.** Human operators must merge manually.
+- **All GitHub API commands require explicit opt-in.**
+- **All real-repo write commands require explicit opt-in.**
+- **`main` is protected by design.** The tool refuses to run if `work_branch` is `main`.

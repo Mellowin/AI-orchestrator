@@ -1,0 +1,37 @@
+{
+  "block_id": "stage-6-7-live-proof",
+  "title": "Stage 6.7 Live Proof - Real Kimi Coder + Real Kimi Reviewer",
+  "repo_path": ".",
+  "base_branch": "main",
+  "work_branch": "feature/mvp-skeleton",
+  "providers": {
+    "coder": {
+      "provider": "kimi",
+      "model": "kimi-k2.6"
+    },
+    "reviewer": {
+      "provider": "kimi",
+      "model": "kimi-k2.6"
+    }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 3,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "stage-6-7-proof-task",
+      "title": "Create Stage 6.7 Live Proof Document",
+      "goal": "Create a markdown file at `docs/live-stage-6-7-proof.md` that documents the successful completion of the Stage 6.7 live proof. The file must start with a heading '# Stage 6.7 Live Proof', include a paragraph stating that this file was created by a real Kimi coder and reviewed by a real Kimi reviewer in autonomous loop mode, include the current date in the format YYYY-MM-DD, and keep the file under 50 lines.",
+      "allowed_files": ["docs/live-stage-6-7-proof.md"],
+      "denied_files": [],
+      "max_lines_changed": 50,
+      "checks": [
+        "node -e \"require('fs').existsSync('docs/live-stage-6-7-proof.md')||process.exit(1)\"",
+        "node -e \"require('fs').readFileSync('docs/live-stage-6-7-proof.md','utf-8').includes('Stage')||process.exit(1)\"",
+        "node -e \"require('fs').readFileSync('docs/live-stage-6-7-proof.md','utf-8').includes('6.7')||process.exit(1)\""
+      ]
+    }
+  ]
+}

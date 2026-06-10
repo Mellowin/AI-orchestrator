@@ -1,0 +1,23 @@
+tasks:
+  - id: test-task
+    title: "Test task for mock-apply-flow"
+    repo_path: "fixtures/repo"
+    base_branch: "main"
+    work_branch: "ai/test-task"
+    goal: "Add a file to test the pipeline."
+    context_files:
+      - "src/index.ts"
+    checks:
+      - command: "npm"
+        args: ["run", "build"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false

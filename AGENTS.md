@@ -37,9 +37,11 @@ AI Orchestrator — автономный Node.js CLI-инструмент (TypeS
 
 ## Что НЕЛЬЗЯ делать
 
-- **Никакого `git push`, `git merge`, работы с `main` напрямую.**
+- **Никакого `git merge`, работы с `main` напрямую.**
+- **Агент автоматически коммитит и пушит** после успешного typecheck/build/test. Не спрашивать разрешение.
 - **Никаких destructive файловых операций:** нет `rm -rf`, нет `fs.rmdir` без проверок.
 - **Никаких `eval`, `new Function`, `child_process.exec` с пользовательскими строками.**
+  - Для git и runner использовать `spawnSync` / `execFileSync` с массивом аргументов.
 - **Не менять логику guardrails:** всегда deny-by-default, всегда проверка до и после.
 - **Не добавлять в MVP:** Web UI, GitHub Actions, auto-push, auto-merge, Telegram/Slack, RAG.
 - **Не писать код вне `src/`** (кроме конфигурационных файлов в корне).
@@ -54,6 +56,54 @@ AI Orchestrator — автономный Node.js CLI-инструмент (TypeS
 4. **Mock-режим:** если пишешь модуль, зависящий от API, сразу добавь mock-версию в `src/mocks/`.
 5. **Типизация:** строгий TypeScript (`strict: true`). Никаких `any` без крайней необходимости и комментария.
 6. **Ошибки:** используй кастомные `Error` с понятными сообщениями. Не глушай ошибки.
+7. **Commit и push:** после прохождения всех тестов делай `git add -A`, `git commit` с описательным сообщением, `git push origin feature/mvp-skeleton`. Указывай полный 40-символьный хеш коммита в отчёте.
+
+---
+
+## Block-based implementation rules
+
+Проект строится **блоками**, каждый из которых дробится на маленькие безопасные задачи. Эти правила описывают, как AI-агент должен работать в таком процессе.
+
+### Scope: только текущая маленькая задача
+
+- Реализуй **только** то, что сейчас задано. Не прыгай вперёд к следующему блоку.
+- Не рефакторь соседние модули без причины. Минимальные изменения.
+- Если задача — документация, не трогай runtime-код. Если задача — код, не трогай документацию, если это не требуется.
+
+### Каждая задача должна быть безопасной
+
+- После каждого изменения проект должен оставаться в рабочем состоянии.
+- **typecheck → build → test** обязательны перед commit.
+- Если CI красный — остановиться и исправить CI перед следующей задачей.
+
+### Тесты — часть задачи
+
+- Каждое изменение runtime-кода должно сопровождаться тестами или обновлением существующих.
+- Не считать задачу выполненной, пока тесты не проходят.
+
+### Отчётность
+
+- Каждый отчёт должен содержать:
+  - Полный 40-символьный хеш commit.
+  - Список изменённых файлов.
+  - Результаты `typecheck`, `build`, `test`.
+  - Статус CI (зелёный/красный).
+  - Состояние рабочей директории (clean / есть изменения).
+
+### Что делать, если задача не прошла проверку
+
+- Не переходить к следующей задаче.
+- Получить конкретный feedback: что именно не так.
+- Сделать **маленький fix-task** с минимальными изменениями.
+- Перепроверить typecheck/build/test/CI.
+
+### Финальная цель
+
+Текущий внешний процесс (Assistant → Kimi → проверка → следующая задача) — это прототип внутреннего цикла AI Orchestrator. Когда инструмент будет готов, команда `npx tsx src/cli.ts run <taskId>` будет выполнять тот же цикл автоматически:
+
+```text
+Kimi Coder → PatchEngine → Guardrails → Runner → OpenAI Reviewer → needs_changes loop → summary.md
+```
 
 ---
 
@@ -75,8 +125,8 @@ AI Orchestrator — автономный Node.js CLI-инструмент (TypeS
 - Ветка: создаём `work_branch` от `base_branch`.
 - Commit: только если `guardrails.auto_commit === true`.
 - Никакого push/merge.
-- Rollback внутри attempt: через backup в `attempt-N/files-before/`, а не через `git reset --soft`.
-- `git restore .` + `git clean -fd` используется только для ensureClean перед стартом.
+- Rollback внутри attempt: через backup в `attempt-N/files-before/` + `patch-manifest.json`, а не через `git reset --soft`.
+- `ensureClean` только **проверяет** статус. Никакого автоматического `git restore .` или `git clean -fd`.
 
 ---
 
@@ -84,13 +134,13 @@ AI Orchestrator — автономный Node.js CLI-инструмент (TypeS
 
 ### Kimi (Coder)
 - Endpoint: `https://api.moonshot.cn/v1` (default) или env `KIMI_BASE_URL`.
-- Model: `kimi-k2.6`.
+- Model: `config.kimiModel` (default: `kimi-k2.6`).
 - Temperature: `0.1`.
 - Парсинг: всегда извлекай JSON из markdown-блока, валидируй по `KimiOutput`.
 - Если parse fail — пиши сырой ответ в `attempt-N/kimi-raw.md` и возвращай ошибку.
 
 ### OpenAI (Reviewer)
-- Model: `gpt-4o` или `gpt-5.5`.
+- Model: `config.openaiReviewModel` (default: `gpt-4o` или `gpt-5.5`).
 - Temperature: `0`.
 - Structured Output: `response_format: { type: 'json_schema', schema: ... }`.
 - Всегда возвращает `ReviewVerdict`.
@@ -130,6 +180,14 @@ ai-orchestrator: {task_id} attempt {N}
 - `ARCHITECTURE.md` — описание модулей, data flow, контракты.
 - `AGENTS.md` — этот файл: правила для AI-агентов.
 - При изменении архитектуры обновляй **оба** файла.
+
+### Правило обновления TESTING_SUMMARY.md
+
+- `Last verified commit` должен указывать на **текущий новый коммит**, а не на предыдущий.
+- Если документы готовятся до того, как хеш коммита известен, используй:
+  `Last verified commit: pending final commit hash`
+- После коммита замени `pending` на реальный 40-символьный хеш.
+- **Никогда** не оставляй предыдущий хеш с пометкой "includes current stage" — это вводит в заблуждение.
 
 ---
 

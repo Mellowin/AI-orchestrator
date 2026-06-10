@@ -1,0 +1,90 @@
+{
+  "block_id": "example-auth-block",
+  "title": "Authentication module block",
+  "repo_path": ".",
+  "base_branch": "feature/mvp-skeleton",
+  "work_branch": "feature/auth-implementation",
+  "providers": {
+    "coder": {
+      "provider": "kimi",
+      "model": "kimi-k2.6"
+    },
+    "reviewer": {
+      "provider": "kimi",
+      "model": "kimi-k2.6"
+    }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 3,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "auth-login",
+      "title": "Implement login endpoint",
+      "goal": "Create a POST /login endpoint that validates credentials and returns a JWT token.",
+      "allowed_files": [
+        "src/auth/login.ts",
+        "src/auth/token.ts",
+        "test/auth/login.test.ts"
+      ],
+      "denied_files": [
+        ".env",
+        ".env.*",
+        "node_modules/**",
+        ".git/**"
+      ],
+      "max_lines_changed": 150,
+      "checks": [
+        "npm run typecheck",
+        "npm run build",
+        "npm test"
+      ]
+    },
+    {
+      "task_id": "auth-logout",
+      "title": "Implement logout endpoint",
+      "goal": "Create a POST /logout endpoint that invalidates the current JWT token.",
+      "allowed_files": [
+        "src/auth/logout.ts",
+        "src/auth/token.ts",
+        "test/auth/logout.test.ts"
+      ],
+      "denied_files": [
+        ".env",
+        ".env.*",
+        "node_modules/**",
+        ".git/**"
+      ],
+      "max_lines_changed": 100,
+      "checks": [
+        "npm run typecheck",
+        "npm run build",
+        "npm test"
+      ]
+    },
+    {
+      "task_id": "auth-middleware",
+      "title": "Add auth middleware",
+      "goal": "Create middleware that validates JWT tokens on protected routes.",
+      "allowed_files": [
+        "src/auth/middleware.ts",
+        "src/auth/token.ts",
+        "test/auth/middleware.test.ts"
+      ],
+      "denied_files": [
+        ".env",
+        ".env.*",
+        "node_modules/**",
+        ".git/**"
+      ],
+      "max_lines_changed": 120,
+      "checks": [
+        "npm run typecheck",
+        "npm run build",
+        "npm test"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "block_id": "live-stage-6-8-safe-multi-task",
+  "title": "Stage 6.8 — Safe Real Multi-Task Kimi→Kimi Block Loop Evidence",
+  "repo_path": ".",
+  "base_branch": "main",
+  "work_branch": "feature/mvp-skeleton",
+  "providers": {
+    "coder": {
+      "provider": "kimi",
+      "model": "kimi-k2.6",
+      "baseUrl": "https://api.kimi.com/coding/v1",
+      "userAgent": "KimiCLI/1.9.0 (kimi-agent-sdk/0.1.8 kimi-code-for-vs-code/0.5.10 0.1.8)"
+    },
+    "reviewer": {
+      "provider": "kimi",
+      "model": "kimi-k2.6",
+      "baseUrl": "https://api.kimi.com/coding/v1",
+      "userAgent": "KimiCLI/1.9.0 (kimi-agent-sdk/0.1.8 kimi-code-for-vs-code/0.5.10 0.1.8)"
+    }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 3,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "stage-6-8-doc-1",
+      "title": "Create Stage 6.8 proof overview document",
+      "goal": "Create a markdown document at docs/stage-6-8-doc-1.md that briefly describes what Stage 6.8 proves: a safe real multi-task loop using Kimi coder and Kimi reviewer with bounded execution (max 3 tasks), no auto-push, explicit allow flags, and doc-only changes.",
+      "allowed_files": ["docs/stage-6-8-doc-1.md"],
+      "denied_files": ["src/**/*", "test/**/*", "package.json", "package-lock.json", "tsconfig.json"],
+      "max_lines_changed": 80,
+      "checks": [
+        "node -e require('fs').existsSync('docs/stage-6-8-doc-1.md')||process.exit(1)",
+        "node -e require('fs').readFileSync('docs/stage-6-8-doc-1.md','utf8').length<50&&process.exit(1)"
+      ]
+    },
+    {
+      "task_id": "stage-6-8-doc-2",
+      "title": "Create Stage 6.8 safety checklist document",
+      "goal": "Create a markdown document at docs/stage-6-8-doc-2.md that lists the safety invariants enforced during the Stage 6.8 live run: maxTasksPerRun <= 3, auto-push disabled, no PR/merge/main/checkout/force-push, provider credentials sourced only from environment variables, no credential strings in logs/state/docs.",
+      "allowed_files": ["docs/stage-6-8-doc-2.md"],
+      "denied_files": ["src/**/*", "test/**/*", "package.json", "package-lock.json", "tsconfig.json"],
+      "max_lines_changed": 80,
+      "checks": [
+        "node -e require('fs').existsSync('docs/stage-6-8-doc-2.md')||process.exit(1)",
+        "node -e require('fs').readFileSync('docs/stage-6-8-doc-2.md','utf8').length<50&&process.exit(1)"
+      ]
+    },
+    {
+      "task_id": "stage-6-8-doc-3",
+      "title": "Create Stage 6.8 loop results document",
+      "goal": "Create a markdown document at docs/stage-6-8-doc-3.md that records the observed behavior of the multi-task loop: per-task status, reviewer decisions, commit SHAs, final block status, and confirmation that no push/merge/PR occurred.",
+      "allowed_files": ["docs/stage-6-8-doc-3.md"],
+      "denied_files": ["src/**/*", "test/**/*", "package.json", "package-lock.json", "tsconfig.json"],
+      "max_lines_changed": 80,
+      "checks": [
+        "node -e require('fs').existsSync('docs/stage-6-8-doc-3.md')||process.exit(1)",
+        "node -e require('fs').readFileSync('docs/stage-6-8-doc-3.md','utf8').length<50&&process.exit(1)"
+      ]
+    }
+  ]
+}

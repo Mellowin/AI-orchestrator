@@ -1,0 +1,231 @@
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve, normalize, relative, isAbsolute } from 'node:path';
+import { tmpdir } from 'node:os';
+import type { BlockDefinition, BlockState } from './block-types.js';
+import { loadBlockState, getBlockRunDir } from './block-state-manager.js';
+import { loadBlockDefinition } from './block-loader.js';
+import { redactReviewerText } from '../reviewer/reviewer-redaction.js';
+import { analyzeBlockForPrReadiness, isPathInside } from './block-approval-report.js';
+
+export interface BlockPrDraftResult {
+  block_id: string;
+  output_dir: string;
+  title_path: string;
+  body_path: string;
+  checklist_path: string;
+  pr_ready: boolean;
+  block_status: string;
+  tasks_total: number;
+  tasks_accepted: number;
+  commits: string[];
+  changed_files: string[];
+  blocking_issues: string[];
+  safety_findings: string[];
+}
+
+export interface GenerateBlockPrDraftInput {
+  blockDefinitionPath: string;
+  outputDir?: string;
+  includeDiffStat?: boolean;
+}
+
+function redactAll(input: string): string {
+  return redactReviewerText(input);
+}
+
+function generateTitle(blockDefinition: BlockDefinition): string {
+  let title = blockDefinition.title || `AI Orchestrator block: ${blockDefinition.block_id}`;
+  title = title.replace(/\n/g, ' ').trim();
+  if (title.length > 100) {
+    title = title.slice(0, 97) + '...';
+  }
+  return redactAll(title);
+}
+
+function generateBody(
+  blockDefinition: BlockDefinition,
+  blockState: BlockState,
+  analysis: ReturnType<typeof analyzeBlockForPrReadiness>
+): string {
+  const { prReady, tasksTotal, tasksAccepted, commits, changedFiles, uniqueBlockingIssues, safetyFindings, diffStat } = analysis;
+
+  const prReadyHeader = prReady
+    ? 'PR-ready for human manual review. Do not merge automatically.'
+    : 'NOT PR-READY — DO NOT OPEN PR YET';
+
+  const taskResultRows = blockState.tasks
+    .map((t) => {
+      const taskDef = blockDefinition.tasks.find((td) => td.task_id === t.task_id);
+      const title = taskDef?.title ?? '—';
+      const commit = t.commit_sha ?? '—';
+      const pushed = t.pushed_ref ?? '—';
+      const decision = t.reviewer_decision ?? '—';
+      return `| ${t.task_id} | ${title} | ${t.status} | ${commit.slice(0, 7)} | ${decision} | ${pushed} |`;
+    })
+    .join('\n');
+
+  const commitList = commits.length > 0
+    ? commits.map((c) => `- \`${c}\``).join('\n')
+    : 'No commits recorded.';
+
+  const changedFileList = changedFiles.length > 0
+    ? changedFiles.map((f) => `- \`${f}\``).join('\n')
+    : 'No changed files detected.';
+
+  const diffSection = diffStat
+    ? `\n\`\`\`\n${diffStat}\n\`\`\`\n`
+    : '';
+
+  const blockingSection = uniqueBlockingIssues.length > 0
+    ? uniqueBlockingIssues.map((i) => `- ${i}`).join('\n')
+    : 'No blocking issues found in block state. Human review is still required.';
+
+  const safetyChecklist = [
+    '- [x] No auto-merge was performed by this draft package.',
+    '- [x] No PR creation was performed by this draft package.',
+    '- [x] No PR update was performed by this draft package.',
+    '- [x] No push was performed by this command.',
+    '- [x] No checkout or branch switch occurred.',
+    '- [x] No main branch touch occurred.',
+    '- [x] No force push was performed.',
+    '- [x] No provider call was made by this draft package.',
+    '- [x] No GitHub API call was made by this draft package.',
+    '- [x] No secrets included in this draft.',
+  ].join('\n');
+
+  const manualNextSteps = `\`\`\`bash\ngit status --short\ngit log --oneline origin/${blockState.base_branch}..${blockState.work_branch}\ngit diff --stat origin/${blockState.base_branch}...${blockState.work_branch}\n\`\`\``;
+
+  return (
+    `# ${prReadyHeader}\n\n` +
+    `## Summary\n\n` +
+    `- **Block ID:** ${blockState.block_id}\n` +
+    `- **Block Title:** ${blockState.title}\n` +
+    `- **Base Branch:** ${blockState.base_branch}\n` +
+    `- **Work Branch:** ${blockState.work_branch}\n` +
+    `- **Block Status:** ${blockState.status}\n` +
+    `- **PR-ready:** ${prReady ? 'yes' : 'no'}\n\n` +
+    `## What Changed\n\n` +
+    `${changedFileList}\n` +
+    `${diffSection}\n` +
+    `## Task Results\n\n` +
+    `| Task ID | Title | Status | Commit SHA | Reviewer Decision | Pushed Ref |\n` +
+    `|---|---|---|---|---|---|\n` +
+    `${taskResultRows}\n\n` +
+    `## Commit Evidence\n\n` +
+    `${commitList}\n\n` +
+    `## Test Evidence\n\n` +
+    `- **Type check:** local report / unknown\n` +
+    `- **Build:** local report / unknown\n` +
+    `- **Tests:** local report / unknown\n` +
+    `- **CI:** not verified by GitHub Actions in this report.\n\n` +
+    `## Safety Checklist\n\n` +
+    `${safetyChecklist}\n\n` +
+    `## Risks / Reviewer Notes\n\n` +
+    `${blockingSection}\n\n` +
+    (safetyFindings.length > 0
+      ? `**Safety findings:**\n${safetyFindings.map((f) => `- ${f}`).join('\n')}\n\n`
+      : '') +
+    `## Manual Next Steps\n\n` +
+    `${manualNextSteps}\n\n` +
+    `---\n` +
+    `*This PR body was generated by the PR draft package. PR creation, if performed, is handled only by the separate explicitly gated \`block-pr-create\` command.*\n`
+  );
+}
+
+function generateChecklist(
+  _blockDefinition: BlockDefinition,
+  blockState: BlockState,
+  analysis: ReturnType<typeof analyzeBlockForPrReadiness>
+): string {
+  const items = [
+    '* [ ] Confirm current branch is work branch',
+    '* [ ] Confirm working tree is clean',
+    '* [ ] Review `pr-body.md`',
+    '* [ ] Review changed files',
+    '* [ ] Review commit evidence',
+    '* [ ] Confirm no secrets in diff',
+    '* [ ] Confirm tests were run locally',
+    '* [ ] Confirm CI status if available',
+    '* [ ] Open PR manually if acceptable',
+    '* [ ] Do not merge without human review',
+    '* [ ] Do not auto-merge',
+    '* [ ] Do not push forcefully',
+    '* [ ] Do not touch main directly',
+  ];
+
+  const header = `# Manual PR Checklist for ${blockState.block_id}\n\n`;
+  const findings = analysis.safetyFindings.length > 0
+    ? `## Safety Findings\n\n${analysis.safetyFindings.map((f) => `- ${f}`).join('\n')}\n\n`
+    : '';
+
+  return header + findings + items.join('\n') + '\n';
+}
+
+export function generateBlockPrDraft(input: GenerateBlockPrDraftInput): BlockPrDraftResult {
+  const blockDefinition = loadBlockDefinition(input.blockDefinitionPath);
+  const blockId = blockDefinition.block_id;
+
+  const blockState = loadBlockState(blockId);
+  if (!blockState) {
+    throw new Error(`Block state not found: ${blockId}`);
+  }
+
+  const analysis = analyzeBlockForPrReadiness(blockDefinition, blockState, input.includeDiffStat ?? false);
+
+  const runDir = getBlockRunDir(blockId);
+  const outputDir = input.outputDir ?? join(runDir, 'pr-draft');
+
+  // Validate output directory safety
+  const resolvedOutputDir = resolve(normalize(outputDir));
+  const cwdResolved = resolve(normalize(process.cwd()));
+  const runsDirResolved = resolve(normalize(join(process.cwd(), 'runs')));
+  const tmpDirResolved = resolve(normalize(tmpdir()));
+  const allowedBases = [runsDirResolved, cwdResolved, tmpDirResolved];
+  const isAllowed = allowedBases.some(
+    (base) => isPathInside(base, resolvedOutputDir) || resolve(base) === resolve(resolvedOutputDir)
+  );
+  if (!isAllowed) {
+    throw new Error('Output directory is outside allowed directory');
+  }
+
+  if (!existsSync(outputDir)) {
+    mkdirSync(outputDir, { recursive: true });
+  }
+
+  const titlePath = join(outputDir, 'pr-title.txt');
+  const bodyPath = join(outputDir, 'pr-body.md');
+  const checklistPath = join(outputDir, 'manual-pr-checklist.md');
+
+  const title = generateTitle(blockDefinition);
+  const body = generateBody(blockDefinition, blockState, analysis);
+  const checklist = generateChecklist(blockDefinition, blockState, analysis);
+
+  const redactedTitle = redactAll(title);
+  const redactedBody = redactAll(body);
+  const redactedChecklist = redactAll(checklist);
+
+  let extraSafetyFindings = [...analysis.safetyFindings];
+  if (redactedTitle !== title || redactedBody !== body || redactedChecklist !== checklist) {
+    extraSafetyFindings.push('Possible secret was redacted from PR draft package');
+  }
+
+  writeFileSync(titlePath, redactedTitle, 'utf-8');
+  writeFileSync(bodyPath, redactedBody, 'utf-8');
+  writeFileSync(checklistPath, redactedChecklist, 'utf-8');
+
+  return {
+    block_id: blockId,
+    output_dir: outputDir,
+    title_path: titlePath,
+    body_path: bodyPath,
+    checklist_path: checklistPath,
+    pr_ready: analysis.prReady,
+    block_status: blockState.status,
+    tasks_total: analysis.tasksTotal,
+    tasks_accepted: analysis.tasksAccepted,
+    commits: analysis.commits,
+    changed_files: analysis.changedFiles,
+    blocking_issues: analysis.uniqueBlockingIssues,
+    safety_findings: extraSafetyFindings,
+  };
+}

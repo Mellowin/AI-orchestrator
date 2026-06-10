@@ -1,0 +1,29 @@
+{
+  "block_id": "stage-6-15-fix-loop-live-proof",
+  "title": "Stage 6.15 Real Kimi Fix Loop Live Proof",
+  "repo_path": ".",
+  "base_branch": "feature/mvp-skeleton",
+  "work_branch": "feature/mvp-skeleton",
+  "providers": {
+    "coder": { "provider": "kimi", "model": "kimi-k2.6" },
+    "reviewer": { "provider": "kimi", "model": "kimi-k2.6" }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 3,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "doc-1",
+      "title": "Create Stage 6.15 fix-loop proof document",
+      "goal": "Create a markdown file at docs/live-stage-6-15-proof.md with this exact content (preserve newlines): Stage 6.15\\n\\nFIX_LOOP_PROOF\\nFINAL_ACCEPTED\\nKIMI_CODER\\nKIMI_REVIEWER\\n\\n## Fix Loop Evidence\\n\\nAutonomous fix loop proof. Return JSON: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-15-proof.md\",\"content\":\"Stage 6.15\\n\\nFIX_LOOP_PROOF\\nFINAL_ACCEPTED\\nKIMI_CODER\\nKIMI_REVIEWER\\n\\n## Fix Loop Evidence\\n\\nAutonomous fix loop proof.\"}],\"notes\":\"proof\"}.",
+      "allowed_files": ["docs/live-stage-6-15-proof.md"],
+      "denied_files": [],
+      "max_lines_changed": 80,
+      "checks": [
+        "node checks/stage-6-15-verify.mjs"
+      ]
+    }
+  ]
+}

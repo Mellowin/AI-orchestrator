@@ -1,0 +1,35 @@
+{
+  "block_id": "stage-6-11-pr-create-proof",
+  "title": "Stage 6.11 PR Create Proof",
+  "repo_path": "D:/AI orchestrator",
+  "base_branch": "feature/mvp-skeleton",
+  "work_branch": "stage-6-11-pr-create-proof",
+  "providers": {
+    "coder": {
+      "provider": "fake",
+      "model": "default"
+    },
+    "reviewer": {
+      "provider": "fake",
+      "model": "default"
+    }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 2,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "doc-1",
+      "title": "Add Stage 6.11 PR create proof file",
+      "goal": "Add proof file",
+      "allowed_files": [
+        "docs/stage-6-11-pr-create-proof.md"
+      ],
+      "denied_files": [],
+      "max_lines_changed": 100,
+      "checks": []
+    }
+  ]
+}

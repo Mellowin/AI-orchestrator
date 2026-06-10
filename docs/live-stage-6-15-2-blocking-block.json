@@ -1,0 +1,27 @@
+{
+  "block_id": "stage-6-15-2-max-fix-blocking-proof",
+  "title": "Stage 6.15.2 Max Fix Attempts Exhaustion Proof",
+  "repo_path": ".",
+  "base_branch": "feature/mvp-skeleton",
+  "work_branch": "feature/mvp-skeleton",
+  "providers": {
+    "coder": { "provider": "fake", "model": "fake-model" },
+    "reviewer": { "provider": "fake", "model": "fake-model" }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 2,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "doc-1",
+      "title": "Create Stage 6.15.2 max-fix blocking proof document",
+      "goal": "Create docs/live-stage-6-15-2-blocking-proof.md. This is a deterministic proof that max_fix_attempts exhaustion blocks the task.",
+      "allowed_files": ["docs/live-stage-6-15-2-blocking-proof.md"],
+      "denied_files": [],
+      "max_lines_changed": 50,
+      "checks": ["node checks/stage-6-15-2-blocking-verify.mjs"]
+    }
+  ]
+}

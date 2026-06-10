@@ -1,0 +1,27 @@
+{
+  "block_id": "stage-6-15-1-fix-loop-trigger-proof",
+  "title": "Stage 6.15.1 Real Kimi Fix Loop Trigger Proof",
+  "repo_path": ".",
+  "base_branch": "feature/mvp-skeleton",
+  "work_branch": "feature/mvp-skeleton",
+  "providers": {
+    "coder": { "provider": "kimi", "model": "kimi-k2.6" },
+    "reviewer": { "provider": "kimi", "model": "kimi-k2.6" }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 2,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "doc-1",
+      "title": "Create Stage 6.15.1 deterministic fix-loop proof document",
+      "goal": "Create docs/live-stage-6-15-1-proof.md. Return ONLY a JSON object (no markdown, no explanation) with this exact shape: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-15-1-proof.md\",\"content\":\"# Stage 6.15.1...\"}],\"notes\":\"\"}. The file must contain markers: Stage 6.15.1, FIX_LOOP_TRIGGERED, KIMI_CODER, KIMI_REVIEWER, FINAL_ACCEPTED, and heading ## Fix Loop Evidence. Important: on the FIRST attempt, do NOT include the marker SECOND_ATTEMPT_FIX. Only add SECOND_ATTEMPT_FIX if a check or previous attempt indicates it is missing. If SECOND_ATTEMPT_FIX is added in response to check feedback, the file is correct. This intentionally proves the autonomous fix loop.",
+      "allowed_files": ["docs/live-stage-6-15-1-proof.md"],
+      "denied_files": [],
+      "max_lines_changed": 100,
+      "checks": ["node checks/stage-6-15-1-verify.mjs"]
+    }
+  ]
+}
