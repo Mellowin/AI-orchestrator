@@ -1250,6 +1250,20 @@ Properties:
 - Updated: `README.md`, `PHASE4_PLAN.md`, `TESTING_SUMMARY.md`.
 - Purpose: provide a ready-to-review package for human decision before any PR is opened.
 
+**Stage 6.20 — Automated Draft PR Submission Flow ✅**
+
+- Implemented `src/block/block-pr-submit.ts` — orchestrates approval report → PR draft → draft PR creation → optional PR status check.
+- Added `block-pr-submit <blockJsonPath>` CLI command in `src/cli.ts`.
+- Dry-run by default; real mode requires explicit `BLOCK_PR_SUBMIT_DRY_RUN=false` plus all `block-pr-create` gates.
+- Reuses existing helpers (`generateBlockApprovalReport`, `generateBlockPrDraft`, `createBlockPullRequest`, `getBlockPrStatus`).
+- Rejects `main`/`master` work branch.
+- Validates block is completed and PR-ready before submission.
+- Writes `runs/blocks/<block_id>/pr-submit/pr-submit-report.md`.
+- Redacts tokens from all outputs.
+- Tests: 18 new tests (10 unit + 8 CLI). Total suite: 1757 tests, 104 suites, 0 failures.
+- Evidence: `docs/STAGE6_20_AUTOMATED_DRAFT_PR_SUBMISSION.md`.
+- No real GitHub API call performed; fake-fetch proof only.
+
 ### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules
@@ -1304,4 +1318,5 @@ Properties:
 | Phase 4 Stage 6.17 operator-ready runbook and demo package | ✅ |
 | Phase 4 Stage 6.18 mini-MVP release candidate audit | ✅ |
 | Phase 4 Stage 6.19 final human review / manual PR package | ✅ |
+| Phase 4 Stage 6.20 automated draft PR submission flow | ✅ |
 | Opt-in flags defined | Confirmed |

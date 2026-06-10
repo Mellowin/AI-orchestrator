@@ -2412,7 +2412,7 @@ if (command === 'real-repo-pr-status') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-cleanup> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-cleanup|block-pr-submit> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }
@@ -4409,6 +4409,58 @@ if (command === 'block-pr-status') {
     console.error('[block-pr-status] No checkout was performed');
     console.error('[block-pr-status] No main touch was performed');
     console.error('[block-pr-status] No provider call was made');
+    process.exit(1);
+  }
+}
+
+if (command === 'block-pr-submit') {
+  try {
+    const blockJsonPath = taskId;
+    if (!blockJsonPath) {
+      console.error('[block-pr-submit] Error: block JSON path is required');
+      process.exit(1);
+    }
+
+    const { submitBlockPr } = await import('./block/block-pr-submit.js');
+    const result = await submitBlockPr({
+      blockDefinitionPath: blockJsonPath,
+    });
+
+    console.log(`[block-pr-submit] Block: ${result.block_id}`);
+    console.log(`[block-pr-submit] Dry run: ${result.dry_run ? 'yes' : 'no'}`);
+    console.log(`[block-pr-submit] PR-ready: ${result.dry_run ? 'validated' : result.pr_created ? 'yes' : 'no'}`);
+    if (!result.dry_run) {
+      console.log(`[block-pr-submit] PR created: ${result.pr_created ? 'yes' : 'no'}`);
+      if (result.pr_number) {
+        console.log(`[block-pr-submit] PR number: ${result.pr_number}`);
+        console.log(`[block-pr-submit] PR URL: ${result.pr_url}`);
+      }
+    }
+    console.log(`[block-pr-submit] Approval report: ${result.approval_report_path}`);
+    console.log(`[block-pr-submit] Draft dir: ${result.draft_dir}`);
+    console.log(`[block-pr-submit] Report: ${result.output_path}`);
+    if (result.pr_status_checked) {
+      console.log(`[block-pr-submit] PR status checked: yes (${result.pr_status_source_mode ?? 'unknown'})`);
+    }
+    if (result.safety_findings.length > 0) {
+      console.log(`[block-pr-submit] Safety findings: ${result.safety_findings.join('; ')}`);
+    }
+    console.log('[block-pr-submit] No merge was performed');
+    console.log('[block-pr-submit] No auto-merge was performed');
+    console.log('[block-pr-submit] No push was performed');
+    console.log('[block-pr-submit] No checkout was performed');
+    console.log('[block-pr-submit] No main touch was performed');
+    console.log('[block-pr-submit] No provider call was made');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[block-pr-submit] Error: ${message}`);
+    console.error('[block-pr-submit] No merge was performed');
+    console.error('[block-pr-submit] No auto-merge was performed');
+    console.error('[block-pr-submit] No push was performed');
+    console.error('[block-pr-submit] No checkout was performed');
+    console.error('[block-pr-submit] No main touch was performed');
+    console.error('[block-pr-submit] No provider call was made');
     process.exit(1);
   }
 }

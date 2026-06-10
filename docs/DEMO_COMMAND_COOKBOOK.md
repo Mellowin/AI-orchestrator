@@ -138,6 +138,44 @@ npx tsx src/cli.ts block-pr-status docs/<block>.json
 
 ---
 
+## 9. Automated draft PR submission
+
+One-shot safe finalization command that orchestrates approval report → PR draft → draft PR creation → PR status check.
+
+### Dry-run (default)
+
+```bash
+ALLOW_BLOCK_PR_SUBMIT=true \
+BLOCK_PR_SUBMIT_DRY_RUN=true \
+GITHUB_REPOSITORY=Mellowin/AI-orchestrator \
+npx tsx src/cli.ts block-pr-submit docs/<block>.json
+```
+
+- Generates approval report and PR draft package.
+- Validates that real PR creation would be allowed.
+- Does **not** call GitHub API.
+- Safe to run anytime.
+
+### Real draft PR creation
+
+```bash
+ALLOW_BLOCK_PR_SUBMIT=true \
+ALLOW_BLOCK_PR_CREATE=true \
+ALLOW_GITHUB_PR_CREATE=true \
+BLOCK_PR_SUBMIT_DRY_RUN=false \
+GITHUB_TOKEN=<env only> \
+GITHUB_REPOSITORY=Mellowin/AI-orchestrator \
+npx tsx src/cli.ts block-pr-submit docs/<block>.json
+```
+
+- Creates draft PR only.
+- No merge.
+- No automatic `main` change.
+- No provider call.
+- Delete/revoke temporary GitHub token after use.
+
+---
+
 ## 8. PR cleanup
 
 Clean up a proof PR (close PR, optionally delete branch).
@@ -171,3 +209,5 @@ npx tsx src/cli.ts block-pr-cleanup docs/<block>.json
 | `CODER_PROVIDER` | Select coder | `kimi` |
 | `REVIEWER_PROVIDER` | Select reviewer | `kimi` |
 | `BLOCK_RUN_MODE` | Select block run mode | `fake` / `real_kimi_coder_fake_reviewer` / `real_kimi_coder_kimi_reviewer` |
+| `ALLOW_BLOCK_PR_SUBMIT` | Automated draft PR submission | `true` |
+| `BLOCK_PR_SUBMIT_DRY_RUN` | Dry-run mode for PR submit | `true` (default) / `false` |

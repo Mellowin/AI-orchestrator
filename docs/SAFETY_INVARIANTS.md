@@ -56,7 +56,7 @@ This document lists the hard safety invariants enforced by the AI Orchestrator. 
 | # | Invariant | Enforcement |
 |---|---|---|
 | 20 | Push requires explicit flag | `ALLOW_REAL_REPO_PUSH=true` required |
-| 21 | PR creation is separate opt-in helper | `block-pr-create` is a standalone command, not part of `block-run` |
+| 21 | PR creation is separate opt-in helper | `block-pr-create` is a standalone command, not part of `block-run`; `block-pr-submit` orchestrates helpers but does not bypass gates |
 | 22 | GitHub API not used by `block-run` | `block-run` never calls GitHub |
 | 23 | PR helper is draft-only by default | `block-pr-create` creates draft PRs unless explicitly changed |
 | 24 | No token persistence | API keys live in env only; never written to state, logs, or commit messages |
@@ -65,7 +65,7 @@ This document lists the hard safety invariants enforced by the AI Orchestrator. 
 
 ## Verification
 
-These invariants are covered by the test suite (1739 tests / 102 suites / 0 failures) and by live proofs documented in:
+These invariants are covered by the test suite (1757 tests / 104 suites / 0 failures) and by live proofs documented in:
 
 - [`STAGE6_16_REAL_MULTITASK_BLOCK_PROOF.md`](STAGE6_16_REAL_MULTITASK_BLOCK_PROOF.md)
 - [`STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md`](STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md)

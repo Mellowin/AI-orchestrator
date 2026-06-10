@@ -123,8 +123,30 @@ The block stops. Human must inspect `block-state.json`, diff, and evidence befor
 
 ---
 
+## Automated PR submission
+
+After a block is `completed` and PR-ready, you can use the automated submission command:
+
+```bash
+ALLOW_BLOCK_PR_SUBMIT=true \
+BLOCK_PR_SUBMIT_DRY_RUN=true \
+GITHUB_REPOSITORY=Mellowin/AI-orchestrator \
+npx tsx src/cli.ts block-pr-submit docs/<block>.json
+```
+
+This command orchestrates:
+1. Approval report generation
+2. PR draft package generation
+3. PR create validation (dry-run) or actual draft PR creation (real mode)
+4. Optional PR status check
+
+It is dry-run by default. Real mode requires explicit `BLOCK_PR_SUBMIT_DRY_RUN=false` plus all `block-pr-create` gates.
+
+---
+
 ## See also
 
 - [`DEMO_COMMAND_COOKBOOK.md`](DEMO_COMMAND_COOKBOOK.md) — exact commands for each mode
 - [`SAFETY_INVARIANTS.md`](SAFETY_INVARIANTS.md) — hard invariants enforced by the system
 - [`MINI_MVP_DEMO_PACKAGE.md`](MINI_MVP_DEMO_PACKAGE.md) — what is proven, what is not, known limitations
+- [`STAGE6_20_AUTOMATED_DRAFT_PR_SUBMISSION.md`](STAGE6_20_AUTOMATED_DRAFT_PR_SUBMISSION.md) — Stage 6.20 implementation evidence
