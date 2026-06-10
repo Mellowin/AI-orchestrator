@@ -17,8 +17,8 @@
     {
       "task_id": "doc-1",
       "title": "Create first multi-task proof document",
-      "goal": "Create docs/live-stage-6-16-task-1.md. Return ONLY a JSON object (no markdown, no explanation) with this exact shape: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-16-task-1.md\",\"content\":\"# Stage 6.16...\"}],\"notes\":\"\"}. The file must contain markers: Stage 6.16, TASK_1_ACCEPTED, KIMI_CODER, KIMI_REVIEWER.",
-      "allowed_files": ["docs/live-stage-6-16-task-1.md"],
+      "goal": "Create docs/live-stage-6-16-doc1.md. Return ONLY a JSON object (no markdown, no explanation) with this exact shape: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-16-doc1.md\",\"content\":\"# Stage 6.16...\"}],\"notes\":\"\"}. The file must contain markers: Stage 6.16, TASK_1_ACCEPTED, KIMI_CODER, KIMI_REVIEWER.",
+      "allowed_files": ["docs/live-stage-6-16-doc1.md"],
       "denied_files": [],
       "max_lines_changed": 80,
       "checks": []
@@ -26,8 +26,8 @@
     {
       "task_id": "doc-2",
       "title": "Create second proof document with deterministic fix-loop",
-      "goal": "Create docs/live-stage-6-16-task-2.md. Return ONLY a JSON object (no markdown, no explanation) with this exact shape: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-16-task-2.md\",\"content\":\"# Stage 6.16...\"}],\"notes\":\"\"}. The file must contain markers: Stage 6.16, TASK_2_FIX_LOOP, KIMI_CODER, KIMI_REVIEWER, FINAL_ACCEPTED, and heading ## Fix Evidence. Important: on the initial attempt, do NOT include TASK_2_FIX_MARKER. Only add TASK_2_FIX_MARKER if a check or previous attempt indicates it is missing. If TASK_2_FIX_MARKER is added in response to check feedback, the file is correct.",
-      "allowed_files": ["docs/live-stage-6-16-task-2.md"],
+      "goal": "Create docs/live-stage-6-16-doc2.md. Return ONLY a JSON object (no markdown, no explanation) with this exact shape: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-16-doc2.md\",\"content\":\"# Stage 6.16...\"}],\"notes\":\"\"}. The file must contain markers: Stage 6.16, TASK_2_FIX_LOOP, KIMI_CODER, KIMI_REVIEWER, FINAL_ACCEPTED, and heading ## Fix Evidence. Important: on the initial attempt, do NOT include TASK_2_FIX_MARKER. Only add TASK_2_FIX_MARKER if a check or previous attempt indicates it is missing. If TASK_2_FIX_MARKER is added in response to check feedback, the file is correct.",
+      "allowed_files": ["docs/live-stage-6-16-doc2.md"],
       "denied_files": [],
       "max_lines_changed": 100,
       "checks": ["node checks/stage-6-16-task-2-verify.mjs"]
@@ -35,8 +35,8 @@
     {
       "task_id": "doc-3",
       "title": "Create third multi-task proof document",
-      "goal": "Create docs/live-stage-6-16-task-3.md. Return ONLY a JSON object (no markdown, no explanation) with this exact shape: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-16-task-3.md\",\"content\":\"# Stage 6.16...\"}],\"notes\":\"\"}. The file must contain markers: Stage 6.16, TASK_3_ACCEPTED, BLOCK_COMPLETED, KIMI_CODER, KIMI_REVIEWER.",
-      "allowed_files": ["docs/live-stage-6-16-task-3.md"],
+      "goal": "Create docs/live-stage-6-16-doc3.md. Return ONLY a JSON object (no markdown, no explanation) with this exact shape: {\"mode\":\"file_update\",\"files\":[{\"path\":\"docs/live-stage-6-16-doc3.md\",\"content\":\"# Stage 6.16...\"}],\"notes\":\"\"}. The file must contain markers: Stage 6.16, TASK_3_ACCEPTED, BLOCK_COMPLETED, KIMI_CODER, KIMI_REVIEWER.",
+      "allowed_files": ["docs/live-stage-6-16-doc3.md"],
       "denied_files": [],
       "max_lines_changed": 80,
       "checks": []

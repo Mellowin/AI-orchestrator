@@ -2,7 +2,7 @@ import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-const filePath = 'docs/live-stage-6-16-task-2.md';
+const filePath = 'docs/live-stage-6-16-doc2.md';
 const statePath = join(tmpdir(), 'stage-6-16-task-2-state.txt');
 
 if (!existsSync(filePath)) {
