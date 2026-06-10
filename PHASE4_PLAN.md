@@ -1319,6 +1319,14 @@ Properties:
 - No merge, no auto-merge, no PR metadata update. Cleanup explicitly gated with `ALLOW_GITHUB_PR_CLOSE` and `ALLOW_GITHUB_BRANCH_DELETE`.
 - Evidence: `docs/STAGE6_25_PROOF_PR_CLEANUP.md`.
 
+**Stage 6.26 — Create Clean Final Draft PR to Main ✅**
+
+- Created clean final draft PR #4 from `feature/mvp-skeleton` to `main` for real merge review.
+- PR #4 is draft, not merged, not marked ready automatically.
+- Title and body from `docs/MANUAL_PR_BODY.md` reflecting current mini-MVP state.
+- GitHub CI verified successful on PR HEAD.
+- Evidence: `docs/STAGE6_26_FINAL_DRAFT_PR.md`.
+
 ### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules

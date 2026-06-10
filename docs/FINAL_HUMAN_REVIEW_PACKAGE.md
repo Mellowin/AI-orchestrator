@@ -1,7 +1,7 @@
 # Mini-MVP Final Human Review Package
 
 **Branch:** `feature/mvp-skeleton`
-**Final accepted head:** `c053e7091319c974bfe6f712c1333478f987d733`
+**Final accepted head:** `8cab4a10fd41ae402c8286fa8d9a1dbc5ec8bea8`
 
 ---
 
@@ -23,6 +23,11 @@ The orchestrator never merges, never pushes unless explicitly allowed, and never
 | Autonomous fix-loop works | Stage 6.15.2, 6.16 — verifier-driven fix loops with retry bounds |
 | Real multi-task block works | Stage 6.16 — 3 tasks executed sequentially in one block run |
 | Local commits work | Stage 6.16 — commits created, push disabled by default |
+| PR draft package | Stage 6.9––6.10 – PR title, body, checklist generation
+| Automated draft PR creation | Stage 6.21 – real automated draft PR submission proof
+| PR readiness gate | Stage 6.23 – PR status + CI checks before mark-ready
+| PR cleanup helper | Stage 6.13, 6.25 – close + delete proof PRs safely
+| GitHub CI workflow | Stage 6.22 – typecheck/build/test on PR/push
 | PR helper/status/cleanup exist | Stage 6.9–6.13 — draft, create, status, cleanup helpers (opt-in only) |
 | Operator docs/package exist | Stage 6.17 — runbook, demo package, command cookbook, safety invariants |
 | Release-candidate audit passed | Stage 6.18 — internal consistency, safety, and demo-readiness verified |
@@ -113,7 +118,7 @@ See [`docs/DEMO_COMMAND_COOKBOOK.md`](DEMO_COMMAND_COOKBOOK.md) for the full com
 
 ## Known limitations
 
-- **GitHub CI not verified** — workflow runs are empty; local tests only.
+- **GitHub CI verified successful — Mini-MVP CI run 27306283119 completed with success on 8cab4a10fd41ae402c8286fa8d9a1dbc5ec8bea8** — 
 - **Current demos are doc/check based** — the tool edits markdown and runs node verifiers; complex TypeScript refactors are demoed via tests, not live autonomous runs.
 - **Real provider behavior can vary** — API latency, quota, and output quality depend on the provider account.
 - **Check design matters** — a poorly written verifier can cause infinite fix loops or false blocks.
@@ -130,5 +135,5 @@ See [`docs/DEMO_COMMAND_COOKBOOK.md`](DEMO_COMMAND_COOKBOOK.md) for the full com
 - [ ] Verify no raw secrets in `README.md`, `docs/*.md`, `TESTING_SUMMARY.md`, `PHASE4_PLAN.md`.
 - [ ] Confirm `ALLOW_REAL_REPO_PUSH=false` in demo commands.
 - [ ] Confirm no automatic merge language exists in docs.
-- [ ] Confirm GitHub CI is described as "not verified / no workflow runs".
+- [ ] Confirm GitHub CI is described as verified successful.
 - [ ] Confirm no source code or test changes were made in this stage.

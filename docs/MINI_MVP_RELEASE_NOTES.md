@@ -13,9 +13,9 @@
 - Bounded fix-loop with `max_fix_attempts` and global attempt cap
 - Multi-task sequential execution with state persistence
 - Local commits only; push is disabled by default
-- Separate opt-in PR helpers (draft, create, status, cleanup)
+- Separate opt-in PR helpers (draft, create, status, cleanup, readiness)
 - Comprehensive operator documentation and evidence package
-- 1739 tests / 102 suites / 0 failures
+- 1783 tests / 106 suites / 0 failures
 
 ---
 
