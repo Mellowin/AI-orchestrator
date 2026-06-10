@@ -1233,6 +1233,23 @@ Properties:
 - Updated: `README.md`, `PHASE4_PLAN.md`, `TESTING_SUMMARY.md`.
 - Purpose: package proven MVP so operators can run and verify without prior knowledge.
 
+**Stage 6.18 — Mini-MVP Release Candidate Audit ✅**
+
+- Documentation-only stage. No source/test changes.
+- Verified no placeholders remain.
+- Verified no raw secrets in docs.
+- Verified command cookbook safety.
+- Verified stage hashes and proof claims.
+- Audit status: **PASS**.
+- Evidence: `docs/STAGE6_18_RELEASE_CANDIDATE_AUDIT.md`.
+
+**Stage 6.19 — Final Human Review / Manual PR Package ✅**
+
+- Documentation-only stage. No source/test changes.
+- Created: `docs/FINAL_HUMAN_REVIEW_PACKAGE.md`, `docs/MANUAL_PR_BODY.md`, `docs/MINI_MVP_RELEASE_NOTES.md`.
+- Updated: `README.md`, `PHASE4_PLAN.md`, `TESTING_SUMMARY.md`.
+- Purpose: provide a ready-to-review package for human decision before any PR is opened.
+
 ### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules
@@ -1285,4 +1302,6 @@ Properties:
 | Phase 4 Stage 6.15.2 full multi-scenario fix-loop matrix proof | ✅ |
 | Phase 4 Stage 6.16 real Kimi multi-task block with one fix loop | ✅ |
 | Phase 4 Stage 6.17 operator-ready runbook and demo package | ✅ |
+| Phase 4 Stage 6.18 mini-MVP release candidate audit | ✅ |
+| Phase 4 Stage 6.19 final human review / manual PR package | ✅ |
 | Opt-in flags defined | Confirmed |

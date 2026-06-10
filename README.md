@@ -54,6 +54,9 @@ The autonomous block execution pipeline is proven and documented:
 - [Demo Command Cookbook](docs/DEMO_COMMAND_COOKBOOK.md) — exact commands for fake, real coder, real reviewer runs
 - [Mini-MVP Demo Package](docs/MINI_MVP_DEMO_PACKAGE.md) — what is proven, what is not claimed, known limitations
 - [Safety Invariants](docs/SAFETY_INVARIANTS.md) — hard design-level guarantees
+- [Final Human Review Package](docs/FINAL_HUMAN_REVIEW_PACKAGE.md) — reviewer checklist, evidence links, known limitations
+- [Manual PR Body](docs/MANUAL_PR_BODY.md) — ready-to-copy PR body for human review
+- [Mini-MVP Release Notes](docs/MINI_MVP_RELEASE_NOTES.md) — stage highlights, safety notes, next candidates
 - [Stage 6.16 Proof](docs/STAGE6_16_REAL_MULTITASK_BLOCK_PROOF.md) — real Kimi multi-task block with fix loop
 - [Stage 6.15.2 Proof](docs/STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md) — multi-scenario fix-loop matrix
 - [MVP Final Report](MVP_FINAL_REPORT.md) — current status, demo proof, known limitations
