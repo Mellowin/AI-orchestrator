@@ -2,7 +2,7 @@
 
 **Branch:** `feature/mvp-skeleton`
 
-**Last verified:** `pending final commit hash`
+**Last verified:** `41c296497a11ff5ef16d78d4a7ac7ec2cb3dc0cc`
 
 ## Test metrics
 
@@ -55,7 +55,7 @@
 | Stage 6.17 | Operator-Ready Runbook and Demo Package | `e22b11ce1f5bc5f3ddbe21af1de57db6309150d3` |
 | Stage 6.18 | Mini-MVP Release Candidate Audit | `cd10d4a134f4bc30b5f6d8b01da3e53a6fcc7e19` |
 | Stage 6.19 | Final Human Review / Manual PR Package | `8f467e21f03218dc8a1ce26d45182f429f58df0d` |
-| Stage 6.20 | Automated Draft PR Submission Flow | `pending final commit hash` |
+| Stage 6.20 | Automated Draft PR Submission Flow | `41c296497a11ff5ef16d78d4a7ac7ec2cb3dc0cc` |
 
 ## Covered layers
 
