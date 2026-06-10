@@ -156,6 +156,27 @@ npx tsx src/cli.ts block-pr-submit docs/<block>.json
 - Does **not** call GitHub API.
 - Safe to run anytime.
 
+## 10. CI verification
+
+The project has a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs automatically on PRs and pushes to key branches.
+
+### What CI runs
+
+- TypeScript type check (`npm run typecheck`)
+- Build (`npm run build`)
+- Tests (`npm test`)
+
+### How to check CI status
+
+1. Open the repository on GitHub.
+2. Go to the **Actions** tab.
+3. Look for **"Mini-MVP CI"** workflow runs.
+4. Click a run to see step-by-step logs.
+
+> **Note:** GitHub CI workflow added; CI pass not yet verified until workflow run completes.
+
+---
+
 ### Real draft PR creation
 
 ```bash

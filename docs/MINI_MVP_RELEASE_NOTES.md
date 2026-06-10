@@ -44,6 +44,14 @@
 - Updated README, PHASE4_PLAN, and TESTING_SUMMARY.
 - Purpose: package proven MVP so operators can run and verify without prior knowledge.
 
+### Stage 6.22 — GitHub CI Workflow for Mini-MVP Checks
+
+- Added `.github/workflows/ci.yml` with automated typecheck, build, and test on PR/push.
+- Runs on `ubuntu-latest` with Node.js 20.
+- No secrets, no provider calls, no merge/deployment actions.
+- Evidence: `docs/STAGE6_22_GITHUB_CI_WORKFLOW.md`.
+- **Status:** Workflow added; CI pass pending first successful run.
+
 ### Stage 6.18 — Mini-MVP Release Candidate Audit
 
 - Final release-candidate audit of documentation and evidence package.

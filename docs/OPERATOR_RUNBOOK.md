@@ -101,6 +101,18 @@ The block stops. Human must inspect `block-state.json`, diff, and evidence befor
 
 ---
 
+## CI status
+
+The repository includes a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs `typecheck`, `build`, and `test` on every PR and push to `feature/mvp-skeleton`.
+
+- Open **Actions** tab on GitHub to see workflow runs.
+- The workflow is read-only — it does not push, merge, or deploy.
+- A green CI check is required before any PR should be merged.
+
+> **Note:** GitHub CI workflow added; CI pass not yet verified until workflow run completes.
+
+---
+
 ## What to do if a block gets stuck
 
 1. Check `runs/blocks/<block_id>/block-state.json` for the current task status and blocking issues.

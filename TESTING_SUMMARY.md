@@ -56,6 +56,8 @@
 | Stage 6.18 | Mini-MVP Release Candidate Audit | `cd10d4a134f4bc30b5f6d8b01da3e53a6fcc7e19` |
 | Stage 6.19 | Final Human Review / Manual PR Package | `8f467e21f03218dc8a1ce26d45182f429f58df0d` |
 | Stage 6.20 | Automated Draft PR Submission Flow | `41c296497a11ff5ef16d78d4a7ac7ec2cb3dc0cc` |
+| Stage 6.21 | Real Automated Draft PR Submission Proof | `c2e47c50ec88e696fadc27f806cf53e82939d4de` |
+| Stage 6.22 | GitHub CI Workflow for Mini-MVP Checks | `pending final commit hash` |
 
 ## Covered layers
 

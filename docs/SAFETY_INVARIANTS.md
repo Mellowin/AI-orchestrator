@@ -41,6 +41,14 @@ This document lists the hard safety invariants enforced by the AI Orchestrator. 
 
 ---
 
+## CI invariants
+
+| # | Invariant | Enforcement |
+|---|---|---|
+| 20 | CI does not use secrets | `.github/workflows/ci.yml` references no API keys or tokens |
+| 21 | CI does not mutate repo state | Workflow runs read-only checks (typecheck, build, test) only |
+| 22 | CI does not auto-merge | No merge or deployment steps in workflow |
+
 ## Loop invariants
 
 | # | Invariant | Enforcement |

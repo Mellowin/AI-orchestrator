@@ -1264,6 +1264,27 @@ Properties:
 - Evidence: `docs/STAGE6_20_AUTOMATED_DRAFT_PR_SUBMISSION.md`.
 - No real GitHub API call performed; fake-fetch proof only.
 
+**Stage 6.21 — Real Automated Draft PR Submission Proof ✅**
+
+- Created proof branch `stage-6-21-proof` with a single doc commit (`52ea841`).
+- Pushed branch to origin.
+- Built valid block definition and block state.
+- **Dry-run:** validated all gates, generated approval report + PR draft, no GitHub API call.
+- **Real mode:** created draft PR #3 via GitHub API.
+- **Status check:** verified PR is open, draft, not merged, safe for human review.
+- Evidence: `docs/STAGE6_21_REAL_DRAFT_PR_SUBMIT_PROOF.md`.
+- PR link: https://github.com/Mellowin/AI-orchestrator/pull/3
+
+**Stage 6.22 — GitHub CI Workflow for Mini-MVP Checks 🟡**
+
+- Added `.github/workflows/ci.yml` — GitHub Actions workflow for automated checks.
+- Triggers: `pull_request`, push to `feature/mvp-skeleton` / `stage-6-21-proof` / `stage-6-22-ci-proof`, `workflow_dispatch`.
+- Job `checks` on `ubuntu-latest` with Node.js 20.
+- Steps: checkout → setup-node → `npm ci` → `npm run typecheck` → `npm run build` → `npm test`.
+- No secrets in workflow file; no provider calls; no merge/deployment actions.
+- Evidence: `docs/STAGE6_22_GITHUB_CI_WORKFLOW.md`.
+- **Status:** Workflow added; CI pass not yet verified until workflow run completes.
+
 ### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules
