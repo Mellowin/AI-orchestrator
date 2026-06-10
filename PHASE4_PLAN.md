@@ -1327,6 +1327,13 @@ Properties:
 - GitHub CI verified successful on PR HEAD.
 - Evidence: `docs/STAGE6_26_FINAL_DRAFT_PR.md`.
 
+**Stage 6.26.1 — Polish Final PR Body and Latest CI Evidence ✅**
+
+- Fixed mojibake (`—`) in PR #4 body by replacing em-dashes with hyphens.
+- Updated PR #4 body and docs with latest CI run `27307210913` for head `667580b79d9ab0572be92e7c96b5568f20007851`.
+- PR #4 remains draft; no mark-ready, no merge.
+- Evidence: `docs/STAGE6_26_FINAL_DRAFT_PR.md`.
+
 ### Stage 6 Safety Rules
 
 ### Stage 6 Safety Rules

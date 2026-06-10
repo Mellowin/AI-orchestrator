@@ -49,12 +49,12 @@ This PR also includes automated PR draft packaging, draft PR creation, PR readin
 
 ### Proof / evidence
 
-- Stage 6.16 — Real Kimi multi-task block with one fix loop: [`docs/STAGE6_16_REAL_MULTITASK_BLOCK_PROOF.md`](docs/STAGE6_16_REAL_MULTITASK_BLOCK_PROOF.md)
-- Stage 6.15.2 — Full multi-scenario fix-loop matrix: [`docs/STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md`](docs/STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md)
-- Stage 6.18 — Release-candidate audit: [`docs/STAGE6_18_RELEASE_CANDIDATE_AUDIT.md`](docs/STAGE6_18_RELEASE_CANDIDATE_AUDIT.md)
-- Stage 6.21 — Real automated draft PR submission proof: [`docs/STAGE6_21_REAL_DRAFT_PR_SUBMISSION_PROOF.md`](docs/STAGE6_21_REAL_DRAFT_PR_SUBMISSION_PROOF.md)
-- Stage 6.24 — Live mark-ready proof: [`docs/STAGE6_24_LIVE_MARK_READY_PROOF.md`](docs/STAGE6_24_LIVE_MARK_READY_PROOF.md)
-- Stage 6.25 — Proof PR cleanup: [`docs/STAGE6_25_PROOF_PR_CLEANUP.md`](docs/STAGE6_25_PROOF_PR_CLEANUP.md)
+- Stage 6.16 - Real Kimi multi-task block with one fix loop: [`docs/STAGE6_16_REAL_MULTITASK_BLOCK_PROOF.md`](docs/STAGE6_16_REAL_MULTITASK_BLOCK_PROOF.md)
+- Stage 6.15.2 - Full multi-scenario fix-loop matrix: [`docs/STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md`](docs/STAGE6_15_2_FULL_FIX_LOOP_MATRIX_PROOF.md)
+- Stage 6.18 - Release-candidate audit: [`docs/STAGE6_18_RELEASE_CANDIDATE_AUDIT.md`](docs/STAGE6_18_RELEASE_CANDIDATE_AUDIT.md)
+- Stage 6.21 - Real automated draft PR submission proof: [`docs/STAGE6_21_REAL_DRAFT_PR_SUBMISSION_PROOF.md`](docs/STAGE6_21_REAL_DRAFT_PR_SUBMISSION_PROOF.md)
+- Stage 6.24 - Live mark-ready proof: [`docs/STAGE6_24_LIVE_MARK_READY_PROOF.md`](docs/STAGE6_24_LIVE_MARK_READY_PROOF.md)
+- Stage 6.25 - Proof PR cleanup: [`docs/STAGE6_25_PROOF_PR_CLEANUP.md`](docs/STAGE6_25_PROOF_PR_CLEANUP.md)
 
 ### Local verification
 

@@ -52,7 +52,7 @@ PR created via GitHub API (`POST /repos/Mellowin/AI-orchestrator/pulls`).
 | Merged | `false` |
 | Base | `main` |
 | Head | `feature/mvp-skeleton` |
-| PR CI | run `27306857614` `completed` `success` ✅ |
+| PR CI | run `27307210913` `completed` `success` ✅ |
 
 ---
 
@@ -75,6 +75,21 @@ PR created via GitHub API (`POST /repos/Mellowin/AI-orchestrator/pulls`).
 
 ---
 
+## Stage 6.26.1 — Polish Final PR Body and Latest CI Evidence
+
+- Fixed mojibake (`вЂ”` -> `—`) in `docs/MANUAL_PR_BODY.md`, `FINAL_HUMAN_REVIEW_PACKAGE.md`, `MINI_MVP_RELEASE_NOTES.md`, and `PHASE4_PLAN.md`
+- Updated stale CI run ID from `27306857614` to `27307210913` in `docs/STAGE6_26_FINAL_DRAFT_PR.md` and `MANUAL_PR_BODY.md`
+- PR #4 body updated via GitHub API to reflect corrected em-dashes and latest CI evidence
+- Added Stage 6.26.1 row to `TESTING_SUMMARY.md`
+
+| Check | Result |
+|---|---|
+| Mojibake in docs | fixed [OK] |
+| CI run ID consistency | `27307210913` [OK] |
+| PR #4 body | updated [OK] |
+
+---
+
 ## Operator note
 
-PR #4 is now ready for human review. Merge requires explicit operator approval. Mark-ready (draft → ready for review) is a separate future stage if desired.
+PR #4 is now ready for human review. Merge requires explicit operator approval. Mark-ready (draft -> ready for review) is a separate future stage if desired.

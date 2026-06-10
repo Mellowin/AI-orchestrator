@@ -17,32 +17,32 @@ The orchestrator never merges, never pushes unless explicitly allowed, and never
 
 | Capability | Evidence |
 |---|---|
-| Real Kimi coder works | Stage 6.15, 6.16 — live API calls with real file generation |
-| Real Kimi reviewer works | Stage 6.15, 6.16 — live diff review with `accepted`/`rejected` decisions |
+| Real Kimi coder works | Stage 6.15, 6.16 - live API calls with real file generation |
+| Real Kimi reviewer works | Stage 6.15, 6.16 - live diff review with `accepted`/`rejected` decisions |
 | Deterministic checks work | Guardrails, line-delta checks, secret detection, merge-conflict detection |
-| Autonomous fix-loop works | Stage 6.15.2, 6.16 — verifier-driven fix loops with retry bounds |
-| Real multi-task block works | Stage 6.16 — 3 tasks executed sequentially in one block run |
-| Local commits work | Stage 6.16 — commits created, push disabled by default |
-| PR draft package | Stage 6.9––6.10 – PR title, body, checklist generation
-| Automated draft PR creation | Stage 6.21 – real automated draft PR submission proof
-| PR readiness gate | Stage 6.23 – PR status + CI checks before mark-ready
-| PR cleanup helper | Stage 6.13, 6.25 – close + delete proof PRs safely
-| GitHub CI workflow | Stage 6.22 – typecheck/build/test on PR/push
-| PR helper/status/cleanup exist | Stage 6.9–6.13 — draft, create, status, cleanup helpers (opt-in only) |
-| Operator docs/package exist | Stage 6.17 — runbook, demo package, command cookbook, safety invariants |
-| Release-candidate audit passed | Stage 6.18 — internal consistency, safety, and demo-readiness verified |
+| Autonomous fix-loop works | Stage 6.15.2, 6.16 - verifier-driven fix loops with retry bounds |
+| Real multi-task block works | Stage 6.16 - 3 tasks executed sequentially in one block run |
+| Local commits work | Stage 6.16 - commits created, push disabled by default |
+| PR draft package | Stage 6.9--6.10 - PR title, body, checklist generation
+| Automated draft PR creation | Stage 6.21 - real automated draft PR submission proof
+| PR readiness gate | Stage 6.23 - PR status + CI checks before mark-ready
+| PR cleanup helper | Stage 6.13, 6.25 - close + delete proof PRs safely
+| GitHub CI workflow | Stage 6.22 - typecheck/build/test on PR/push
+| PR helper/status/cleanup exist | Stage 6.9-6.13 - draft, create, status, cleanup helpers (opt-in only) |
+| Operator docs/package exist | Stage 6.17 - runbook, demo package, command cookbook, safety invariants |
+| Release-candidate audit passed | Stage 6.18 - internal consistency, safety, and demo-readiness verified |
 
 ---
 
 ## What has not been claimed
 
-- **Production-ready sandboxing** — the tool runs in the local repo; cloud isolation is not implemented.
-- **Cloud CI green** — GitHub Actions workflow runs are empty; CI is not verified.
-- **Arbitrary large codebase autonomous edits** — demos use small doc/check tasks; large refactors are untested.
-- **Automatic merge** — merge is always manual.
-- **Automatic PR without explicit opt-in** — PR creation requires separate env flags and manual invocation.
-- **Perfect reviewer quality** — AI reviewer can make mistakes; deterministic checks are the safety net.
-- **Security certification** — the tool has safety invariants but no formal audit.
+- **Production-ready sandboxing** - the tool runs in the local repo; cloud isolation is not implemented.
+- **Cloud CI green** - GitHub Actions workflow runs are empty; CI is not verified.
+- **Arbitrary large codebase autonomous edits** - demos use small doc/check tasks; large refactors are untested.
+- **Automatic merge** - merge is always manual.
+- **Automatic PR without explicit opt-in** - PR creation requires separate env flags and manual invocation.
+- **Perfect reviewer quality** - AI reviewer can make mistakes; deterministic checks are the safety net.
+- **Security certification** - the tool has safety invariants but no formal audit.
 
 ---
 
@@ -118,11 +118,11 @@ See [`docs/DEMO_COMMAND_COOKBOOK.md`](DEMO_COMMAND_COOKBOOK.md) for the full com
 
 ## Known limitations
 
-- **GitHub CI verified successful — Mini-MVP CI run 27306283119 completed with success on 8cab4a10fd41ae402c8286fa8d9a1dbc5ec8bea8** — 
-- **Current demos are doc/check based** — the tool edits markdown and runs node verifiers; complex TypeScript refactors are demoed via tests, not live autonomous runs.
-- **Real provider behavior can vary** — API latency, quota, and output quality depend on the provider account.
-- **Check design matters** — a poorly written verifier can cause infinite fix loops or false blocks.
-- **Repository mutation still needs human control** — push and merge are manual; the tool stops at `completed`.
+- **GitHub CI verified successful - Mini-MVP CI run 27307210913 completed with success on 667580b79d9ab0572be92e7c96b5568f20007851** - 
+- **Current demos are doc/check based** - the tool edits markdown and runs node verifiers; complex TypeScript refactors are demoed via tests, not live autonomous runs.
+- **Real provider behavior can vary** - API latency, quota, and output quality depend on the provider account.
+- **Check design matters** - a poorly written verifier can cause infinite fix loops or false blocks.
+- **Repository mutation still needs human control** - push and merge are manual; the tool stops at `completed`.
 
 ---
 
