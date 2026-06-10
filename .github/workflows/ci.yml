@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches:
+      - main
       - feature/mvp-skeleton
       - stage-6-21-proof
       - stage-6-22-ci-proof
