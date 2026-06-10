@@ -1293,8 +1293,19 @@ Properties:
 - Reuses GitHub API patterns from existing PR helpers.
 - Readiness requirements: PR open, draft, not merged, head not main/master, base matches block, CI success.
 - Live dry-run checked PR #3: readiness=ready, checks=success, dry-run=yes, marked_ready=no.
-- Tests: 24 new tests (16 unit + 8 CLI). Total suite: 1781 tests, 106 suites, 0 failures.
+- Tests: 26 new tests (18 unit + 8 CLI). Total suite: 1783 tests, 106 suites, 0 failures.
 - Evidence: `docs/STAGE6_23_PR_READINESS_GATE.md`.
+
+**Stage 6.23.1 — GraphQL Mark-Ready Migration ✅**
+
+- Converted `markPrReady` from REST PATCH to GitHub GraphQL `markPullRequestReadyForReview` mutation.
+- Added `node_id` validation gate and GraphQL errors handling.
+- Commit: `94bbf337308096c986cb609cca8277e8ccf83aca`.
+
+**Stage 6.23.2 — CI Verification After GraphQL Fix ✅**
+
+- GitHub Actions CI re-verified on latest HEAD after Stage 6.23.1.
+- Mini-MVP CI run `27302936731` completed with `success` on `496eaeb5d525e599e7f0363d493f84cf8f46135f`.
 
 ### Stage 6 Safety Rules
 

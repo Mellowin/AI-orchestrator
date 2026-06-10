@@ -19,7 +19,7 @@ Add a safe PR readiness gate that verifies a draft PR is ready for human review 
 | File | Purpose |
 |---|---|
 | `src/block/block-pr-readiness.ts` | Core readiness check logic |
-| `test/block-pr-readiness.test.ts` | 16 unit tests |
+| `test/block-pr-readiness.test.ts` | 18 unit tests |
 | `test/cli-block-pr-readiness.test.ts` | 8 CLI integration tests |
 
 ### Updated files
@@ -67,7 +67,7 @@ If all checks pass and **all** mark-ready gates are enabled:
 - `BLOCK_PR_READINESS_DRY_RUN=false`
 - `GITHUB_TOKEN` present
 
-Then the command sends a `PATCH { draft: false }` to mark the PR ready for review.
+Then the command sends a GraphQL `markPullRequestReadyForReview` mutation to mark the PR ready for review.
 
 ---
 
@@ -134,8 +134,26 @@ Output:
 
 | Suite | Tests | Result |
 |---|---|---|
-| `block-pr-readiness.test.ts` | 16 | ✅ Pass |
+| `block-pr-readiness.test.ts` | 18 | ✅ Pass |
 | `cli-block-pr-readiness.test.ts` | 8 | ✅ Pass |
+
+---
+
+## Stage 6.23.2 — CI Verification
+
+After Stage 6.23.1 source changes (GraphQL mark-ready migration), GitHub Actions CI was re-verified on the latest branch HEAD.
+
+| Field | Value |
+|---|---|
+| Workflow | Mini-MVP CI |
+| Run ID | `27302936731` |
+| Branch | `feature/mvp-skeleton` |
+| SHA | `496eaeb5d525e599e7f0363d493f84cf8f46135f` |
+| Status | `completed` |
+| Conclusion | `success` |
+| Jobs passed | checkout, setup node, npm ci, typecheck, build, test |
+
+Notes: verifies Stage 6.23.1 GraphQL mark-ready source changes.
 
 ---
 
