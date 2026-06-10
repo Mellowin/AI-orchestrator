@@ -60,6 +60,7 @@ async function fetchGitHubPr(
   html_url: string;
   commits: number;
   changed_files: number;
+  node_id: string;
 }> {
   const mockResponse = process.env.MOCK_GITHUB_PR_READINESS_RESPONSE?.trim();
   if (mockResponse) {
@@ -85,6 +86,7 @@ async function fetchGitHubPr(
       data.head && typeof (data.head as Record<string, unknown>).sha === 'string'
         ? String((data.head as Record<string, unknown>).sha)
         : '';
+    const nodeId = typeof data.node_id === 'string' ? data.node_id : '';
     return {
       state,
       draft,
@@ -94,6 +96,7 @@ async function fetchGitHubPr(
       html_url,
       commits,
       changed_files,
+      node_id: nodeId,
     };
   }
 
@@ -131,6 +134,7 @@ async function fetchGitHubPr(
     data.head && typeof (data.head as Record<string, unknown>).sha === 'string'
       ? String((data.head as Record<string, unknown>).sha)
       : '';
+  const nodeId = typeof data.node_id === 'string' ? data.node_id : '';
 
   if (!html_url) {
     throw new Error('GitHub API response missing PR html_url');
@@ -145,6 +149,7 @@ async function fetchGitHubPr(
     html_url,
     commits,
     changed_files,
+    node_id: nodeId,
   };
 }
 
@@ -234,9 +239,7 @@ async function fetchCheckRuns(
 }
 
 async function markPrReady(
-  owner: string,
-  repo: string,
-  prNumber: number,
+  nodeId: string,
   token: string,
   fetchFn: typeof fetch
 ): Promise<{ ok: boolean }> {
@@ -246,18 +249,30 @@ async function markPrReady(
     return { ok: typeof data.ok === 'boolean' ? data.ok : false };
   }
 
-  const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
+  const url = 'https://api.github.com/graphql';
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
   };
-  const response = await fetchFn(url, {
-    method: 'PATCH',
-    headers,
-    body: JSON.stringify({ draft: false }),
+  const body = JSON.stringify({
+    query:
+      'mutation($pullRequestId: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) { pullRequest { number isDraft merged state url } } }',
+    variables: { pullRequestId: nodeId },
   });
-  return { ok: response.ok };
+  const response = await fetchFn(url, { method: 'POST', headers, body });
+  if (!response.ok) {
+    return { ok: false };
+  }
+  try {
+    const data = (await response.json()) as Record<string, unknown>;
+    if (Array.isArray(data.errors) && data.errors.length > 0) {
+      return { ok: false };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
 }
 
 function generatePrReadinessReport(result: BlockPrReadinessResult): string {
@@ -309,7 +324,7 @@ function generatePrReadinessReport(result: BlockPrReadinessResult): string {
   lines.push('- No checkout or branch switch occurred.');
   lines.push('- No force push was performed.');
   lines.push('- No provider call was made.');
-  lines.push('- No PR comment, review, close, or update occurred (except the optional draft→ready PATCH).');
+  lines.push('- No PR comment, review, close, or update occurred (except the optional draft→ready GraphQL mutation).');
   lines.push('');
   return lines.join('\n');
 }
@@ -407,8 +422,11 @@ export async function checkBlockPrReadiness(input: BlockPrReadinessInput): Promi
       // but we keep the guard for type safety.
       blockingIssues.push('Failed to mark PR ready for review');
       readiness = 'not_ready';
+    } else if (!prData.node_id) {
+      blockingIssues.push('GitHub PR node_id missing; cannot mark ready safely');
+      readiness = 'not_ready';
     } else {
-      const patchResult = await markPrReady(owner, repo, prNumber, token, fetchFn);
+      const patchResult = await markPrReady(prData.node_id, token, fetchFn);
       if (patchResult.ok) {
         markedReady = true;
       } else {

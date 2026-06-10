@@ -73,6 +73,7 @@ function makePrResponse(overrides: Record<string, unknown> = {}) {
     html_url: 'https://github.com/test-owner/test-repo/pull/2',
     commits: 1,
     changed_files: 1,
+    node_id: 'PR_node_123',
     ...overrides,
   };
 }
@@ -389,9 +390,64 @@ describe('block-pr-readiness', () => {
         response: { ok: true, status: 200, json: () => makeCheckRunsResponse(), text: () => '' },
       },
       {
+        url: '/graphql',
+        method: 'POST',
+        response: { ok: true, status: 200, json: () => ({ errors: [{ message: 'Validation failed' }] }), text: () => '' },
+      },
+    ]);
+
+    const result = await checkBlockPrReadiness({ blockDefinitionPath: blockJsonPath, fetchFn: fakeFetch });
+    assert.strictEqual(result.would_mark_ready, true);
+    assert.strictEqual(result.marked_ready, false);
+    assert.strictEqual(result.readiness, 'not_ready');
+    assert.ok(result.blocking_issues.some((i) => i.includes('Failed to mark PR ready')), result.blocking_issues.join('; '));
+  });
+
+  it('missing node_id blocks mark-ready safely', async () => {
+    await setupBlock();
+    process.env.BLOCK_PR_READINESS_DRY_RUN = 'false';
+    process.env.ALLOW_GITHUB_MARK_READY = 'true';
+
+    const fakeFetch = createFakeFetch([
+      {
         url: '/pulls/2',
-        method: 'PATCH',
-        response: { ok: false, status: 422, json: () => ({ message: 'Validation failed' }), text: () => 'Validation failed' },
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse({ node_id: '' }), text: () => '' },
+      },
+      {
+        url: '/check-runs',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makeCheckRunsResponse(), text: () => '' },
+      },
+    ]);
+
+    const result = await checkBlockPrReadiness({ blockDefinitionPath: blockJsonPath, fetchFn: fakeFetch });
+    assert.strictEqual(result.readiness, 'not_ready');
+    assert.strictEqual(result.would_mark_ready, true);
+    assert.strictEqual(result.marked_ready, false);
+    assert.ok(result.blocking_issues.some((i) => i.includes('node_id missing')), result.blocking_issues.join('; '));
+  });
+
+  it('GraphQL errors in response block mark-ready safely', async () => {
+    await setupBlock();
+    process.env.BLOCK_PR_READINESS_DRY_RUN = 'false';
+    process.env.ALLOW_GITHUB_MARK_READY = 'true';
+
+    const fakeFetch = createFakeFetch([
+      {
+        url: '/pulls/2',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makePrResponse(), text: () => '' },
+      },
+      {
+        url: '/check-runs',
+        method: 'GET',
+        response: { ok: true, status: 200, json: () => makeCheckRunsResponse(), text: () => '' },
+      },
+      {
+        url: '/graphql',
+        method: 'POST',
+        response: { ok: true, status: 200, json: () => ({ errors: [{ message: 'Some GraphQL error' }] }), text: () => '' },
       },
     ]);
 
