@@ -41,6 +41,7 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.REAL_REPO_REVIEWER_FAKE_RESPONSE;
   delete env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
   delete env.REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR;
+  delete env.REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE;
   env.AI_PROVIDER = 'mock';
   return env;
 }
@@ -2351,6 +2352,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not have pending_reviewer_fix_task_execution_request_state without env`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not have reviewer_fix_task_run_plan without env`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not have reviewer_fix_task_run_plan_state without env`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined, `Should not have reviewer_fix_task_controlled_run without env`);
     } finally {
       cleanup();
     }
@@ -2408,6 +2410,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not persist pending_reviewer_fix_task_execution_request_state on accept`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not persist reviewer_fix_task_run_plan on accept`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not persist reviewer_fix_task_run_plan_state on accept`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined, `Should not persist reviewer_fix_task_controlled_run on accept`);
     } finally {
       cleanup();
     }
@@ -2435,6 +2438,13 @@ describe('cli real-repo-run-ai', () => {
           reviewSummary: 'Needs fix',
           nextAction: 'fix',
           fixTask: 'use Bearer fake-reviewer-token',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE: JSON.stringify({
+          status: 'completed',
+          reason: 'Fake fix completed',
+          commitSha: 'fake-commit-sha-123',
+          changedFiles: ['src/fake-fix.ts'],
+          runState: { raw: 'sk-fake-run-state-secret' },
         }),
         RUNS_DIR: runsDir,
       });
@@ -2606,6 +2616,154 @@ describe('cli real-repo-run-ai', () => {
       assert(!runPlanStateRaw.includes('sk-fake-reviewer-secret'), `reviewer_fix_task_run_plan_state should not leak sk secret`);
       assert(!runPlanStateRaw.includes('Bearer fake-reviewer-token'), `reviewer_fix_task_run_plan_state should not leak Bearer token`);
       assert(!runPlanStateRaw.includes('pk-fake-reviewer-public'), `reviewer_fix_task_run_plan_state should not leak pk secret`);
+      const controlledRun = (state as Record<string, unknown>).reviewer_fix_task_controlled_run as Record<string, unknown>;
+      assert(controlledRun !== undefined, `Should persist reviewer_fix_task_controlled_run on fix_required with fake executor`);
+      assert.strictEqual(controlledRun.runnerResultStatus, 'executed');
+      assert.strictEqual(controlledRun.runnerResultNextAction, 'review_fix_result');
+      const persistedState = controlledRun.persistedState as Record<string, unknown>;
+      assert.strictEqual(persistedState.status, 'executed');
+      assert.strictEqual(persistedState.nextAction, 'review_fix_result');
+      assert.strictEqual(persistedState.taskId, `fix-${taskId}-reviewer-1`);
+      assert.strictEqual(persistedState.parentTaskId, taskId);
+      assert.strictEqual(persistedState.attempt, 1);
+      assert.strictEqual((persistedState.executionRequest as Record<string, unknown>).taskId, `fix-${taskId}-reviewer-1`);
+      assert.strictEqual((persistedState.fixTask as Record<string, unknown>).taskId, `fix-${taskId}-reviewer-1`);
+      const persistedExecutorResult = persistedState.executorResult as Record<string, unknown>;
+      assert.strictEqual(persistedExecutorResult.status, 'completed');
+      assert.strictEqual(persistedExecutorResult.commitSha, 'fake-commit-sha-123');
+      assert.deepStrictEqual(persistedExecutorResult.changedFiles, ['src/fake-fix.ts']);
+      assert.strictEqual(persistedExecutorResult.hasRunState, true);
+      const controlledRunRaw = JSON.stringify(controlledRun);
+      assert(!controlledRunRaw.includes('sk-fake-run-state-secret'), `reviewer_fix_task_controlled_run should not leak fake runState secret`);
+      assert(!controlledRunRaw.includes('runState'), `reviewer_fix_task_controlled_run should not include raw runState`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('fix_required without fake executor env does not persist controlled run', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['sk-fake-reviewer-secret'],
+          nonBlockingIssues: ['pk-fake-reviewer-public'],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'use Bearer fake-reviewer-token',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create exactly one commit');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined, `Should not persist reviewer_fix_task_controlled_run without fake executor env`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('fix_required with fake blocked executor persists blocked controlled run', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['sk-fake-reviewer-secret'],
+          nonBlockingIssues: ['pk-fake-reviewer-public'],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'use Bearer fake-reviewer-token',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE: JSON.stringify({
+          status: 'blocked',
+          reason: 'Blocked due to sk-fake-blocked-secret',
+          blockingIssues: ['Still broken with api_key=leaked'],
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create exactly one commit');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const controlledRun = (state as Record<string, unknown>).reviewer_fix_task_controlled_run as Record<string, unknown>;
+      assert(controlledRun !== undefined, `Should persist reviewer_fix_task_controlled_run on fix_required with blocked fake executor`);
+      assert.strictEqual(controlledRun.runnerResultStatus, 'blocked');
+      assert.strictEqual(controlledRun.runnerResultNextAction, 'block');
+      const persistedState = controlledRun.persistedState as Record<string, unknown>;
+      assert.strictEqual(persistedState.status, 'blocked');
+      assert.strictEqual(persistedState.nextAction, 'block');
+      const controlledRunRaw = JSON.stringify(controlledRun);
+      assert(!controlledRunRaw.includes('sk-fake-blocked-secret'), `reviewer_fix_task_controlled_run should not leak blocked executor reason secret`);
+      assert(!controlledRunRaw.includes('leaked'), `reviewer_fix_task_controlled_run should not leak blocked executor blocking issue secret`);
+      assert(persistedState.reason.includes('[REDACTED]'));
+      const persistedExecutorResult = persistedState.executorResult as Record<string, unknown>;
+      assert.deepStrictEqual(persistedExecutorResult.blockingIssues, ['Still broken with api_key=[REDACTED]']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('fix_required with invalid fake executor JSON does not leak raw secret', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['sk-fake-reviewer-secret'],
+          nonBlockingIssues: ['pk-fake-reviewer-public'],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'use Bearer fake-reviewer-token',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE: 'not-json sk-fake-invalid-secret',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create exactly one commit');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const controlledRun = (state as Record<string, unknown>).reviewer_fix_task_controlled_run as Record<string, unknown>;
+      assert(controlledRun !== undefined, `Should persist reviewer_fix_task_controlled_run on invalid fake executor JSON`);
+      assert.strictEqual(controlledRun.runnerResultStatus, 'blocked');
+      assert.strictEqual(controlledRun.runnerResultNextAction, 'block');
+      const controlledRunRaw = JSON.stringify(controlledRun);
+      assert(!controlledRunRaw.includes('sk-fake-invalid-secret'), `reviewer_fix_task_controlled_run should not leak raw invalid JSON secret`);
+      assert(!controlledRunRaw.includes('not-json'), `reviewer_fix_task_controlled_run should not include raw invalid JSON`);
+      const resultStderr = result.stderr;
+      assert(!resultStderr.includes('sk-fake-invalid-secret'), `stderr should not leak raw invalid JSON secret`);
     } finally {
       cleanup();
     }
@@ -2669,6 +2827,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not persist pending_reviewer_fix_task_execution_request_state on block_for_human`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not persist reviewer_fix_task_run_plan on block_for_human`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not persist reviewer_fix_task_run_plan_state on block_for_human`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined, `Should not persist reviewer_fix_task_controlled_run on block_for_human`);
     } finally {
       cleanup();
     }
@@ -2717,6 +2876,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not persist pending_reviewer_fix_task_execution_request_state on parser failure`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not persist reviewer_fix_task_run_plan on parser failure`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not persist reviewer_fix_task_run_plan_state on parser failure`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined, `Should not persist reviewer_fix_task_controlled_run on parser failure`);
     } finally {
       cleanup();
     }
@@ -2769,6 +2929,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not persist pending_reviewer_fix_task_execution_request_state on provider error`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not persist reviewer_fix_task_run_plan on provider error`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not persist reviewer_fix_task_run_plan_state on provider error`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined, `Should not persist reviewer_fix_task_controlled_run on provider error`);
     } finally {
       cleanup();
     }

@@ -51,6 +51,7 @@ import { derivePendingReviewerFixTaskExecutionRequest } from './reviewer-pending
 import { readPendingReviewerFixTaskExecutionRequestState } from './reviewer-pending-fix-task-execution-request-state.js';
 import { deriveReviewerFixTaskRunPlan } from './reviewer-fix-task-run-plan.js';
 import { readReviewerFixTaskRunPlanState } from './reviewer-fix-task-run-plan-state.js';
+import { runReviewerFixTaskControlled } from './reviewer-fix-task-controlled-run.js';
 import type { ReviewerGateStatus, ReviewerGateDecisionSource } from './reviewer-gate.js';
 import { loadBlockDefinition } from './block/block-loader.js';
 import { initBlockState, loadBlockState, saveBlockState, updateBlockState } from './block/block-state-manager.js';
@@ -1500,6 +1501,55 @@ if (command === 'real-repo-run-ai') {
               runState: stateWithGate,
             });
             (stateWithGate as Record<string, unknown>).reviewer_fix_task_run_plan_state = runPlanState;
+            const fakeExecutorResponse = process.env.REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE;
+            if (fakeExecutorResponse) {
+              const fakeExecutor = async () => {
+                try {
+                  const parsed = JSON.parse(fakeExecutorResponse) as {
+                    status: unknown;
+                    reason: unknown;
+                    commitSha?: string;
+                    changedFiles?: string[];
+                    blockingIssues?: string[];
+                    runState?: unknown;
+                  };
+                  if (
+                    parsed.status === 'completed' ||
+                    parsed.status === 'blocked'
+                  ) {
+                    return {
+                      status: parsed.status as 'completed' | 'blocked',
+                      reason:
+                        typeof parsed.reason === 'string'
+                          ? parsed.reason
+                          : 'Fake executor response.',
+                      commitSha: parsed.commitSha,
+                      changedFiles: parsed.changedFiles,
+                      blockingIssues: parsed.blockingIssues,
+                      runState: parsed.runState,
+                    };
+                  }
+                  return {
+                    status: 'blocked' as const,
+                    reason: `Unsupported fake executor status: ${String(parsed.status)}`,
+                  };
+                } catch {
+                  return {
+                    status: 'blocked' as const,
+                    reason: 'Invalid fake executor response JSON; block for human review.',
+                  };
+                }
+              };
+              const controlledRun = await runReviewerFixTaskControlled({
+                runPlanState,
+                executor: fakeExecutor,
+              });
+              (stateWithGate as Record<string, unknown>).reviewer_fix_task_controlled_run = {
+                runnerResultStatus: controlledRun.runnerResult.status,
+                runnerResultNextAction: controlledRun.runnerResult.nextAction,
+                persistedState: controlledRun.persistedState,
+              };
+            }
           }
           try {
             saveState(taskId, stateWithGate as RunState);
