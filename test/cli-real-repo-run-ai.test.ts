@@ -2056,4 +2056,139 @@ describe('cli real-repo-run-ai', () => {
       cleanup();
     }
   });
+
+  test('maxAttempts reached sandbox checks failure does not leak sk-fake in stderr', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['-e', "console.error('sk-fake-test-key'); process.exit(1)"] }]);
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stderr.includes('sk-fake'), `Should not leak sk-fake in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('maxAttempts reached sandbox checks failure redacts Bearer fake-token in stderr', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['-e', "console.error('Bearer fake-token'); process.exit(1)"] }]);
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stderr.includes('Bearer fake-token'), `Should not leak Bearer token in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('maxAttempts reached sandbox checks failure redacts api_key and token in stderr', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['-e', "console.error('api_key=fake-key token=fake-token'); process.exit(1)"] }]);
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stderr.includes('fake-key'), `Should not leak api_key value in stderr: ${result.stderr}`);
+      assert(!result.stderr.includes('fake-token'), `Should not leak token value in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('redacted stderr still includes useful sandbox failure message', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['-e', "console.error('sk-fake-test-key'); process.exit(1)"] }]);
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Should include failure message: ${result.stderr}`);
+      assert(result.stderr.includes('checks'), `Should include failed step: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('successful repair behavior from Stage 7.4.2 still passes', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const content = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(content, '# pass\n', 'Repair should still work after 7.4.2A');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('parse guardrails apply failures still do not repair', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: '.env', content: 'SECRET=1\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(!result.stderr.includes('requesting repair'), `Guardrails failure should not trigger repair`);
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -13,7 +13,7 @@ export interface SandboxPreflightRepairDecision {
   repairPrompt?: string;
 }
 
-function redactSecrets(text: string): string {
+export function redactSecrets(text: string): string {
   // Redact obvious API key patterns
   return text
     .replace(/\b(sk-[a-zA-Z0-9_-]+)\b/g, '[REDACTED]')

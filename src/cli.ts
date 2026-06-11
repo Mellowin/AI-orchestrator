@@ -29,7 +29,7 @@ import { createMockProviderCall, createRealProviderCall, buildProviderCallInput,
 import type { FetchFn } from './provider-call.js';
 import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
 import { runRealRepoSandboxPreflight } from './real-repo-sandbox-preflight.js';
-import { buildSandboxPreflightRepairDecision } from './sandbox-preflight-repair.js';
+import { buildSandboxPreflightRepairDecision, redactSecrets } from './sandbox-preflight-repair.js';
 import { validateRealRepoApplySafety } from './real-repo-apply-safety.js';
 import { buildRealRepoApplyDryRunSummary } from './real-repo-apply-dry-run.js';
 import { buildRealRepoApplyPlan } from './real-repo-apply-plan.js';
@@ -627,7 +627,7 @@ if (command === 'real-repo-run') {
       });
       if (!preflightResult.ok) {
         console.error(`[real-repo-run] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
-        const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
+        const summary = redactSecrets(preflightResult.logs).split('\n').slice(-5).join('\n');
         console.error(`[real-repo-run] Sandbox logs (last 5 lines):\n${summary}`);
         console.error('[real-repo-run] No apply was performed');
         console.error('[real-repo-run] No commit was made');
@@ -1155,7 +1155,7 @@ if (command === 'real-repo-run-ai') {
 
           console.error(`[real-repo-run-ai] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
           console.error(`[real-repo-run-ai] ${repairDecision.reason}`);
-          const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
+          const summary = redactSecrets(preflightResult.logs).split('\n').slice(-5).join('\n');
           console.error(`[real-repo-run-ai] Sandbox logs (last 5 lines):\n${summary}`);
           console.error('[real-repo-run-ai] No apply was performed');
           console.error('[real-repo-run-ai] No commit was made');
@@ -3627,7 +3627,7 @@ if (command === 'real-repo-apply') {
       });
       if (!preflightResult.ok) {
         console.error(`[real-repo-apply] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
-        const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
+        const summary = redactSecrets(preflightResult.logs).split('\n').slice(-5).join('\n');
         console.error(`[real-repo-apply] Sandbox logs (last 5 lines):\n${summary}`);
         console.error('[real-repo-apply] No files were modified');
         console.error('[real-repo-apply] No commit was made');
