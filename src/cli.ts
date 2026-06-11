@@ -44,6 +44,7 @@ import { runDeterministicReviewChecks } from './reviewer/deterministic-review-ch
 import { buildReviewInput } from './reviewer/review-input-builder.js';
 import { runReviewerGate } from './reviewer/reviewer-gate.js';
 import { runCommittedTaskReviewerGate } from './committed-task-reviewer-gate.js';
+import type { ReviewerGateStatus, ReviewerGateDecisionSource } from './reviewer-gate.js';
 import { loadBlockDefinition } from './block/block-loader.js';
 import { initBlockState, loadBlockState, saveBlockState, updateBlockState } from './block/block-state-manager.js';
 import {
@@ -1370,6 +1371,17 @@ if (command === 'real-repo-run-ai') {
       // Reviewer gate (fake env only)
       const fakeReviewerResponse = process.env.REAL_REPO_REVIEWER_FAKE_RESPONSE;
       if (fakeReviewerResponse) {
+        let reviewerGatePersisted:
+          | {
+              status: ReviewerGateStatus;
+              source: ReviewerGateDecisionSource;
+              nextAction: 'continue' | 'fix' | 'block';
+              blockingIssues: string[];
+              nonBlockingIssues: string[];
+              reviewSummary: string;
+              fixTask?: string;
+            }
+          | undefined;
         try {
           const reviewerResult = await runCommittedTaskReviewerGate({
             repoPath: task.repo_path,
@@ -1390,6 +1402,15 @@ if (command === 'real-repo-run-ai') {
             },
           });
           const gate = reviewerResult.reviewerRunnerResult.gateResult;
+          reviewerGatePersisted = {
+            status: gate.status,
+            source: gate.source,
+            nextAction: gate.nextAction,
+            blockingIssues: gate.blockingIssues.map((i) => redactSecrets(i)),
+            nonBlockingIssues: gate.nonBlockingIssues.map((i) => redactSecrets(i)),
+            reviewSummary: redactSecrets(gate.reviewSummary),
+            fixTask: gate.fixTask ? redactSecrets(gate.fixTask) : undefined,
+          };
           if (gate.status === 'accepted') {
             console.error('[real-repo-run-ai] Reviewer gate accepted');
           } else {
@@ -1402,12 +1423,30 @@ if (command === 'real-repo-run-ai') {
               console.error('[real-repo-run-ai] Reviewer gate blocked');
               if (issues) console.error(`[real-repo-run-ai] Blocking issues: ${issues}`);
             }
-            process.exit(1);
           }
         } catch (reviewerErr) {
           const msg = reviewerErr instanceof Error ? reviewerErr.message : String(reviewerErr);
           console.error(`[real-repo-run-ai] Reviewer gate error: ${redactSecrets(msg)}`);
-          process.exit(1);
+          reviewerGatePersisted = {
+            status: 'blocked',
+            source: 'provider',
+            nextAction: 'block',
+            blockingIssues: [redactSecrets(msg)],
+            nonBlockingIssues: [],
+            reviewSummary: redactSecrets('Reviewer gate unexpected error.'),
+          };
+        }
+        if (reviewerGatePersisted) {
+          const stateWithGate = { ...pushState };
+          (stateWithGate as Record<string, unknown>).reviewer_gate = reviewerGatePersisted;
+          try {
+            saveState(taskId, stateWithGate as RunState);
+          } catch (stateErr) {
+            console.error('[real-repo-run-ai] Reviewer gate state write failed');
+          }
+          if (reviewerGatePersisted.status !== 'accepted') {
+            process.exit(1);
+          }
         }
       }
 

@@ -2341,12 +2341,13 @@ describe('cli real-repo-run-ai', () => {
       const state = loadStateFromPath(runsDir, taskId);
       assert(state !== null);
       assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
+      assert.strictEqual((state as Record<string, unknown>).reviewer_gate, undefined, `Should not have reviewer_gate without env`);
     } finally {
       cleanup();
     }
   });
 
-  test('fake reviewer accept exits 0 after commit push state', () => {
+  test('fake reviewer accept exits 0 after commit push state and persists reviewer_gate', () => {
     const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
     try {
       const before = getBareRefs(originPath);
@@ -2376,12 +2377,18 @@ describe('cli real-repo-run-ai', () => {
       const state = loadStateFromPath(runsDir, taskId);
       assert(state !== null);
       assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
+      const rg = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown>;
+      assert(rg !== undefined, `Should persist reviewer_gate`);
+      assert.strictEqual(rg.status, 'accepted');
+      assert.strictEqual(rg.source, 'reviewer');
+      assert.strictEqual(rg.nextAction, 'continue');
+      assert.strictEqual(rg.reviewSummary, 'Looks good');
     } finally {
       cleanup();
     }
   });
 
-  test('fake reviewer reject with secret in blockingIssues does not leak', () => {
+  test('fake reviewer reject persists reviewer_gate with redacted secrets', () => {
     const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
     try {
       const before = getBareRefs(originPath);
@@ -2399,7 +2406,7 @@ describe('cli real-repo-run-ai', () => {
           decision: 'reject',
           confidence: 'high',
           blockingIssues: ['sk-fake-reviewer-secret'],
-          nonBlockingIssues: [],
+          nonBlockingIssues: ['pk-fake-reviewer-public'],
           reviewSummary: 'Needs fix',
           nextAction: 'fix',
           fixTask: 'use Bearer fake-reviewer-token',
@@ -2410,20 +2417,33 @@ describe('cli real-repo-run-ai', () => {
       assert(result.stderr.includes('Reviewer gate fix_required'), `Should show fix_required: ${result.stderr}`);
       assert(result.stderr.includes('Blocking issues:'), `Should show blocking issues label: ${result.stderr}`);
       assert(result.stderr.includes('Fix task:'), `Should show fix task label: ${result.stderr}`);
-      assert(!result.stderr.includes('sk-fake-reviewer-secret'), `Should not leak sk secret: ${result.stderr}`);
-      assert(!result.stderr.includes('Bearer fake-reviewer-token'), `Should not leak Bearer token: ${result.stderr}`);
+      assert(!result.stderr.includes('sk-fake-reviewer-secret'), `Should not leak sk secret in stderr: ${result.stderr}`);
+      assert(!result.stderr.includes('Bearer fake-reviewer-token'), `Should not leak Bearer token in stderr: ${result.stderr}`);
       const after = getBareRefs(originPath);
       assert.notDeepStrictEqual(after, before, 'Initial push should still have happened');
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create exactly one commit');
       const state = loadStateFromPath(runsDir, taskId);
       assert(state !== null);
       assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
+      const rg = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown>;
+      assert(rg !== undefined, `Should persist reviewer_gate`);
+      assert.strictEqual(rg.status, 'fix_required');
+      assert.strictEqual(rg.source, 'reviewer');
+      assert.strictEqual(rg.nextAction, 'fix');
+      const rgBlocking = rg.blockingIssues as string[];
+      const rgNonBlocking = rg.nonBlockingIssues as string[];
+      assert(Array.isArray(rgBlocking));
+      assert(Array.isArray(rgNonBlocking));
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes('sk-fake-reviewer-secret'), `Should not leak sk secret in persisted state`);
+      assert(!stateRaw.includes('Bearer fake-reviewer-token'), `Should not leak Bearer token in persisted state`);
+      assert(!stateRaw.includes('pk-fake-reviewer-public'), `Should not leak pk secret in persisted state`);
     } finally {
       cleanup();
     }
   });
 
-  test('fake reviewer block_for_human with secret in blockingIssues does not leak', () => {
+  test('fake reviewer block_for_human persists reviewer_gate with redacted secrets', () => {
     const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
     try {
       const before = getBareRefs(originPath);
@@ -2442,7 +2462,7 @@ describe('cli real-repo-run-ai', () => {
           confidence: 'high',
           blockingIssues: ['api_key=fake-reviewer-key'],
           nonBlockingIssues: [],
-          reviewSummary: 'Blocked',
+          reviewSummary: 'Blocked because token=fake-reviewer-token',
           nextAction: 'block',
         }),
         RUNS_DIR: runsDir,
@@ -2450,16 +2470,26 @@ describe('cli real-repo-run-ai', () => {
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
       assert(result.stderr.includes('Reviewer gate blocked'), `Should show blocked: ${result.stderr}`);
       assert(result.stderr.includes('Blocking issues:'), `Should show blocking issues label: ${result.stderr}`);
-      assert(!result.stderr.includes('api_key=fake-reviewer-key'), `Should not leak api_key: ${result.stderr}`);
+      assert(!result.stderr.includes('api_key=fake-reviewer-key'), `Should not leak api_key in stderr: ${result.stderr}`);
       const after = getBareRefs(originPath);
       assert.notDeepStrictEqual(after, before, 'Initial push should still have happened');
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create exactly one commit');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const rg = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown>;
+      assert(rg !== undefined, `Should persist reviewer_gate`);
+      assert.strictEqual(rg.status, 'blocked');
+      assert.strictEqual(rg.source, 'reviewer');
+      assert.strictEqual(rg.nextAction, 'block');
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes('api_key=fake-reviewer-key'), `Should not leak api_key in persisted state`);
+      assert(!stateRaw.includes('token=fake-reviewer-token'), `Should not leak token in persisted state`);
     } finally {
       cleanup();
     }
   });
 
-  test('invalid fake reviewer output exits non-zero with parser block', () => {
+  test('invalid fake reviewer output exits non-zero with parser block and persists reviewer_gate', () => {
     const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
     try {
       const before = getBareRefs(originPath);
@@ -2479,6 +2509,15 @@ describe('cli real-repo-run-ai', () => {
       assert(result.stderr.includes('Reviewer gate blocked'), `Should show blocked: ${result.stderr}`);
       const after = getBareRefs(originPath);
       assert.notDeepStrictEqual(after, before, 'Initial push should still have happened');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const rg = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown>;
+      assert(rg !== undefined, `Should persist reviewer_gate`);
+      assert.strictEqual(rg.status, 'blocked');
+      assert.strictEqual(rg.source, 'parser');
+      assert.strictEqual(rg.nextAction, 'block');
+      assert(Array.isArray(rg.blockingIssues));
+      assert((rg.blockingIssues as string[]).length > 0, `Parser blocking issues should not be empty`);
     } finally {
       cleanup();
     }
@@ -2517,13 +2556,15 @@ describe('cli real-repo-run-ai', () => {
       assert(!result.stderr.includes('Reviewer gate'), `Should not run reviewer gate when apply fails: ${result.stderr}`);
       const after = getBareRefs(originPath);
       assert.deepStrictEqual(after, before, 'Should not push when apply fails');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert.strictEqual(state, null, `State should not be written when apply fails`);
     } finally {
       cleanup();
     }
   });
 
-  test('raw fake reviewer output is not printed', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+  test('raw fake reviewer output is not printed or persisted', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv();
     try {
       const rawResponse = JSON.stringify({
         decision: 'accept',
@@ -2543,17 +2584,22 @@ describe('cli real-repo-run-ai', () => {
         KIMI_BASE_URL: 'http://localhost:9999',
         KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
         REAL_REPO_REVIEWER_FAKE_RESPONSE: rawResponse,
+        RUNS_DIR: runsDir,
       });
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       assert(!result.stdout.includes(rawResponse), `Should not print raw reviewer output in stdout`);
       assert(!result.stderr.includes(rawResponse), `Should not print raw reviewer output in stderr`);
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes(rawResponse), `Should not persist raw reviewer output in state`);
     } finally {
       cleanup();
     }
   });
 
-  test('fake secrets in reviewer provider failure path do not leak', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+  test('fake secrets in reviewer provider failure path do not leak in stderr or state', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv();
     try {
       const result = runCli(['real-repo-run-ai', taskId], {
         TASKS_FILE: tasksFilePath,
@@ -2565,10 +2611,15 @@ describe('cli real-repo-run-ai', () => {
         KIMI_BASE_URL: 'http://localhost:9999',
         KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
         REAL_REPO_REVIEWER_FAKE_RESPONSE: 'not valid json with sk-fake-key',
+        RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0);
       assert(!result.stderr.includes('sk-fake-key'), `Should not leak secret in stderr: ${result.stderr}`);
       assert(result.stderr.includes('[REDACTED]') || result.stderr.includes('Reviewer gate blocked'), `Should redact or block: ${result.stderr}`);
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes('sk-fake-key'), `Should not leak secret in persisted state: ${stateRaw}`);
     } finally {
       cleanup();
     }
