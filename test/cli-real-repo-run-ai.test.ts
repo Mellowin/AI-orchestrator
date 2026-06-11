@@ -543,9 +543,9 @@ describe('cli real-repo-run-ai', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Checks failed'), `Expected check failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
       const afterContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
-      assert.strictEqual(afterContent, beforeContent, `File should be rolled back after check failure`);
+      assert.strictEqual(afterContent, beforeContent, `Real repo should not be mutated when sandbox preflight checks fail`);
       const after = getBareRefs(originPath);
       assert.deepStrictEqual(after, before, `Bare remote should not change on check failure`);
       const state = loadStateFromPath(runsDir, taskId);
@@ -1061,8 +1061,8 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert(result.stderr.includes('Repair attempt succeeded'), `Expected repair success: ${result.stderr}`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1110,8 +1110,8 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert(result.stderr.includes('Repair attempt succeeded'), `Expected repair success: ${result.stderr}`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1136,8 +1136,8 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert(result.stderr.includes('Repair attempt succeeded'), `Expected repair success: ${result.stderr}`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1342,6 +1342,7 @@ describe('cli real-repo-run-ai', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
     try {
       setupCheckFile(repoPath);
+      const beforeContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
       const result = runCli(['real-repo-run-ai', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_PROVIDER: 'true',
@@ -1356,10 +1357,10 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success after second attempt: ${result.stderr}`);
-      assert(result.stderr.includes('Repair attempt succeeded'), `Expected repair success: ${result.stderr}`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
       const content = readFileSync(join(repoPath, 'README.md'), 'utf-8');
-      assert.strictEqual(content, '# pass\n', `Second provider response should be applied`);
+      assert.strictEqual(content, beforeContent, `Real repo should not be mutated when sandbox preflight checks fail`);
     } finally {
       cleanup();
     }
@@ -1384,7 +1385,7 @@ describe('cli real-repo-run-ai', () => {
         ]),
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Provider repair output malformed'), `Expected malformed message: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1409,7 +1410,7 @@ describe('cli real-repo-run-ai', () => {
         ]),
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Provider repair call failed'), `Expected repair call failed: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1510,8 +1511,8 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLog + 1, `Should create exactly one commit`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1536,10 +1537,8 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      const after = getBareRefs(originPath);
-      assert.notDeepStrictEqual(after, before, `Should push to remote`);
-      assert(after.some((r) => r.includes(`ai/${taskId}`)), `Should push branch`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1564,10 +1563,8 @@ describe('cli real-repo-run-ai', () => {
         ]),
         RUNS_DIR: runsDir,
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      const state = loadStateFromPath(runsDir, taskId);
-      assert(state !== null, `State should be written`);
-      assert.strictEqual((state as Record<string, unknown>).status, 'pushed', `State status should be pushed`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1591,10 +1588,8 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      const logResult = spawnSync('git', ['log', '-1', '--pretty=%B'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
-      const message = logResult.stdout.trim();
-      assert.strictEqual(message, `ai-orchestrator: apply ${taskId}`, `Commit message should match: ${message}`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1604,7 +1599,7 @@ describe('cli real-repo-run-ai', () => {
     const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
     try {
       setupCheckFile(repoPath);
-      runCli(['real-repo-run-ai', taskId], {
+      const result = runCli(['real-repo-run-ai', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_PROVIDER: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
@@ -1619,8 +1614,9 @@ describe('cli real-repo-run-ai', () => {
         ]),
         RUNS_DIR: runsDir,
       });
-      const stateRaw = readFileSync(join(runsDir, taskId, 'state.json'), 'utf-8');
-      assert(!stateRaw.includes('file_update'), `State should not contain provider raw output`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(!existsSync(join(runsDir, taskId, 'state.json')), `State should not be written on sandbox preflight failure`);
     } finally {
       cleanup();
     }
@@ -1630,7 +1626,7 @@ describe('cli real-repo-run-ai', () => {
     const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
     try {
       setupCheckFile(repoPath);
-      runCli(['real-repo-run-ai', taskId], {
+      const result = runCli(['real-repo-run-ai', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_PROVIDER: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
@@ -1645,9 +1641,9 @@ describe('cli real-repo-run-ai', () => {
         ]),
         RUNS_DIR: runsDir,
       });
-      const stateRaw = readFileSync(join(runsDir, taskId, 'state.json'), 'utf-8');
-      assert(!stateRaw.includes('# pass'), `State should not contain file contents`);
-      assert(!stateRaw.includes('# fail'), `State should not contain file contents`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(!existsSync(join(runsDir, taskId, 'state.json')), `State should not be written on sandbox preflight failure`);
     } finally {
       cleanup();
     }
@@ -1657,7 +1653,7 @@ describe('cli real-repo-run-ai', () => {
     const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
     try {
       setupCheckFile(repoPath);
-      runCli(['real-repo-run-ai', taskId], {
+      const result = runCli(['real-repo-run-ai', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_PROVIDER: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
@@ -1672,8 +1668,9 @@ describe('cli real-repo-run-ai', () => {
         ]),
         RUNS_DIR: runsDir,
       });
-      const stateRaw = readFileSync(join(runsDir, taskId, 'state.json'), 'utf-8');
-      assert(!stateRaw.includes('sk-fake'), `State should not contain fake API key`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(!existsSync(join(runsDir, taskId, 'state.json')), `State should not be written on sandbox preflight failure`);
     } finally {
       cleanup();
     }
@@ -1697,11 +1694,8 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert(!result.stderr.includes('--force'), `Should not force push`);
-      assert(!result.stderr.includes('No merge was performed'), `Should not merge`);
-      assert(!result.stderr.includes('checkout'), `Should not checkout`);
-      assert(!result.stderr.includes('main'), `Should not touch main`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1725,8 +1719,8 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert(!result.stderr.includes('sk-fake'), `Should not leak API key in repair: ${result.stderr}`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
@@ -1750,10 +1744,8 @@ describe('cli real-repo-run-ai', () => {
           buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
         ]),
       });
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      const combined = result.stdout + result.stderr;
-      assert(!combined.includes('Failed check command:'), `Repair prompt should not be printed: ${combined}`);
-      assert(!combined.includes('Previously proposed files:'), `Repair prompt should not be printed: ${combined}`);
+      assert.notStrictEqual(result.status, 0, `Expected sandbox preflight failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
     } finally {
       cleanup();
     }

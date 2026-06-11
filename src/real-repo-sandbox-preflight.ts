@@ -11,7 +11,6 @@ export interface RealRepoSandboxPreflightResult {
   ok: boolean;
   failedStep?: string;
   appliedFiles?: string[];
-  checkResult?: import('./types.js').RunResult;
   logs: string;
 }
 
@@ -28,7 +27,6 @@ export function runRealRepoSandboxPreflight(
     ok: flowResult.success,
     failedStep: flowResult.failedStep,
     appliedFiles: flowResult.appliedFiles,
-    checkResult: flowResult.checkResult,
     logs: flowResult.logs,
   };
 }

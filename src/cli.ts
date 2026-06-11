@@ -1132,15 +1132,6 @@ if (command === 'real-repo-run-ai') {
           sandboxRoot: sandboxRootAi,
         });
         if (!preflightResult.ok) {
-          if (preflightResult.failedStep === 'checks' && attempt < maxAttempts) {
-            lastKimiOutput = kimiOutput;
-            lastCheckResult = preflightResult.checkResult ?? { success: false, logs: preflightResult.logs };
-            console.error(`[real-repo-run-ai] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
-            const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
-            console.error(`[real-repo-run-ai] Sandbox logs (last 5 lines):\n${summary}`);
-            console.error(`[real-repo-run-ai] Checks failed on attempt ${attempt}, retrying...`);
-            continue;
-          }
           console.error(`[real-repo-run-ai] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
           const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
           console.error(`[real-repo-run-ai] Sandbox logs (last 5 lines):\n${summary}`);

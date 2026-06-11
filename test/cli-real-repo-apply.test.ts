@@ -646,6 +646,76 @@ describe('cli real-repo-apply', () => {
     }
   });
 
+  test('sandbox preflight apply failure prints safety messages', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(
+        result.stderr.includes('No files were modified'),
+        `Expected No files were modified, got: ${result.stderr}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight apply failure does not print rollback messages', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(
+        !result.stderr.includes('Rollback'),
+        `Should not print rollback message when sandbox preflight catches apply failure: ${result.stderr}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight apply failure prints No files were modified', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
+      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'blocked/new.txt', content: 'should fail\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      const combined = result.stdout + result.stderr;
+      assert(
+        combined.includes('No files were modified'),
+        `Should claim no files were modified when sandbox preflight catches apply failure: ${combined}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   test('apply failure does not commit/push/merge/checkout', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
