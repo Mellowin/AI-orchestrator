@@ -8,7 +8,8 @@ export type ReviewerGateStatus = 'accepted' | 'fix_required' | 'blocked';
 export type ReviewerGateDecisionSource =
   | 'reviewer'
   | 'parser'
-  | 'deterministic_safety';
+  | 'deterministic_safety'
+  | 'provider';
 
 export interface ReviewerGateInput {
   evidence: ReviewerEvidence;
