@@ -716,6 +716,24 @@ describe('cli real-repo-apply', () => {
     }
   });
 
+  test('sandbox preflight success allows real repo apply', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# sandbox-passed\n' },
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const content = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(content, '# sandbox-passed\n', 'Real repo file should be modified after sandbox preflight passes');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('apply failure does not commit/push/merge/checkout', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {

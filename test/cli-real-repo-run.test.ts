@@ -937,6 +937,33 @@ describe('cli real-repo-run', () => {
     }
   });
 
+  test('sandbox preflight success allows real repo run commit and push', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# run-sandbox-passed\n' },
+        ]),
+        RUNS_DIR: runsDir,
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const content = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(content, '# run-sandbox-passed\n', 'Real repo file should be modified after sandbox preflight passes');
+      const after = getBareRefs(originPath);
+      assert.notDeepStrictEqual(after, before, 'Should push to remote');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null, 'State should be written');
+      assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('existing real-repo-apply behavior unchanged', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {

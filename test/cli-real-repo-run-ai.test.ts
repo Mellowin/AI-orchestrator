@@ -969,6 +969,36 @@ describe('cli real-repo-run-ai', () => {
     }
   });
 
+  test('sandbox preflight success allows real repo run-ai commit push and state', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# ai-sandbox-passed\n' },
+        ]),
+        RUNS_DIR: runsDir,
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const content = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(content, '# ai-sandbox-passed\n', 'Real repo file should be modified after sandbox preflight passes');
+      const after = getBareRefs(originPath);
+      assert.notDeepStrictEqual(after, before, 'Should push to remote');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null, 'State should be written');
+      assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('existing real-repo-run behavior unchanged', () => {
     const { taskId, tasksFilePath, cleanup } = createTempEnv();
     try {
