@@ -43,6 +43,7 @@ import { buildCommitEvidence, validateCommitSha } from './reviewer/commit-verifi
 import { runDeterministicReviewChecks } from './reviewer/deterministic-review-checks.js';
 import { buildReviewInput } from './reviewer/review-input-builder.js';
 import { runReviewerGate } from './reviewer/reviewer-gate.js';
+import { runCommittedTaskReviewerGate } from './committed-task-reviewer-gate.js';
 import { loadBlockDefinition } from './block/block-loader.js';
 import { initBlockState, loadBlockState, saveBlockState, updateBlockState } from './block/block-state-manager.js';
 import {
@@ -1364,6 +1365,44 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
         process.exit(1);
+      }
+
+      // Reviewer gate (fake env only)
+      const fakeReviewerResponse = process.env.REAL_REPO_REVIEWER_FAKE_RESPONSE;
+      if (fakeReviewerResponse) {
+        try {
+          const reviewerResult = await runCommittedTaskReviewerGate({
+            repoPath: task.repo_path,
+            taskId,
+            taskGoal: task.goal,
+            branchName: currentBranch,
+            commitSha: headSha,
+            checkSummary: {
+              test: lastCheckResult?.success ? 'pass' : (lastCheckResult ? 'fail' : undefined),
+            },
+            stateStatus: 'pushed',
+            reviewer: async () => fakeReviewerResponse,
+          });
+          const gate = reviewerResult.reviewerRunnerResult.gateResult;
+          if (gate.status === 'accepted') {
+            console.error('[real-repo-run-ai] Reviewer gate accepted');
+          } else {
+            const issues = gate.blockingIssues.join('; ');
+            if (gate.status === 'fix_required') {
+              console.error('[real-repo-run-ai] Reviewer gate fix_required');
+              if (issues) console.error(`[real-repo-run-ai] Blocking issues: ${issues}`);
+              if (gate.fixTask) console.error(`[real-repo-run-ai] Fix task: ${gate.fixTask}`);
+            } else {
+              console.error('[real-repo-run-ai] Reviewer gate blocked');
+              if (issues) console.error(`[real-repo-run-ai] Blocking issues: ${issues}`);
+            }
+            process.exit(1);
+          }
+        } catch (reviewerErr) {
+          const msg = reviewerErr instanceof Error ? reviewerErr.message : String(reviewerErr);
+          console.error(`[real-repo-run-ai] Reviewer gate error: ${msg}`);
+          process.exit(1);
+        }
       }
 
       repairSucceeded = isRepair;
