@@ -2347,6 +2347,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task, undefined, `Should not have pending_reviewer_fix_task without env`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_state, undefined, `Should not have pending_reviewer_fix_task_state without env`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_plan, undefined, `Should not have pending_reviewer_fix_task_execution_plan without env`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not have pending_reviewer_fix_task_execution_request without env`);
     } finally {
       cleanup();
     }
@@ -2400,6 +2401,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task, undefined, `Should not persist pending_reviewer_fix_task on accept`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_state, undefined, `Should not persist pending_reviewer_fix_task_state on accept`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_plan, undefined, `Should not persist pending_reviewer_fix_task_execution_plan on accept`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not persist pending_reviewer_fix_task_execution_request on accept`);
     } finally {
       cleanup();
     }
@@ -2513,6 +2515,23 @@ describe('cli real-repo-run-ai', () => {
       assert(!execPlanRaw.includes('sk-fake-reviewer-secret'), `pending_reviewer_fix_task_execution_plan should not leak sk secret`);
       assert(!execPlanRaw.includes('Bearer fake-reviewer-token'), `pending_reviewer_fix_task_execution_plan should not leak Bearer token`);
       assert(!execPlanRaw.includes('pk-fake-reviewer-public'), `pending_reviewer_fix_task_execution_plan should not leak pk secret`);
+      const execRequest = (state as Record<string, unknown>).pending_reviewer_fix_task_execution_request as Record<string, unknown>;
+      assert(execRequest !== undefined, `Should persist pending_reviewer_fix_task_execution_request on fix_required`);
+      assert.strictEqual(execRequest.action, 'create_execution_request');
+      const requestPayload = execRequest.executionRequest as Record<string, unknown>;
+      assert.strictEqual(requestPayload.kind, 'reviewer_fix_task');
+      assert.strictEqual(requestPayload.status, 'pending');
+      assert.strictEqual(requestPayload.source, 'reviewer_gate');
+      assert.strictEqual(requestPayload.taskId, `fix-${taskId}-reviewer-1`);
+      assert.strictEqual(requestPayload.parentTaskId, taskId);
+      assert.strictEqual(requestPayload.attempt, 1);
+      assert.strictEqual(requestPayload.title, pending.task.title);
+      assert.strictEqual(requestPayload.goal, pending.task.goal);
+      assert.deepStrictEqual(requestPayload.blockingIssues, pending.task.blockingIssues);
+      const execRequestRaw = JSON.stringify(execRequest);
+      assert(!execRequestRaw.includes('sk-fake-reviewer-secret'), `pending_reviewer_fix_task_execution_request should not leak sk secret`);
+      assert(!execRequestRaw.includes('Bearer fake-reviewer-token'), `pending_reviewer_fix_task_execution_request should not leak Bearer token`);
+      assert(!execRequestRaw.includes('pk-fake-reviewer-public'), `pending_reviewer_fix_task_execution_request should not leak pk secret`);
     } finally {
       cleanup();
     }
@@ -2572,6 +2591,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task, undefined, `Should not persist pending_reviewer_fix_task on block_for_human`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_state, undefined, `Should not persist pending_reviewer_fix_task_state on block_for_human`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_plan, undefined, `Should not persist pending_reviewer_fix_task_execution_plan on block_for_human`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not persist pending_reviewer_fix_task_execution_request on block_for_human`);
     } finally {
       cleanup();
     }
@@ -2616,6 +2636,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task, undefined, `Should not persist pending_reviewer_fix_task on parser failure`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_state, undefined, `Should not persist pending_reviewer_fix_task_state on parser failure`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_plan, undefined, `Should not persist pending_reviewer_fix_task_execution_plan on parser failure`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not persist pending_reviewer_fix_task_execution_request on parser failure`);
     } finally {
       cleanup();
     }
@@ -2664,6 +2685,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task, undefined, `Should not persist pending_reviewer_fix_task on provider error`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_state, undefined, `Should not persist pending_reviewer_fix_task_state on provider error`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_plan, undefined, `Should not persist pending_reviewer_fix_task_execution_plan on provider error`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not persist pending_reviewer_fix_task_execution_request on provider error`);
     } finally {
       cleanup();
     }
