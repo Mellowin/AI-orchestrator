@@ -1,7 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { deriveReviewerFixTaskPlan } from '../src/reviewer-fix-task-plan.js';
-import type { ReviewerBlockActionPlan, ReviewerTaskTransition } from '../src/reviewer-block-action-plan.js';
+import type { ReviewerBlockActionPlan } from '../src/reviewer-block-action-plan.js';
+import type { ReviewerTaskTransition } from '../src/reviewer-task-transition.js';
 
 function makeTransition(
   action: ReviewerTaskTransition['action'],
