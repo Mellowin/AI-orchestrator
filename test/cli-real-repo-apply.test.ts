@@ -1183,4 +1183,223 @@ describe('cli real-repo-apply', () => {
       cleanup();
     }
   });
+
+  test('sandbox preflight check failure redacts sk-fake in stderr', () => {
+    const { taskId, repoPath, cleanup } = createTempEnv();
+    writeFileSync(join(repoPath, 'check.cjs'), `console.error('sk-fake-test-key');process.exit(1)`, 'utf-8');
+    spawnSync('git', ['add', 'check.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    const failingTasksPath = join(repoPath, '..', 'tasks-redact-sk.yaml');
+    writeFileSync(
+      failingTasksPath,
+      `tasks:
+  - id: ${taskId}
+    title: "Apply test"
+    repo_path: "${repoPath.replace(/\\/g, '/')}"
+    base_branch: "main"
+    work_branch: "ai/${taskId}"
+    goal: "Test goal"
+    context_files:
+      - "README.md"
+    checks:
+      - command: "node"
+        args: ["check.cjs"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`,
+      'utf-8'
+    );
+    try {
+      const original = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: failingTasksPath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.status}`);
+      assert(!result.stderr.includes('sk-fake'), `Should not leak sk-fake in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+      assert.strictEqual(
+        readFileSync(join(repoPath, 'README.md'), 'utf-8'),
+        original,
+        'Real repo should not be mutated when sandbox preflight fails'
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight check failure redacts Bearer fake-token in stderr', () => {
+    const { taskId, repoPath, cleanup } = createTempEnv();
+    writeFileSync(join(repoPath, 'check.cjs'), `console.error('Bearer fake-token');process.exit(1)`, 'utf-8');
+    spawnSync('git', ['add', 'check.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    const failingTasksPath = join(repoPath, '..', 'tasks-redact-bearer.yaml');
+    writeFileSync(
+      failingTasksPath,
+      `tasks:
+  - id: ${taskId}
+    title: "Apply test"
+    repo_path: "${repoPath.replace(/\\/g, '/')}"
+    base_branch: "main"
+    work_branch: "ai/${taskId}"
+    goal: "Test goal"
+    context_files:
+      - "README.md"
+    checks:
+      - command: "node"
+        args: ["check.cjs"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`,
+      'utf-8'
+    );
+    try {
+      const original = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: failingTasksPath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.status}`);
+      assert(!result.stderr.includes('Bearer fake-token'), `Should not leak Bearer token in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+      assert.strictEqual(
+        readFileSync(join(repoPath, 'README.md'), 'utf-8'),
+        original,
+        'Real repo should not be mutated when sandbox preflight fails'
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight check failure redacts api_key and token in stderr', () => {
+    const { taskId, repoPath, cleanup } = createTempEnv();
+    writeFileSync(join(repoPath, 'check.cjs'), `console.error('api_key=fake-key token=fake-token');process.exit(1)`, 'utf-8');
+    spawnSync('git', ['add', 'check.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    const failingTasksPath = join(repoPath, '..', 'tasks-redact-apikey.yaml');
+    writeFileSync(
+      failingTasksPath,
+      `tasks:
+  - id: ${taskId}
+    title: "Apply test"
+    repo_path: "${repoPath.replace(/\\/g, '/')}"
+    base_branch: "main"
+    work_branch: "ai/${taskId}"
+    goal: "Test goal"
+    context_files:
+      - "README.md"
+    checks:
+      - command: "node"
+        args: ["check.cjs"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`,
+      'utf-8'
+    );
+    try {
+      const original = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: failingTasksPath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.status}`);
+      assert(!result.stderr.includes('fake-key'), `Should not leak api_key value in stderr: ${result.stderr}`);
+      assert(!result.stderr.includes('fake-token'), `Should not leak token value in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+      assert.strictEqual(
+        readFileSync(join(repoPath, 'README.md'), 'utf-8'),
+        original,
+        'Real repo should not be mutated when sandbox preflight fails'
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight check failure stderr still includes useful context', () => {
+    const { taskId, repoPath, cleanup } = createTempEnv();
+    writeFileSync(join(repoPath, 'check.cjs'), `console.error('sk-fake-test-key');process.exit(1)`, 'utf-8');
+    spawnSync('git', ['add', 'check.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    const failingTasksPath = join(repoPath, '..', 'tasks-redact-context.yaml');
+    writeFileSync(
+      failingTasksPath,
+      `tasks:
+  - id: ${taskId}
+    title: "Apply test"
+    repo_path: "${repoPath.replace(/\\/g, '/')}"
+    base_branch: "main"
+    work_branch: "ai/${taskId}"
+    goal: "Test goal"
+    context_files:
+      - "README.md"
+    checks:
+      - command: "node"
+        args: ["check.cjs"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`,
+      'utf-8'
+    );
+    try {
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: failingTasksPath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.status}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Should include failure message: ${result.stderr}`);
+      assert(result.stderr.includes('checks'), `Should include failed step: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
 });

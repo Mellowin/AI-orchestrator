@@ -1002,4 +1002,111 @@ describe('cli real-repo-run', () => {
       cleanup();
     }
   });
+
+  test('sandbox preflight check failure redacts sk-fake in stderr', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv(['node check.cjs']);
+    try {
+      writeFileSync(join(repoPath, 'check.cjs'), `console.error('sk-fake-test-key');process.exit(1)`, 'utf-8');
+      spawnSync('git', ['add', 'check.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+      spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+      const before = getBareRefs(originPath);
+      const beforeContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const result = runCli(['real-repo-run', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(!result.stderr.includes('sk-fake'), `Should not leak sk-fake in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+      const afterContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(afterContent, beforeContent, `File should not be mutated`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Should not push`);
+      const state = loadStateFromPath(runsDir, taskId);
+      assert.strictEqual(state, null, `State should not be written`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight check failure redacts Bearer fake-token in stderr', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv(['node check.cjs']);
+    try {
+      writeFileSync(join(repoPath, 'check.cjs'), `console.error('Bearer fake-token');process.exit(1)`, 'utf-8');
+      spawnSync('git', ['add', 'check.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+      spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(!result.stderr.includes('Bearer fake-token'), `Should not leak Bearer token in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Should not push`);
+      const state = loadStateFromPath(runsDir, taskId);
+      assert.strictEqual(state, null, `State should not be written`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight check failure redacts api_key and token in stderr', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv(['node check.cjs']);
+    try {
+      writeFileSync(join(repoPath, 'check.cjs'), `console.error('api_key=fake-key token=fake-token');process.exit(1)`, 'utf-8');
+      spawnSync('git', ['add', 'check.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+      spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(!result.stderr.includes('fake-key'), `Should not leak api_key value in stderr: ${result.stderr}`);
+      assert(!result.stderr.includes('fake-token'), `Should not leak token value in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Should not push`);
+      const state = loadStateFromPath(runsDir, taskId);
+      assert.strictEqual(state, null, `State should not be written`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight check failure stderr still includes useful context', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv(['node check.cjs']);
+    try {
+      writeFileSync(join(repoPath, 'check.cjs'), `console.error('sk-fake-test-key');process.exit(1)`, 'utf-8');
+      spawnSync('git', ['add', 'check.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+      spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+      const result = runCli(['real-repo-run', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Should include failure message: ${result.stderr}`);
+      assert(result.stderr.includes('checks'), `Should include failed step: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
 });
