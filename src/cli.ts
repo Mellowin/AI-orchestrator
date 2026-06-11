@@ -1457,6 +1457,20 @@ if (command === 'real-repo-run-ai') {
             maxFixAttempts: 1,
           });
           (stateWithGate as Record<string, unknown>).reviewer_block_review_result = reviewResult;
+          const resolutionPlan = reviewResult.resolutionPlan;
+          if (
+            resolutionPlan.action === 'append_fix_task' &&
+            resolutionPlan.fixTask
+          ) {
+            (stateWithGate as Record<string, unknown>).pending_reviewer_fix_task = {
+              status: 'pending',
+              source: 'reviewer_gate',
+              task: resolutionPlan.fixTask,
+              parentTaskId: resolutionPlan.fixTask.parentTaskId,
+              attempt: resolutionPlan.fixTask.attempt,
+              createdFromResolutionAction: 'append_fix_task',
+            };
+          }
           try {
             saveState(taskId, stateWithGate as RunState);
           } catch (stateErr) {
