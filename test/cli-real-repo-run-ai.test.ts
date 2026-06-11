@@ -219,6 +219,12 @@ function setupCheckFile(repoPath: string): void {
   spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
 }
 
+function setupCheckFileWithSecrets(repoPath: string): void {
+  writeFileSync(join(repoPath, 'check-secret.cjs'), `require('fs').readFileSync('README.md','utf8').includes('fail')&&(console.error('sk-fake-e2e-secret Bearer fake-e2e-token api_key=fake-e2e-key'),process.exit(1))`, 'utf-8');
+  spawnSync('git', ['add', 'check-secret.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+  spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+}
+
 function loadStateFromPath(runsDir: string, taskId: string): unknown {
   const statePath = join(runsDir, taskId, 'state.json');
   if (!existsSync(statePath)) {
@@ -2187,6 +2193,125 @@ describe('cli real-repo-run-ai', () => {
       });
       assert.notStrictEqual(result.status, 0);
       assert(!result.stderr.includes('requesting repair'), `Guardrails failure should not trigger repair`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox-safe repaired flow end-to-end from bad output to pushed state', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const before = getBareRefs(originPath);
+      const beforeContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# pass\n' }]),
+        ]),
+        RUNS_DIR: runsDir,
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      // First attempt failed sandbox checks
+      assert(result.stderr.includes('Sandbox checks failed on attempt 1'), `Should show first attempt failure: ${result.stderr}`);
+      // Repair was requested
+      assert(result.stderr.includes('requesting repair'), `Should show repair request: ${result.stderr}`);
+      // Real repo mutated only after repaired output passes sandbox
+      const content = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(content, '# pass\n', 'Real repo should have repaired content');
+      assert.notStrictEqual(content, beforeContent, 'Real repo should be mutated after successful repair');
+      // Exactly one commit created by the flow
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, `Should create exactly one commit`);
+      // Push happened
+      const after = getBareRefs(originPath);
+      assert.notDeepStrictEqual(after, before, 'Should push to remote after successful repair');
+      // State written as pushed
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null, 'State should be written');
+      assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox check logs with multiple secrets are redacted in stderr', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv([], [{ command: 'node', args: ['check-secret.cjs'] }]);
+    try {
+      setupCheckFileWithSecrets(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(!result.stderr.includes('sk-fake-e2e-secret'), `Should not leak sk-fake secret in stderr: ${result.stderr}`);
+      assert(!result.stderr.includes('Bearer fake-e2e-token'), `Should not leak Bearer token in stderr: ${result.stderr}`);
+      assert(!result.stderr.includes('fake-e2e-key'), `Should not leak api_key value in stderr: ${result.stderr}`);
+      assert(result.stderr.includes('[REDACTED]'), `Should contain redaction marker: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Should include failure message: ${result.stderr}`);
+      assert(result.stderr.includes('checks'), `Should include failed step: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('maxAttempts reached when repair also fails sandbox checks', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv([], [{ command: 'node', args: ['check.cjs'] }]);
+    try {
+      setupCheckFile(repoPath);
+      const before = getBareRefs(originPath);
+      const beforeContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# fail\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# alsofail\n' }]),
+        ]),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      // First attempt failed
+      assert(result.stderr.includes('Sandbox checks failed on attempt 1'), `Should show first attempt failure: ${result.stderr}`);
+      // Repair was attempted
+      assert(result.stderr.includes('requesting repair'), `Should show repair attempt: ${result.stderr}`);
+      // Repair also failed (alsofail contains 'fail')
+      assert(result.stderr.includes('Sandbox checks failed on attempt 2') || result.stderr.includes('Attempt 2 of 2 reached'), `Should show second attempt failure or max reached: ${result.stderr}`);
+      // No real repo mutation
+      const afterContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(afterContent, beforeContent, `Real repo should not be mutated when repair also fails`);
+      // No commit
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, `No commit should be made`);
+      // No push
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, `Should not push when repair also fails`);
+      // No state
+      const state = loadStateFromPath(runsDir, taskId);
+      assert.strictEqual(state, null, `State should not be written`);
     } finally {
       cleanup();
     }
