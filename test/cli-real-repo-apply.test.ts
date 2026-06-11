@@ -617,12 +617,13 @@ describe('cli real-repo-apply', () => {
     }
   });
 
-  test('apply failure prints Apply failed', () => {
+  test('sandbox preflight apply failure does not mutate real repo', () => {
     const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
     try {
       writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
       spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
       spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      const before = readFileSync(join(repoPath, 'README.md'), 'utf-8');
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: tasksFilePath,
         ALLOW_REAL_REPO_APPLY: 'true',
@@ -632,78 +633,13 @@ describe('cli real-repo-apply', () => {
       });
       assert.notStrictEqual(result.status, 0);
       assert(
-        result.stderr.includes('Apply failed'),
-        `Expected Apply failed, got: ${result.stderr}`
+        result.stderr.includes('Sandbox preflight failed'),
+        `Expected sandbox preflight failure, got: ${result.stderr}`
       );
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('apply failure prints Manual inspection required', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
-      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
-      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
-      const result = runCli(['real-repo-apply', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_APPLY: 'true',
-        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
-          { path: 'blocked/new.txt', content: 'should fail\n' },
-        ]),
-      });
-      assert.notStrictEqual(result.status, 0);
-      assert(
-        result.stderr.includes('Manual inspection required'),
-        `Expected Manual inspection required, got: ${result.stderr}`
-      );
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('apply failure prints missing manifest rollback message', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
-      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
-      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
-      const result = runCli(['real-repo-apply', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_APPLY: 'true',
-        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
-          { path: 'blocked/new.txt', content: 'should fail\n' },
-        ]),
-      });
-      assert.notStrictEqual(result.status, 0);
-      assert(
-        result.stderr.includes('Rollback could not be attempted because apply manifest was not returned'),
-        `Expected missing manifest message, got: ${result.stderr}`
-      );
-    } finally {
-      cleanup();
-    }
-  });
-
-  test('apply failure does NOT print No files were modified', () => {
-    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
-    try {
-      writeFileSync(join(repoPath, 'blocked'), 'i am a file not a directory', 'utf-8');
-      spawnSync('git', ['add', 'blocked'], { cwd: repoPath, encoding: 'utf-8', shell: false });
-      spawnSync('git', ['commit', '-m', 'add blocked', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
-      const result = runCli(['real-repo-apply', taskId], {
-        TASKS_FILE: tasksFilePath,
-        ALLOW_REAL_REPO_APPLY: 'true',
-        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
-          { path: 'blocked/new.txt', content: 'should fail\n' },
-        ]),
-      });
-      assert.notStrictEqual(result.status, 0);
-      const combined = result.stdout + result.stderr;
-      assert(
-        !combined.includes('No files were modified'),
-        `Should not claim no files modified after apply failure: ${combined}`
+      assert.strictEqual(
+        readFileSync(join(repoPath, 'README.md'), 'utf-8'),
+        before,
+        'Real repo should not be mutated when sandbox preflight apply fails'
       );
     } finally {
       cleanup();
@@ -919,7 +855,7 @@ describe('cli real-repo-apply', () => {
     }
   });
 
-  test('check failure output contains rollback completed', () => {
+  test('sandbox preflight check failure prevents real repo mutation', () => {
     const { taskId, repoPath, cleanup } = createTempEnv();
     const modifiedTasksPath = join(repoPath, '..', 'tasks-fail.yaml');
     writeFileSync(
@@ -928,6 +864,7 @@ describe('cli real-repo-apply', () => {
       'utf-8'
     );
     try {
+      const before = readFileSync(join(repoPath, 'README.md'), 'utf-8');
       const result = runCli(['real-repo-apply', taskId], {
         TASKS_FILE: modifiedTasksPath,
         ALLOW_REAL_REPO_APPLY: 'true',
@@ -937,8 +874,13 @@ describe('cli real-repo-apply', () => {
       });
       assert.notStrictEqual(result.status, 0);
       assert(
-        result.stderr.includes('Rollback completed'),
-        `Expected rollback message, got: ${result.stderr}`
+        result.stderr.includes('Sandbox preflight failed'),
+        `Expected sandbox preflight failure, got: ${result.stderr}`
+      );
+      assert.strictEqual(
+        readFileSync(join(repoPath, 'README.md'), 'utf-8'),
+        before,
+        'Real repo should not be mutated when sandbox preflight checks fail'
       );
     } finally {
       cleanup();
@@ -1043,6 +985,111 @@ describe('cli real-repo-apply', () => {
       assert(
         !failCombined.includes('    at '),
         `Expected no stack trace in failure, got: ${failCombined}`
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight failure prevents real repo apply', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    const failingTasksPath = join(repoPath, '..', 'tasks-preflight-fail.yaml');
+    writeFileSync(
+      failingTasksPath,
+      `tasks:
+  - id: ${taskId}
+    title: "Apply test"
+    repo_path: "${repoPath.replace(/\\/g, '/')}"
+    base_branch: "main"
+    work_branch: "ai/${taskId}"
+    goal: "Test goal"
+    context_files:
+      - "README.md"
+    checks:
+      - command: "node"
+        args: ["-e", "process.exit(1)"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`,
+      'utf-8'
+    );
+    try {
+      const original = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: failingTasksPath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure, got status ${result.status}`);
+      assert.strictEqual(
+        readFileSync(join(repoPath, 'README.md'), 'utf-8'),
+        original,
+        'Real repo should not be mutated when sandbox preflight fails'
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('sandbox preflight failure output includes failedStep', () => {
+    const { taskId, repoPath, cleanup } = createTempEnv();
+    const failingTasksPath = join(repoPath, '..', 'tasks-preflight-fail.yaml');
+    writeFileSync(
+      failingTasksPath,
+      `tasks:
+  - id: ${taskId}
+    title: "Apply test"
+    repo_path: "${repoPath.replace(/\\/g, '/')}"
+    base_branch: "main"
+    work_branch: "ai/${taskId}"
+    goal: "Test goal"
+    context_files:
+      - "README.md"
+    checks:
+      - command: "node"
+        args: ["-e", "process.exit(1)"]
+    guardrails:
+      deny_modify:
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 150
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
+`,
+      'utf-8'
+    );
+    try {
+      const result = runCli(['real-repo-apply', taskId], {
+        TASKS_FILE: failingTasksPath,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        REAL_REPO_PROVIDER_RESPONSE: buildFakeKimiOutput([
+          { path: 'README.md', content: '# updated\n' },
+        ]),
+      });
+      assert.notStrictEqual(result.status, 0);
+      const combined = result.stdout + result.stderr;
+      assert(
+        combined.includes('Sandbox preflight failed'),
+        `Expected sandbox preflight failure message, got: ${combined}`
+      );
+      assert(
+        combined.includes('checks'),
+        `Expected failedStep 'checks' in output, got: ${combined}`
       );
     } finally {
       cleanup();

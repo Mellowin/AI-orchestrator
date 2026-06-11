@@ -516,7 +516,7 @@ describe('cli real-repo-run-ai', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Apply failed'), `Expected apply failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed at step: apply'), `Expected apply failure: ${result.stderr}`);
       const after = getBareRefs(originPath);
       assert.deepStrictEqual(after, before, `Bare remote should not change on apply failure`);
       const state = loadStateFromPath(runsDir, taskId);
@@ -1254,7 +1254,7 @@ describe('cli real-repo-run-ai', () => {
         ]),
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Rollback completed'), `Expected rollback: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed at step: checks'), `Expected sandbox check failure: ${result.stderr}`);
       const afterContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
       assert.strictEqual(afterContent, beforeContent, `File should be rolled back`);
     } finally {
@@ -1435,7 +1435,7 @@ describe('cli real-repo-run-ai', () => {
         ]),
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Checks failed after 1 attempt(s)'), `Expected failure count: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed at step: checks'), `Expected sandbox check failure: ${result.stderr}`);
     } finally {
       cleanup();
     }

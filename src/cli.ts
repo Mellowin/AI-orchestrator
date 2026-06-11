@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState, getRunDir } from './state-manager.js';
 import { buildContext } from './context-builder.js';
@@ -27,6 +28,7 @@ import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-
 import { createMockProviderCall, createRealProviderCall, buildProviderCallInput, normalizeProviderCallResult, normalizeProviderCallError } from './provider-call.js';
 import type { FetchFn } from './provider-call.js';
 import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
+import { runRealRepoSandboxPreflight } from './real-repo-sandbox-preflight.js';
 import { validateRealRepoApplySafety } from './real-repo-apply-safety.js';
 import { buildRealRepoApplyDryRunSummary } from './real-repo-apply-dry-run.js';
 import { buildRealRepoApplyPlan } from './real-repo-apply-plan.js';
@@ -614,6 +616,30 @@ if (command === 'real-repo-run') {
       process.exit(1);
     }
 
+    // Sandbox preflight gate
+    const sandboxRootRun = mkdtempSync(join(tmpdir(), 'preflight-'));
+    try {
+      const preflightResult = runRealRepoSandboxPreflight({
+        task,
+        rawProviderText,
+        sandboxRoot: sandboxRootRun,
+      });
+      if (!preflightResult.ok) {
+        console.error(`[real-repo-run] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
+        const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
+        console.error(`[real-repo-run] Sandbox logs (last 5 lines):\n${summary}`);
+        console.error('[real-repo-run] No apply was performed');
+        console.error('[real-repo-run] No commit was made');
+        console.error('[real-repo-run] No push was performed');
+        console.error('[real-repo-run] No merge was performed');
+        process.exit(1);
+      }
+    } finally {
+      if (existsSync(sandboxRootRun)) {
+        rmSync(sandboxRootRun, { recursive: true, force: true });
+      }
+    }
+
     const existingPaths: string[] = [];
     for (const f of kimiOutput.files) {
       const filePath = join(task.repo_path, f.path);
@@ -1021,6 +1047,7 @@ if (command === 'real-repo-run-ai') {
       }
 
       let kimiOutput: KimiOutput;
+      let rawProviderText: string;
       try {
         const realProviderCall = createRealProviderCall({
           provider: 'kimi',
@@ -1033,7 +1060,8 @@ if (command === 'real-repo-run-ai') {
         const providerInput = buildProviderCallInput('coder', currentPrompt, 'kimi', model);
         const result = await realProviderCall(providerInput);
         const normalizedResult = normalizeProviderCallResult(result);
-        kimiOutput = parseKimiOutputJson(normalizedResult.text);
+        rawProviderText = normalizedResult.text;
+        kimiOutput = parseKimiOutputJson(rawProviderText);
       } catch (providerErr) {
         const info = normalizeProviderCallError(providerErr);
         const message = info.message;
@@ -1092,6 +1120,41 @@ if (command === 'real-repo-run-ai') {
           console.error('[real-repo-run-ai] No checkout was performed');
           console.error('[real-repo-run-ai] No main touch was performed');
           process.exit(1);
+        }
+      }
+
+      // Sandbox preflight gate
+      const sandboxRootAi = mkdtempSync(join(tmpdir(), 'preflight-'));
+      try {
+        const preflightResult = runRealRepoSandboxPreflight({
+          task,
+          rawProviderText,
+          sandboxRoot: sandboxRootAi,
+        });
+        if (!preflightResult.ok) {
+          if (preflightResult.failedStep === 'checks' && attempt < maxAttempts) {
+            lastKimiOutput = kimiOutput;
+            lastCheckResult = preflightResult.checkResult ?? { success: false, logs: preflightResult.logs };
+            console.error(`[real-repo-run-ai] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
+            const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
+            console.error(`[real-repo-run-ai] Sandbox logs (last 5 lines):\n${summary}`);
+            console.error(`[real-repo-run-ai] Checks failed on attempt ${attempt}, retrying...`);
+            continue;
+          }
+          console.error(`[real-repo-run-ai] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
+          const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
+          console.error(`[real-repo-run-ai] Sandbox logs (last 5 lines):\n${summary}`);
+          console.error('[real-repo-run-ai] No apply was performed');
+          console.error('[real-repo-run-ai] No commit was made');
+          console.error('[real-repo-run-ai] No push was performed');
+          console.error('[real-repo-run-ai] No merge was performed');
+          console.error('[real-repo-run-ai] No checkout was performed');
+          console.error('[real-repo-run-ai] No main touch was performed');
+          process.exit(1);
+        }
+      } finally {
+        if (existsSync(sandboxRootAi)) {
+          rmSync(sandboxRootAi, { recursive: true, force: true });
         }
       }
 
@@ -3536,6 +3599,30 @@ if (command === 'real-repo-apply') {
       console.error('[real-repo-apply] No push was performed');
       console.error('[real-repo-apply] No merge was performed');
       process.exit(1);
+    }
+
+    // Sandbox preflight gate
+    const sandboxRootApply = mkdtempSync(join(tmpdir(), 'preflight-'));
+    try {
+      const preflightResult = runRealRepoSandboxPreflight({
+        task,
+        rawProviderText,
+        sandboxRoot: sandboxRootApply,
+      });
+      if (!preflightResult.ok) {
+        console.error(`[real-repo-apply] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
+        const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
+        console.error(`[real-repo-apply] Sandbox logs (last 5 lines):\n${summary}`);
+        console.error('[real-repo-apply] No files were modified');
+        console.error('[real-repo-apply] No commit was made');
+        console.error('[real-repo-apply] No push was performed');
+        console.error('[real-repo-apply] No merge was performed');
+        process.exit(1);
+      }
+    } finally {
+      if (existsSync(sandboxRootApply)) {
+        rmSync(sandboxRootApply, { recursive: true, force: true });
+      }
     }
 
     const existingPaths: string[] = [];

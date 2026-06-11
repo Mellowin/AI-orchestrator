@@ -464,7 +464,7 @@ describe('cli real-repo-run', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Apply failed'), `Expected apply failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
       const after = getBareRefs(originPath);
       assert.deepStrictEqual(after, before, `Bare remote should not change on apply failure`);
       const state = loadStateFromPath(runsDir, taskId);
@@ -488,7 +488,7 @@ describe('cli real-repo-run', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Checks failed'), `Expected check failure: ${result.stderr}`);
+      assert(result.stderr.includes('Sandbox preflight failed'), `Expected sandbox preflight failure: ${result.stderr}`);
       const afterContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
       assert.strictEqual(afterContent, beforeContent, `File should be rolled back after check failure`);
       const after = getBareRefs(originPath);

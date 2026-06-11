@@ -20,6 +20,7 @@ export interface SandboxApplyFlowResult {
   appliedFiles?: string[];
   checksPassed?: boolean;
   failedStep?: string;
+  checkResult?: import('./types.js').RunResult;
   logs: string;
 }
 
@@ -129,7 +130,7 @@ export function runSandboxApplyFlow(
     if (!cleanupSandbox()) {
       return { success: false, failedStep: 'cleanup', logs: logs.join('\n') };
     }
-    return { success: false, failedStep: 'checks', logs: logs.join('\n') };
+    return { success: false, failedStep: 'checks', checkResult, logs: logs.join('\n') };
   }
 
   log(`checks passed: ${checkResult.logs}`);
