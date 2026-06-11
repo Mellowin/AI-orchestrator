@@ -1381,17 +1381,23 @@ if (command === 'real-repo-run-ai') {
               test: lastCheckResult?.success ? 'pass' : (lastCheckResult ? 'fail' : undefined),
             },
             stateStatus: 'pushed',
-            reviewer: async () => fakeReviewerResponse,
+            reviewer: async (input) => {
+              const captureFile = process.env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
+              if (captureFile) {
+                writeFileSync(captureFile, JSON.stringify(input, null, 2), 'utf-8');
+              }
+              return fakeReviewerResponse;
+            },
           });
           const gate = reviewerResult.reviewerRunnerResult.gateResult;
           if (gate.status === 'accepted') {
             console.error('[real-repo-run-ai] Reviewer gate accepted');
           } else {
-            const issues = gate.blockingIssues.join('; ');
+            const issues = redactSecrets(gate.blockingIssues.join('; '));
             if (gate.status === 'fix_required') {
               console.error('[real-repo-run-ai] Reviewer gate fix_required');
               if (issues) console.error(`[real-repo-run-ai] Blocking issues: ${issues}`);
-              if (gate.fixTask) console.error(`[real-repo-run-ai] Fix task: ${gate.fixTask}`);
+              if (gate.fixTask) console.error(`[real-repo-run-ai] Fix task: ${redactSecrets(gate.fixTask)}`);
             } else {
               console.error('[real-repo-run-ai] Reviewer gate blocked');
               if (issues) console.error(`[real-repo-run-ai] Blocking issues: ${issues}`);
@@ -1400,7 +1406,7 @@ if (command === 'real-repo-run-ai') {
           }
         } catch (reviewerErr) {
           const msg = reviewerErr instanceof Error ? reviewerErr.message : String(reviewerErr);
-          console.error(`[real-repo-run-ai] Reviewer gate error: ${msg}`);
+          console.error(`[real-repo-run-ai] Reviewer gate error: ${redactSecrets(msg)}`);
           process.exit(1);
         }
       }
