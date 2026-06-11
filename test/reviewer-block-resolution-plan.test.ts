@@ -1,7 +1,8 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { deriveReviewerBlockResolutionPlan } from '../src/reviewer-block-resolution-plan.js';
-import type { ReviewerBlockActionPlan, ReviewerTaskTransition } from '../src/reviewer-block-action-plan.js';
+import type { ReviewerBlockActionPlan } from '../src/reviewer-block-action-plan.js';
+import type { ReviewerTaskTransition } from '../src/reviewer-task-transition.js';
 import type { ReviewerFixTaskPlan } from '../src/reviewer-fix-task-plan.js';
 
 function makeFixTask(
