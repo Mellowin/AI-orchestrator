@@ -44,6 +44,7 @@ import { runDeterministicReviewChecks } from './reviewer/deterministic-review-ch
 import { buildReviewInput } from './reviewer/review-input-builder.js';
 import { runReviewerGate } from './reviewer/reviewer-gate.js';
 import { runCommittedTaskReviewerGate } from './committed-task-reviewer-gate.js';
+import { deriveReviewerBlockReviewResult } from './reviewer-block-review-result.js';
 import type { ReviewerGateStatus, ReviewerGateDecisionSource } from './reviewer-gate.js';
 import { loadBlockDefinition } from './block/block-loader.js';
 import { initBlockState, loadBlockState, saveBlockState, updateBlockState } from './block/block-state-manager.js';
@@ -1398,6 +1399,9 @@ if (command === 'real-repo-run-ai') {
               if (captureFile) {
                 writeFileSync(captureFile, JSON.stringify(input, null, 2), 'utf-8');
               }
+              if (process.env.REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR === 'true') {
+                throw new Error('Forced reviewer provider error for testing.');
+              }
               return fakeReviewerResponse;
             },
           });
@@ -1439,6 +1443,20 @@ if (command === 'real-repo-run-ai') {
         if (reviewerGatePersisted) {
           const stateWithGate = { ...pushState };
           (stateWithGate as Record<string, unknown>).reviewer_gate = reviewerGatePersisted;
+          const reviewResult = deriveReviewerBlockReviewResult({
+            blockId: `single-task-review:${taskId}`,
+            tasks: [
+              {
+                taskId,
+                taskTitle: task.title,
+                taskGoal: task.goal,
+                runState: stateWithGate,
+              },
+            ],
+            existingFixAttemptsByParentTaskId: {},
+            maxFixAttempts: 1,
+          });
+          (stateWithGate as Record<string, unknown>).reviewer_block_review_result = reviewResult;
           try {
             saveState(taskId, stateWithGate as RunState);
           } catch (stateErr) {

@@ -40,6 +40,7 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.REAL_REPO_AI_MAX_ATTEMPTS;
   delete env.REAL_REPO_REVIEWER_FAKE_RESPONSE;
   delete env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
+  delete env.REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR;
   env.AI_PROVIDER = 'mock';
   return env;
 }
@@ -2342,6 +2343,7 @@ describe('cli real-repo-run-ai', () => {
       assert(state !== null);
       assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
       assert.strictEqual((state as Record<string, unknown>).reviewer_gate, undefined, `Should not have reviewer_gate without env`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_block_review_result, undefined, `Should not have reviewer_block_review_result without env`);
     } finally {
       cleanup();
     }
@@ -2383,6 +2385,15 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual(rg.source, 'reviewer');
       assert.strictEqual(rg.nextAction, 'continue');
       assert.strictEqual(rg.reviewSummary, 'Looks good');
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+      assert.strictEqual(rbr.blockId, `single-task-review:${taskId}`);
+      const resolutionPlan = rbr.resolutionPlan as Record<string, unknown>;
+      assert.strictEqual(resolutionPlan.action, 'continue_block');
+      const taskDecisions = rbr.blockDecision ? (rbr.blockDecision as Record<string, unknown>).taskDecisions as unknown[] : [];
+      assert.strictEqual(taskDecisions.length, 1);
+      const decision0 = taskDecisions[0] as Record<string, unknown>;
+      assert.strictEqual((decision0.outcome as Record<string, unknown>).status, 'accepted');
     } finally {
       cleanup();
     }
@@ -2438,6 +2449,21 @@ describe('cli real-repo-run-ai', () => {
       assert(!stateRaw.includes('sk-fake-reviewer-secret'), `Should not leak sk secret in persisted state`);
       assert(!stateRaw.includes('Bearer fake-reviewer-token'), `Should not leak Bearer token in persisted state`);
       assert(!stateRaw.includes('pk-fake-reviewer-public'), `Should not leak pk secret in persisted state`);
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+      assert.strictEqual(rbr.blockId, `single-task-review:${taskId}`);
+      const resolutionPlan = rbr.resolutionPlan as Record<string, unknown>;
+      assert.strictEqual(resolutionPlan.action, 'append_fix_task');
+      const fixTaskPlan = rbr.fixTaskPlan as Record<string, unknown>;
+      assert.strictEqual(fixTaskPlan.action, 'create_fix_task');
+      const fixTask = fixTaskPlan.fixTask as Record<string, unknown>;
+      assert.strictEqual(fixTask.taskId, `fix-${taskId}-reviewer-1`);
+      assert.strictEqual(fixTask.source, 'reviewer_gate');
+      assert.strictEqual(fixTask.parentTaskId, taskId);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should not execute fix task (no extra commit)');
+      const rbrRaw = JSON.stringify(rbr);
+      assert(!rbrRaw.includes('sk-fake-reviewer-secret'), `reviewer_block_review_result should not leak sk secret`);
+      assert(!rbrRaw.includes('Bearer fake-reviewer-token'), `reviewer_block_review_result should not leak Bearer token`);
     } finally {
       cleanup();
     }
@@ -2484,6 +2510,16 @@ describe('cli real-repo-run-ai', () => {
       const stateRaw = JSON.stringify(state);
       assert(!stateRaw.includes('api_key=fake-reviewer-key'), `Should not leak api_key in persisted state`);
       assert(!stateRaw.includes('token=fake-reviewer-token'), `Should not leak token in persisted state`);
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+      assert.strictEqual(rbr.blockId, `single-task-review:${taskId}`);
+      const resolutionPlan = rbr.resolutionPlan as Record<string, unknown>;
+      assert.strictEqual(resolutionPlan.action, 'block_for_human');
+      const fixTaskPlan = rbr.fixTaskPlan as Record<string, unknown>;
+      assert.strictEqual(fixTaskPlan.action, 'block_for_human');
+      const rbrRaw = JSON.stringify(rbr);
+      assert(!rbrRaw.includes('api_key=fake-reviewer-key'), `reviewer_block_review_result should not leak api_key`);
+      assert(!rbrRaw.includes('token=fake-reviewer-token'), `reviewer_block_review_result should not leak token`);
     } finally {
       cleanup();
     }
@@ -2518,6 +2554,58 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual(rg.nextAction, 'block');
       assert(Array.isArray(rg.blockingIssues));
       assert((rg.blockingIssues as string[]).length > 0, `Parser blocking issues should not be empty`);
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+      assert.strictEqual(rbr.blockId, `single-task-review:${taskId}`);
+      const resolutionPlan = rbr.resolutionPlan as Record<string, unknown>;
+      assert.strictEqual(resolutionPlan.action, 'block_for_human');
+      const fixTaskPlan = rbr.fixTaskPlan as Record<string, unknown>;
+      assert.strictEqual(fixTaskPlan.action, 'block_for_human');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('reviewer provider error persists reviewer_gate and reviewer_block_review_result as block_for_human', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'accept',
+          confidence: 'high',
+          blockingIssues: [],
+          nonBlockingIssues: [],
+          reviewSummary: 'Would accept',
+          nextAction: 'continue',
+        }),
+        REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR: 'true',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.notDeepStrictEqual(after, before, 'Initial push should still have happened');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const rg = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown>;
+      assert(rg !== undefined, `Should persist reviewer_gate`);
+      assert.strictEqual(rg.status, 'blocked');
+      assert.strictEqual(rg.source, 'provider');
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+      assert.strictEqual(rbr.blockId, `single-task-review:${taskId}`);
+      const resolutionPlan = rbr.resolutionPlan as Record<string, unknown>;
+      assert.strictEqual(resolutionPlan.action, 'block_for_human');
+      const fixTaskPlan = rbr.fixTaskPlan as Record<string, unknown>;
+      assert.strictEqual(fixTaskPlan.action, 'block_for_human');
     } finally {
       cleanup();
     }
@@ -2593,6 +2681,10 @@ describe('cli real-repo-run-ai', () => {
       assert(state !== null);
       const stateRaw = JSON.stringify(state);
       assert(!stateRaw.includes(rawResponse), `Should not persist raw reviewer output in state`);
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+      const rbrRaw = JSON.stringify(rbr);
+      assert(!rbrRaw.includes(rawResponse), `Should not persist raw reviewer output in reviewer_block_review_result`);
     } finally {
       cleanup();
     }
@@ -2620,6 +2712,10 @@ describe('cli real-repo-run-ai', () => {
       assert(state !== null);
       const stateRaw = JSON.stringify(state);
       assert(!stateRaw.includes('sk-fake-key'), `Should not leak secret in persisted state: ${stateRaw}`);
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+      const rbrRaw = JSON.stringify(rbr);
+      assert(!rbrRaw.includes('sk-fake-key'), `Should not leak secret in reviewer_block_review_result: ${rbrRaw}`);
     } finally {
       cleanup();
     }
