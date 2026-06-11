@@ -154,6 +154,73 @@ describe('reviewer provider runner', () => {
     assert(result.gateResult.blockingIssues[0].includes('rejected'));
   });
 
+  test('provider throw with sk-fake-reviewer-key does not leak raw key in blockingIssues', async () => {
+    const result = await runReviewerGateWithProvider({
+      evidence: makeEvidence(),
+      reviewer: async () => {
+        throw new Error('sk-fake-reviewer-key');
+      },
+    });
+    assert(!result.gateResult.blockingIssues[0].includes('sk-fake'), `Should not leak sk-fake: ${result.gateResult.blockingIssues[0]}`);
+    assert(result.gateResult.blockingIssues[0].includes('[REDACTED]'), `Should contain redaction marker: ${result.gateResult.blockingIssues[0]}`);
+    assert(result.gateResult.blockingIssues[0].includes('Reviewer provider failed'), `Should preserve prefix: ${result.gateResult.blockingIssues[0]}`);
+  });
+
+  test('provider reject with Bearer fake-reviewer-token does not leak raw bearer token in blockingIssues', async () => {
+    const result = await runReviewerGateWithProvider({
+      evidence: makeEvidence(),
+      reviewer: async () => Promise.reject(new Error('Bearer fake-reviewer-token')),
+    });
+    assert(!result.gateResult.blockingIssues[0].includes('Bearer fake-reviewer-token'), `Should not leak Bearer token: ${result.gateResult.blockingIssues[0]}`);
+    assert(result.gateResult.blockingIssues[0].includes('[REDACTED]'), `Should contain redaction marker: ${result.gateResult.blockingIssues[0]}`);
+  });
+
+  test('provider failure with api_key=fake-reviewer-key does not leak raw key in blockingIssues', async () => {
+    const result = await runReviewerGateWithProvider({
+      evidence: makeEvidence(),
+      reviewer: async () => {
+        throw new Error('api_key=fake-reviewer-key');
+      },
+    });
+    assert(!result.gateResult.blockingIssues[0].includes('fake-reviewer-key'), `Should not leak api_key value: ${result.gateResult.blockingIssues[0]}`);
+    assert(result.gateResult.blockingIssues[0].includes('[REDACTED]'), `Should contain redaction marker: ${result.gateResult.blockingIssues[0]}`);
+  });
+
+  test('provider failure with token=fake-reviewer-token does not leak raw token in blockingIssues', async () => {
+    const result = await runReviewerGateWithProvider({
+      evidence: makeEvidence(),
+      reviewer: async () => {
+        throw new Error('token=fake-reviewer-token');
+      },
+    });
+    assert(!result.gateResult.blockingIssues[0].includes('fake-reviewer-token'), `Should not leak token value: ${result.gateResult.blockingIssues[0]}`);
+    assert(result.gateResult.blockingIssues[0].includes('[REDACTED]'), `Should contain redaction marker: ${result.gateResult.blockingIssues[0]}`);
+  });
+
+  test('provider failure with password=fake-password does not leak raw password in blockingIssues', async () => {
+    const result = await runReviewerGateWithProvider({
+      evidence: makeEvidence(),
+      reviewer: async () => {
+        throw new Error('password=fake-password');
+      },
+    });
+    assert(!result.gateResult.blockingIssues[0].includes('fake-password'), `Should not leak password value: ${result.gateResult.blockingIssues[0]}`);
+    assert(result.gateResult.blockingIssues[0].includes('[REDACTED]'), `Should contain redaction marker: ${result.gateResult.blockingIssues[0]}`);
+  });
+
+  test('redacted blocking issue still includes useful context', async () => {
+    const result = await runReviewerGateWithProvider({
+      evidence: makeEvidence(),
+      reviewer: async () => {
+        throw new Error('sk-fake-reviewer-key');
+      },
+    });
+    assert(result.gateResult.blockingIssues[0].includes('Reviewer provider failed'), `Should include prefix: ${result.gateResult.blockingIssues[0]}`);
+    assert.strictEqual(result.gateResult.status, 'blocked');
+    assert.strictEqual(result.gateResult.source, 'provider');
+    assert.strictEqual(result.gateResult.nextAction, 'block');
+  });
+
   test('provider failure result preserves reviewer input', async () => {
     const result = await runReviewerGateWithProvider({
       evidence: makeEvidence(),

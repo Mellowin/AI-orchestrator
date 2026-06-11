@@ -1,5 +1,6 @@
 import { buildReviewerInput } from './reviewer-input.js';
 import { evaluateReviewerGate } from './reviewer-gate.js';
+import { redactSecrets } from './sandbox-preflight-repair.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type { ReviewerInput } from './reviewer-input.js';
 import type { ReviewerGateResult } from './reviewer-gate.js';
@@ -44,7 +45,7 @@ export async function runReviewerGateWithProvider(
       status: 'blocked',
       source: 'provider',
       reviewerInput,
-      blockingIssues: [`Reviewer provider failed: ${errorMessage}`],
+      blockingIssues: [`Reviewer provider failed: ${redactSecrets(errorMessage)}`],
       nonBlockingIssues: [],
       reviewSummary: 'Blocked due to reviewer provider failure.',
       nextAction: 'block',
