@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
-import { join, resolve, normalize } from 'node:path';
+import { join, resolve, normalize, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { runBlockSandbox, validateSandboxPath } from '../src/block/block-sandbox.js';
 import { getBlockRunDir } from '../src/block/block-state-manager.js';
@@ -145,7 +145,7 @@ describe('block-sandbox', () => {
     const result = runBlockSandbox({ blockDefinitionPath: blockJsonPath, runCommand: run });
 
     assert.strictEqual(result.block_id, blockId);
-    assert.ok(normalize(result.sandbox_path).includes(normalize('tmp/block-sandbox')));
+    assert.ok(!normalize(result.sandbox_path).startsWith(normalize(repoPath + normalize('/'))));
     assert.strictEqual(result.typecheck_result, 'pass');
     assert.strictEqual(result.build_result, 'pass');
     assert.strictEqual(result.test_result, 'pass');
@@ -170,7 +170,7 @@ describe('block-sandbox', () => {
         return { status: 0, stdout: 'main-commit-sha\n', stderr: '' };
       }
       if (command === 'git' && args[0] === 'worktree' && args[1] === 'list') {
-        return { status: 0, stdout: `worktree ${resolve(join(process.cwd(), 'tmp', 'block-sandbox', blockId))}\nHEAD abc123\n`, stderr: '' };
+        return { status: 0, stdout: `worktree ${resolve(join(dirname(repoPath), '.ai-orchestrator-sandboxes', basename(repoPath), blockId))}\nHEAD abc123\n`, stderr: '' };
       }
       if (command === 'git' && args[0] === 'worktree') {
         return { status: 0, stdout: '', stderr: '' };
@@ -405,11 +405,12 @@ describe('block-sandbox', () => {
     );
   });
 
-  it('sandbox path outside project directory is rejected without custom path', () => {
+  it('sandbox path outside project directory is allowed for default and custom paths', () => {
     const outsidePath = join(tmpdir(), 'outside-sandbox');
-    const result = validateSandboxPath(outsidePath, repoPath, false);
-    assert.strictEqual(result.ok, false);
-    assert.ok(result.reason?.includes('must be inside the project directory'));
+    const resultDefault = validateSandboxPath(outsidePath, repoPath, false);
+    assert.strictEqual(resultDefault.ok, true);
+    const resultCustom = validateSandboxPath(outsidePath, repoPath, true);
+    assert.strictEqual(resultCustom.ok, true);
   });
 
   it('sandbox path outside project directory is allowed when explicitly provided', () => {
@@ -476,7 +477,7 @@ describe('block-sandbox', () => {
         listCallCount++;
         // Before remove: registered (calls 1 and 2); after remove: not registered (call 3)
         if (listCallCount <= 2) {
-          return { status: 0, stdout: `worktree ${resolve(join(process.cwd(), 'tmp', 'block-sandbox', blockId))}\nHEAD abc123\n`, stderr: '' };
+          return { status: 0, stdout: `worktree ${resolve(join(dirname(repoPath), '.ai-orchestrator-sandboxes', basename(repoPath), blockId))}\nHEAD abc123\n`, stderr: '' };
         }
         return { status: 0, stdout: '', stderr: '' };
       }
@@ -586,7 +587,7 @@ describe('block-sandbox', () => {
 
     const run = createFakeRunCommand({
       'git worktree add': { status: 0, stdout: '', stderr: '' },
-      'git worktree list --porcelain': { status: 0, stdout: `worktree ${resolve(join(process.cwd(), 'tmp', 'block-sandbox', blockId))}\nHEAD abc123\n`, stderr: '' },
+      'git worktree list --porcelain': { status: 0, stdout: `worktree ${resolve(join(dirname(repoPath), '.ai-orchestrator-sandboxes', basename(repoPath), blockId))}\nHEAD abc123\n`, stderr: '' },
       'npm run typecheck': { status: 0, stdout: 'ok', stderr: '' },
       'npm run build': { status: 0, stdout: 'ok', stderr: '' },
       'npm test': { status: 0, stdout: 'ok', stderr: '' },
@@ -688,11 +689,52 @@ describe('block-sandbox', () => {
     assert.ok(report.includes('[REDACTED_TOKEN]'));
   });
 
+  it('default sandbox path is outside repo root', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+
+    const run = createFakeRunCommand({
+      'git worktree add': { status: 0, stdout: '', stderr: '' },
+      'git worktree list --porcelain': { status: 0, stdout: `worktree ${resolve(join(dirname(repoPath), '.ai-orchestrator-sandboxes', basename(repoPath), blockId))}\nHEAD abc123\n`, stderr: '' },
+      'npm run typecheck': { status: 0, stdout: 'ok', stderr: '' },
+      'npm run build': { status: 0, stdout: 'ok', stderr: '' },
+      'npm test': { status: 0, stdout: 'ok', stderr: '' },
+      'git worktree remove': { status: 0, stdout: '', stderr: '' },
+    });
+
+    const result = runBlockSandbox({
+      blockDefinitionPath: blockJsonPath,
+      runCommand: run,
+    });
+
+    assert.ok(!normalize(result.sandbox_path).startsWith(normalize(repoPath + normalize('/'))));
+    assert.strictEqual(result.path_validation, 'pass');
+  });
+
+  it('old repo-local tmp/block-sandbox/<block-id> path is rejected when explicitly provided', () => {
+    const def = makeDefinition();
+    writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
+
+    const run = createFakeRunCommand({
+      'git status --porcelain': { status: 0, stdout: '', stderr: '' },
+    });
+
+    assert.throws(
+      () =>
+        runBlockSandbox({
+          blockDefinitionPath: blockJsonPath,
+          runCommand: run,
+          sandboxPath: join(repoPath, 'tmp', 'block-sandbox', blockId),
+        }),
+      /must not be inside/
+    );
+  });
+
   it('cleanup verified false when worktree still listed after remove', () => {
     const def = makeDefinition();
     writeFileSync(blockJsonPath, JSON.stringify(def, null, 2));
 
-    const sandboxFullPath = resolve(join(process.cwd(), 'tmp', 'block-sandbox', blockId));
+    const sandboxFullPath = resolve(join(dirname(repoPath), '.ai-orchestrator-sandboxes', basename(repoPath), blockId));
     const run = createFakeRunCommand({
       'git worktree add': { status: 0, stdout: '', stderr: '' },
       'git worktree list --porcelain': { status: 0, stdout: `worktree ${sandboxFullPath}\nHEAD abc123\n`, stderr: '' },

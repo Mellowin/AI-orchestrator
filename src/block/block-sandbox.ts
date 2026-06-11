@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve, normalize, sep } from 'node:path';
+import { join, resolve, normalize, sep, dirname, basename } from 'node:path';
 import { sync as spawnSync } from 'cross-spawn';
 import { loadBlockDefinition } from './block-loader.js';
 import { getBlockRunDir } from './block-state-manager.js';
@@ -104,13 +104,6 @@ export function validateSandboxPath(
     return { ok: false, reason: 'Sandbox path must not be inside the source repository' };
   }
 
-  const cwd = resolve(process.cwd());
-  const cwdWithSep = cwd.endsWith(sep) ? cwd : cwd + sep;
-  const insideCwd = resolvedSandbox === cwd || resolvedSandbox.startsWith(cwdWithSep);
-  if (!insideCwd && !isCustomPath) {
-    return { ok: false, reason: 'Sandbox path must be inside the project directory or explicitly provided as a custom path' };
-  }
-
   return { ok: true };
 }
 
@@ -172,9 +165,9 @@ export function runBlockSandbox(input: BlockSandboxInput): BlockSandboxResult {
 
   // 5. Determine and validate sandbox path
   const defaultSandboxPath = join(
-    process.cwd(),
-    'tmp',
-    'block-sandbox',
+    dirname(repoPath),
+    '.ai-orchestrator-sandboxes',
+    basename(repoPath),
     blockId
   );
   const sandboxPath = input.sandboxPath
