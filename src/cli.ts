@@ -49,6 +49,7 @@ import { readPendingReviewerFixTaskState } from './reviewer-pending-fix-task-sta
 import { derivePendingReviewerFixTaskExecutionPlan } from './reviewer-pending-fix-task-execution-plan.js';
 import { derivePendingReviewerFixTaskExecutionRequest } from './reviewer-pending-fix-task-execution-request.js';
 import { readPendingReviewerFixTaskExecutionRequestState } from './reviewer-pending-fix-task-execution-request-state.js';
+import { deriveReviewerFixTaskRunPlan } from './reviewer-fix-task-run-plan.js';
 import type { ReviewerGateStatus, ReviewerGateDecisionSource } from './reviewer-gate.js';
 import { loadBlockDefinition } from './block/block-loader.js';
 import { initBlockState, loadBlockState, saveBlockState, updateBlockState } from './block/block-state-manager.js';
@@ -1490,6 +1491,10 @@ if (command === 'real-repo-run-ai') {
               runState: stateWithGate,
             });
             (stateWithGate as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state = executionRequestState;
+            const runPlan = deriveReviewerFixTaskRunPlan({
+              executionRequestState,
+            });
+            (stateWithGate as Record<string, unknown>).reviewer_fix_task_run_plan = runPlan;
           }
           try {
             saveState(taskId, stateWithGate as RunState);
