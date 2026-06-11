@@ -29,6 +29,7 @@ import { createMockProviderCall, createRealProviderCall, buildProviderCallInput,
 import type { FetchFn } from './provider-call.js';
 import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
 import { runRealRepoSandboxPreflight } from './real-repo-sandbox-preflight.js';
+import { buildSandboxPreflightRepairDecision } from './sandbox-preflight-repair.js';
 import { validateRealRepoApplySafety } from './real-repo-apply-safety.js';
 import { buildRealRepoApplyDryRunSummary } from './real-repo-apply-dry-run.js';
 import { buildRealRepoApplyPlan } from './real-repo-apply-plan.js';
@@ -1035,15 +1036,20 @@ if (command === 'real-repo-run-ai') {
     let lastCheckResult: import('./types.js').RunResult | undefined;
     let repairSucceeded = false;
     let finalKimiOutput: KimiOutput | undefined;
+    let repairPrompt: string | undefined;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const isRepair = attempt > 1;
-      const currentPrompt = isRepair && lastCheckResult && lastKimiOutput
+      const currentPrompt = repairPrompt ?? (isRepair && lastCheckResult && lastKimiOutput
         ? buildRepairPrompt(task, currentBranch, lastCheckResult, lastKimiOutput.files)
-        : basePrompt;
+        : basePrompt);
 
       if (isRepair) {
-        console.error(`[real-repo-run-ai] Repair attempt ${attempt}/${maxAttempts}`);
+        if (repairPrompt) {
+          console.error(`[real-repo-run-ai] Repair attempt ${attempt}/${maxAttempts} (sandbox preflight)`);
+        } else {
+          console.error(`[real-repo-run-ai] Repair attempt ${attempt}/${maxAttempts}`);
+        }
       }
 
       let kimiOutput: KimiOutput;
@@ -1132,7 +1138,23 @@ if (command === 'real-repo-run-ai') {
           sandboxRoot: sandboxRootAi,
         });
         if (!preflightResult.ok) {
+          const repairDecision = buildSandboxPreflightRepairDecision({
+            failedStep: preflightResult.failedStep ?? 'unknown',
+            logs: preflightResult.logs,
+            attempt,
+            maxAttempts,
+            taskGoal: task.goal,
+            rawProviderText,
+          });
+
+          if (repairDecision.repairable && repairDecision.repairPrompt) {
+            console.error(`[real-repo-run-ai] Sandbox checks failed on attempt ${attempt}, requesting repair...`);
+            repairPrompt = repairDecision.repairPrompt;
+            continue;
+          }
+
           console.error(`[real-repo-run-ai] Sandbox preflight failed at step: ${preflightResult.failedStep}`);
+          console.error(`[real-repo-run-ai] ${repairDecision.reason}`);
           const summary = preflightResult.logs.split('\n').slice(-5).join('\n');
           console.error(`[real-repo-run-ai] Sandbox logs (last 5 lines):\n${summary}`);
           console.error('[real-repo-run-ai] No apply was performed');
@@ -1148,6 +1170,9 @@ if (command === 'real-repo-run-ai') {
           rmSync(sandboxRootAi, { recursive: true, force: true });
         }
       }
+
+      // Sandbox preflight passed; reset repair prompt for any downstream repairs
+      repairPrompt = undefined;
 
       const existingPaths: string[] = [];
       for (const f of kimiOutput.files) {
