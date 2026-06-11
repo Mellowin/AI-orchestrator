@@ -2350,6 +2350,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not have pending_reviewer_fix_task_execution_request without env`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not have pending_reviewer_fix_task_execution_request_state without env`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not have reviewer_fix_task_run_plan without env`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not have reviewer_fix_task_run_plan_state without env`);
     } finally {
       cleanup();
     }
@@ -2406,6 +2407,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not persist pending_reviewer_fix_task_execution_request on accept`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not persist pending_reviewer_fix_task_execution_request_state on accept`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not persist reviewer_fix_task_run_plan on accept`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not persist reviewer_fix_task_run_plan_state on accept`);
     } finally {
       cleanup();
     }
@@ -2581,6 +2583,29 @@ describe('cli real-repo-run-ai', () => {
       assert(!runPlanRaw.includes('sk-fake-reviewer-secret'), `reviewer_fix_task_run_plan should not leak sk secret`);
       assert(!runPlanRaw.includes('Bearer fake-reviewer-token'), `reviewer_fix_task_run_plan should not leak Bearer token`);
       assert(!runPlanRaw.includes('pk-fake-reviewer-public'), `reviewer_fix_task_run_plan should not leak pk secret`);
+      const runPlanState = (state as Record<string, unknown>).reviewer_fix_task_run_plan_state as Record<string, unknown>;
+      assert(runPlanState !== undefined, `Should persist reviewer_fix_task_run_plan_state on fix_required`);
+      assert.strictEqual(runPlanState.status, 'ready');
+      const runPlanStateRunPlan = runPlanState.runPlan as Record<string, unknown>;
+      assert.strictEqual(runPlanStateRunPlan.action, 'run_fix_task');
+      assert.strictEqual(runPlanStateRunPlan.taskId, `fix-${taskId}-reviewer-1`);
+      assert.strictEqual(runPlanStateRunPlan.parentTaskId, taskId);
+      assert.strictEqual(runPlanStateRunPlan.attempt, 1);
+      assert.strictEqual(runPlanStateRunPlan.title, pending.task.title);
+      assert.strictEqual(runPlanStateRunPlan.goal, pending.task.goal);
+      assert.deepStrictEqual(runPlanStateRunPlan.blockingIssues, pending.task.blockingIssues);
+      const runPlanStateExecRequest = runPlanState.executionRequest as Record<string, unknown>;
+      assert.strictEqual(runPlanStateExecRequest.kind, 'reviewer_fix_task');
+      assert.strictEqual(runPlanStateExecRequest.status, 'pending');
+      assert.strictEqual(runPlanStateExecRequest.source, 'reviewer_gate');
+      const runPlanStateFixTask = runPlanState.fixTask as Record<string, unknown>;
+      assert.strictEqual(runPlanStateFixTask.taskId, `fix-${taskId}-reviewer-1`);
+      assert.strictEqual(runPlanStateFixTask.title, pending.task.title);
+      assert.strictEqual(runPlanStateFixTask.goal, pending.task.goal);
+      const runPlanStateRaw = JSON.stringify(runPlanState);
+      assert(!runPlanStateRaw.includes('sk-fake-reviewer-secret'), `reviewer_fix_task_run_plan_state should not leak sk secret`);
+      assert(!runPlanStateRaw.includes('Bearer fake-reviewer-token'), `reviewer_fix_task_run_plan_state should not leak Bearer token`);
+      assert(!runPlanStateRaw.includes('pk-fake-reviewer-public'), `reviewer_fix_task_run_plan_state should not leak pk secret`);
     } finally {
       cleanup();
     }
@@ -2643,6 +2668,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not persist pending_reviewer_fix_task_execution_request on block_for_human`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not persist pending_reviewer_fix_task_execution_request_state on block_for_human`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not persist reviewer_fix_task_run_plan on block_for_human`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not persist reviewer_fix_task_run_plan_state on block_for_human`);
     } finally {
       cleanup();
     }
@@ -2690,6 +2716,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not persist pending_reviewer_fix_task_execution_request on parser failure`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not persist pending_reviewer_fix_task_execution_request_state on parser failure`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not persist reviewer_fix_task_run_plan on parser failure`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not persist reviewer_fix_task_run_plan_state on parser failure`);
     } finally {
       cleanup();
     }
@@ -2741,6 +2768,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not persist pending_reviewer_fix_task_execution_request on provider error`);
       assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not persist pending_reviewer_fix_task_execution_request_state on provider error`);
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not persist reviewer_fix_task_run_plan on provider error`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not persist reviewer_fix_task_run_plan_state on provider error`);
     } finally {
       cleanup();
     }
