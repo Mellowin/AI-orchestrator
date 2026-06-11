@@ -64,6 +64,15 @@ describe('deriveReviewerTaskOutcome', () => {
     assert(result.reason.includes('legacy'));
   });
 
+  test('committed state without reviewer_gate returns legacy_success continue', () => {
+    const result = deriveReviewerTaskOutcome({
+      runState: { status: 'committed', commit_sha: 'abc' },
+    });
+    assert.strictEqual(result.status, 'legacy_success');
+    assert.strictEqual(result.nextAction, 'continue');
+    assert(result.reason.includes('legacy'));
+  });
+
   test('approved state without reviewer_gate returns legacy_success continue', () => {
     const result = deriveReviewerTaskOutcome({ runState: { status: 'approved' } });
     assert.strictEqual(result.status, 'legacy_success');

@@ -35,7 +35,7 @@ export interface ReviewerTaskOutcome {
   blockingIssues: string[];
 }
 
-const COMPLETED_STATUSES = new Set(['pushed', 'approved']);
+const COMPLETED_STATUSES = new Set(['pushed', 'committed', 'approved']);
 
 export function deriveReviewerTaskOutcome(
   input: ReviewerTaskOutcomeInput
