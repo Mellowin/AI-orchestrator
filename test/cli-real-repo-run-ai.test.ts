@@ -2769,6 +2769,55 @@ describe('cli real-repo-run-ai', () => {
     }
   });
 
+  test('fix_required with unsupported fake executor status does not leak raw status', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['sk-fake-reviewer-secret'],
+          nonBlockingIssues: ['pk-fake-reviewer-public'],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'use Bearer fake-reviewer-token',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE: JSON.stringify({
+          status: 'unexpected-status-value sk-fake-unsupported-secret',
+          reason: 'Should not matter',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create exactly one commit');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const controlledRun = (state as Record<string, unknown>).reviewer_fix_task_controlled_run as Record<string, unknown>;
+      assert(controlledRun !== undefined, `Should persist reviewer_fix_task_controlled_run on unsupported fake executor status`);
+      assert.strictEqual(controlledRun.runnerResultStatus, 'blocked');
+      assert.strictEqual(controlledRun.runnerResultNextAction, 'block');
+      const controlledRunRaw = JSON.stringify(controlledRun);
+      assert(!controlledRunRaw.includes('unexpected-status-value'), `reviewer_fix_task_controlled_run should not leak raw unsupported status`);
+      assert(!controlledRunRaw.includes('sk-fake-unsupported-secret'), `reviewer_fix_task_controlled_run should not leak secret from unsupported status`);
+      assert(!result.stderr.includes('unexpected-status-value'), `stderr should not leak raw unsupported status`);
+      assert(!result.stderr.includes('sk-fake-unsupported-secret'), `stderr should not leak secret from unsupported status`);
+      const persistedState = controlledRun.persistedState as Record<string, unknown>;
+      assert.strictEqual(persistedState.status, 'blocked');
+      assert(persistedState.reason.includes('Unsupported fake executor status'));
+    } finally {
+      cleanup();
+    }
+  });
+
   test('fake reviewer block_for_human persists reviewer_gate with redacted secrets', () => {
     const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
     try {

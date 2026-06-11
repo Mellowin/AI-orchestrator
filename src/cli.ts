@@ -1531,7 +1531,7 @@ if (command === 'real-repo-run-ai') {
                   }
                   return {
                     status: 'blocked' as const,
-                    reason: `Unsupported fake executor status: ${String(parsed.status)}`,
+                    reason: 'Unsupported fake executor status; block for human review.',
                   };
                 } catch {
                   return {
