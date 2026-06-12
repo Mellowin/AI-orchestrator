@@ -42,6 +42,10 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
   delete env.REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR;
   delete env.REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE;
+  delete env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP;
+  delete env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE;
+  delete env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE;
+  delete env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES;
   env.AI_PROVIDER = 'mock';
   return env;
 }
@@ -3166,6 +3170,409 @@ describe('cli real-repo-run-ai', () => {
       assert(existsSync(captureFile), `Capture file should exist`);
       const capturedRaw = readFileSync(captureFile, 'utf-8');
       assert(!capturedRaw.includes(rawResponse), `Captured input should not contain raw reviewer output`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  function getHeadSha(repoPath: string): string {
+    const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    return result.stdout.trim();
+  }
+
+  test('without REAL_REPO_ENABLE_REVIEWER_FIX_LOOP fix_required does not execute fix task', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['missing fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create exactly one commit');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined, 'Should not run fix task without env flag');
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_second_review, undefined, 'Should not have second review without env flag');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 fix_required executes fix task and second reviewer accepts', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['missing fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: buildFakeKimiOutput([
+          { path: 'fix.txt', content: 'fix applied\n' },
+        ]),
+        REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE: JSON.stringify({
+          decision: 'accept',
+          confidence: 'high',
+          blockingIssues: [],
+          nonBlockingIssues: [],
+          reviewSummary: 'Fix looks good',
+          nextAction: 'continue',
+        }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(result.stderr.includes('Reviewer fix-loop completed'), `Should report fix-loop completion: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create original and fix commits');
+
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert(state !== null);
+      assert.strictEqual(state.status, 'pushed');
+
+      const controlledRun = state.reviewer_fix_task_controlled_run as Record<string, unknown>;
+      assert(controlledRun !== undefined, 'Should persist controlled run');
+      assert.strictEqual(controlledRun.runnerResultStatus, 'executed');
+      assert.strictEqual(controlledRun.runnerResultNextAction, 'review_fix_result');
+
+      const postRunPlan = state.reviewer_fix_task_post_run_review_plan as Record<string, unknown>;
+      assert(postRunPlan !== undefined, 'Should persist post-run review plan');
+      assert.strictEqual(postRunPlan.action, 'review_fix_result');
+      const fixTaskId = `fix-${taskId}-reviewer-1`;
+      assert.strictEqual(postRunPlan.taskId, fixTaskId);
+      assert.strictEqual(postRunPlan.parentTaskId, taskId);
+      assert.strictEqual(postRunPlan.attempt, 1);
+      const fixCommitSha = postRunPlan.commitSha as string;
+      assert(typeof fixCommitSha === 'string' && fixCommitSha.length === 40, `Fix commit SHA should be 40 chars: ${fixCommitSha}`);
+
+      const originalCommitSha = state.commit_sha as string;
+      assert.notStrictEqual(fixCommitSha, originalCommitSha, 'Fix commit should differ from original commit');
+
+      const changedFiles = postRunPlan.changedFiles as string[];
+      assert(Array.isArray(changedFiles) && changedFiles.includes('fix.txt'), `Should include fix changed files: ${JSON.stringify(changedFiles)}`);
+
+      const secondReview = state.reviewer_fix_task_second_review as Record<string, unknown>;
+      assert(secondReview !== undefined, 'Should persist second review');
+      assert.strictEqual(secondReview.fixTaskId, fixTaskId);
+      assert.strictEqual(secondReview.parentTaskId, taskId);
+      assert.strictEqual(secondReview.attempt, 1);
+      assert.strictEqual(secondReview.fixCommitSha, fixCommitSha);
+      assert.strictEqual(secondReview.finalStatus, 'accepted');
+      assert.strictEqual(secondReview.nextAction, 'continue');
+
+      const secondGate = secondReview.reviewerGate as Record<string, unknown>;
+      assert(secondGate !== undefined);
+      assert.strictEqual(secondGate.status, 'accepted');
+      assert.strictEqual(secondGate.nextAction, 'continue');
+
+      const evidenceFile = join(runsDir, 'reviewer-fix-evidence.json');
+      // Evidence is not persisted separately; reviewerGate contains summary only.
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes('fix applied'), 'State should not contain fix file content');
+      assert(!stateRaw.includes('sk-fake'), 'State should not leak secrets');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 second reviewer reject does not recursively fix', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['missing fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: buildFakeKimiOutput([
+          { path: 'fix.txt', content: 'fix applied\n' },
+        ]),
+        REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['still missing more'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Still needs fix',
+          nextAction: 'fix',
+          fixTask: 'add more tests',
+        }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('max fix attempts reached'), `Should report max attempts reached: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create original and one fix commit only');
+
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      const secondReview = state.reviewer_fix_task_second_review as Record<string, unknown>;
+      assert(secondReview !== undefined);
+      assert.strictEqual(secondReview.finalStatus, 'fix_required');
+      assert.strictEqual(secondReview.nextAction, 'manual_followup');
+      const secondGate = secondReview.reviewerGate as Record<string, unknown>;
+      assert.strictEqual(secondGate.status, 'fix_required');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 fix execution guardrails failure blocks safely', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['missing fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: buildFakeKimiOutput([
+          { path: '.env', content: 'SECRET=1\n' },
+        ]),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should not create fix commit on guardrails failure');
+
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      const controlledRun = state.reviewer_fix_task_controlled_run as Record<string, unknown>;
+      assert(controlledRun !== undefined);
+      assert.strictEqual(controlledRun.runnerResultStatus, 'blocked');
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_second_review, undefined, 'Should not run second review when fix execution blocked');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 reviewer accept does not execute fix task', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'accept',
+          confidence: 'high',
+          blockingIssues: [],
+          nonBlockingIssues: [],
+          reviewSummary: 'Looks good',
+          nextAction: 'continue',
+        }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create only original commit');
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_second_review, undefined);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 reviewer block_for_human does not execute fix task', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'block_for_human',
+          confidence: 'high',
+          blockingIssues: ['human needed'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Block',
+          nextAction: 'block',
+        }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create only original commit');
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_second_review, undefined);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 reviewer parser failure does not execute fix task', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: 'not valid json with sk-fake-key',
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create only original commit');
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_second_review, undefined);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 reviewer provider error does not execute fix task', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'accept',
+          confidence: 'high',
+          blockingIssues: [],
+          nonBlockingIssues: [],
+          reviewSummary: 'Looks good',
+          nextAction: 'continue',
+        }),
+        REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR: 'true',
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create only original commit');
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_second_review, undefined);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('fix-loop state redacts secrets in reviewer and executor output', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['sk-fake-reviewer-secret'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix with Bearer fake-reviewer-token',
+          nextAction: 'fix',
+          fixTask: 'use api_key=fake-key',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: buildFakeKimiOutput(
+          [{ path: 'fix.txt', content: 'fix applied\n' }],
+          'used sk-fake-fix-secret'
+        ),
+        REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE: JSON.stringify({
+          decision: 'accept',
+          confidence: 'high',
+          blockingIssues: [],
+          nonBlockingIssues: [],
+          reviewSummary: 'Looks good',
+          nextAction: 'continue',
+        }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      const stateRaw = readFileSync(join(runsDir, taskId, 'state.json'), 'utf-8');
+      assert(!stateRaw.includes('sk-fake-reviewer-secret'), 'Should not leak sk secret');
+      assert(!stateRaw.includes('Bearer fake-reviewer-token'), 'Should not leak Bearer token');
+      assert(!stateRaw.includes('api_key=fake-key'), 'Should not leak api_key');
+      assert(!stateRaw.includes('sk-fake-fix-secret'), 'Should not leak fix provider secret');
     } finally {
       cleanup();
     }
