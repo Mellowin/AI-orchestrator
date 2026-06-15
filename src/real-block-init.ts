@@ -221,6 +221,7 @@ export function createRealBlockInitFile(
     blockId,
     taskCount: 1,
     nextCommands: [
+      `npx tsx src/cli.ts real-block-validate ${resolvedPath}`,
       `npx tsx src/cli.ts real-block-run-ai-checklist ${resolvedPath}`,
       `npx tsx src/cli.ts real-block-run-ai-dry-run ${resolvedPath}`,
     ],

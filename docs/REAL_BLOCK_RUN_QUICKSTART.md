@@ -215,6 +215,7 @@ This command:
 - uses safe defaults (`kimi` coder/reviewer, `kimi-k2.6` model, one starter task)
 - refuses to overwrite existing files unless `--force` is passed
 - validates `block_id` and `task_id` using the same rules as the block loader
+- prints a redacted JSON report whose `nextCommands` suggest `validate → checklist → dry-run`
 - does **not** call any AI provider, make network requests, run git commands, write block state, or spawn the block runner
 
 After generating the file, edit the task `goal`, `allowed_files`, `denied_files`, and `checks` to match your change before running the real block flow.

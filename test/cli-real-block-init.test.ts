@@ -277,6 +277,16 @@ describe('real-block-init CLI', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  test('JSON report includes next validate command', () => {
+    const tmpDir = createTempDir();
+    const outputPath = join(tmpDir, 'block.json');
+    const result = runCli(['real-block-init', outputPath]);
+    const json = parseOutput(result.stdout);
+    const commands = json.nextCommands as string[];
+    assert.ok(commands.some((c) => c.includes('real-block-validate')));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   test('JSON report includes next checklist command', () => {
     const tmpDir = createTempDir();
     const outputPath = join(tmpDir, 'block.json');
@@ -294,6 +304,23 @@ describe('real-block-init CLI', () => {
     const json = parseOutput(result.stdout);
     const commands = json.nextCommands as string[];
     assert.ok(commands.some((c) => c.includes('real-block-run-ai-dry-run')));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('JSON report nextCommands order is validate → checklist → dry-run', () => {
+    const tmpDir = createTempDir();
+    const outputPath = join(tmpDir, 'block.json');
+    const result = runCli(['real-block-init', outputPath]);
+    const json = parseOutput(result.stdout);
+    const commands = json.nextCommands as string[];
+    const validateIndex = commands.findIndex((c) => c.includes('real-block-validate'));
+    const checklistIndex = commands.findIndex((c) => c.includes('real-block-run-ai-checklist'));
+    const dryRunIndex = commands.findIndex((c) => c.includes('real-block-run-ai-dry-run'));
+    assert.ok(validateIndex >= 0, 'validate command must be present');
+    assert.ok(checklistIndex >= 0, 'checklist command must be present');
+    assert.ok(dryRunIndex >= 0, 'dry-run command must be present');
+    assert.ok(validateIndex < checklistIndex, 'validate must come before checklist');
+    assert.ok(checklistIndex < dryRunIndex, 'checklist must come before dry-run');
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

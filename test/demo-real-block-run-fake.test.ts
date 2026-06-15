@@ -519,8 +519,14 @@ describe('demo-real-block-run-fake runtime', () => {
     assert.strictEqual(json.blockId, 'block_smoke');
     assert.strictEqual(json.taskCount, 1);
     const commands = json.nextCommands as string[];
+    assert.ok(commands.some((c) => c.includes('real-block-validate')));
     assert.ok(commands.some((c) => c.includes('real-block-run-ai-checklist')));
     assert.ok(commands.some((c) => c.includes('real-block-run-ai-dry-run')));
+    const validateIndex = commands.findIndex((c) => c.includes('real-block-validate'));
+    const checklistIndex = commands.findIndex((c) => c.includes('real-block-run-ai-checklist'));
+    const dryRunIndex = commands.findIndex((c) => c.includes('real-block-run-ai-dry-run'));
+    assert.ok(validateIndex < checklistIndex, 'validate must come before checklist');
+    assert.ok(checklistIndex < dryRunIndex, 'checklist must come before dry-run');
   });
 
   test('demo init output does not leak fake API key', () => {
