@@ -319,6 +319,7 @@ npx tsx src/cli.ts real-block-run-ai-checklist <blockPath>
 npx tsx src/cli.ts real-block-run-ai-dry-run <blockPath>
 npx tsx src/cli.ts real-provider-smoke --provider kimi
 npx tsx src/cli.ts real-coder-contract-smoke --provider kimi
+npx tsx src/cli.ts real-reviewer-contract-smoke --provider kimi
 npx tsx src/cli.ts real-block-run-ai-readiness <blockPath>
 npx tsx src/cli.ts real-block-run-ai <blockPath>
 npx tsx src/cli.ts real-block-run-ai-report runs/block/<block_id>/state.json
@@ -396,6 +397,34 @@ This command:
 - exits non-zero if credentials are missing, the provider is unsupported, the call fails or times out, or the response does not match the contract
 
 It does **not** read or write block state, apply patches, create commits, push, merge, or touch the repository. Use `REAL_CODER_CONTRACT_SMOKE_FAKE_RESPONSE` only for deterministic local testing of the contract validator.
+
+## Real reviewer contract smoke check (optional, no repo mutation)
+
+Before running a real block, you can verify that the real reviewer provider returns the expected reviewer decision contract JSON for a tiny harmless prompt without applying any file changes:
+
+```bash
+export ALLOW_REAL_PROVIDER=1
+export KIMI_API_KEY="sk-your-key"
+export KIMI_BASE_URL="https://api.moonshot.cn/v1"
+# Optional: change the timeout (default 15 seconds, clamped to 1–60 seconds)
+export REAL_REVIEWER_CONTRACT_SMOKE_TIMEOUT_MS=15000
+npx tsx src/cli.ts real-reviewer-contract-smoke --provider kimi
+```
+
+`ALLOW_REAL_PROVIDER=true` or `ALLOW_REAL_PROVIDER=1` is required. Any other value is treated as disabled.
+
+This command:
+
+- checks `ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, and `KIMI_BASE_URL`
+- sends a tiny harmless reviewer prompt to the configured provider
+- times out after the configured duration (default `15000` ms, min `1000` ms, max `60000` ms)
+- expects a reviewer decision response using the same schema and validation as the real reviewer gate (`decision`, `confidence`, `blocking_issues`, `non_blocking_issues`, `review_summary`, `fix_task`, `next_action`)
+- validates accepted, rejected, and rejected-with-`next_action: block_for_human` decisions according to the existing reviewer gate rules
+- rejects secret-like text anywhere in the raw response or in any parsed reviewer field
+- prints a redacted JSON report with `ok`, `contractValid`, `decision`, `summaryPreview`, and `timeoutMs`
+- exits non-zero if credentials are missing, the provider is unsupported, the call fails or times out, or the response does not match the reviewer gate contract
+
+It does **not** read or write block state, apply patches, create commits, push, merge, or touch the repository. Use `REAL_REVIEWER_CONTRACT_SMOKE_FAKE_RESPONSE` only for deterministic local testing of the contract validator.
 
 ## Troubleshooting
 
