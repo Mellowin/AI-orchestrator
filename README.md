@@ -82,7 +82,7 @@ This runs:
 3. `npm test` — full test suite
 4. `npm run demo:block:fake` — local fake-provider block demo
 
-No real external AI or network access is required. The command uses fake responses and a temporary git repository, and exercises the full safe operator flow: init → edit generated block → checklist → dry-run → readiness → run → report.
+No real external AI or network access is required. The command uses fake responses and a temporary git repository, and exercises the full safe operator flow: init → edit generated block → validate → checklist → dry-run → readiness → run → report.
 
 The same product verification command is run automatically by GitHub Actions on every push and pull request to `main` (see `.github/workflows/product-verify.yml`).
 
@@ -99,7 +99,7 @@ npx tsx src/cli.ts real-provider-smoke
 
 This is a read-only, no-repo-mutation check. It does not read or write block state, apply patches, create commits, push, or merge. The default timeout is 15 seconds and can be changed with `REAL_PROVIDER_SMOKE_TIMEOUT_MS` (clamped to 1–60 seconds).
 
-For a safe operator preflight that combines block readiness and provider-env checks, use `real-block-run-ai-checklist <blockPath>`. To inspect the planned task order without calling the provider or mutating the repo, use `real-block-run-ai-dry-run <blockPath>`. To generate a starter block JSON file, use `real-block-init <outputPath>`. See [`docs/REAL_BLOCK_RUN_QUICKSTART.md`](docs/REAL_BLOCK_RUN_QUICKSTART.md) for details.
+For a safe operator preflight that combines block readiness and provider-env checks, use `real-block-run-ai-checklist <blockPath>`. To inspect the planned task order without calling the provider or mutating the repo, use `real-block-run-ai-dry-run <blockPath>`. To generate a starter block JSON file, use `real-block-init <outputPath>`. To validate a block file after editing without touching the repo, provider, or state, use `real-block-validate <blockPath>`. See [`docs/REAL_BLOCK_RUN_QUICKSTART.md`](docs/REAL_BLOCK_RUN_QUICKSTART.md) for details.
 
 ## Current MVP workflow
 

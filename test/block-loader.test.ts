@@ -170,12 +170,13 @@ describe('block-loader', () => {
     }
   });
 
-  test('rejects task with empty allowed_files', () => {
+  test('allows task with empty allowed_files', () => {
     const b = validBlock();
     (b.tasks as any[])[0].allowed_files = [];
     const { path, cleanup } = createTempBlockFile(b);
     try {
-      assert.throws(() => loadBlockDefinition(path), /allowed_files/);
+      const block = loadBlockDefinition(path);
+      assert.deepStrictEqual(block.tasks[0].allowed_files, []);
     } finally {
       cleanup();
     }

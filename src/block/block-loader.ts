@@ -173,8 +173,8 @@ export function loadBlockDefinition(path: string): BlockDefinition {
     }
 
     const allowedFiles = t.allowed_files;
-    if (!Array.isArray(allowedFiles) || allowedFiles.length === 0 || !allowedFiles.every((f) => typeof f === 'string')) {
-      throw new Error(`Block definition task ${i} allowed_files must be a non-empty array of strings`);
+    if (!Array.isArray(allowedFiles) || !allowedFiles.every((f) => typeof f === 'string')) {
+      throw new Error(`Block definition task ${i} allowed_files must be an array of strings`);
     }
 
     const deniedFiles = t.denied_files;

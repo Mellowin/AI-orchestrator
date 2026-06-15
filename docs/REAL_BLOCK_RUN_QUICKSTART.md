@@ -219,6 +219,32 @@ This command:
 
 After generating the file, edit the task `goal`, `allowed_files`, `denied_files`, and `checks` to match your change before running the real block flow.
 
+## Validate a block file after editing
+
+Check that a block JSON file is structurally valid and safe to continue editing or running:
+
+```bash
+npx tsx src/cli.ts real-block-validate ./my-block.json
+```
+
+This command:
+
+- loads and validates the block with the same loader used by the real block runner
+- returns a redacted JSON report with `ok`, `warnings`, and `nextCommands`
+- warns about empty `allowed_files`, empty `checks`, placeholder goals, and `work_branch` values that do not start with `ai-`
+- does **not** require `ALLOW_REAL_BLOCK_RUN_AI`, `ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, or `KIMI_BASE_URL`
+- does **not** call any AI provider, make network requests, run git commands, touch the repository, write block state, or spawn the block runner
+
+Recommended local authoring sequence:
+
+```bash
+npx tsx src/cli.ts real-block-init ./my-block.json
+# edit my-block.json
+npx tsx src/cli.ts real-block-validate ./my-block.json
+npx tsx src/cli.ts real-block-run-ai-checklist ./my-block.json
+npx tsx src/cli.ts real-block-run-ai-dry-run ./my-block.json
+```
+
 ## Local fake demo
 
 You can run a full block execution locally without any real AI credentials or network access:
@@ -243,7 +269,7 @@ This command:
 
 The demo uses placeholder values for `KIMI_API_KEY` and `KIMI_BASE_URL`, forces fake responses via `REAL_BLOCK_TASK_*_FAKE_RESPONSES`, and does not push to any external remote.
 
-The full local path demonstrated is: init → edit generated block → checklist → dry-run → readiness → run → report. Checklist and dry-run are read-only and do not call the provider.
+The full local path demonstrated is: init → edit generated block → validate → checklist → dry-run → readiness → run → report. Validate, checklist, and dry-run are read-only and do not call the provider.
 
 ## Real run checklist (safe operator preflight)
 
