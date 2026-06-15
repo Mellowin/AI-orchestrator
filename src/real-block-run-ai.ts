@@ -193,7 +193,7 @@ function getBlockRunDir(block: BlockDefinition): string {
   return join(runsDir, 'block', sanitizeBlockId(block.block_id));
 }
 
-function getBlockStatePath(block: BlockDefinition): string {
+export function getBlockStatePath(block: BlockDefinition): string {
   return join(getBlockRunDir(block), 'state.json');
 }
 
@@ -208,7 +208,7 @@ function saveBlockState(block: BlockDefinition, state: RealBlockRunState): void 
   renameSync(tmpPath, statePath);
 }
 
-function isCompletedTaskStatus(
+export function isCompletedTaskStatus(
   status: string | undefined
 ): status is 'accepted' | 'fixed_and_accepted' {
   return status === 'accepted' || status === 'fixed_and_accepted';
@@ -266,7 +266,7 @@ function validateBlockRunState(
   return parsed as unknown as RealBlockRunState;
 }
 
-function loadExistingBlockState(
+export function loadExistingBlockState(
   block: BlockDefinition
 ): RealBlockRunState | null {
   const statePath = getBlockStatePath(block);
