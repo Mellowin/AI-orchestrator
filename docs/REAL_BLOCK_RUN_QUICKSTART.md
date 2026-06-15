@@ -2,6 +2,8 @@
 
 This guide explains how to run an autonomous multi-task block with the AI Orchestrator.
 
+For a high-level summary of what is complete in Stage 10 and what remains, see [`docs/STAGE_10_V0_RELEASE.md`](STAGE_10_V0_RELEASE.md).
+
 ## What the orchestrator currently does
 
 A **block** is a JSON file that describes a sequence of coding tasks against a target git repository. The orchestrator runs each task in order:
