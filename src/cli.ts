@@ -73,6 +73,7 @@ import { buildBlockStatusReport } from './block/block-report.js';
 import { runOneTaskLoop } from './block/block-one-task-loop.js';
 import { runMultiTaskLoop, runMultiTaskFakeLoop } from './block/block-multi-task-loop.js';
 import { runRealBlockRunAI } from './real-block-run-ai.js';
+import { runRealProviderSmoke } from './real-provider-smoke.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import { renderBlockRunReport } from './real-block-run-ai-report.js';
 
@@ -2919,9 +2920,36 @@ if (command === 'real-block-run-ai-report') {
   }
 }
 
+if (command === 'real-provider-smoke') {
+  try {
+    const providerFlagIndex = args.indexOf('--provider');
+    const provider = providerFlagIndex >= 0 && args[providerFlagIndex + 1] ? args[providerFlagIndex + 1] : 'kimi';
+
+    const report = await runRealProviderSmoke(provider);
+    console.log(redactSecrets(JSON.stringify(report, null, 2)));
+    process.exit(report.ok ? 0 : 1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const report = {
+      ok: false,
+      provider: 'kimi',
+      mode: 'real-provider-smoke',
+      responseParsed: false,
+      error: redactSecrets(message),
+    };
+    console.error(`[real-provider-smoke] Error: ${redactSecrets(message)}`);
+    console.log(redactSecrets(JSON.stringify(report, null, 2)));
+    console.error('[real-provider-smoke] No API call was made');
+    console.error('[real-provider-smoke] No patch was applied');
+    console.error('[real-provider-smoke] No git mutation was performed');
+    console.error('[real-provider-smoke] No state mutation was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }

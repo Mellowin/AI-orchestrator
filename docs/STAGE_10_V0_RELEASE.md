@@ -11,6 +11,7 @@ Stage 10 delivers a complete local-to-CI proof of the autonomous block-run flow:
 - **Real block run command** — `real-block-run-ai` executes tasks sequentially, applies changes, commits on the work branch, runs the reviewer gate, performs one fix attempt when rejected, and persists state.
 - **Resume** — `real-block-run-ai <blockPath> --resume` continues a previously stopped block run without duplicating completed tasks.
 - **Report command** — `real-block-run-ai-report <statePath>` renders a read-only human-readable report from a persisted block state file.
+- **Real provider smoke check** — `real-provider-smoke` verifies real AI provider connectivity/config without touching any repository or block state.
 - **Product verification** — `npm run verify:product` runs typecheck, build, full test suite, and the local fake demo in one command.
 - **GitHub Actions workflow** — `.github/workflows/product-verify.yml` runs the same product verification on every push and pull request to `main`.
 
@@ -28,6 +29,12 @@ npx tsx src/cli.ts real-block-run-ai <blockPath> --resume
 
 # Read-only report from persisted state
 npx tsx src/cli.ts real-block-run-ai-report <statePath>
+
+# Optional real provider connectivity check (no repo mutation)
+export ALLOW_REAL_PROVIDER=true
+export KIMI_API_KEY="sk-your-key"
+export KIMI_BASE_URL="https://api.moonshot.cn/v1"
+npx tsx src/cli.ts real-provider-smoke
 ```
 
 ## End-to-end flow
@@ -52,6 +59,7 @@ In the local fake demo this entire flow runs without real AI calls or network ac
 - **No `main` mutation** — `work_branch` cannot be `main` and cannot equal `base_branch`.
 - **Local fake demo uses temp repo only** — it creates a temporary git repository and a local bare remote; nothing is pushed to an external remote.
 - **Report command is read-only** — it does not mutate repo, state, or provider state; it does not spawn the block runner or call the network.
+- **Real provider smoke check is provider-only** — it validates provider connectivity without repo mutation, block state access, git commands, or block runner spawn.
 
 ## State and report path
 

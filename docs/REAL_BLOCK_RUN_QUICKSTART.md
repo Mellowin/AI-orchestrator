@@ -212,6 +212,27 @@ The demo uses placeholder values for `KIMI_API_KEY` and `KIMI_BASE_URL`, forces 
 
 The full local path demonstrated is: readiness → run → report.
 
+## Real provider smoke check (optional, no repo mutation)
+
+Before running a real block against a real repository, you can verify that the provider configuration works without mutating anything:
+
+```bash
+export ALLOW_REAL_PROVIDER=true
+export KIMI_API_KEY="sk-your-key"
+export KIMI_BASE_URL="https://api.moonshot.cn/v1"
+npx tsx src/cli.ts real-provider-smoke
+```
+
+This command:
+
+- checks `ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, and `KIMI_BASE_URL`
+- sends a tiny harmless prompt to the configured provider
+- expects a small JSON acknowledgment such as `{"ok":true,"message":"provider smoke ok"}`
+- prints a redacted JSON report
+- exits non-zero if the provider call fails or if credentials are missing
+
+It does **not** read or write block state, apply patches, create commits, push, merge, or touch the repository. Do not use it in CI with real secrets yet.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

@@ -86,6 +86,19 @@ No real external AI or network access is required. The command uses fake respons
 
 The same product verification command is run automatically by GitHub Actions on every push and pull request to `main` (see `.github/workflows/product-verify.yml`).
 
+## Real provider smoke check
+
+Before running a real block against a real repository, verify provider connectivity safely:
+
+```bash
+export ALLOW_REAL_PROVIDER=true
+export KIMI_API_KEY="sk-your-key"
+export KIMI_BASE_URL="https://api.moonshot.cn/v1"
+npx tsx src/cli.ts real-provider-smoke
+```
+
+This is a read-only, no-repo-mutation check. It does not read or write block state, apply patches, create commits, push, or merge. See [`docs/REAL_BLOCK_RUN_QUICKSTART.md`](docs/REAL_BLOCK_RUN_QUICKSTART.md) for details.
+
 ## Current MVP workflow
 
 ### Recommended safe flow
