@@ -260,6 +260,7 @@ This command:
 - creates a temporary git repository,
 - runs `real-block-init` to write a starter block JSON file in a temp directory,
 - edits the generated block file in-memory to add the demo's two tasks,
+- runs `real-block-validate` to prove the block is structurally valid after editing (read-only, no provider call),
 - runs `real-block-run-ai-checklist` (read-only block + provider-env preflight),
 - runs `real-block-run-ai-dry-run` (read-only task plan without provider call),
 - runs `real-block-run-ai-readiness`,

@@ -319,6 +319,57 @@ async function main(): Promise<void> {
     }
     console.log('Generated block edited for demo: passed');
 
+    printSection('Block validate');
+    const validateResult = runCli(['real-block-validate', paths.blockPath], env);
+    const validateOutput = (validateResult.stdout || '') + (validateResult.stderr || '');
+    const validateReport = parseJsonOutput(validateResult, 'Block validate');
+    console.log(validateOutput);
+    if (validateReport.ok !== true) {
+      throw new Error('Expected validate report ok to be true');
+    }
+    if (validateReport.mode !== 'real-block-validate') {
+      throw new Error('Expected validate mode real-block-validate');
+    }
+    if (validateReport.blockId !== paths.blockId) {
+      throw new Error(`Expected validate blockId ${paths.blockId}, got ${String(validateReport.blockId)}`);
+    }
+    if (validateReport.taskCount !== 2) {
+      throw new Error(`Expected validate taskCount 2, got ${String(validateReport.taskCount)}`);
+    }
+    const validateTasks = Array.isArray(validateReport.tasks) ? validateReport.tasks : [];
+    const validateTaskIds = validateTasks.map((t: unknown) => (t as Record<string, unknown>).task_id);
+    if (!validateTaskIds.includes('task_1') || !validateTaskIds.includes('task_2')) {
+      throw new Error('Expected validate tasks to include task_1 and task_2');
+    }
+    const validateCommands = Array.isArray(validateReport.nextCommands) ? validateReport.nextCommands : [];
+    if (!validateCommands.some((c: unknown) => typeof c === 'string' && c.includes('real-block-run-ai-checklist'))) {
+      throw new Error('Expected validate nextCommands to include checklist command');
+    }
+    if (!validateCommands.some((c: unknown) => typeof c === 'string' && c.includes('real-block-run-ai-dry-run'))) {
+      throw new Error('Expected validate nextCommands to include dry-run command');
+    }
+    const validateWarnings = Array.isArray(validateReport.warnings) ? validateReport.warnings : [];
+    for (const warning of validateWarnings) {
+      if (typeof warning !== 'string') {
+        throw new Error('Expected validate warnings to be strings');
+      }
+      if (!/empty checks|empty allowed_files|placeholder|does not start with "ai-"/.test(warning)) {
+        throw new Error(`Unexpected validate warning: ${warning}`);
+      }
+    }
+    if (validateOutput.includes('sk-demo-placeholder')) {
+      throw new Error('Validate output leaked fake demo secret');
+    }
+    const statePathBeforeRun = join(paths.runsDir, 'block', paths.blockId, 'state.json');
+    if (existsSync(statePathBeforeRun)) {
+      throw new Error('Validate must not write block run state before execution');
+    }
+    const loadedAfterValidate = loadBlockDefinition(paths.blockPath);
+    if (loadedAfterValidate.tasks.length !== 2) {
+      throw new Error('Validate must not mutate the block file');
+    }
+    console.log('Block validate: passed');
+
     printSection('Real run checklist');
     const checklistResult = runCli(['real-block-run-ai-checklist', paths.blockPath], env);
     const checklistOutput = (checklistResult.stdout || '') + (checklistResult.stderr || '');

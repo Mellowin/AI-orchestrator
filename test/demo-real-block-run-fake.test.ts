@@ -88,6 +88,38 @@ describe('demo-real-block-run-fake static checks', () => {
     assert.match(source, /'real-block-init',/);
   });
 
+  test('demo script calls real-block-validate', () => {
+    const source = readDemoSource();
+    assert.match(source, /'real-block-validate',/);
+  });
+
+  test('demo script calls init before validate', () => {
+    const source = readDemoSource();
+    const initIndex = source.indexOf("'real-block-init',");
+    const validateIndex = source.indexOf("'real-block-validate',");
+    assert.ok(initIndex >= 0, 'must call init command');
+    assert.ok(validateIndex >= 0, 'must call validate command');
+    assert.ok(initIndex < validateIndex, 'init must be called before validate');
+  });
+
+  test('demo script edits generated block before validate', () => {
+    const source = readDemoSource();
+    const editIndex = source.indexOf('Generated block edited for demo');
+    const validateIndex = source.indexOf("'real-block-validate',");
+    assert.ok(editIndex >= 0, 'must edit generated block');
+    assert.ok(validateIndex >= 0, 'must call validate command');
+    assert.ok(editIndex < validateIndex, 'edit must happen before validate');
+  });
+
+  test('demo script calls validate before checklist', () => {
+    const source = readDemoSource();
+    const validateIndex = source.indexOf("'real-block-validate',");
+    const checklistIndex = source.indexOf("'real-block-run-ai-checklist',");
+    assert.ok(validateIndex >= 0, 'must call validate command');
+    assert.ok(checklistIndex >= 0, 'must call checklist command');
+    assert.ok(validateIndex < checklistIndex, 'validate must be called before checklist');
+  });
+
   test('demo script calls init before checklist', () => {
     const source = readDemoSource();
     const initIndex = source.indexOf("'real-block-init',");
@@ -437,6 +469,46 @@ describe('demo-real-block-run-fake runtime', () => {
     assert.match(output, /=== Generated block edited for demo ===/);
   });
 
+  test('demo output includes Block validate section', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    assert.match(output, /=== Block validate ===/);
+  });
+
+  test('demo validate output is JSON with mode real-block-validate', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    const match = output.match(/=== Block validate ===\s*\n(\{[\s\S]*?\n\})\s*\nBlock validate: passed/);
+    assert.ok(match, 'validate JSON should be present');
+    const json = JSON.parse(match![1]) as Record<string, unknown>;
+    assert.strictEqual(json.ok, true);
+    assert.strictEqual(json.mode, 'real-block-validate');
+    assert.strictEqual(json.blockId, 'block_smoke');
+    assert.strictEqual(json.taskCount, 2);
+    const tasks = json.tasks as Array<Record<string, unknown>> | undefined;
+    assert.ok(tasks?.some((t) => t.task_id === 'task_1'));
+    assert.ok(tasks?.some((t) => t.task_id === 'task_2'));
+    const commands = json.nextCommands as string[] | undefined;
+    assert.ok(commands?.some((c) => c.includes('real-block-run-ai-checklist')));
+    assert.ok(commands?.some((c) => c.includes('real-block-run-ai-dry-run')));
+  });
+
+  test('demo validate output does not leak fake API key', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    const validateMatch = output.match(/=== Block validate ===\s*\n(\{[\s\S]*?\n\})\s*\nBlock validate: passed/);
+    assert.ok(validateMatch);
+    assert.doesNotMatch(validateMatch![1], /sk-demo-placeholder/);
+  });
+
+  test('demo validate does not mutate block file', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    const blockPath = extractValue(output, 'Block file');
+    assert.ok(blockPath);
+    const loaded = loadBlockDefinition(blockPath!);
+    assert.strictEqual(loaded.block_id, 'block_smoke');
+    assert.strictEqual(loaded.tasks.length, 2);
+    assert.ok(loaded.tasks.some((t) => t.task_id === 'task_1'));
+    assert.ok(loaded.tasks.some((t) => t.task_id === 'task_2'));
+  });
+
   test('demo init output is JSON with mode real-block-init', () => {
     const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
     const match = output.match(/=== Block init ===\s*\n(\{[\s\S]*?\n\})\s*\nBlock init: passed/);
@@ -500,10 +572,11 @@ describe('demo-real-block-run-fake runtime', () => {
     assert.notStrictEqual(loaded.work_branch, 'main');
   });
 
-  test('demo runs commands in order init → edit → checklist → dry-run → readiness → run → report', () => {
+  test('demo runs commands in order init → edit → validate → checklist → dry-run → readiness → run → report', () => {
     const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
     const initIndex = output.indexOf('=== Block init ===');
     const editIndex = output.indexOf('=== Generated block edited for demo ===');
+    const validateIndex = output.indexOf('=== Block validate ===');
     const checklistIndex = output.indexOf('=== Real run checklist ===');
     const dryRunIndex = output.indexOf('=== Dry-run ===');
     const readinessIndex = output.indexOf('=== Readiness check ===');
@@ -511,7 +584,8 @@ describe('demo-real-block-run-fake runtime', () => {
     const reportIndex = output.indexOf('=== Block report ===');
     assert.ok(initIndex >= 0);
     assert.ok(editIndex > initIndex);
-    assert.ok(checklistIndex > editIndex);
+    assert.ok(validateIndex > editIndex);
+    assert.ok(checklistIndex > validateIndex);
     assert.ok(dryRunIndex > checklistIndex);
     assert.ok(readinessIndex > dryRunIndex);
     assert.ok(runIndex > readinessIndex);
