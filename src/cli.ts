@@ -78,6 +78,7 @@ import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import { renderBlockRunReport } from './real-block-run-ai-report.js';
 import { checkRealBlockRunAIChecklist, formatCheckRealBlockRunAIChecklistReport } from './real-block-run-ai-checklist.js';
 import { createRealBlockRunAIDryRunReport, formatRealBlockRunAIDryRunReport } from './real-block-run-ai-dry-run.js';
+import { createRealBlockInitFile, formatRealBlockInitReport, getFlagValue } from './real-block-init.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -2976,6 +2977,49 @@ if (command === 'real-block-run-ai-dry-run') {
   }
 }
 
+if (command === 'real-block-init') {
+  try {
+    if (!taskId) {
+      console.error('[real-block-init] Error: output path is required');
+      console.error('[real-block-init] No provider call was made');
+      console.error('[real-block-init] No network call was made');
+      console.error('[real-block-init] No git mutation was performed');
+      console.error('[real-block-init] No state mutation was performed');
+      process.exit(1);
+    }
+
+    const force = args.includes('--force');
+    const blockId = getFlagValue(args, '--block-id');
+    const title = getFlagValue(args, '--title');
+    const repoPath = getFlagValue(args, '--repo-path');
+    const baseBranch = getFlagValue(args, '--base-branch');
+    const workBranch = getFlagValue(args, '--work-branch');
+    const taskIdFlag = getFlagValue(args, '--task-id');
+    const taskTitle = getFlagValue(args, '--task-title');
+
+    const report = createRealBlockInitFile(taskId, {
+      force,
+      blockId,
+      title,
+      repoPath,
+      baseBranch,
+      workBranch,
+      taskId: taskIdFlag,
+      taskTitle,
+    });
+    console.log(formatRealBlockInitReport(report));
+    process.exit(report.ok ? 0 : 1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-block-init] Error: ${redactSecrets(message)}`);
+    console.error('[real-block-init] No provider call was made');
+    console.error('[real-block-init] No network call was made');
+    console.error('[real-block-init] No git mutation was performed');
+    console.error('[real-block-init] No state mutation was performed');
+    process.exit(1);
+  }
+}
+
 if (command === 'real-provider-smoke') {
   try {
     const providerFlagIndex = args.indexOf('--provider');
@@ -3005,7 +3049,7 @@ if (command === 'real-provider-smoke') {
 
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-block-run-ai-checklist [--resume]|real-block-run-ai-dry-run [--resume] [--provider kimi]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-block-init|real-block-run-ai-checklist [--resume]|real-block-run-ai-dry-run [--resume] [--provider kimi]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }

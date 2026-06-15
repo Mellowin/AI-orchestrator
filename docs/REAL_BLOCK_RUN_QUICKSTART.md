@@ -189,6 +189,36 @@ REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES='["{...}"]'
 
 These arrays must contain one JSON string per task. They are intended for deterministic local testing only and are never sent to a real API.
 
+## Create a block file
+
+Generate a starter block JSON file with the safe template command:
+
+```bash
+npx tsx src/cli.ts real-block-init ./my-block.json
+```
+
+With common overrides:
+
+```bash
+npx tsx src/cli.ts real-block-init ./my-block.json \
+  --block-id my_block \
+  --title "My block" \
+  --repo-path . \
+  --work-branch ai-my-block \
+  --task-id task_1 \
+  --task-title "First task"
+```
+
+This command:
+
+- writes a valid block JSON file compatible with the block loader
+- uses safe defaults (`kimi` coder/reviewer, `kimi-k2.6` model, one starter task)
+- refuses to overwrite existing files unless `--force` is passed
+- validates `block_id` and `task_id` using the same rules as the block loader
+- does **not** call any AI provider, make network requests, run git commands, write block state, or spawn the block runner
+
+After generating the file, edit the task `goal`, `allowed_files`, `denied_files`, and `checks` to match your change before running the real block flow.
+
 ## Local fake demo
 
 You can run a full block execution locally without any real AI credentials or network access:
