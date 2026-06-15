@@ -2,6 +2,12 @@ import { existsSync, statSync, readFileSync } from 'node:fs';
 import { resolve, normalize } from 'node:path';
 import type { BlockDefinition } from './block-types.js';
 
+const SAFE_BLOCK_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+function isSafeBlockIdentifier(value: string): boolean {
+  return SAFE_BLOCK_ID_PATTERN.test(value);
+}
+
 export function loadBlockDefinition(path: string): BlockDefinition {
   if (!path || typeof path !== 'string') {
     throw new Error('Block definition path is required');
@@ -43,6 +49,9 @@ export function loadBlockDefinition(path: string): BlockDefinition {
   const blockId = obj.block_id;
   if (!blockId || typeof blockId !== 'string') {
     throw new Error('Block definition missing required field: block_id');
+  }
+  if (!isSafeBlockIdentifier(blockId)) {
+    throw new Error('Block definition block_id contains unsupported characters');
   }
 
   const title = obj.title;
@@ -144,6 +153,9 @@ export function loadBlockDefinition(path: string): BlockDefinition {
     const taskId = t.task_id;
     if (!taskId || typeof taskId !== 'string') {
       throw new Error(`Block definition task ${i} missing required field: task_id`);
+    }
+    if (!isSafeBlockIdentifier(taskId)) {
+      throw new Error(`Block definition task ${i} task_id contains unsupported characters`);
     }
     if (taskIds.has(taskId)) {
       throw new Error(`Block definition duplicate task_id: ${taskId}`);

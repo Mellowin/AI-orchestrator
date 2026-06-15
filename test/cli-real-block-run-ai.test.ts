@@ -387,6 +387,96 @@ describe('cli real-block-run-ai', () => {
     }
   });
 
+  function assertUnsafeTaskIdRejected(taskId: string): void {
+    const { blockPath, repoPath, runsDir, cleanup, blockId } = createTempBlockEnvWithTaskIds([
+      taskId,
+    ]);
+    const shouldNotExistRepo = join(repoPath, 'SHOULD_NOT_EXIST');
+    const shouldNotExistProject = join(process.cwd(), 'SHOULD_NOT_EXIST');
+    const shouldNotExistTmp = join(runsDir, 'SHOULD_NOT_EXIST');
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Looks good'),
+        ]),
+      }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal or failure: ${result.stderr}`);
+      assert(
+        result.stderr.includes('task_id contains unsupported characters'),
+        `Expected unsupported characters message: ${result.stderr}`
+      );
+      assert(
+        result.stderr.includes('No provider call was made'),
+        `Expected no provider call: ${result.stderr}`
+      );
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+      assert(!existsSync(shouldNotExistRepo), 'SHOULD_NOT_EXIST must not be created in repo');
+      assert(!existsSync(shouldNotExistProject), 'SHOULD_NOT_EXIST must not be created in project root');
+      assert(!existsSync(shouldNotExistTmp), 'SHOULD_NOT_EXIST must not be created in runs dir');
+    } finally {
+      if (existsSync(shouldNotExistProject)) {
+        rmSync(shouldNotExistProject, { force: true });
+      }
+      cleanup();
+    }
+  }
+
+  test('task_id with slash is rejected before mutation', () => {
+    assertUnsafeTaskIdRejected('task/evil');
+  });
+
+  test('task_id with backslash is rejected before mutation', () => {
+    assertUnsafeTaskIdRejected('task\\evil');
+  });
+
+  test('task_id with dotdot is rejected before mutation', () => {
+    assertUnsafeTaskIdRejected('../evil');
+  });
+
+  test('task_id with command substitution is rejected before mutation', () => {
+    assertUnsafeTaskIdRejected('task-evil$(touch SHOULD_NOT_EXIST)');
+  });
+
+  test('task_id with spaces is rejected before mutation', () => {
+    assertUnsafeTaskIdRejected('task evil');
+  });
+
+  test('unsafe block_id is rejected before mutation', () => {
+    const base = createTempBlockEnv();
+    const definition = JSON.parse(readFileSync(base.blockPath, 'utf-8')) as Record<string, unknown>;
+    definition.block_id = '../evil';
+    writeFileSync(base.blockPath, JSON.stringify(definition, null, 2), 'utf-8');
+    const { blockPath, repoPath, runsDir, cleanup } = base;
+    const shouldNotExistProject = join(process.cwd(), 'SHOULD_NOT_EXIST');
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal or failure: ${result.stderr}`);
+      assert(
+        result.stderr.includes('block_id contains unsupported characters'),
+        `Expected unsupported characters message: ${result.stderr}`
+      );
+      assert(
+        result.stderr.includes('No provider call was made'),
+        `Expected no provider call: ${result.stderr}`
+      );
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert(!existsSync(shouldNotExistProject), 'SHOULD_NOT_EXIST must not be created in project root');
+      assert.strictEqual(getBlockState(runsDir, base.blockId), null, 'No block state should be written');
+    } finally {
+      if (existsSync(shouldNotExistProject)) {
+        rmSync(shouldNotExistProject, { force: true });
+      }
+      cleanup();
+    }
+  });
+
   test('two tasks complete with second task fix loop accepted', () => {
     const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
     try {

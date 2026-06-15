@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadBlockDefinition } from '../src/block/block-loader.js';
 
@@ -278,5 +278,76 @@ describe('block-loader', () => {
     } finally {
       cleanup();
     }
+  });
+
+  test('valid block_id and task_id with underscores and digits load', () => {
+    const b = validBlock();
+    b.block_id = 'BLOCK_123';
+    (b.tasks as any[])[0].task_id = 'task_1';
+    const { path, cleanup } = createTempBlockFile(b);
+    try {
+      const block = loadBlockDefinition(path);
+      assert.strictEqual(block.block_id, 'BLOCK_123');
+      assert.strictEqual(block.tasks[0].task_id, 'task_1');
+    } finally {
+      cleanup();
+    }
+  });
+
+  function assertRejectsUnsafeId(b: Record<string, unknown>, unsafeId: string): void {
+    const { path, cleanup } = createTempBlockFile(b);
+    try {
+      assert.throws(
+        () => loadBlockDefinition(path),
+        (err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          return msg.includes('unsupported characters') && !msg.includes(unsafeId);
+        }
+      );
+    } finally {
+      cleanup();
+    }
+  }
+
+  test('rejects unsafe block_id', () => {
+    const b = validBlock();
+    b.block_id = '../evil';
+    assertRejectsUnsafeId(b, '../evil');
+  });
+
+  test('rejects task_id with slash', () => {
+    const b = validBlock();
+    (b.tasks as any[])[0].task_id = 'task/evil';
+    assertRejectsUnsafeId(b, 'task/evil');
+  });
+
+  test('rejects task_id with backslash', () => {
+    const b = validBlock();
+    (b.tasks as any[])[0].task_id = 'task\\evil';
+    assertRejectsUnsafeId(b, 'task\\evil');
+  });
+
+  test('rejects task_id with dotdot', () => {
+    const b = validBlock();
+    (b.tasks as any[])[0].task_id = '../evil';
+    assertRejectsUnsafeId(b, '../evil');
+  });
+
+  test('rejects task_id with shell metacharacters', () => {
+    const b = validBlock();
+    (b.tasks as any[])[0].task_id = 'task-evil;touch SHOULD_NOT_EXIST';
+    assertRejectsUnsafeId(b, 'task-evil;touch SHOULD_NOT_EXIST');
+  });
+
+  test('rejects task_id with command substitution', () => {
+    const b = validBlock();
+    (b.tasks as any[])[0].task_id = 'task-evil$(touch SHOULD_NOT_EXIST)';
+    assertRejectsUnsafeId(b, 'task-evil$(touch SHOULD_NOT_EXIST)');
+  });
+
+  test('rejects task_id with spaces', () => {
+    const b = validBlock();
+    (b.tasks as any[])[0].task_id = 'task evil';
+    assertRejectsUnsafeId(b, 'task evil');
   });
 });
