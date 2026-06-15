@@ -97,7 +97,9 @@ export KIMI_BASE_URL="https://api.moonshot.cn/v1"
 npx tsx src/cli.ts real-provider-smoke
 ```
 
-This is a read-only, no-repo-mutation check. It does not read or write block state, apply patches, create commits, push, or merge. See [`docs/REAL_BLOCK_RUN_QUICKSTART.md`](docs/REAL_BLOCK_RUN_QUICKSTART.md) for details.
+This is a read-only, no-repo-mutation check. It does not read or write block state, apply patches, create commits, push, or merge.
+
+For a safe operator preflight that combines block readiness and provider-env checks, use `real-block-run-ai-checklist <blockPath>`. See [`docs/REAL_BLOCK_RUN_QUICKSTART.md`](docs/REAL_BLOCK_RUN_QUICKSTART.md) for details.
 
 ## Current MVP workflow
 

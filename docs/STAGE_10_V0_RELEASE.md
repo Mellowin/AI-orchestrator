@@ -12,6 +12,7 @@ Stage 10 delivers a complete local-to-CI proof of the autonomous block-run flow:
 - **Resume** — `real-block-run-ai <blockPath> --resume` continues a previously stopped block run without duplicating completed tasks.
 - **Report command** — `real-block-run-ai-report <statePath>` renders a read-only human-readable report from a persisted block state file.
 - **Real provider smoke check** — `real-provider-smoke` verifies real AI provider connectivity/config without touching any repository or block state.
+- **Real run checklist** — `real-block-run-ai-checklist` runs block readiness and provider-env checks together, producing a safe operator preflight report without calling the provider.
 - **Product verification** — `npm run verify:product` runs typecheck, build, full test suite, and the local fake demo in one command.
 - **GitHub Actions workflow** — `.github/workflows/product-verify.yml` runs the same product verification on every push and pull request to `main`.
 
@@ -35,6 +36,11 @@ export ALLOW_REAL_PROVIDER=true
 export KIMI_API_KEY="sk-your-key"
 export KIMI_BASE_URL="https://api.moonshot.cn/v1"
 npx tsx src/cli.ts real-provider-smoke
+```
+
+```bash
+# Safe operator preflight: block readiness + provider env checklist
+npx tsx src/cli.ts real-block-run-ai-checklist <blockPath>
 ```
 
 ## End-to-end flow

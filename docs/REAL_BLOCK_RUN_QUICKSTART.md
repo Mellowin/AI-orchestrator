@@ -212,6 +212,39 @@ The demo uses placeholder values for `KIMI_API_KEY` and `KIMI_BASE_URL`, forces 
 
 The full local path demonstrated is: readiness → run → report.
 
+## Real run checklist (safe operator preflight)
+
+Before a real run, use the checklist command to verify both block readiness and provider-smoke env in one safe step:
+
+```bash
+export ALLOW_REAL_BLOCK_RUN_AI=true
+export ALLOW_REAL_PROVIDER=true
+export ALLOW_REAL_REPO_APPLY=true
+export ALLOW_REAL_REPO_COMMIT=true
+export ALLOW_REAL_REPO_PUSH=true
+export KIMI_API_KEY="sk-your-key"
+export KIMI_BASE_URL="https://api.moonshot.cn/v1"
+
+npx tsx src/cli.ts real-block-run-ai-checklist examples/block-smoke.json
+```
+
+The checklist command:
+
+- runs `real-block-run-ai-readiness` internally
+- inspects provider-smoke env (`ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, `KIMI_BASE_URL`)
+- prints a redacted JSON report with `ok`, `blockReadiness`, `providerSmoke`, `nextCommands`, `warnings`, and `reasons`
+- does **not** call the provider, mutate the repository, write state, or spawn the block runner
+
+Recommended real-run sequence:
+
+```bash
+npx tsx src/cli.ts real-block-run-ai-checklist <blockPath>
+npx tsx src/cli.ts real-provider-smoke --provider kimi
+npx tsx src/cli.ts real-block-run-ai-readiness <blockPath>
+npx tsx src/cli.ts real-block-run-ai <blockPath>
+npx tsx src/cli.ts real-block-run-ai-report runs/block/<block_id>/state.json
+```
+
 ## Real provider smoke check (optional, no repo mutation)
 
 Before running a real block against a real repository, you can verify that the provider configuration works without mutating anything:
