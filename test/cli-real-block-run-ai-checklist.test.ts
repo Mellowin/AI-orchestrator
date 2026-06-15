@@ -106,6 +106,7 @@ describe('real-block-run-ai-checklist CLI', () => {
     assert.notStrictEqual(result.status, 0);
     const output = `${result.stdout}\n${result.stderr}`;
     assert.match(output, /real-block-run-ai-checklist/);
+    assert.match(output, /--strict/);
   });
 
   test('missing block path exits non-zero', () => {
@@ -309,5 +310,163 @@ describe('real-block-run-ai-checklist CLI', () => {
     const parsed = parseOutput(result.stdout + result.stderr) as Record<string, unknown>;
     assert.strictEqual(parsed.mode, 'real-block-run-ai-checklist');
     assert.strictEqual(parsed.ok, false);
+  });
+
+  test('non-strict checklist does not fail on warning-only block', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-run-ai-checklist', blockPath], buildEnv());
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    const parsed = parseOutput(result.stdout) as Record<string, unknown>;
+    assert.strictEqual(parsed.ok, true);
+    const blockValidation = parsed.blockValidation as Record<string, unknown>;
+    assert.strictEqual(blockValidation.ok, true);
+    assert.ok(Array.isArray(blockValidation.warnings));
+  });
+
+  test('strict checklist valid block exits 0', () => {
+    const repoPath = createTempRepo();
+    const tmpDir = mkdtempSync(join(tmpdir(), 'checklist-strict-valid-'));
+    const blockPath = join(tmpDir, 'block.json');
+    const block = {
+      block_id: 'block_strict_valid',
+      title: 'Strict valid block',
+      repo_path: repoPath.replace(/\\/g, '/'),
+      base_branch: 'main',
+      work_branch: 'ai-block-test',
+      providers: {
+        coder: { provider: 'kimi', model: 'kimi-k2.6' },
+        reviewer: { provider: 'kimi', model: 'kimi-k2.6' },
+      },
+      review_policy: {
+        require_deterministic_checks: false,
+        max_fix_attempts: 1,
+        reviewer_mode: 'single',
+      },
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'Update README',
+          goal: 'Update README safely.',
+          allowed_files: ['README.md'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: ['npm run typecheck'],
+        },
+      ],
+    };
+    writeFileSync(blockPath, JSON.stringify(block, null, 2), 'utf-8');
+    const result = runCli(['real-block-run-ai-checklist', blockPath, '--strict'], buildEnv());
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    const parsed = parseOutput(result.stdout) as Record<string, unknown>;
+    assert.strictEqual(parsed.ok, true);
+    assert.strictEqual(parsed.strict, true);
+    const blockValidation = parsed.blockValidation as Record<string, unknown>;
+    assert.strictEqual(blockValidation.ok, true);
+    assert.strictEqual(blockValidation.strict, true);
+    assert.deepStrictEqual(blockValidation.warnings, []);
+  });
+
+  test('strict checklist warning-only block exits non-zero', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-run-ai-checklist', blockPath, '--strict'], buildEnv());
+    assert.notStrictEqual(result.status, 0);
+    const parsed = parseOutput(result.stdout + result.stderr) as Record<string, unknown>;
+    assert.strictEqual(parsed.ok, false);
+    assert.strictEqual(parsed.strict, true);
+  });
+
+  test('strict checklist warning-only output has blockValidation ok false', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-run-ai-checklist', blockPath, '--strict'], buildEnv());
+    const parsed = parseOutput(result.stdout + result.stderr) as Record<string, unknown>;
+    const blockValidation = parsed.blockValidation as Record<string, unknown>;
+    assert.strictEqual(blockValidation.ok, false);
+    assert.strictEqual(blockValidation.strict, true);
+    assert.strictEqual(blockValidation.warningsAsErrors, true);
+  });
+
+  test('strict checklist warning-only output includes validation warnings', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-run-ai-checklist', blockPath, '--strict'], buildEnv());
+    const parsed = parseOutput(result.stdout + result.stderr) as Record<string, unknown>;
+    const blockValidation = parsed.blockValidation as Record<string, unknown>;
+    const warnings = blockValidation.warnings as string[];
+    assert.ok(warnings.some((w) => /empty checks/i.test(w)));
+  });
+
+  test('strict checklist warning-only output includes strict failure reason', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-run-ai-checklist', blockPath, '--strict'], buildEnv());
+    const parsed = parseOutput(result.stdout + result.stderr) as Record<string, unknown>;
+    const reasons = parsed.reasons as string[];
+    assert.ok(reasons.some((r) => /Strict block validation failed/i.test(r)));
+  });
+
+  test('strict checklist warning-only output does not suggest real block run', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-run-ai-checklist', blockPath, '--strict'], buildEnv());
+    const parsed = parseOutput(result.stdout + result.stderr) as Record<string, unknown>;
+    const commands = parsed.nextCommands as string[];
+    assert.ok(!commands.some((c) => c.includes('real-block-run-ai ')));
+  });
+
+  test('strict checklist structural invalid block exits non-zero', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const block = JSON.parse(readFileSync(blockPath, 'utf-8'));
+    delete block.block_id;
+    writeFileSync(blockPath, JSON.stringify(block), 'utf-8');
+    const result = runCli(['real-block-run-ai-checklist', blockPath, '--strict'], buildEnv());
+    assert.notStrictEqual(result.status, 0);
+    const parsed = parseOutput(result.stdout + result.stderr) as Record<string, unknown>;
+    assert.strictEqual(parsed.ok, false);
+    const blockValidation = parsed.blockValidation as Record<string, unknown>;
+    assert.strictEqual(blockValidation.ok, false);
+  });
+
+  test('strict checklist missing provider env still reports provider env issues', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(
+      ['real-block-run-ai-checklist', blockPath, '--strict'],
+      buildEnv({ KIMI_API_KEY: '' })
+    );
+    assert.notStrictEqual(result.status, 0);
+    const parsed = parseOutput(result.stdout + result.stderr) as Record<string, unknown>;
+    const smoke = parsed.providerSmoke as Record<string, unknown>;
+    assert.strictEqual(smoke.envReady, false);
+    const missing = smoke.missingEnv as string[];
+    assert.ok(missing.includes('KIMI_API_KEY'));
+  });
+
+  test('strict checklist with unsupported provider does not require provider env', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(
+      ['real-block-run-ai-checklist', blockPath, '--strict', '--provider', 'openai'],
+      buildEnv({ KIMI_API_KEY: '', KIMI_BASE_URL: '', ALLOW_REAL_PROVIDER: '' })
+    );
+    assert.notStrictEqual(result.status, 0);
+    const parsed = parseOutput(result.stdout + result.stderr) as Record<string, unknown>;
+    const smoke = parsed.providerSmoke as Record<string, unknown>;
+    assert.strictEqual(smoke.supported, false);
+    assert.strictEqual(smoke.missingEnv, undefined);
+  });
+
+  test('strict checklist output redacts secret-like values', () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(
+      ['real-block-run-ai-checklist', blockPath, '--strict'],
+      buildEnv({ KIMI_API_KEY: 'sk-real-secret-key-1234567890' })
+    );
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.doesNotMatch(output, /sk-real-secret-key-1234567890/);
   });
 });

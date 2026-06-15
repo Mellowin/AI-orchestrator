@@ -1,6 +1,7 @@
 import { checkRealBlockRunReadiness, type ReadinessReport } from './real-block-run-ai-readiness.js';
 import { normalizeRealProviderSmokeProvider } from './real-provider-smoke.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
+import { validateRealBlockFile, type RealBlockValidateReport } from './real-block-validate.js';
 
 export interface ProviderSmokeCheckResult {
   provider: string;
@@ -10,12 +11,22 @@ export interface ProviderSmokeCheckResult {
   shouldRunCommand?: string;
 }
 
+export interface BlockValidationSummary {
+  ok: boolean;
+  strict: boolean;
+  warningsAsErrors?: true;
+  warnings: string[];
+  reasons?: string[];
+}
+
 export interface RealBlockRunAIChecklistReport {
   ok: boolean;
   mode: 'real-block-run-ai-checklist';
+  strict: boolean;
   blockPath: string;
   resume: boolean;
   provider: string;
+  blockValidation: BlockValidationSummary;
   blockReadiness: ReadinessReport;
   providerSmoke: ProviderSmokeCheckResult;
   nextCommands: string[];
@@ -63,20 +74,57 @@ export function checkProviderSmokeReadiness(
   };
 }
 
+function summarizeBlockValidation(
+  report: RealBlockValidateReport
+): BlockValidationSummary {
+  return {
+    ok: report.ok,
+    strict: report.strict,
+    warningsAsErrors: report.warningsAsErrors,
+    warnings: report.warnings,
+    reasons: report.reasons,
+  };
+}
+
 export function checkRealBlockRunAIChecklist(
   blockPath: string,
-  options: { resume?: boolean; provider?: string; env?: NodeJS.ProcessEnv } = {}
+  options: { resume?: boolean; provider?: string; env?: NodeJS.ProcessEnv; strict?: boolean } = {}
 ): RealBlockRunAIChecklistReport {
   const env = options.env ?? process.env;
   const resume = options.resume ?? false;
+  const strict = options.strict ?? false;
   const providerInput = options.provider?.trim() ?? 'kimi';
+
+  const blockValidationReport = validateRealBlockFile(blockPath, { strict });
+  const blockValidation = summarizeBlockValidation(blockValidationReport);
 
   const providerSmoke = checkProviderSmokeReadiness(env, providerInput);
   const blockReadiness = checkRealBlockRunReadiness(blockPath, { resume });
 
   const nextCommands: string[] = [];
-  const warnings: string[] = [];
+  const warnings: string[] = [...blockValidationReport.warnings];
   const reasons: string[] = [];
+
+  if (strict && !blockValidationReport.ok) {
+    reasons.push('Strict block validation failed');
+    if (blockValidationReport.reasons && blockValidationReport.reasons.length > 0) {
+      reasons.push(...blockValidationReport.reasons);
+    }
+    return {
+      ok: false,
+      mode: 'real-block-run-ai-checklist',
+      strict: true,
+      blockPath,
+      resume,
+      provider: providerSmoke.provider,
+      blockValidation,
+      blockReadiness,
+      providerSmoke,
+      nextCommands,
+      warnings,
+      reasons,
+    };
+  }
 
   if (!providerSmoke.supported) {
     reasons.push(`Provider ${providerSmoke.provider} is not supported for real-provider-smoke`);
@@ -103,9 +151,11 @@ export function checkRealBlockRunAIChecklist(
   return {
     ok,
     mode: 'real-block-run-ai-checklist',
+    strict,
     blockPath,
     resume,
     provider: providerSmoke.provider,
+    blockValidation,
     blockReadiness,
     providerSmoke,
     nextCommands,

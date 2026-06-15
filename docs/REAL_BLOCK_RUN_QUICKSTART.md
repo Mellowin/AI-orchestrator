@@ -302,8 +302,15 @@ The checklist command:
 
 - runs `real-block-run-ai-readiness` internally
 - inspects provider-smoke env (`ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, `KIMI_BASE_URL`)
-- prints a redacted JSON report with `ok`, `blockReadiness`, `providerSmoke`, `nextCommands`, `warnings`, and `reasons`
+- with `--strict`, also runs strict `real-block-validate` and treats placeholder goals, empty `allowed_files`, empty `checks`, or non-`ai-` `work_branch` as blocking failures
+- prints a redacted JSON report with `ok`, `strict`, `blockValidation`, `blockReadiness`, `providerSmoke`, `nextCommands`, `warnings`, and `reasons`
 - does **not** call the provider, mutate the repository, write state, or spawn the block runner
+
+For a strict preflight gate before a real run:
+
+```bash
+npx tsx src/cli.ts real-block-run-ai-checklist ./my-block.json --strict
+```
 
 Recommended real-run sequence:
 
