@@ -406,6 +406,140 @@ describe('real-coder-contract-smoke module', () => {
     assert.match(formatted, /\[REDACTED\]/);
     JSON.parse(formatted);
   });
+
+  test('ALLOW_REAL_PROVIDER=true works', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        ALLOW_REAL_PROVIDER: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse()),
+    });
+    assert.strictEqual(report.ok, true);
+  });
+
+  test('ALLOW_REAL_PROVIDER=1 works', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        ALLOW_REAL_PROVIDER: '1',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse()),
+    });
+    assert.strictEqual(report.ok, true);
+  });
+
+  test('missing ALLOW_REAL_PROVIDER returns ok false', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse()),
+    });
+    assert.strictEqual(report.ok, false);
+    assert.match(String(report.error), /ALLOW_REAL_PROVIDER/);
+  });
+
+  test('ALLOW_REAL_PROVIDER=yes returns ok false', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        ALLOW_REAL_PROVIDER: 'yes',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse()),
+    });
+    assert.strictEqual(report.ok, false);
+    assert.match(String(report.error), /ALLOW_REAL_PROVIDER/);
+  });
+
+  test('ALLOW_REAL_PROVIDER=false returns ok false', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        ALLOW_REAL_PROVIDER: 'false',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse()),
+    });
+    assert.strictEqual(report.ok, false);
+    assert.match(String(report.error), /ALLOW_REAL_PROVIDER/);
+  });
+
+  test('valid notes array passes', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        ALLOW_REAL_PROVIDER: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse({ notes: ['Note one', 'Note two'] })),
+    });
+    assert.strictEqual(report.ok, true);
+  });
+
+  test('non-string notes still fail', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        ALLOW_REAL_PROVIDER: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse({ notes: [123 as unknown as string] })),
+    });
+    assert.strictEqual(report.ok, false);
+  });
+
+  test('secret-like note fails and is not echoed', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        ALLOW_REAL_PROVIDER: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse({ notes: ['key sk-secret123456'] })),
+    });
+    assert.strictEqual(report.ok, false);
+    const raw = JSON.stringify(report);
+    assert.doesNotMatch(raw, /sk-secret123456/);
+  });
+
+  test('secret-like summary still fails', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        ALLOW_REAL_PROVIDER: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse({ summary: 'token sk-secret123456' })),
+    });
+    assert.strictEqual(report.ok, false);
+  });
+
+  test('secret-like file content still fails', async () => {
+    const report = await runRealCoderContractSmoke({
+      provider: 'kimi',
+      env: {
+        ALLOW_REAL_PROVIDER: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+      },
+      fetchFn: makeKimiFetch(makeContractResponse({ files: [{ path: 'README.md', content: 'password secret123' }] })),
+    });
+    assert.strictEqual(report.ok, false);
+  });
 });
 
 describe('real-coder-contract-smoke CLI', () => {
@@ -446,6 +580,70 @@ describe('real-coder-contract-smoke CLI', () => {
     const json = parseOutput(result.stdout + result.stderr);
     assert.strictEqual(json.ok, false);
     assert.match(String(json.error), /ALLOW_REAL_PROVIDER/);
+  });
+
+  test('ALLOW_REAL_PROVIDER=1 exits 0 with valid fake response', () => {
+    const result = runCli(
+      ['real-coder-contract-smoke'],
+      {
+        ALLOW_REAL_PROVIDER: '1',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+        REAL_CODER_CONTRACT_SMOKE_FAKE_RESPONSE: makeContractResponse(),
+      }
+    );
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    const json = parseOutput(result.stdout);
+    assert.strictEqual(json.ok, true);
+  });
+
+  test('ALLOW_REAL_PROVIDER=yes exits non-zero', () => {
+    const result = runCli(
+      ['real-coder-contract-smoke'],
+      {
+        AI_PROVIDER: 'mock',
+        ALLOW_REAL_PROVIDER: 'yes',
+        REAL_CODER_CONTRACT_SMOKE_FAKE_RESPONSE: makeContractResponse(),
+      }
+    );
+    assert.notStrictEqual(result.status, 0);
+    const json = parseOutput(result.stdout + result.stderr);
+    assert.strictEqual(json.ok, false);
+    assert.match(String(json.error), /ALLOW_REAL_PROVIDER/);
+  });
+
+  test('ALLOW_REAL_PROVIDER=false exits non-zero', () => {
+    const result = runCli(
+      ['real-coder-contract-smoke'],
+      {
+        AI_PROVIDER: 'mock',
+        ALLOW_REAL_PROVIDER: 'false',
+        REAL_CODER_CONTRACT_SMOKE_FAKE_RESPONSE: makeContractResponse(),
+      }
+    );
+    assert.notStrictEqual(result.status, 0);
+    const json = parseOutput(result.stdout + result.stderr);
+    assert.strictEqual(json.ok, false);
+    assert.match(String(json.error), /ALLOW_REAL_PROVIDER/);
+  });
+
+  test('secret-like note exits non-zero and is not echoed', () => {
+    const result = runCli(
+      ['real-coder-contract-smoke'],
+      {
+        ALLOW_REAL_PROVIDER: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+        REAL_CODER_CONTRACT_SMOKE_FAKE_RESPONSE: makeContractResponse({
+          notes: ['key sk-secret123456'],
+        }),
+      }
+    );
+    assert.notStrictEqual(result.status, 0);
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.doesNotMatch(output, /sk-secret123456/);
+    const json = parseOutput(output);
+    assert.strictEqual(json.ok, false);
   });
 
   test('missing KIMI_API_KEY exits non-zero', () => {

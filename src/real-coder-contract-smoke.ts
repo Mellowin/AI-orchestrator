@@ -90,10 +90,14 @@ export function parseRealCoderContractSmokeTimeoutMs(
   return parsed;
 }
 
+function isOptInEnabled(value: string | undefined): boolean {
+  return value === 'true' || value === '1';
+}
+
 function validateContractEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string } {
   const allowReal = getEnv(env, 'ALLOW_REAL_PROVIDER');
-  if (allowReal !== 'true') {
-    throw new Error('ALLOW_REAL_PROVIDER=true is required');
+  if (!isOptInEnabled(allowReal)) {
+    throw new Error('ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required');
   }
 
   const apiKey = getEnv(env, 'KIMI_API_KEY');
@@ -199,6 +203,9 @@ function validateContractResponse(value: unknown): ContractResponse {
     for (const note of obj.notes) {
       if (typeof note !== 'string') {
         throw new Error('Contract response notes must be an array of strings');
+      }
+      if (looksLikeSecret(note)) {
+        throw new Error('Contract response note contains secret-like text');
       }
     }
   }

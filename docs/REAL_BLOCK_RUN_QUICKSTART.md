@@ -317,8 +317,8 @@ Recommended real-run sequence:
 ```bash
 npx tsx src/cli.ts real-block-run-ai-checklist <blockPath>
 npx tsx src/cli.ts real-block-run-ai-dry-run <blockPath>
-npx tsx src/cli.ts real-coder-contract-smoke --provider kimi
 npx tsx src/cli.ts real-provider-smoke --provider kimi
+npx tsx src/cli.ts real-coder-contract-smoke --provider kimi
 npx tsx src/cli.ts real-block-run-ai-readiness <blockPath>
 npx tsx src/cli.ts real-block-run-ai <blockPath>
 npx tsx src/cli.ts real-block-run-ai-report runs/block/<block_id>/state.json
@@ -375,7 +375,7 @@ It does **not** read or write block state, apply patches, create commits, push, 
 Before running a real block, you can verify that the Kimi coder returns the expected patch-plan contract JSON for a tiny harmless prompt without applying any file changes:
 
 ```bash
-export ALLOW_REAL_PROVIDER=true
+export ALLOW_REAL_PROVIDER=1
 export KIMI_API_KEY="sk-your-key"
 export KIMI_BASE_URL="https://api.moonshot.cn/v1"
 # Optional: change the timeout (default 15 seconds, clamped to 1–60 seconds)
@@ -383,13 +383,15 @@ export REAL_CODER_CONTRACT_SMOKE_TIMEOUT_MS=15000
 npx tsx src/cli.ts real-coder-contract-smoke --provider kimi
 ```
 
+`ALLOW_REAL_PROVIDER=true` or `ALLOW_REAL_PROVIDER=1` is required. Any other value is treated as disabled.
+
 This command:
 
 - checks `ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, and `KIMI_BASE_URL`
 - sends a tiny harmless coder prompt to the configured provider
 - times out after the configured duration (default `15000` ms, min `1000` ms, max `60000` ms)
 - expects a contract response with shape `{"summary":"...","files":[{"path":"README.md","content":"..."}],"notes":[]}`
-- validates that the response contains exactly one file, that the file path is `README.md`, that summary and content length limits are respected, and that no secret-like text is present
+- validates that the response contains exactly one file, that the file path is `README.md`, that summary and content length limits are respected, and that no secret-like text is present in `summary`, `files[].content`, or any `notes[]` item
 - prints a redacted JSON report with `ok`, `contractValid`, `summaryPreview`, `fileCount`, `paths`, and `timeoutMs`
 - exits non-zero if credentials are missing, the provider is unsupported, the call fails or times out, or the response does not match the contract
 
