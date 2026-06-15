@@ -1656,18 +1656,24 @@ if (command === 'real-repo-run-ai') {
                     : 'Second reviewer gate blocked the fix commit.';
                 }
 
+                const secondReviewRunState = {
+                  ...stateWithGate,
+                  reviewer_gate: secondReviewPersisted,
+                };
+
+                const secondReviewParentTaskId = postRunPlan.parentTaskId ?? taskId;
                 const secondReviewBlockResult = deriveReviewerBlockReviewResult({
-                  blockId: `single-task-review:${postRunPlan.taskId ?? taskId}`,
+                  blockId: `single-task-review:${secondReviewParentTaskId}`,
                   tasks: [
                     {
-                      taskId: postRunPlan.taskId ?? taskId,
+                      taskId: secondReviewParentTaskId,
                       taskTitle: postRunPlan.fixTask?.title ?? task.title,
                       taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
-                      runState: stateWithGate,
+                      runState: secondReviewRunState,
                     },
                   ],
                   existingFixAttemptsByParentTaskId: {
-                    [postRunPlan.parentTaskId ?? taskId]: postRunPlan.attempt ?? 1,
+                    [secondReviewParentTaskId]: postRunPlan.attempt ?? 1,
                   },
                   maxFixAttempts: 1,
                 });

@@ -3298,8 +3298,14 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual(secondGate.status, 'accepted');
       assert.strictEqual(secondGate.nextAction, 'continue');
 
-      const evidenceFile = join(runsDir, 'reviewer-fix-evidence.json');
-      // Evidence is not persisted separately; reviewerGate contains summary only.
+      const rbr = secondReview.reviewerBlockReviewResult as Record<string, unknown>;
+      assert(rbr !== undefined, 'Should persist reviewerBlockReviewResult from second gate');
+      const blockDecision = rbr.blockDecision as Record<string, unknown>;
+      const actionPlan = blockDecision.actionPlan as Record<string, unknown>;
+      assert.strictEqual(actionPlan.action, 'continue', 'Second review actionPlan should be continue');
+      const resolutionPlan = rbr.resolutionPlan as Record<string, unknown>;
+      assert.strictEqual(resolutionPlan.action, 'continue_block', 'Second review resolutionPlan should be continue_block');
+
       const stateRaw = JSON.stringify(state);
       assert(!stateRaw.includes('fix applied'), 'State should not contain fix file content');
       assert(!stateRaw.includes('sk-fake'), 'State should not leak secrets');
@@ -3356,6 +3362,70 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual(secondReview.nextAction, 'manual_followup');
       const secondGate = secondReview.reviewerGate as Record<string, unknown>;
       assert.strictEqual(secondGate.status, 'fix_required');
+
+      const rbr = secondReview.reviewerBlockReviewResult as Record<string, unknown>;
+      assert(rbr !== undefined, 'Should persist reviewerBlockReviewResult from second gate');
+      const resolutionPlan = rbr.resolutionPlan as Record<string, unknown>;
+      assert.strictEqual(resolutionPlan.action, 'block_for_human', 'Second reject resolutionPlan should be block_for_human due to max attempts');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 second reviewer block_for_human stops fix loop', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['missing fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: buildFakeKimiOutput([
+          { path: 'fix.txt', content: 'fix applied\n' },
+        ]),
+        REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE: JSON.stringify({
+          decision: 'block_for_human',
+          confidence: 'high',
+          blockingIssues: ['human review required'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Block',
+          nextAction: 'block',
+        }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create original and one fix commit only');
+
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      const secondReview = state.reviewer_fix_task_second_review as Record<string, unknown>;
+      assert(secondReview !== undefined);
+      assert.strictEqual(secondReview.finalStatus, 'blocked');
+      assert.strictEqual(secondReview.nextAction, 'block');
+      const secondGate = secondReview.reviewerGate as Record<string, unknown>;
+      assert.strictEqual(secondGate.status, 'blocked');
+
+      const rbr = secondReview.reviewerBlockReviewResult as Record<string, unknown>;
+      assert(rbr !== undefined, 'Should persist reviewerBlockReviewResult from second gate');
+      const blockDecision = rbr.blockDecision as Record<string, unknown>;
+      const actionPlan = blockDecision.actionPlan as Record<string, unknown>;
+      assert.strictEqual(actionPlan.action, 'block_for_human', 'Second block actionPlan should be block_for_human');
+      const resolutionPlan = rbr.resolutionPlan as Record<string, unknown>;
+      assert.strictEqual(resolutionPlan.action, 'block_for_human', 'Second block resolutionPlan should be block_for_human');
     } finally {
       cleanup();
     }
