@@ -17,15 +17,28 @@ export interface RealBlockRunTaskResult {
   status: 'accepted' | 'fixed_and_accepted' | 'blocked' | 'fix_required' | 'failed';
   originalCommitSha?: string;
   fixCommitSha?: string;
+  reviewerGateStatus?: string;
+  reviewerSummary?: string;
+  fixAttempted: boolean;
+  fixTaskId?: string;
+  fixRunnerStatus?: string;
+  fixRunnerNextAction?: string;
+  secondReviewerGateStatus?: string;
+  secondReviewerSummary?: string;
+  finalStatus: string;
+  nextAction: string;
   reason?: string;
+  childStateTaskId: string;
 }
 
 export interface RealBlockRunSummary {
   totalTasks: number;
   acceptedTasks: number;
   fixedTasks: number;
+  completedTasks: number;
   blockedTaskId?: string;
   failedTaskId?: string;
+  stoppedReason?: string;
 }
 
 export interface RealBlockRunState {
@@ -33,6 +46,7 @@ export interface RealBlockRunState {
   title: string;
   status: 'completed' | 'blocked' | 'failed';
   currentTaskId: string | null;
+  statePath: string;
   taskResults: RealBlockRunTaskResult[];
   summary: RealBlockRunSummary;
   startedAt: string;
@@ -270,132 +284,244 @@ function runSingleTask(
   return { exitCode: result.status ?? 1, state };
 }
 
+function getStateString(
+  state: Record<string, unknown>,
+  key: string
+): string | undefined {
+  const value = state[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getGateSummary(gate: Record<string, unknown> | undefined): string | undefined {
+  if (gate === undefined) {
+    return undefined;
+  }
+  const summary = gate.reviewSummary;
+  return typeof summary === 'string' ? redactSecrets(summary) : undefined;
+}
+
+function getGateStatus(gate: Record<string, unknown> | undefined): string | undefined {
+  if (gate === undefined) {
+    return undefined;
+  }
+  const status = gate.status;
+  return typeof status === 'string' ? status : undefined;
+}
+
 function deriveTaskResult(
   task: BlockTaskDefinition,
   run: { exitCode: number; state: Record<string, unknown> | null }
 ): RealBlockRunTaskResult {
-  const result: RealBlockRunTaskResult = {
+  const base: RealBlockRunTaskResult = {
     taskId: task.task_id,
     title: task.title,
     status: 'failed',
+    fixAttempted: false,
+    finalStatus: 'failed',
+    nextAction: 'block',
+    childStateTaskId: task.task_id,
   };
 
   if (run.state === null) {
-    result.reason = redactSecrets(
+    base.reason = redactSecrets(
       run.exitCode === 0
         ? 'Task finished but no state was persisted.'
         : `Task runner exited with code ${run.exitCode} and no state was persisted.`
     );
-    return result;
+    return base;
   }
 
   const state = run.state;
-  result.originalCommitSha =
-    typeof state.commit_sha === 'string' ? state.commit_sha : undefined;
+  base.originalCommitSha = getStateString(state, 'commit_sha');
 
+  const reviewerGate = state.reviewer_gate as Record<string, unknown> | undefined;
+  const controlledRun = state.reviewer_fix_task_controlled_run as
+    | Record<string, unknown>
+    | undefined;
   const secondReview = state.reviewer_fix_task_second_review as
     | Record<string, unknown>
     | undefined;
+
+  if (reviewerGate !== undefined) {
+    base.reviewerGateStatus = getGateStatus(reviewerGate);
+    base.reviewerSummary = getGateSummary(reviewerGate);
+  }
+
+  if (controlledRun !== undefined) {
+    base.fixAttempted = true;
+    base.fixRunnerStatus =
+      typeof controlledRun.runnerResultStatus === 'string'
+        ? controlledRun.runnerResultStatus
+        : undefined;
+    base.fixRunnerNextAction =
+      typeof controlledRun.runnerResultNextAction === 'string'
+        ? controlledRun.runnerResultNextAction
+        : undefined;
+
+    const persistedState = controlledRun.persistedState as
+      | Record<string, unknown>
+      | undefined;
+    if (persistedState !== undefined) {
+      const pendingTaskId = persistedState.taskId;
+      if (typeof pendingTaskId === 'string') {
+        base.fixTaskId = pendingTaskId;
+      }
+    }
+  }
+
   if (secondReview !== undefined) {
-    result.fixCommitSha =
+    base.fixAttempted = true;
+    base.fixCommitSha =
       typeof secondReview.fixCommitSha === 'string'
         ? secondReview.fixCommitSha
         : undefined;
+    const fixTaskId = secondReview.fixTaskId;
+    if (typeof fixTaskId === 'string') {
+      base.fixTaskId = fixTaskId;
+    }
+
+    const secondGate = secondReview.reviewerGate as Record<string, unknown> | undefined;
+    base.secondReviewerGateStatus = getGateStatus(secondGate);
+    base.secondReviewerSummary = getGateSummary(secondGate);
+
     const finalStatus = secondReview.finalStatus;
     if (finalStatus === 'accepted') {
-      result.status = 'fixed_and_accepted';
-      result.reason = redactSecrets(
+      base.status = 'fixed_and_accepted';
+      base.finalStatus = 'accepted';
+      base.nextAction = 'continue';
+      base.reason = redactSecrets(
         typeof secondReview.reason === 'string'
           ? secondReview.reason
           : 'Fix commit accepted by second reviewer gate.'
       );
-      return result;
+      return base;
     }
     if (finalStatus === 'fix_required') {
-      result.status = 'fix_required';
-      result.reason = redactSecrets(
+      base.status = 'fix_required';
+      base.finalStatus = 'fix_required';
+      base.nextAction = 'manual_followup';
+      base.reason = redactSecrets(
         typeof secondReview.reason === 'string'
           ? secondReview.reason
           : 'Second reviewer gate requested further fixes; max attempts reached.'
       );
-      return result;
+      return base;
     }
-    result.status = 'blocked';
-    result.reason = redactSecrets(
+    base.status = 'blocked';
+    base.finalStatus = 'blocked';
+    base.nextAction = 'block';
+    base.reason = redactSecrets(
       typeof secondReview.reason === 'string'
         ? secondReview.reason
         : 'Second reviewer gate blocked the fix commit.'
     );
-    return result;
+    return base;
   }
 
-  const reviewerGate = state.reviewer_gate as Record<string, unknown> | undefined;
   if (reviewerGate !== undefined) {
     const status = reviewerGate.status;
     if (status === 'accepted') {
-      result.status = 'accepted';
-      result.reason = redactSecrets(
-        typeof reviewerGate.reviewSummary === 'string'
-          ? reviewerGate.reviewSummary
-          : 'Reviewer gate accepted.'
-      );
-      return result;
+      base.status = 'accepted';
+      base.finalStatus = 'accepted';
+      base.nextAction = 'continue';
+      base.reason = getGateSummary(reviewerGate) ?? 'Reviewer gate accepted.';
+      return base;
     }
 
-    const controlledRun = state.reviewer_fix_task_controlled_run as
-      | Record<string, unknown>
-      | undefined;
-
     if (status === 'fix_required') {
+      base.fixAttempted = controlledRun !== undefined;
       if (controlledRun === undefined) {
-        result.status = 'fix_required';
-        result.reason = redactSecrets(
+        base.status = 'fix_required';
+        base.finalStatus = 'fix_required';
+        base.nextAction = 'manual_followup';
+        base.reason = redactSecrets(
           'Reviewer gate requested fixes but fix execution was not configured for this task.'
         );
-        return result;
+        return base;
       }
       const runnerStatus = controlledRun.runnerResultStatus;
       if (runnerStatus === 'blocked') {
-        result.status = 'blocked';
-        result.reason = redactSecrets(
+        base.status = 'blocked';
+        base.finalStatus = 'blocked';
+        base.nextAction = 'block';
+        base.reason = redactSecrets(
           'Fix execution was blocked by guardrails or safety checks.'
         );
-        return result;
+        return base;
       }
       if (runnerStatus === 'executed') {
-        result.status = 'fix_required';
-        result.reason = redactSecrets(
+        base.status = 'fix_required';
+        base.finalStatus = 'fix_required';
+        base.nextAction = 'manual_followup';
+        base.reason = redactSecrets(
           'Fix execution completed but second review was not available.'
         );
-        return result;
+        return base;
       }
-      result.status = 'failed';
-      result.reason = redactSecrets(
+      base.status = 'failed';
+      base.finalStatus = 'failed';
+      base.nextAction = 'block';
+      base.reason = redactSecrets(
         `Unexpected fix runner status: ${String(runnerStatus)}`
       );
-      return result;
+      return base;
     }
 
-    result.status = 'blocked';
-    result.reason = redactSecrets(
-      typeof reviewerGate.reviewSummary === 'string'
-        ? reviewerGate.reviewSummary
-        : 'Reviewer gate blocked.'
-    );
-    return result;
+    base.status = 'blocked';
+    base.finalStatus = 'blocked';
+    base.nextAction = 'block';
+    base.reason = getGateSummary(reviewerGate) ?? 'Reviewer gate blocked.';
+    return base;
   }
 
   const runStatus = state.status;
   if (runStatus === 'pushed' && run.exitCode === 0) {
-    result.status = 'accepted';
-    result.reason = 'Task pushed without reviewer gate.';
-    return result;
+    base.status = 'accepted';
+    base.finalStatus = 'accepted';
+    base.nextAction = 'continue';
+    base.reason = 'Task pushed without reviewer gate.';
+    return base;
   }
 
-  result.reason = redactSecrets(
+  base.reason = redactSecrets(
     `Task ended with status ${String(runStatus)} and exit code ${run.exitCode}.`
   );
-  return result;
+  return base;
+}
+
+function printBlockRunSummary(state: RealBlockRunState): void {
+  const lines: string[] = [];
+  lines.push(`[real-block-run-ai] Block: ${state.block_id}`);
+  lines.push(`[real-block-run-ai] Status: ${state.status}`);
+  lines.push(`[real-block-run-ai] State path: ${state.statePath}`);
+  lines.push(
+    `[real-block-run-ai] Summary: total=${state.summary.totalTasks} completed=${state.summary.completedTasks} accepted=${state.summary.acceptedTasks} fixed=${state.summary.fixedTasks}`
+  );
+
+  if (state.summary.stoppedReason) {
+    lines.push(`[real-block-run-ai] Stopped reason: ${redactSecrets(state.summary.stoppedReason)}`);
+  }
+
+  lines.push('[real-block-run-ai] Task results:');
+  for (const task of state.taskResults) {
+    const parts: string[] = [
+      `  ${task.taskId}: ${task.status}`,
+      `final=${task.finalStatus}`,
+      `next=${task.nextAction}`,
+    ];
+    if (task.originalCommitSha) {
+      parts.push(`original=${task.originalCommitSha}`);
+    }
+    if (task.fixCommitSha) {
+      parts.push(`fix=${task.fixCommitSha}`);
+    }
+    if (task.fixAttempted) {
+      parts.push(`fixAttempted=true`);
+    }
+    lines.push(`[real-block-run-ai] ${parts.join(' ')}`);
+  }
+
+  console.log(lines.join('\n'));
 }
 
 function assertRequiredEnv(name: string): void {
@@ -443,26 +569,28 @@ export async function runRealBlockRunAI(
   validateFakeResponseArrays(block, arrays);
 
   const now = new Date().toISOString();
+  const blockRunDir = getBlockRunDir(block);
+  if (!existsSync(blockRunDir)) {
+    mkdirSync(blockRunDir, { recursive: true });
+  }
+
   const blockState: RealBlockRunState = {
     block_id: block.block_id,
     title: block.title,
     status: 'blocked',
     currentTaskId: null,
+    statePath: getBlockStatePath(block),
     taskResults: [],
     summary: {
       totalTasks: block.tasks.length,
       acceptedTasks: 0,
       fixedTasks: 0,
+      completedTasks: 0,
     },
     startedAt: now,
     safetyNote:
       'This command does not merge, push to main, or modify the base branch. Each task runs on the configured work_branch.',
   };
-
-  const blockRunDir = getBlockRunDir(block);
-  if (!existsSync(blockRunDir)) {
-    mkdirSync(blockRunDir, { recursive: true });
-  }
 
   let allComplete = true;
 
@@ -497,10 +625,20 @@ export async function runRealBlockRunAI(
 
   blockState.currentTaskId = null;
   blockState.finishedAt = new Date().toISOString();
+  blockState.summary.completedTasks =
+    blockState.summary.acceptedTasks + blockState.summary.fixedTasks;
   if (allComplete) {
     blockState.status = 'completed';
+    blockState.summary.stoppedReason = 'All tasks completed.';
+  } else {
+    const lastResult = blockState.taskResults[blockState.taskResults.length - 1];
+    const stopReason = lastResult?.reason ?? 'Block stopped.';
+    const stopTaskId = lastResult?.taskId ?? 'unknown';
+    blockState.summary.stoppedReason = `Task ${stopTaskId} ${blockState.status}: ${stopReason}`;
   }
   saveBlockState(block, blockState);
+
+  printBlockRunSummary(blockState);
 
   return { exitCode: blockState.status === 'completed' ? 0 : 1, blockState };
 }

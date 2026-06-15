@@ -488,7 +488,7 @@ describe('cli real-block-run-ai', () => {
           buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
         ]),
         REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
-          buildAcceptReview('Task one looks good'),
+          buildAcceptReview('Task one looks good with sk-fake-accept-secret'),
           buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
         ]),
         REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
@@ -497,7 +497,7 @@ describe('cli real-block-run-ai', () => {
         ]),
         REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify([
           null,
-          buildAcceptReview('Fix looks good'),
+          buildAcceptReview('Fix looks good with Bearer fake-token'),
         ]),
       }));
 
@@ -508,22 +508,63 @@ describe('cli real-block-run-ai', () => {
       assert(state !== null, 'Block state should exist');
       assert.strictEqual(state.status, 'completed');
       assert.strictEqual(state.block_id, blockId);
-      assert.strictEqual((state.summary as Record<string, unknown>).totalTasks, 2);
-      assert.strictEqual((state.summary as Record<string, unknown>).acceptedTasks, 1);
-      assert.strictEqual((state.summary as Record<string, unknown>).fixedTasks, 1);
+      assert(typeof state.statePath === 'string' && state.statePath.length > 0, 'statePath should be persisted');
+
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.totalTasks, 2);
+      assert.strictEqual(summary.completedTasks, 2);
+      assert.strictEqual(summary.acceptedTasks, 1);
+      assert.strictEqual(summary.fixedTasks, 1);
 
       const taskResults = state.taskResults as Record<string, unknown>[];
       assert.strictEqual(taskResults.length, 2);
-      assert.strictEqual(taskResults[0].status, 'accepted');
-      assert.strictEqual(taskResults[0].taskId, 'task-one');
-      assert.strictEqual(taskResults[1].status, 'fixed_and_accepted');
-      assert.strictEqual(taskResults[1].taskId, 'task-two');
-      assert(typeof taskResults[1].fixCommitSha === 'string' && (taskResults[1].fixCommitSha as string).length === 40, 'Fix commit SHA should be 40 chars');
-      assert.notStrictEqual(taskResults[0].originalCommitSha, taskResults[1].originalCommitSha, 'Each task should have its own commit');
+
+      const taskOne = taskResults[0];
+      assert.strictEqual(taskOne.status, 'accepted');
+      assert.strictEqual(taskOne.taskId, 'task-one');
+      assert.strictEqual(taskOne.reviewerGateStatus, 'accepted');
+      assert.strictEqual(taskOne.reviewerSummary, 'Task one looks good with [REDACTED]');
+      assert.strictEqual(taskOne.fixAttempted, false);
+      assert.strictEqual(taskOne.finalStatus, 'accepted');
+      assert.strictEqual(taskOne.nextAction, 'continue');
+      assert.strictEqual(taskOne.childStateTaskId, 'task-one');
+
+      const taskTwo = taskResults[1];
+      assert.strictEqual(taskTwo.status, 'fixed_and_accepted');
+      assert.strictEqual(taskTwo.taskId, 'task-two');
+      assert.strictEqual(taskTwo.reviewerGateStatus, 'fix_required');
+      assert.strictEqual(taskTwo.fixAttempted, true);
+      assert(typeof taskTwo.fixTaskId === 'string' && (taskTwo.fixTaskId as string).startsWith('fix-'), `Expected fixTaskId: ${taskTwo.fixTaskId}`);
+      assert.strictEqual(taskTwo.fixRunnerStatus, 'executed');
+      assert.strictEqual(taskTwo.fixRunnerNextAction, 'review_fix_result');
+      assert.strictEqual(taskTwo.secondReviewerGateStatus, 'accepted');
+      assert.strictEqual(taskTwo.secondReviewerSummary, 'Fix looks good with [REDACTED]');
+      assert(typeof taskTwo.originalCommitSha === 'string' && (taskTwo.originalCommitSha as string).length === 40, 'Original commit SHA should be 40 chars');
+      assert(typeof taskTwo.fixCommitSha === 'string' && (taskTwo.fixCommitSha as string).length === 40, 'Fix commit SHA should be 40 chars');
+      assert.notStrictEqual(taskTwo.originalCommitSha, taskTwo.fixCommitSha, 'Fix commit should differ from original');
+      assert.strictEqual(taskTwo.finalStatus, 'accepted');
+      assert.strictEqual(taskTwo.nextAction, 'continue');
+      assert.strictEqual(taskTwo.childStateTaskId, 'task-two');
+
+      const output = result.stdout;
+      assert(output.includes(blockId), `CLI output should include block id: ${output}`);
+      assert(output.includes('Status: completed'), `CLI output should include status: ${output}`);
+      assert(output.includes(state.statePath as string), `CLI output should include state path: ${output}`);
+      assert(output.includes('task-one: accepted'), `CLI output should include task-one status: ${output}`);
+      assert(output.includes('task-two: fixed_and_accepted'), `CLI output should include task-two status: ${output}`);
+      assert(output.includes(taskOne.originalCommitSha as string), `CLI output should include original commit: ${output}`);
+      assert(output.includes(taskTwo.fixCommitSha as string), `CLI output should include fix commit: ${output}`);
+
+      const combinedOutput = output + result.stderr;
+      assert(!combinedOutput.includes('sk-fake-accept-secret'), 'CLI output should redact secrets');
+      assert(!combinedOutput.includes('Bearer fake-token'), 'CLI output should redact tokens');
 
       const stateRaw = JSON.stringify(state);
       assert(!stateRaw.includes('fix applied'), 'Block state should not contain raw file content');
-      assert(!stateRaw.includes('sk-fake'), 'Block state should not contain raw secrets');
+      assert(!stateRaw.includes('sk-fake-accept-secret'), 'Block state should not contain raw secrets');
+      assert(!stateRaw.includes('Bearer fake-token'), 'Block state should not contain raw tokens');
+      assert(!stateRaw.includes('runState'), 'Block state should not contain raw executor runState');
+      assert(!stateRaw.includes('choices'), 'Block state should not contain raw provider response');
     } finally {
       cleanup();
     }
@@ -559,14 +600,28 @@ describe('cli real-block-run-ai', () => {
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
       assert.strictEqual(state.status, 'blocked');
-      assert.strictEqual((state.summary as Record<string, unknown>).blockedTaskId, 'task-two');
-      assert.strictEqual((state.summary as Record<string, unknown>).acceptedTasks, 1);
-      assert.strictEqual((state.summary as Record<string, unknown>).fixedTasks, 0);
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-two');
+      assert.strictEqual(summary.acceptedTasks, 1);
+      assert.strictEqual(summary.fixedTasks, 0);
+      assert(typeof summary.stoppedReason === 'string' && (summary.stoppedReason as string).length > 0, 'stoppedReason should be set');
 
       const taskResults = state.taskResults as Record<string, unknown>[];
       assert.strictEqual(taskResults.length, 2);
       assert.strictEqual(taskResults[0].status, 'accepted');
-      assert.strictEqual(taskResults[1].status, 'fix_required');
+
+      const taskTwo = taskResults[1];
+      assert.strictEqual(taskTwo.status, 'fix_required');
+      assert.strictEqual(taskTwo.reviewerGateStatus, 'fix_required');
+      assert.strictEqual(taskTwo.fixAttempted, true);
+      assert.strictEqual(taskTwo.secondReviewerGateStatus, 'fix_required');
+      assert.strictEqual(taskTwo.finalStatus, 'fix_required');
+      assert.strictEqual(taskTwo.nextAction, 'manual_followup');
+
+      const output = result.stdout;
+      assert(output.includes('Status: blocked'), `CLI output should include blocked status: ${output}`);
+      assert(output.includes('task-two: fix_required'), `CLI output should include task-two status: ${output}`);
+      assert(output.includes('Stopped reason:'), `CLI output should include stopped reason: ${output}`);
 
       const stateRaw = JSON.stringify(state);
       assert(!stateRaw.includes('sk-fake-secret'), 'Block state should redact secrets');
@@ -602,14 +657,23 @@ describe('cli real-block-run-ai', () => {
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
       assert.strictEqual(state.status, 'blocked');
-      assert.strictEqual((state.summary as Record<string, unknown>).blockedTaskId, 'task-two');
-      assert.strictEqual((state.summary as Record<string, unknown>).acceptedTasks, 1);
-      assert.strictEqual((state.summary as Record<string, unknown>).fixedTasks, 0);
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-two');
+      assert.strictEqual(summary.acceptedTasks, 1);
+      assert.strictEqual(summary.fixedTasks, 0);
 
       const taskResults = state.taskResults as Record<string, unknown>[];
       assert.strictEqual(taskResults.length, 2);
       assert.strictEqual(taskResults[0].status, 'accepted');
-      assert.strictEqual(taskResults[1].status, 'blocked');
+
+      const taskTwo = taskResults[1];
+      assert.strictEqual(taskTwo.status, 'blocked');
+      assert.strictEqual(taskTwo.reviewerGateStatus, 'fix_required');
+      assert.strictEqual(taskTwo.fixAttempted, true);
+      assert.strictEqual(taskTwo.fixRunnerStatus, 'blocked');
+      assert.strictEqual(taskTwo.finalStatus, 'blocked');
+      assert.strictEqual(taskTwo.nextAction, 'block');
+      assert(typeof taskTwo.reason === 'string' && (taskTwo.reason as string).includes('guardrails'), `Expected blocked reason: ${taskTwo.reason}`);
     } finally {
       cleanup();
     }
@@ -642,10 +706,17 @@ describe('cli real-block-run-ai', () => {
       const taskResults = state.taskResults as Record<string, unknown>[];
       assert.strictEqual(taskResults.length, 2);
       assert.strictEqual(taskResults[0].status, 'accepted');
-      assert.strictEqual(taskResults[1].status, 'blocked');
+
+      const taskTwo = taskResults[1];
+      assert.strictEqual(taskTwo.status, 'blocked');
+      assert.strictEqual(taskTwo.reviewerGateStatus, 'blocked');
+      assert.strictEqual(taskTwo.fixAttempted, false);
+      assert.strictEqual(taskTwo.finalStatus, 'blocked');
+      assert.strictEqual(taskTwo.nextAction, 'block');
 
       const stateRaw = JSON.stringify(state);
       assert(!stateRaw.includes('api_key=fake-reviewer-key'), 'Block state should redact secrets');
+      assert(!stateRaw.includes('runState'), 'Block state should not contain raw executor runState');
     } finally {
       cleanup();
     }
