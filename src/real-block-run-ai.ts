@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBlockDefinition } from './block/block-loader.js';
@@ -52,6 +52,8 @@ export interface RealBlockRunState {
   startedAt: string;
   finishedAt?: string;
   safetyNote: string;
+  resumed?: boolean;
+  resumeStartedAt?: string;
 }
 
 interface FakeResponseArrays {
@@ -67,6 +69,10 @@ const FAKE_RESPONSE_ENV_NAMES: (keyof FakeResponseArrays)[] = [
   'fixKimi',
   'secondReviewer',
 ];
+
+function isObject(val: unknown): val is Record<string, unknown> {
+  return typeof val === 'object' && val !== null && !Array.isArray(val);
+}
 
 function sanitizeBlockId(blockId: string): string {
   return blockId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -200,6 +206,89 @@ function saveBlockState(block: BlockDefinition, state: RealBlockRunState): void 
   const tmpPath = `${statePath}.tmp`;
   writeFileSync(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
   renameSync(tmpPath, statePath);
+}
+
+function isCompletedTaskStatus(
+  status: string | undefined
+): status is 'accepted' | 'fixed_and_accepted' {
+  return status === 'accepted' || status === 'fixed_and_accepted';
+}
+
+function validateBlockRunState(
+  parsed: unknown,
+  block: BlockDefinition
+): RealBlockRunState {
+  if (!isObject(parsed)) {
+    throw new Error('Existing block state file is not a valid object');
+  }
+
+  if (parsed.block_id !== block.block_id) {
+    throw new Error('Existing block state file does not match block_id');
+  }
+
+  const validStatuses = ['completed', 'blocked', 'failed'];
+  if (typeof parsed.status !== 'string' || !validStatuses.includes(parsed.status)) {
+    throw new Error('Existing block state file has invalid status');
+  }
+
+  if (!Array.isArray(parsed.taskResults)) {
+    throw new Error('Existing block state file has invalid taskResults');
+  }
+
+  const validTaskIds = new Set(block.tasks.map((t) => t.task_id));
+  for (let i = 0; i < parsed.taskResults.length; i++) {
+    const result = parsed.taskResults[i];
+    if (!isObject(result)) {
+      throw new Error(`Existing block state task result ${i} is not an object`);
+    }
+    if (typeof result.taskId !== 'string') {
+      throw new Error(`Existing block state task result ${i} is missing taskId`);
+    }
+    if (!validTaskIds.has(result.taskId)) {
+      throw new Error('Existing block state contains unknown task id');
+    }
+    if (typeof result.status !== 'string') {
+      throw new Error(`Existing block state task result ${i} is missing status`);
+    }
+    if (isCompletedTaskStatus(result.status)) {
+      if (typeof result.originalCommitSha !== 'string' || result.originalCommitSha.length !== 40) {
+        throw new Error('Existing block state has completed task without valid commit SHA');
+      }
+      if (
+        result.status === 'fixed_and_accepted' &&
+        (typeof result.fixCommitSha !== 'string' || result.fixCommitSha.length !== 40)
+      ) {
+        throw new Error('Existing block state has fixed task without valid fix commit SHA');
+      }
+    }
+  }
+
+  return parsed as unknown as RealBlockRunState;
+}
+
+function loadExistingBlockState(
+  block: BlockDefinition
+): RealBlockRunState | null {
+  const statePath = getBlockStatePath(block);
+  if (!existsSync(statePath)) {
+    return null;
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(statePath, 'utf-8');
+  } catch {
+    throw new Error('Existing block state file could not be read');
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Existing block state file is not valid JSON');
+  }
+
+  return validateBlockRunState(parsed, block);
 }
 
 function buildBaseChildEnv(): NodeJS.ProcessEnv {
@@ -542,7 +631,8 @@ function assertBlockRunOptIn(): void {
 }
 
 export async function runRealBlockRunAI(
-  blockPath: string
+  blockPath: string,
+  options?: { resume?: boolean }
 ): Promise<{ exitCode: number; blockState: RealBlockRunState }> {
   assertBlockRunOptIn();
   assertRequiredEnv('ALLOW_REAL_PROVIDER');
@@ -568,47 +658,108 @@ export async function runRealBlockRunAI(
   const arrays = loadFakeResponseArrays(block);
   validateFakeResponseArrays(block, arrays);
 
+  const resume = (options?.resume ?? false) || process.env.REAL_BLOCK_RUN_RESUME === '1';
+  const existingState = loadExistingBlockState(block);
+
+  if (existingState !== null && !resume) {
+    if (existingState.status === 'completed') {
+      throw new Error(
+        `Block run already completed. State: ${existingState.statePath}`
+      );
+    }
+    throw new Error(
+      `Block run already exists with status ${existingState.status}. Enable resume mode (REAL_BLOCK_RUN_RESUME=1) to continue. State: ${existingState.statePath}`
+    );
+  }
+
   const now = new Date().toISOString();
   const blockRunDir = getBlockRunDir(block);
   if (!existsSync(blockRunDir)) {
     mkdirSync(blockRunDir, { recursive: true });
   }
 
-  const blockState: RealBlockRunState = {
-    block_id: block.block_id,
-    title: block.title,
-    status: 'blocked',
-    currentTaskId: null,
-    statePath: getBlockStatePath(block),
-    taskResults: [],
-    summary: {
-      totalTasks: block.tasks.length,
-      acceptedTasks: 0,
-      fixedTasks: 0,
-      completedTasks: 0,
-    },
-    startedAt: now,
-    safetyNote:
-      'This command does not merge, push to main, or modify the base branch. Each task runs on the configured work_branch.',
-  };
+  let blockState: RealBlockRunState;
+  const skippedTaskIds: string[] = [];
 
-  let allComplete = true;
+  if (existingState !== null && resume) {
+    if (existingState.status === 'completed') {
+      console.error('[real-block-run-ai] Resume mode: block already completed.');
+      printBlockRunSummary(existingState);
+      return { exitCode: 0, blockState: existingState };
+    }
+
+    blockState = {
+      ...existingState,
+      currentTaskId: null,
+      resumed: true,
+      resumeStartedAt: now,
+    };
+
+    for (const result of blockState.taskResults) {
+      if (isCompletedTaskStatus(result.status)) {
+        skippedTaskIds.push(result.taskId);
+      }
+    }
+
+    const nextTask = block.tasks.find(
+      (t) => !skippedTaskIds.includes(t.task_id)
+    );
+    console.error('[real-block-run-ai] Resume mode enabled');
+    console.error(
+      `[real-block-run-ai] Skipped tasks: ${skippedTaskIds.join(', ') || 'none'}`
+    );
+    console.error(`[real-block-run-ai] Next task: ${nextTask?.task_id ?? 'none'}`);
+  } else {
+    blockState = {
+      block_id: block.block_id,
+      title: block.title,
+      status: 'blocked',
+      currentTaskId: null,
+      statePath: getBlockStatePath(block),
+      taskResults: [],
+      summary: {
+        totalTasks: block.tasks.length,
+        acceptedTasks: 0,
+        fixedTasks: 0,
+        completedTasks: 0,
+      },
+      startedAt: now,
+      safetyNote:
+        'This command does not merge, push to main, or modify the base branch. Each task runs on the configured work_branch.',
+    };
+  }
+
+  let stopped = false;
 
   for (let i = 0; i < block.tasks.length; i++) {
     const task = block.tasks[i];
+    const existingResultIndex = blockState.taskResults.findIndex(
+      (r) => r.taskId === task.task_id
+    );
+    const existingResult =
+      existingResultIndex >= 0 ? blockState.taskResults[existingResultIndex] : undefined;
+
+    if (existingResult !== undefined && isCompletedTaskStatus(existingResult.status)) {
+      continue;
+    }
+
     blockState.currentTaskId = task.task_id;
     saveBlockState(block, blockState);
 
     const run = runSingleTask(block, task, i, arrays);
     const taskResult = deriveTaskResult(task, run);
-    blockState.taskResults.push(taskResult);
 
-    if (taskResult.status === 'accepted') {
-      blockState.summary.acceptedTasks += 1;
-    } else if (taskResult.status === 'fixed_and_accepted') {
-      blockState.summary.fixedTasks += 1;
+    if (existingResultIndex >= 0) {
+      blockState.taskResults[existingResultIndex] = taskResult;
     } else {
-      allComplete = false;
+      blockState.taskResults.push(taskResult);
+    }
+
+    if (
+      taskResult.status !== 'accepted' &&
+      taskResult.status !== 'fixed_and_accepted'
+    ) {
+      stopped = true;
       if (taskResult.status === 'failed') {
         blockState.status = 'failed';
         blockState.summary.failedTaskId = task.task_id;
@@ -623,11 +774,20 @@ export async function runRealBlockRunAI(
     saveBlockState(block, blockState);
   }
 
+  const acceptedCount = blockState.taskResults.filter(
+    (r) => r.status === 'accepted'
+  ).length;
+  const fixedCount = blockState.taskResults.filter(
+    (r) => r.status === 'fixed_and_accepted'
+  ).length;
+
   blockState.currentTaskId = null;
   blockState.finishedAt = new Date().toISOString();
-  blockState.summary.completedTasks =
-    blockState.summary.acceptedTasks + blockState.summary.fixedTasks;
-  if (allComplete) {
+  blockState.summary.acceptedTasks = acceptedCount;
+  blockState.summary.fixedTasks = fixedCount;
+  blockState.summary.completedTasks = acceptedCount + fixedCount;
+
+  if (!stopped && blockState.summary.completedTasks === block.tasks.length) {
     blockState.status = 'completed';
     blockState.summary.stoppedReason = 'All tasks completed.';
   } else {

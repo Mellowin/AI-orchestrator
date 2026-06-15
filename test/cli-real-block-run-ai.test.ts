@@ -52,6 +52,7 @@ function getCleanEnv(): NodeJS.ProcessEnv {
     'REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES',
     'REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES',
     'REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES',
+    'REAL_BLOCK_RUN_RESUME',
   ];
   for (const name of toDelete) {
     delete env[name];
@@ -717,6 +718,364 @@ describe('cli real-block-run-ai', () => {
       const stateRaw = JSON.stringify(state);
       assert(!stateRaw.includes('api_key=fake-reviewer-key'), 'Block state should redact secrets');
       assert(!stateRaw.includes('runState'), 'Block state should not contain raw executor runState');
+    } finally {
+      cleanup();
+    }
+  });
+
+  function buildBaseState(
+    blockId: string,
+    title: string,
+    runsDir: string,
+    status: string,
+    taskResults: Record<string, unknown>[]
+  ): Record<string, unknown> {
+    const accepted = taskResults.filter(
+      (r) => r.status === 'accepted' || r.status === 'fixed_and_accepted'
+    ).length;
+    const fixed = taskResults.filter((r) => r.status === 'fixed_and_accepted').length;
+    return {
+      block_id: blockId,
+      title,
+      status,
+      currentTaskId: null,
+      statePath: join(runsDir, 'block', blockId, 'state.json'),
+      taskResults,
+      summary: {
+        totalTasks: 2,
+        acceptedTasks: accepted,
+        fixedTasks: fixed,
+        completedTasks: accepted,
+      },
+      startedAt: '2024-01-01T00:00:00.000Z',
+      safetyNote: 'Test safety note',
+    };
+  }
+
+  function writeBlockState(
+    runsDir: string,
+    blockId: string,
+    state: Record<string, unknown>
+  ): void {
+    const dir = join(runsDir, 'block', blockId);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(join(dir, 'state.json'), JSON.stringify(state, null, 2), 'utf-8');
+  }
+
+  function acceptedTaskResult(
+    taskId: string,
+    commitSha: string
+  ): Record<string, unknown> {
+    return {
+      taskId,
+      title: `Task ${taskId}`,
+      status: 'accepted',
+      originalCommitSha: commitSha,
+      fixAttempted: false,
+      reviewerGateStatus: 'accepted',
+      finalStatus: 'accepted',
+      nextAction: 'continue',
+      childStateTaskId: taskId,
+    };
+  }
+
+  function fixedTaskResult(
+    taskId: string,
+    originalSha: string,
+    fixSha: string
+  ): Record<string, unknown> {
+    return {
+      taskId,
+      title: `Task ${taskId}`,
+      status: 'fixed_and_accepted',
+      originalCommitSha: originalSha,
+      fixCommitSha: fixSha,
+      fixAttempted: true,
+      reviewerGateStatus: 'fix_required',
+      fixRunnerStatus: 'executed',
+      secondReviewerGateStatus: 'accepted',
+      finalStatus: 'accepted',
+      nextAction: 'continue',
+      childStateTaskId: taskId,
+    };
+  }
+
+  test('incomplete existing state refuses without resume', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const partialState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'blocked',
+      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+    );
+    writeBlockState(runsDir, blockId, partialState);
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
+      assert(
+        result.stderr.includes('Enable resume mode') || result.stderr.includes('REAL_BLOCK_RUN_RESUME'),
+        `Expected resume instructions: ${result.stderr}`
+      );
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('completed existing state refuses rerun without resume', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const completedState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'completed',
+      [
+        acceptedTaskResult('task-one', 'a'.repeat(40)),
+        fixedTaskResult('task-two', 'b'.repeat(40), 'c'.repeat(40)),
+      ]
+    );
+    writeBlockState(runsDir, blockId, completedState);
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
+      assert(result.stderr.includes('already completed'), `Expected already completed: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume completes after partial failure without duplicating task 1', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+
+      // First run: task1 accepted, task2 fails before commit due to invalid Kimi response.
+      const firstResult = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+          'not-valid-json',
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Looks good'),
+          null,
+        ]),
+      }));
+      assert.notStrictEqual(firstResult.status, 0, `Expected first run failure: ${firstResult.stderr}`);
+      const afterFirstLogCount = getGitLogCount(repoPath);
+      assert.strictEqual(afterFirstLogCount, beforeLogCount + 1, 'First run should create only task 1 commit');
+
+      const firstState = getBlockState(runsDir, blockId);
+      assert(firstState !== null);
+      assert.strictEqual(firstState.status, 'failed');
+      const firstTaskOneSha = (firstState.taskResults[0] as Record<string, unknown>).originalCommitSha as string;
+
+      // Resume: task2 now succeeds via fix-loop accepted.
+      const resumeResult = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Looks good'),
+          buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
+        ]),
+        REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
+          null,
+          buildFakeKimiOutput([{ path: 'fix.txt', content: 'fix applied\n' }]),
+        ]),
+        REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          null,
+          buildAcceptReview('Fix looks good'),
+        ]),
+      }));
+      assert.strictEqual(resumeResult.status, 0, `Expected resume success: ${resumeResult.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Resume should add task2 original+fix, not duplicate task1');
+
+      const resumedState = getBlockState(runsDir, blockId);
+      assert(resumedState !== null);
+      assert.strictEqual(resumedState.status, 'completed');
+      assert.strictEqual(resumedState.resumed, true);
+      assert(typeof resumedState.resumeStartedAt === 'string', 'resumeStartedAt should be set');
+      assert.strictEqual(resumedState.startedAt, firstState.startedAt, 'Original startedAt should be preserved');
+
+      const summary = resumedState.summary as Record<string, unknown>;
+      assert.strictEqual(summary.totalTasks, 2);
+      assert.strictEqual(summary.completedTasks, 2);
+      assert.strictEqual(summary.acceptedTasks, 1);
+      assert.strictEqual(summary.fixedTasks, 1);
+
+      const taskResults = resumedState.taskResults as Record<string, unknown>[];
+      assert.strictEqual(taskResults.length, 2);
+      assert.strictEqual(taskResults[0].status, 'accepted');
+      assert.strictEqual(taskResults[0].originalCommitSha, firstTaskOneSha, 'Task 1 SHA should be preserved');
+      assert.strictEqual(taskResults[1].status, 'fixed_and_accepted');
+
+      const output = resumeResult.stdout + resumeResult.stderr;
+      assert(output.includes('Resume mode enabled'), `Output should mention resume mode: ${output}`);
+      assert(output.includes('Skipped tasks: task-one'), `Output should list skipped task: ${output}`);
+      assert(output.includes('Next task: task-two'), `Output should list next task: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('REAL_BLOCK_RUN_RESUME=1 env flag enables resume', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+          'not-valid-json',
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Looks good'),
+          null,
+        ]),
+      }));
+
+      const resumeResult = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_RUN_RESUME: '1',
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Looks good'),
+          buildAcceptReview('Task two looks good'),
+        ]),
+      }));
+      assert.strictEqual(resumeResult.status, 0, `Expected resume success: ${resumeResult.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Resume should create task2 commit only');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume on completed state exits 0 without rerun', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const completedState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'completed',
+      [
+        acceptedTaskResult('task-one', 'a'.repeat(40)),
+        acceptedTaskResult('task-two', 'b'.repeat(40)),
+      ]
+    );
+    writeBlockState(runsDir, blockId, completedState);
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.strictEqual(result.status, 0, `Expected no-op success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert(result.stdout.includes('already completed') || result.stderr.includes('already completed'), `Expected already completed message: ${result.stdout}${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume blocks safely on unknown task id in existing state', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const badState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'blocked',
+      [
+        acceptedTaskResult('task-one', 'a'.repeat(40)),
+        {
+          taskId: 'unknown-task',
+          title: 'Unknown',
+          status: 'accepted',
+          originalCommitSha: 'b'.repeat(40),
+          fixAttempted: false,
+          finalStatus: 'accepted',
+          nextAction: 'continue',
+          childStateTaskId: 'unknown-task',
+        },
+      ]
+    );
+    writeBlockState(runsDir, blockId, badState);
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert(result.stderr.includes('unknown task id'), `Expected unknown task id error: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume blocks safely on mismatched block_id in existing state', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const badState = buildBaseState(
+      'different-block-id',
+      'Test block',
+      runsDir,
+      'blocked',
+      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+    );
+    writeBlockState(runsDir, blockId, badState);
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert(result.stderr.includes('does not match block_id'), `Expected block_id mismatch error: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume blocks safely when accepted task is missing commit SHA', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const badResult = acceptedTaskResult('task-one', 'a'.repeat(40));
+    delete badResult.originalCommitSha;
+    const badState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'blocked',
+      [badResult]
+    );
+    writeBlockState(runsDir, blockId, badState);
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert(result.stderr.includes('completed task without valid commit SHA'), `Expected missing SHA error: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume blocks safely on corrupt state file', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const dir = join(runsDir, 'block', blockId);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(join(dir, 'state.json'), JSON.stringify('not a valid state object'), 'utf-8');
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert(result.stderr.includes('not a valid object'), `Expected invalid state error: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
     } finally {
       cleanup();
     }
