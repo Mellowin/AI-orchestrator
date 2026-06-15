@@ -50,6 +50,7 @@ The autonomous block execution pipeline is proven and documented:
 
 ### Quick Links
 
+- [Real Block Run Quickstart](docs/REAL_BLOCK_RUN_QUICKSTART.md) — run an autonomous multi-task block end-to-end
 - [Operator Runbook](docs/OPERATOR_RUNBOOK.md) — one-page overview, core loop, modes, safety defaults
 - [Demo Command Cookbook](docs/DEMO_COMMAND_COOKBOOK.md) — exact commands for fake, real coder, real reviewer runs
 - [Mini-MVP Demo Package](docs/MINI_MVP_DEMO_PACKAGE.md) — what is proven, what is not claimed, known limitations

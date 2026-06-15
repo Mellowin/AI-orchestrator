@@ -1,0 +1,42 @@
+{
+  "block_id": "block_smoke",
+  "title": "Block smoke example",
+  "repo_path": "/absolute/path/to/target/repo",
+  "base_branch": "main",
+  "work_branch": "ai-block-smoke",
+  "providers": {
+    "coder": {
+      "provider": "kimi",
+      "model": "kimi-k2.6"
+    },
+    "reviewer": {
+      "provider": "kimi",
+      "model": "kimi-k2.6"
+    }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 1,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "task_1",
+      "title": "Update README",
+      "goal": "Make a small README update.",
+      "allowed_files": ["README.md"],
+      "denied_files": [],
+      "max_lines_changed": 100,
+      "checks": []
+    },
+    {
+      "task_id": "task_2",
+      "title": "Add feature note",
+      "goal": "Add a small feature note file.",
+      "allowed_files": ["feature.txt"],
+      "denied_files": [],
+      "max_lines_changed": 100,
+      "checks": []
+    }
+  ]
+}
