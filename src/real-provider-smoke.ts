@@ -8,7 +8,14 @@ export interface RealProviderSmokeResult {
   responseParsed: boolean;
   message?: string;
   error?: string;
+  timeoutMs?: number;
 }
+
+const DEFAULT_SMOKE_TIMEOUT_MS = 15000;
+const MIN_SMOKE_TIMEOUT_MS = 1000;
+const MAX_SMOKE_TIMEOUT_MS = 60000;
+const MAX_RESPONSE_PREVIEW_CHARS = 500;
+const MAX_MESSAGE_LENGTH = 200;
 
 const SAFE_PROVIDER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
 const SUPPORTED_PROVIDERS = new Set(['kimi']);
@@ -45,6 +52,28 @@ export function normalizeRealProviderSmokeProvider(raw: string | undefined): {
   };
 }
 
+export function parseRealProviderSmokeTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const raw = getEnv(env, 'REAL_PROVIDER_SMOKE_TIMEOUT_MS');
+  if (raw === undefined || raw === '') {
+    return DEFAULT_SMOKE_TIMEOUT_MS;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error('Invalid REAL_PROVIDER_SMOKE_TIMEOUT_MS: must be a non-negative integer');
+  }
+  if (parsed === 0) {
+    throw new Error('Invalid REAL_PROVIDER_SMOKE_TIMEOUT_MS: timeout must be greater than 0');
+  }
+  if (parsed < MIN_SMOKE_TIMEOUT_MS) {
+    return MIN_SMOKE_TIMEOUT_MS;
+  }
+  if (parsed > MAX_SMOKE_TIMEOUT_MS) {
+    return MAX_SMOKE_TIMEOUT_MS;
+  }
+  return parsed;
+}
+
 function validateSmokeEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string } {
   const allowReal = getEnv(env, 'ALLOW_REAL_PROVIDER');
   if (allowReal !== 'true') {
@@ -65,17 +94,27 @@ function validateSmokeEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: st
   return { apiKey, baseUrl, model };
 }
 
+function makeBoundedPreview(text: string): string {
+  const clamped = text.length > MAX_RESPONSE_PREVIEW_CHARS
+    ? text.slice(0, MAX_RESPONSE_PREVIEW_CHARS) + '...'
+    : text;
+  return redactSecrets(clamped);
+}
+
 function extractJsonFromText(text: string): unknown {
   const trimmed = text.trim();
   try {
     return JSON.parse(trimmed);
   } catch {
-    // try fenced json block
     const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenceMatch && fenceMatch[1]) {
-      return JSON.parse(fenceMatch[1].trim());
+      try {
+        return JSON.parse(fenceMatch[1].trim());
+      } catch {
+        throw new Error(`Provider response is not valid JSON. Preview: ${makeBoundedPreview(text)}`);
+      }
     }
-    throw new Error('Provider response is not valid JSON');
+    throw new Error(`Provider response is not valid JSON. Preview: ${makeBoundedPreview(text)}`);
   }
 }
 
@@ -90,7 +129,25 @@ function validateSmokeResponse(value: unknown): { ok: boolean; message: string }
   if (typeof obj.message !== 'string') {
     throw new Error('Provider response is missing message');
   }
+  if (obj.message.length > MAX_MESSAGE_LENGTH) {
+    throw new Error('Provider response message is too long');
+  }
   return { ok: true, message: obj.message };
+}
+
+function createTimeoutFetch(timeoutMs: number, underlyingFetch: typeof fetch): typeof fetch {
+  return (input, init) =>
+    underlyingFetch(input, {
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === 'AbortError') return true;
+  const lower = err.message.toLowerCase();
+  return lower.includes('timed out') || lower.includes('aborted');
 }
 
 export async function runRealProviderSmoke(
@@ -109,13 +166,32 @@ export async function runRealProviderSmoke(
     };
   }
 
+  let timeoutMs: number;
+  try {
+    timeoutMs = parseRealProviderSmokeTimeoutMs(env);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      provider,
+      mode: 'real-provider-smoke',
+      responseParsed: false,
+      error: redactSecrets(message),
+    };
+  }
+
   const { apiKey, baseUrl, model } = validateSmokeEnv(env);
+
+  const effectiveFetch = createTimeoutFetch(
+    timeoutMs,
+    fetchFn ?? (globalThis.fetch as unknown as typeof fetch)
+  );
 
   const client = createKimiClient({
     apiKey,
     model,
     baseUrl,
-    fetchFn,
+    fetchFn: effectiveFetch,
   });
 
   const prompt =
@@ -131,8 +207,19 @@ export async function runRealProviderSmoke(
       mode: 'real-provider-smoke',
       responseParsed: true,
       message,
+      timeoutMs,
     };
   } catch (err) {
+    if (isAbortError(err)) {
+      return {
+        ok: false,
+        provider,
+        mode: 'real-provider-smoke',
+        responseParsed: false,
+        error: 'Provider smoke timed out',
+        timeoutMs,
+      };
+    }
     const message = err instanceof Error ? err.message : String(err);
     return {
       ok: false,
@@ -140,6 +227,7 @@ export async function runRealProviderSmoke(
       mode: 'real-provider-smoke',
       responseParsed: false,
       error: redactSecrets(message),
+      timeoutMs,
     };
   }
 }

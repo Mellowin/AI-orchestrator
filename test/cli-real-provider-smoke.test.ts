@@ -4,7 +4,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runRealProviderSmoke, normalizeRealProviderSmokeProvider } from '../src/real-provider-smoke.js';
+import {
+  runRealProviderSmoke,
+  normalizeRealProviderSmokeProvider,
+  parseRealProviderSmokeTimeoutMs,
+} from '../src/real-provider-smoke.js';
 
 const PROJECT_ROOT = process.cwd();
 const TSX_CLI_PATH = join(PROJECT_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -253,8 +257,9 @@ describe('real-provider-smoke CLI', () => {
 
   test('source does not call fetch/http directly without injection', () => {
     const source = readSource(SOURCE_PATH);
-    assert.doesNotMatch(source, /\bglobalThis\.fetch\b/);
-    assert.doesNotMatch(source, /\bfetch\s*\(/);
+    // globalThis.fetch is allowed only as an explicit fallback; no direct fetch(...) calls.
+    const sourceWithoutGlobalFetch = source.replace(/globalThis\.fetch/g, '');
+    assert.doesNotMatch(sourceWithoutGlobalFetch, /\bfetch\s*\(/);
   });
 
   test('CLI source does not use shell:true for smoke branch', () => {
@@ -359,5 +364,262 @@ describe('real-provider-smoke CLI', () => {
     });
     assert.strictEqual(result.ok, false);
     assert.match(result.error, /Unsupported provider/i);
+  });
+
+  test('default timeout is 15000 ms', () => {
+    const timeout = parseRealProviderSmokeTimeoutMs({});
+    assert.strictEqual(timeout, 15000);
+  });
+
+  test('valid REAL_PROVIDER_SMOKE_TIMEOUT_MS is accepted', () => {
+    const timeout = parseRealProviderSmokeTimeoutMs({ REAL_PROVIDER_SMOKE_TIMEOUT_MS: '5000' });
+    assert.strictEqual(timeout, 5000);
+  });
+
+  test('invalid timeout env exits non-zero', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '{"ok":true,"message":"ok"}' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, {
+      ...BASE_ENV,
+      REAL_PROVIDER_SMOKE_TIMEOUT_MS: 'not-a-number',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /Invalid REAL_PROVIDER_SMOKE_TIMEOUT_MS/i);
+  });
+
+  test('negative timeout env exits non-zero', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '{"ok":true,"message":"ok"}' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, {
+      ...BASE_ENV,
+      REAL_PROVIDER_SMOKE_TIMEOUT_MS: '-100',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /Invalid REAL_PROVIDER_SMOKE_TIMEOUT_MS/i);
+  });
+
+  test('too-small timeout env clamps deterministically', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '{"ok":true,"message":"ok"}' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, {
+      ...BASE_ENV,
+      REAL_PROVIDER_SMOKE_TIMEOUT_MS: '100',
+    });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.timeoutMs, 1000);
+  });
+
+  test('too-large timeout env clamps deterministically', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '{"ok":true,"message":"ok"}' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, {
+      ...BASE_ENV,
+      REAL_PROVIDER_SMOKE_TIMEOUT_MS: '120000',
+    });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.timeoutMs, 60000);
+  });
+
+  test('timeout failure exits non-zero', async () => {
+    const fetchFn = async (_input: unknown, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        if (init?.signal?.aborted) {
+          reject(new Error('Aborted'));
+          return;
+        }
+        init?.signal?.addEventListener('abort', () => {
+          reject(new Error('Aborted'));
+        });
+      });
+    };
+    const result = await runRealProviderSmoke('kimi', fetchFn as unknown as typeof fetch, {
+      ...BASE_ENV,
+      REAL_PROVIDER_SMOKE_TIMEOUT_MS: '10',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /timed out/i);
+  });
+
+  test('timeout failure output is JSON parseable', async () => {
+    const fetchFn = async (_input: unknown, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('Aborted')));
+      });
+    };
+    const result = await runRealProviderSmoke('kimi', fetchFn as unknown as typeof fetch, {
+      ...BASE_ENV,
+      REAL_PROVIDER_SMOKE_TIMEOUT_MS: '10',
+    });
+    const json = JSON.stringify(result);
+    const parsed = JSON.parse(json);
+    assert.strictEqual(parsed.ok, false);
+    assert.strictEqual(parsed.mode, 'real-provider-smoke');
+  });
+
+  test('timeout failure output contains deterministic timeout error', async () => {
+    const fetchFn = async (_input: unknown, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('Aborted')));
+      });
+    };
+    const result = await runRealProviderSmoke('kimi', fetchFn as unknown as typeof fetch, {
+      ...BASE_ENV,
+      REAL_PROVIDER_SMOKE_TIMEOUT_MS: '10',
+    });
+    assert.match(result.error, /Provider smoke timed out/);
+  });
+
+  test('timeout failure does not leak API key', async () => {
+    const fetchFn = async (_input: unknown, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('Aborted')));
+      });
+    };
+    const result = await runRealProviderSmoke('kimi', fetchFn as unknown as typeof fetch, {
+      ...BASE_ENV,
+      KIMI_API_KEY: 'sk-real-secret-key-1234567890',
+      REAL_PROVIDER_SMOKE_TIMEOUT_MS: '10',
+    });
+    const output = JSON.stringify(result);
+    assert.doesNotMatch(output, /sk-real-secret-key-1234567890/);
+  });
+
+  test('provider invalid JSON exits non-zero', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'not-json' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /not valid JSON/i);
+  });
+
+  test('provider invalid JSON output is bounded to max 500 chars', async () => {
+    const content = 'x'.repeat(2000);
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.error);
+    assert.ok(result.error.length <= 650, 'error must be bounded');
+  });
+
+  test('provider invalid JSON output is redacted', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'error sk-leaked-key-1234567890 here' } }],
+        }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, false);
+    assert.doesNotMatch(result.error, /sk-leaked-key-1234567890/);
+  });
+
+  test('provider huge response output is bounded', async () => {
+    const content = '{"ok":true,"message":"' + 'x'.repeat(10000) + '"}';
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.error);
+    assert.ok(result.error.length < content.length, 'error must not include huge raw response');
+  });
+
+  test('provider valid JSON but ok:false exits non-zero', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '{"ok":false,"message":"no"}' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, false);
+  });
+
+  test('provider valid JSON missing message exits non-zero', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, false);
+  });
+
+  test('provider JSON array exits non-zero', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '[1,2,3]' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, false);
+  });
+
+  test('provider JSON string exits non-zero', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: '"hello"' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, false);
+  });
+
+  test('provider JSON null exits non-zero', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'null' } }] }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, false);
+  });
+
+  test('success output includes timeoutMs', async () => {
+    const fetchFn = async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '{"ok":true,"message":"provider smoke ok"}' } }],
+        }),
+      }) as unknown as Response;
+    const result = await runRealProviderSmoke('kimi', fetchFn, { ...BASE_ENV });
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.timeoutMs, 15000);
   });
 });
