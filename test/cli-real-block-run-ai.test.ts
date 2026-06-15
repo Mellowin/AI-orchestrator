@@ -139,6 +139,7 @@ interface TempBlockEnv {
   repoPath: string;
   originPath: string;
   runsDir: string;
+  tmpDir: string;
   cleanup: () => void;
 }
 
@@ -239,6 +240,7 @@ function createTempBlockEnv(): TempBlockEnv {
     repoPath,
     originPath,
     runsDir,
+    tmpDir,
     cleanup: () => {
       rmSync(tmpDir, { recursive: true, force: true });
     },
@@ -284,9 +286,10 @@ describe('cli real-block-run-ai', () => {
   });
 
   test('missing opt-in refuses before provider call', () => {
-    const { blockPath, cleanup } = createTempBlockEnv();
+    const { blockPath, blockId, cleanup, runsDir } = createTempBlockEnv();
     try {
       const result = runCli(['real-block-run-ai', blockPath], {
+        RUNS_DIR: runsDir,
         ALLOW_REAL_PROVIDER: 'true',
         ALLOW_REAL_REPO_APPLY: 'true',
         ALLOW_REAL_REPO_COMMIT: 'true',
@@ -295,11 +298,13 @@ describe('cli real-block-run-ai', () => {
         KIMI_BASE_URL: 'http://localhost:9999',
       });
       assert.notStrictEqual(result.status, 0);
+      const output = result.stdout + result.stderr;
       assert(
-        result.stderr.includes('ALLOW_REAL_BLOCK_RUN_AI=true') || result.stderr.includes('REAL_BLOCK_RUN_AI=1'),
-        `Expected opt-in refusal: ${result.stderr}`
+        output.includes('ALLOW_REAL_BLOCK_RUN_AI=true') || output.includes('REAL_BLOCK_RUN_AI=1'),
+        `Expected opt-in refusal: ${output}`
       );
       assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No state should be written');
     } finally {
       cleanup();
     }
@@ -407,9 +412,10 @@ describe('cli real-block-run-ai', () => {
         ]),
       }));
       assert.notStrictEqual(result.status, 0, `Expected refusal or failure: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
       assert(
-        result.stderr.includes('task_id contains unsupported characters'),
-        `Expected unsupported characters message: ${result.stderr}`
+        output.includes('task_id contains unsupported characters'),
+        `Expected unsupported characters message: ${output}`
       );
       assert(
         result.stderr.includes('No provider call was made'),
@@ -459,9 +465,10 @@ describe('cli real-block-run-ai', () => {
     try {
       const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
       assert.notStrictEqual(result.status, 0, `Expected refusal or failure: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
       assert(
-        result.stderr.includes('block_id contains unsupported characters'),
-        `Expected unsupported characters message: ${result.stderr}`
+        output.includes('block_id contains unsupported characters'),
+        `Expected unsupported characters message: ${output}`
       );
       assert(
         result.stderr.includes('No provider call was made'),
@@ -816,9 +823,10 @@ describe('cli real-block-run-ai', () => {
     try {
       const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
       assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
       assert(
-        result.stderr.includes('Enable resume mode') || result.stderr.includes('REAL_BLOCK_RUN_RESUME'),
-        `Expected resume instructions: ${result.stderr}`
+        output.includes('Enable resume mode') || output.includes('REAL_BLOCK_RUN_RESUME'),
+        `Expected resume instructions: ${output}`
       );
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
     } finally {
@@ -843,7 +851,8 @@ describe('cli real-block-run-ai', () => {
     try {
       const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
       assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
-      assert(result.stderr.includes('already completed'), `Expected already completed: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('already completed'), `Expected already completed: ${output}`);
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
     } finally {
       cleanup();
@@ -1012,7 +1021,8 @@ describe('cli real-block-run-ai', () => {
     try {
       const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
       assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
-      assert(result.stderr.includes('unknown task id'), `Expected unknown task id error: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('unknown task id'), `Expected unknown task id error: ${output}`);
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
     } finally {
       cleanup();
@@ -1033,7 +1043,8 @@ describe('cli real-block-run-ai', () => {
     try {
       const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
       assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
-      assert(result.stderr.includes('does not match block_id'), `Expected block_id mismatch error: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('does not match block_id'), `Expected block_id mismatch error: ${output}`);
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
     } finally {
       cleanup();
@@ -1056,7 +1067,8 @@ describe('cli real-block-run-ai', () => {
     try {
       const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
       assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
-      assert(result.stderr.includes('completed task without valid commit SHA'), `Expected missing SHA error: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('completed task without valid commit SHA'), `Expected missing SHA error: ${output}`);
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
     } finally {
       cleanup();
@@ -1074,8 +1086,213 @@ describe('cli real-block-run-ai', () => {
     try {
       const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
       assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
-      assert(result.stderr.includes('not a valid object'), `Expected invalid state error: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('not a valid object'), `Expected invalid state error: ${output}`);
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('missing provider flag blocks before mutation', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], {
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_BLOCK_RUN_AI: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+      });
+      assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('ALLOW_REAL_PROVIDER'), `Expected provider flag refusal: ${output}`);
+      assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('missing KIMI_API_KEY blocks before mutation', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        KIMI_API_KEY: '',
+      }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('KIMI_API_KEY'), `Expected KIMI_API_KEY refusal: ${output}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('invalid block JSON blocks before mutation', () => {
+    const { blockPath, repoPath, runsDir, cleanup, blockId } = createTempBlockEnv();
+    writeFileSync(blockPath, 'not-valid-json', 'utf-8');
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('JSON') || output.includes('json'), `Expected JSON error: ${output}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('non-git repo path blocks before mutation', () => {
+    const { blockPath, repoPath, runsDir, cleanup, tmpDir, blockId } = createTempBlockEnv();
+    const nonGitPath = join(tmpDir, 'not-a-repo');
+    mkdirSync(nonGitPath);
+    const definition = JSON.parse(readFileSync(blockPath, 'utf-8')) as Record<string, unknown>;
+    definition.repo_path = nonGitPath.replace(/\\/g, '/');
+    writeFileSync(blockPath, JSON.stringify(definition, null, 2), 'utf-8');
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('not a git repository'), `Expected non-git error: ${output}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('invalid branch config blocks before mutation', () => {
+    const { blockPath, repoPath, runsDir, cleanup, blockId } = createTempBlockEnv();
+    const definition = JSON.parse(readFileSync(blockPath, 'utf-8')) as Record<string, unknown>;
+    definition.work_branch = 'main';
+    writeFileSync(blockPath, JSON.stringify(definition, null, 2), 'utf-8');
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('work_branch'), `Expected branch config error: ${output}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('fake response array length mismatch blocks before mutation', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify(['only-one']),
+      }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(output.includes('length'), `Expected length mismatch error: ${output}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('readiness failure output is JSON parseable', () => {
+    const { blockPath, runsDir, cleanup, blockId } = createTempBlockEnv();
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], {
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_BLOCK_RUN_AI: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+      });
+      assert.notStrictEqual(result.status, 0);
+      const report = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.strictEqual(report.ready, false);
+      assert(Array.isArray(report.reasons));
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('readiness failure output redacts secrets', () => {
+    const { blockPath, runsDir, cleanup, tmpDir, blockId } = createTempBlockEnv();
+    const definition = JSON.parse(readFileSync(blockPath, 'utf-8')) as Record<string, unknown>;
+    definition.block_id = 'block-sk-fake-run-secret';
+    definition.repo_path = join(tmpDir, 'repo-sk-fake-run-secret').replace(/\\/g, '/');
+    writeFileSync(blockPath, JSON.stringify(definition, null, 2), 'utf-8');
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0);
+      const output = result.stdout + result.stderr;
+      assert(!output.includes('sk-fake-run-secret'), 'Secret should be redacted in output');
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('readiness failure does not spawn child runner', () => {
+    const { blockPath, repoPath, runsDir, cleanup, blockId } = createTempBlockEnv();
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], {
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_BLOCK_RUN_AI: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+      const childRunDir = join(runsDir, 'task-one');
+      assert(!existsSync(childRunDir), 'No child task run state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('completed state resume exits 0 without provider env', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const completedState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'completed',
+      [
+        acceptedTaskResult('task-one', 'a'.repeat(40)),
+        acceptedTaskResult('task-two', 'b'.repeat(40)),
+      ]
+    );
+    writeBlockState(runsDir, blockId, completedState);
+    const beforeLogCount = getGitLogCount(repoPath);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], {
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_BLOCK_RUN_AI: 'true',
+      });
+      assert.strictEqual(result.status, 0, `Expected no-op success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      const output = result.stdout + result.stderr;
+      assert(output.includes('already completed'), `Expected already completed message: ${output}`);
     } finally {
       cleanup();
     }

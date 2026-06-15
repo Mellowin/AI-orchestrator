@@ -4,11 +4,12 @@ import { spawnSync } from 'node:child_process';
 import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition } from './block/block-types.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
+import type { RealBlockRunState } from './real-block-run-ai-state.js';
 import {
   getBlockStatePath,
   isCompletedTaskStatus,
   loadExistingBlockState,
-} from './real-block-run-ai.js';
+} from './real-block-run-ai-state.js';
 
 export interface ReadinessReport {
   ready: boolean;
@@ -152,16 +153,21 @@ function checkFakeResponseArrays(
 function checkExistingState(
   block: BlockDefinition,
   report: ReadinessReport,
-  resume: boolean
+  resume: boolean,
+  preloaded?: RealBlockRunState | null
 ): void {
-  let existing: ReturnType<typeof loadExistingBlockState>;
-  try {
-    existing = loadExistingBlockState(block);
-  } catch (err) {
-    report.existingState = 'invalid';
-    const msg = err instanceof Error ? err.message : 'Existing block state is invalid';
-    addReason(report, msg);
-    return;
+  let existing: RealBlockRunState | null;
+  if (preloaded !== undefined) {
+    existing = preloaded;
+  } else {
+    try {
+      existing = loadExistingBlockState(block);
+    } catch (err) {
+      report.existingState = 'invalid';
+      const msg = err instanceof Error ? err.message : 'Existing block state is invalid';
+      addReason(report, msg);
+      return;
+    }
   }
 
   if (existing === null) {
@@ -229,9 +235,30 @@ export function checkRealBlockRunReadiness(
   report.taskCount = block.tasks.length;
   report.statePath = getBlockStatePath(block);
 
+  let existingState: RealBlockRunState | null = null;
+  let existingStateError = false;
+  try {
+    existingState = loadExistingBlockState(block);
+  } catch (err) {
+    existingStateError = true;
+    report.existingState = 'invalid';
+    const msg = err instanceof Error ? err.message : 'Existing block state is invalid';
+    addReason(report, msg);
+  }
+
+  if (!existingStateError && existingState !== null && existingState.status === 'completed' && resume) {
+    report.existingState = 'completed';
+    report.mode = 'completed_noop';
+    report.ready = true;
+    report.skippedTaskIds = block.tasks.map((t) => t.task_id);
+    return report;
+  }
+
   checkEnv(report);
   checkRepo(block, report);
-  checkExistingState(block, report, resume);
+  if (!existingStateError) {
+    checkExistingState(block, report, resume, existingState);
+  }
   checkFakeResponseArrays(block, report);
 
   report.ready = report.reasons.length === 0;
