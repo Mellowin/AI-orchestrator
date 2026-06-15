@@ -256,6 +256,97 @@ async function main(): Promise<void> {
 
     const env = buildDemoEnv(paths);
 
+    function parseJsonOutput(result: ReturnType<typeof runCli>, label: string): Record<string, unknown> {
+      const output = (result.stdout || '') + (result.stderr || '');
+      if (result.status !== 0) {
+        console.error(output);
+        throw new Error(`${label} failed with exit code ${result.status}`);
+      }
+      const match = output.match(/\{[\s\S]*\}/);
+      if (!match) {
+        throw new Error(`${label} output did not contain JSON`);
+      }
+      try {
+        return JSON.parse(match[0]) as Record<string, unknown>;
+      } catch {
+        throw new Error(`${label} output contained invalid JSON`);
+      }
+    }
+
+    printSection('Real run checklist');
+    const checklistResult = runCli(['real-block-run-ai-checklist', paths.blockPath], env);
+    const checklistOutput = (checklistResult.stdout || '') + (checklistResult.stderr || '');
+    const checklistReport = parseJsonOutput(checklistResult, 'Real run checklist');
+    console.log(checklistOutput);
+    if (checklistReport.ok !== true) {
+      throw new Error('Expected checklist report ok to be true');
+    }
+    if (checklistReport.mode !== 'real-block-run-ai-checklist') {
+      throw new Error('Expected checklist mode real-block-run-ai-checklist');
+    }
+    const checklistBlockReadiness = checklistReport.blockReadiness as Record<string, unknown> | undefined;
+    if (!checklistBlockReadiness || checklistBlockReadiness.ready !== true) {
+      throw new Error('Expected checklist blockReadiness.ready to be true');
+    }
+    const checklistProviderSmoke = checklistReport.providerSmoke as Record<string, unknown> | undefined;
+    if (!checklistProviderSmoke || checklistProviderSmoke.envReady !== true) {
+      throw new Error('Expected checklist providerSmoke.envReady to be true');
+    }
+    const checklistCommands = Array.isArray(checklistReport.nextCommands) ? checklistReport.nextCommands : [];
+    if (!checklistCommands.some((c: unknown) => typeof c === 'string' && c.includes('real-provider-smoke'))) {
+      throw new Error('Expected checklist nextCommands to include provider smoke command');
+    }
+    if (!checklistCommands.some((c: unknown) => typeof c === 'string' && c.includes('real-block-run-ai'))) {
+      throw new Error('Expected checklist nextCommands to include real block run command');
+    }
+    if (checklistOutput.includes('sk-demo-placeholder')) {
+      throw new Error('Checklist output leaked fake demo secret');
+    }
+    console.log('Real run checklist: passed');
+
+    printSection('Dry-run');
+    const dryRunResult = runCli(['real-block-run-ai-dry-run', paths.blockPath], env);
+    const dryRunOutput = (dryRunResult.stdout || '') + (dryRunResult.stderr || '');
+    const dryRunReport = parseJsonOutput(dryRunResult, 'Dry-run');
+    console.log(dryRunOutput);
+    if (dryRunReport.ok !== true) {
+      throw new Error('Expected dry-run report ok to be true');
+    }
+    if (dryRunReport.mode !== 'real-block-run-ai-dry-run') {
+      throw new Error('Expected dry-run mode real-block-run-ai-dry-run');
+    }
+    const dryRunReadiness = dryRunReport.readiness as Record<string, unknown> | undefined;
+    if (!dryRunReadiness || dryRunReadiness.ready !== true) {
+      throw new Error('Expected dry-run readiness.ready to be true');
+    }
+    const dryRunProviderSmoke = dryRunReport.providerSmoke as Record<string, unknown> | undefined;
+    if (!dryRunProviderSmoke || dryRunProviderSmoke.envReady !== true) {
+      throw new Error('Expected dry-run providerSmoke.envReady to be true');
+    }
+    const dryRunTasks = Array.isArray(dryRunReport.tasks) ? dryRunReport.tasks : [];
+    const taskIds = dryRunTasks.map((t: unknown) => (t as Record<string, unknown>).task_id);
+    if (!taskIds.includes('task_1') || !taskIds.includes('task_2')) {
+      throw new Error('Expected dry-run tasks to include task_1 and task_2');
+    }
+    const nextTasks = dryRunTasks.filter((t: unknown) => (t as Record<string, unknown>).isNext === true);
+    if (nextTasks.length !== 1) {
+      throw new Error(`Expected exactly one next task in dry-run, got ${nextTasks.length}`);
+    }
+    const dryRunCommands = Array.isArray(dryRunReport.nextCommands) ? dryRunReport.nextCommands : [];
+    if (!dryRunCommands.some((c: unknown) => typeof c === 'string' && c.includes('real-provider-smoke'))) {
+      throw new Error('Expected dry-run nextCommands to include provider smoke command');
+    }
+    if (!dryRunCommands.some((c: unknown) => typeof c === 'string' && c.includes('real-block-run-ai'))) {
+      throw new Error('Expected dry-run nextCommands to include real block run command');
+    }
+    if (!dryRunCommands.some((c: unknown) => typeof c === 'string' && c.includes('real-block-run-ai-report'))) {
+      throw new Error('Expected dry-run nextCommands to include report command');
+    }
+    if (dryRunOutput.includes('sk-demo-placeholder')) {
+      throw new Error('Dry-run output leaked fake demo secret');
+    }
+    console.log('Dry-run: passed');
+
     printSection('Readiness check');
     const readinessResult = runCli(['real-block-run-ai-readiness', paths.blockPath], env);
     const readinessOutput = (readinessResult.stdout || '') + (readinessResult.stderr || '');

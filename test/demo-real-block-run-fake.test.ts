@@ -82,13 +82,41 @@ describe('demo-real-block-run-fake static checks', () => {
     assert.match(source, /REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES/);
   });
 
+  test('demo script runs checklist before dry-run', () => {
+    const source = readDemoSource();
+    const checklistIndex = source.indexOf('real-block-run-ai-checklist');
+    const dryRunIndex = source.indexOf('real-block-run-ai-dry-run');
+    assert.ok(checklistIndex >= 0, 'must call checklist command');
+    assert.ok(dryRunIndex >= 0, 'must call dry-run command');
+    assert.ok(checklistIndex < dryRunIndex, 'checklist must be called before dry-run');
+  });
+
+  test('demo script runs dry-run before readiness', () => {
+    const source = readDemoSource();
+    const dryRunIndex = source.indexOf('real-block-run-ai-dry-run');
+    const readinessIndex = source.indexOf('real-block-run-ai-readiness');
+    assert.ok(dryRunIndex >= 0, 'must call dry-run command');
+    assert.ok(readinessIndex >= 0, 'must call readiness command');
+    assert.ok(dryRunIndex < readinessIndex, 'dry-run must be called before readiness');
+  });
+
   test('demo script runs readiness before block run', () => {
     const source = readDemoSource();
-    const readinessIndex = source.indexOf('real-block-run-ai-readiness');
-    const runIndex = source.indexOf('real-block-run-ai\'');
+    const readinessIndex = source.indexOf("'real-block-run-ai-readiness',");
+    const runIndex = source.indexOf("'real-block-run-ai',");
     assert.ok(readinessIndex >= 0, 'must call readiness command');
     assert.ok(runIndex >= 0, 'must call block run command');
     assert.ok(readinessIndex < runIndex, 'readiness must be called before block run');
+  });
+
+  test('demo script calls real-block-run-ai-checklist', () => {
+    const source = readDemoSource();
+    assert.match(source, /real-block-run-ai-checklist/);
+  });
+
+  test('demo script calls real-block-run-ai-dry-run', () => {
+    const source = readDemoSource();
+    assert.match(source, /real-block-run-ai-dry-run/);
   });
 
   test('demo script does not use shell: true', () => {
@@ -182,8 +210,8 @@ describe('demo-real-block-run-fake static checks', () => {
 
   test('demo script calls report after block run', () => {
     const source = readDemoSource();
-    const runIndex = source.indexOf("'real-block-run-ai'");
-    const reportIndex = source.indexOf("'real-block-run-ai-report'");
+    const runIndex = source.indexOf("'real-block-run-ai',");
+    const reportIndex = source.indexOf("'real-block-run-ai-report',");
     assert.ok(runIndex >= 0, 'must call block run command');
     assert.ok(reportIndex >= 0, 'must call report command');
     assert.ok(runIndex < reportIndex, 'block run must be called before report');
@@ -191,8 +219,8 @@ describe('demo-real-block-run-fake static checks', () => {
 
   test('demo script calls report after readiness', () => {
     const source = readDemoSource();
-    const readinessIndex = source.indexOf('real-block-run-ai-readiness');
-    const reportIndex = source.indexOf("'real-block-run-ai-report'");
+    const readinessIndex = source.indexOf("'real-block-run-ai-readiness',");
+    const reportIndex = source.indexOf("'real-block-run-ai-report',");
     assert.ok(readinessIndex >= 0, 'must call readiness command');
     assert.ok(reportIndex >= 0, 'must call report command');
     assert.ok(readinessIndex < reportIndex, 'readiness must be called before report');
@@ -328,6 +356,74 @@ describe('demo-real-block-run-fake runtime', () => {
   test('demo report output does not leak fake demo secret', () => {
     const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
     assert.doesNotMatch(output, /sk-demo-placeholder/);
+  });
+
+  test('demo output includes Real run checklist section', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    assert.match(output, /=== Real run checklist ===/);
+  });
+
+  test('demo output includes Dry-run section', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    assert.match(output, /=== Dry-run ===/);
+  });
+
+  test('demo checklist output is JSON with mode real-block-run-ai-checklist', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    const match = output.match(/=== Real run checklist ===\s*\n(\{[\s\S]*?\n\})\s*\nReal run checklist: passed/);
+    assert.ok(match, 'checklist JSON should be present');
+    const json = JSON.parse(match![1]) as Record<string, unknown>;
+    assert.strictEqual(json.ok, true);
+    assert.strictEqual(json.mode, 'real-block-run-ai-checklist');
+    const blockReadiness = json.blockReadiness as Record<string, unknown> | undefined;
+    assert.strictEqual(blockReadiness?.ready, true);
+    const providerSmoke = json.providerSmoke as Record<string, unknown> | undefined;
+    assert.strictEqual(providerSmoke?.envReady, true);
+  });
+
+  test('demo dry-run output is JSON with mode real-block-run-ai-dry-run', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    const match = output.match(/=== Dry-run ===\s*\n(\{[\s\S]*?\n\})\s*\nDry-run: passed/);
+    assert.ok(match, 'dry-run JSON should be present');
+    const json = JSON.parse(match![1]) as Record<string, unknown>;
+    assert.strictEqual(json.ok, true);
+    assert.strictEqual(json.mode, 'real-block-run-ai-dry-run');
+    const readiness = json.readiness as Record<string, unknown> | undefined;
+    assert.strictEqual(readiness?.ready, true);
+    const providerSmoke = json.providerSmoke as Record<string, unknown> | undefined;
+    assert.strictEqual(providerSmoke?.envReady, true);
+    const tasks = json.tasks as Array<Record<string, unknown>> | undefined;
+    assert.ok(tasks?.some((t) => t.task_id === 'task_1'));
+    assert.ok(tasks?.some((t) => t.task_id === 'task_2'));
+    assert.strictEqual(tasks?.filter((t) => t.isNext === true).length, 1);
+  });
+
+  test('demo checklist output does not leak fake API key', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    const checklistMatch = output.match(/=== Real run checklist ===\s*\n(\{[\s\S]*?\n\})\s*\nReal run checklist: passed/);
+    assert.ok(checklistMatch);
+    assert.doesNotMatch(checklistMatch![1], /sk-demo-placeholder/);
+  });
+
+  test('demo dry-run output does not leak fake API key', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    const dryRunMatch = output.match(/=== Dry-run ===\s*\n(\{[\s\S]*?\n\})\s*\nDry-run: passed/);
+    assert.ok(dryRunMatch);
+    assert.doesNotMatch(dryRunMatch![1], /sk-demo-placeholder/);
+  });
+
+  test('demo runs commands in order checklist → dry-run → readiness → run → report', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    const checklistIndex = output.indexOf('=== Real run checklist ===');
+    const dryRunIndex = output.indexOf('=== Dry-run ===');
+    const readinessIndex = output.indexOf('=== Readiness check ===');
+    const runIndex = output.indexOf('=== Block run ===');
+    const reportIndex = output.indexOf('=== Block report ===');
+    assert.ok(checklistIndex >= 0);
+    assert.ok(dryRunIndex > checklistIndex);
+    assert.ok(readinessIndex > dryRunIndex);
+    assert.ok(runIndex > readinessIndex);
+    assert.ok(reportIndex > runIndex);
   });
 
   test('demo does not create files in project root', () => {

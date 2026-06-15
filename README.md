@@ -82,7 +82,7 @@ This runs:
 3. `npm test` — full test suite
 4. `npm run demo:block:fake` — local fake-provider block demo
 
-No real external AI or network access is required. The command uses fake responses and a temporary git repository.
+No real external AI or network access is required. The command uses fake responses and a temporary git repository, and exercises the full safe operator flow: checklist → dry-run → readiness → run → report.
 
 The same product verification command is run automatically by GitHub Actions on every push and pull request to `main` (see `.github/workflows/product-verify.yml`).
 

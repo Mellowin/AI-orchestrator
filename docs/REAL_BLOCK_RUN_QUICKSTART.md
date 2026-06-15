@@ -201,6 +201,8 @@ This command:
 
 - creates a temporary git repository,
 - generates a temporary block file pointing to that repo,
+- runs `real-block-run-ai-checklist` (read-only block + provider-env preflight),
+- runs `real-block-run-ai-dry-run` (read-only task plan without provider call),
 - runs `real-block-run-ai-readiness`,
 - runs `real-block-run-ai` with deterministic fake coder/reviewer responses,
 - executes two tasks: one accepted directly and one rejected then fixed and accepted,
@@ -210,7 +212,7 @@ This command:
 
 The demo uses placeholder values for `KIMI_API_KEY` and `KIMI_BASE_URL`, forces fake responses via `REAL_BLOCK_TASK_*_FAKE_RESPONSES`, and does not push to any external remote.
 
-The full local path demonstrated is: readiness → run → report.
+The full local path demonstrated is: checklist → dry-run → readiness → run → report. Both checklist and dry-run are read-only and do not call the provider.
 
 ## Real run checklist (safe operator preflight)
 
