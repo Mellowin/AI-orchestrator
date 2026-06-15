@@ -253,6 +253,8 @@ Before running a real block against a real repository, you can verify that the p
 export ALLOW_REAL_PROVIDER=true
 export KIMI_API_KEY="sk-your-key"
 export KIMI_BASE_URL="https://api.moonshot.cn/v1"
+# Optional: change the timeout (default 15 seconds, clamped to 1–60 seconds)
+export REAL_PROVIDER_SMOKE_TIMEOUT_MS=15000
 npx tsx src/cli.ts real-provider-smoke
 ```
 
@@ -260,9 +262,11 @@ This command:
 
 - checks `ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, and `KIMI_BASE_URL`
 - sends a tiny harmless prompt to the configured provider
+- times out after the configured duration (default `15000` ms, min `1000` ms, max `60000` ms)
 - expects a small JSON acknowledgment such as `{"ok":true,"message":"provider smoke ok"}`
 - prints a redacted JSON report
-- exits non-zero if the provider call fails or if credentials are missing
+- exits non-zero if the provider call fails, times out, credentials are missing, or the response is invalid
+- bounds and redacts invalid or oversized provider responses
 
 It does **not** read or write block state, apply patches, create commits, push, merge, or touch the repository. Do not use it in CI with real secrets yet.
 

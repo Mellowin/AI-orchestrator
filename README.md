@@ -97,7 +97,7 @@ export KIMI_BASE_URL="https://api.moonshot.cn/v1"
 npx tsx src/cli.ts real-provider-smoke
 ```
 
-This is a read-only, no-repo-mutation check. It does not read or write block state, apply patches, create commits, push, or merge.
+This is a read-only, no-repo-mutation check. It does not read or write block state, apply patches, create commits, push, or merge. The default timeout is 15 seconds and can be changed with `REAL_PROVIDER_SMOKE_TIMEOUT_MS` (clamped to 1–60 seconds).
 
 For a safe operator preflight that combines block readiness and provider-env checks, use `real-block-run-ai-checklist <blockPath>`. See [`docs/REAL_BLOCK_RUN_QUICKSTART.md`](docs/REAL_BLOCK_RUN_QUICKSTART.md) for details.
 

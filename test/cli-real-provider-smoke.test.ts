@@ -623,3 +623,43 @@ describe('real-provider-smoke CLI', () => {
     assert.strictEqual(result.timeoutMs, 15000);
   });
 });
+
+
+describe('docs', () => {
+  const quickstart = readFileSync(join(PROJECT_ROOT, 'docs', 'REAL_BLOCK_RUN_QUICKSTART.md'), 'utf-8');
+  const readme = readFileSync(join(PROJECT_ROOT, 'README.md'), 'utf-8');
+
+  test('quickstart mentions REAL_PROVIDER_SMOKE_TIMEOUT_MS', () => {
+    assert.match(quickstart, /REAL_PROVIDER_SMOKE_TIMEOUT_MS/);
+  });
+
+  test('quickstart mentions default timeout 15000 or 15 seconds', () => {
+    assert.match(quickstart, /15000|15 seconds/);
+  });
+
+  test('quickstart mentions minimum timeout 1000', () => {
+    assert.match(quickstart, /1000/);
+  });
+
+  test('quickstart mentions maximum timeout 60000', () => {
+    assert.match(quickstart, /60000/);
+  });
+
+  test('quickstart mentions bounded/redacted failure output', () => {
+    assert.match(quickstart, /bounded|redacted/);
+  });
+
+  test('quickstart mentions no repo or state mutation', () => {
+    assert.match(quickstart, /does not read or write block state|no repo mutation/);
+  });
+
+  test('docs do not contain real-looking secrets', () => {
+    const docs = quickstart + readme;
+    assert.doesNotMatch(docs, /sk-[a-zA-Z0-9]{20,}/);
+    assert.doesNotMatch(docs, /Bearer\s+[a-zA-Z0-9]{20,}/);
+  });
+
+  test('README mentions timeout behavior for provider smoke', () => {
+    assert.match(readme, /REAL_PROVIDER_SMOKE_TIMEOUT_MS|15 seconds/);
+  });
+});
