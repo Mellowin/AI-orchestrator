@@ -174,6 +174,66 @@ describe('demo-real-block-run-fake static checks', () => {
     assert.doesNotMatch(source, /['"]--force['"]/);
     assert.doesNotMatch(source, /['"]force['"]/);
   });
+
+  test('demo script calls real-block-run-ai-report', () => {
+    const source = readDemoSource();
+    assert.match(source, /real-block-run-ai-report/);
+  });
+
+  test('demo script calls report after block run', () => {
+    const source = readDemoSource();
+    const runIndex = source.indexOf("'real-block-run-ai'");
+    const reportIndex = source.indexOf("'real-block-run-ai-report'");
+    assert.ok(runIndex >= 0, 'must call block run command');
+    assert.ok(reportIndex >= 0, 'must call report command');
+    assert.ok(runIndex < reportIndex, 'block run must be called before report');
+  });
+
+  test('demo script calls report after readiness', () => {
+    const source = readDemoSource();
+    const readinessIndex = source.indexOf('real-block-run-ai-readiness');
+    const reportIndex = source.indexOf("'real-block-run-ai-report'");
+    assert.ok(readinessIndex >= 0, 'must call readiness command');
+    assert.ok(reportIndex >= 0, 'must call report command');
+    assert.ok(readinessIndex < reportIndex, 'readiness must be called before report');
+  });
+
+  test('demo script uses runCli helper for report command', () => {
+    const source = readDemoSource();
+    assert.match(source, /runCli\(\['real-block-run-ai-report',\s*statePath\],\s*env\)/);
+  });
+
+  test('demo script asserts report exit code', () => {
+    const source = readDemoSource();
+    assert.match(source, /reportResult\.status\s*!==\s*0/);
+  });
+
+  test('demo script asserts report contains Block Run Report', () => {
+    const source = readDemoSource();
+    assert.match(source, /Block Run Report/);
+  });
+
+  test('demo script asserts report contains completed status', () => {
+    const source = readDemoSource();
+    assert.match(source, /Status:\s*completed/);
+  });
+
+  test('demo script asserts report contains task_1 accepted', () => {
+    const source = readDemoSource();
+    assert.match(source, /task_1/);
+    assert.match(source, /accepted/);
+  });
+
+  test('demo script asserts report contains task_2 fixed_and_accepted', () => {
+    const source = readDemoSource();
+    assert.match(source, /task_2/);
+    assert.match(source, /fixed_and_accepted/);
+  });
+
+  test('demo script asserts report contains fixCommitSha', () => {
+    const source = readDemoSource();
+    assert.match(source, /fixCommitSha/);
+  });
 });
 
 describe('demo-real-block-run-fake runtime', () => {
@@ -238,6 +298,36 @@ describe('demo-real-block-run-fake runtime', () => {
     assert.ok(task2, 'task_2 should exist in state');
     assert.strictEqual(typeof task2.fixCommitSha, 'string');
     assert.strictEqual(task2.fixCommitSha.length, 40);
+  });
+
+  test('demo output includes Block report section', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    assert.match(output, /=== Block report ===/);
+  });
+
+  test('demo output includes Block Run Report', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    assert.match(output, /Block Run Report/);
+  });
+
+  test('demo report output includes completed block status', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    assert.match(output, /Status:\s+completed/);
+  });
+
+  test('demo report output includes task_1', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    assert.match(output, /task_1/);
+  });
+
+  test('demo report output includes task_2', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    assert.match(output, /task_2/);
+  });
+
+  test('demo report output does not leak fake demo secret', () => {
+    const output = (demoResult?.stdout ?? '') + (demoResult?.stderr ?? '');
+    assert.doesNotMatch(output, /sk-demo-placeholder/);
   });
 
   test('demo does not create files in project root', () => {

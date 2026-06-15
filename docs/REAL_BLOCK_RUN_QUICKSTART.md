@@ -202,10 +202,13 @@ This command:
 - runs `real-block-run-ai-readiness`,
 - runs `real-block-run-ai` with deterministic fake coder/reviewer responses,
 - executes two tasks: one accepted directly and one rejected then fixed and accepted,
-- prints the temp repo path, block file path, final state path, and task results,
+- runs `real-block-run-ai-report` on the generated state file to prove the read-only report path,
+- prints the temp repo path, block file path, final state path, task results, and block report,
 - cleans up temporary artifacts (set `KEEP_DEMO_ARTIFACTS=1` to keep them).
 
 The demo uses placeholder values for `KIMI_API_KEY` and `KIMI_BASE_URL`, forces fake responses via `REAL_BLOCK_TASK_*_FAKE_RESPONSES`, and does not push to any external remote.
+
+The full local path demonstrated is: readiness → run → report.
 
 ## Troubleshooting
 

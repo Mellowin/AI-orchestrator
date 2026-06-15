@@ -312,6 +312,41 @@ async function main(): Promise<void> {
       throw new Error('Expected task_2 fixCommitSha to be a 40-char string');
     }
 
+    printSection('Block report');
+    const reportResult = runCli(['real-block-run-ai-report', statePath], env);
+    const reportOutput = (reportResult.stdout || '') + (reportResult.stderr || '');
+    console.log(reportOutput);
+    if (reportResult.status !== 0) {
+      throw new Error(`Block report command failed with exit code ${reportResult.status}`);
+    }
+    if (!reportOutput.includes('Block Run Report')) {
+      throw new Error('Block report output is missing Block Run Report header');
+    }
+    if (!reportOutput.includes(`Block: ${paths.blockId}`)) {
+      throw new Error('Block report output is missing demo block id');
+    }
+    if (!reportOutput.includes('Status: completed')) {
+      throw new Error('Block report output is missing completed status');
+    }
+    if (!reportOutput.includes('task_1')) {
+      throw new Error('Block report output is missing task_1');
+    }
+    if (!reportOutput.includes('accepted')) {
+      throw new Error('Block report output is missing accepted status');
+    }
+    if (!reportOutput.includes('task_2')) {
+      throw new Error('Block report output is missing task_2');
+    }
+    if (!reportOutput.includes('fixed_and_accepted')) {
+      throw new Error('Block report output is missing fixed_and_accepted status');
+    }
+    if (!reportOutput.includes('fixCommitSha')) {
+      throw new Error('Block report output is missing fixCommitSha field');
+    }
+    if (reportOutput.includes('sk-demo-placeholder')) {
+      throw new Error('Block report output leaked fake demo secret');
+    }
+
     printSection('Demo completed successfully');
     console.log('No real AI was called. No push to external remote was performed.');
     if (keepArtifacts) {
