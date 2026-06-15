@@ -74,6 +74,7 @@ import { runOneTaskLoop } from './block/block-one-task-loop.js';
 import { runMultiTaskLoop, runMultiTaskFakeLoop } from './block/block-multi-task-loop.js';
 import { runRealBlockRunAI } from './real-block-run-ai.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
+import { renderBlockRunReport } from './real-block-run-ai-report.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -2891,9 +2892,36 @@ if (command === 'real-block-run-ai') {
   }
 }
 
+if (command === 'real-block-run-ai-report') {
+  try {
+    if (!taskId) {
+      console.error('[real-block-run-ai-report] Error: block state path is required');
+      console.error('[real-block-run-ai-report] No state file was read');
+      console.error('[real-block-run-ai-report] No provider call was made');
+      console.error('[real-block-run-ai-report] No commit was made');
+      console.error('[real-block-run-ai-report] No push was performed');
+      console.error('[real-block-run-ai-report] No merge was performed');
+      process.exit(1);
+    }
+
+    const report = renderBlockRunReport(taskId);
+    console.log(report);
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-block-run-ai-report] Error: ${redactSecrets(message)}`);
+    console.error('[real-block-run-ai-report] No state mutation was performed');
+    console.error('[real-block-run-ai-report] No provider call was made');
+    console.error('[real-block-run-ai-report] No commit was made');
+    console.error('[real-block-run-ai-report] No push was performed');
+    console.error('[real-block-run-ai-report] No merge was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }

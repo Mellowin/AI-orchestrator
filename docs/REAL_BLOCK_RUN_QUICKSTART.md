@@ -138,6 +138,16 @@ runs/block/block_smoke/state.json
 
 Inspect this file to see current task, statuses, commit SHAs, reviewer decisions, and safety notes.
 
+## Read-only block run report
+
+To render a human-readable report from an existing state file without mutating anything:
+
+```bash
+npx tsx src/cli.ts real-block-run-ai-report runs/block/block_smoke/state.json
+```
+
+This command is read-only and safe: it does not call providers, does not touch the repository, does not write state, does not create commits, and does not push or merge. It prints a summary of the block, each task result, and redacts any secret-like values before printing.
+
 ## Task statuses
 
 Common statuses you will see in the block state:
