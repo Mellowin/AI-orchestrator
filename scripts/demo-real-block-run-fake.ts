@@ -9,12 +9,11 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { loadBlockDefinition } from '../src/block/block-loader.js';
 
 const PROJECT_ROOT = resolve(process.cwd());
 const CLI_PATH = join(PROJECT_ROOT, 'src', 'cli.ts');
 const TSX_CLI_PATH = join(PROJECT_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-
-const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 interface DemoPaths {
   tmpDir: string;
@@ -130,53 +129,6 @@ function assertRepoSetup(repoPath: string): void {
   }
 }
 
-function createBlockJson(blockPath: string, repoPath: string): string {
-  const blockId = `demo-block-${Date.now()}`;
-  const block = {
-    block_id: blockId,
-    title: 'Local fake block run demo',
-    repo_path: repoPath.replace(/\\/g, '/'),
-    base_branch: 'main',
-    work_branch: 'ai-block-demo',
-    providers: {
-      coder: { provider: 'kimi', model: 'kimi-k2.6' },
-      reviewer: { provider: 'kimi', model: 'kimi-k2.6' },
-    },
-    review_policy: {
-      require_deterministic_checks: false,
-      max_fix_attempts: 1,
-      reviewer_mode: 'single',
-    },
-    tasks: [
-      {
-        task_id: 'task_1',
-        title: 'Update README',
-        goal: 'Update README with demo content.',
-        allowed_files: ['README.md'],
-        denied_files: [],
-        max_lines_changed: 100,
-        checks: [],
-      },
-      {
-        task_id: 'task_2',
-        title: 'Add feature note',
-        goal: 'Add a feature note file.',
-        allowed_files: ['feature.txt'],
-        denied_files: [],
-        max_lines_changed: 100,
-        checks: [],
-      },
-    ],
-  };
-  writeFileSync(blockPath, JSON.stringify(block, null, 2), 'utf-8');
-  return blockId;
-}
-
-function validateBlockId(blockId: string): void {
-  if (!SAFE_ID_PATTERN.test(blockId)) {
-    throw new Error(`Generated block_id is unsafe: ${blockId}`);
-  }
-}
 
 function buildDemoEnv(paths: DemoPaths): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
@@ -219,8 +171,7 @@ function setupDemo(): DemoPaths {
   const blockPath = join(tmpDir, 'block.json');
 
   createTempRepo(repoPath, originPath);
-  const blockId = createBlockJson(blockPath, repoPath);
-  validateBlockId(blockId);
+  const blockId = 'block_smoke';
 
   return { tmpDir, repoPath, originPath, runsDir, blockPath, blockId };
 }
@@ -272,6 +223,101 @@ async function main(): Promise<void> {
         throw new Error(`${label} output contained invalid JSON`);
       }
     }
+
+    printSection('Block init');
+    const initResult = runCli(
+      [
+        'real-block-init',
+        paths.blockPath,
+        '--block-id',
+        paths.blockId,
+        '--title',
+        'Local fake block run demo',
+        '--repo-path',
+        paths.repoPath.replace(/\\/g, '/'),
+        '--base-branch',
+        'main',
+        '--work-branch',
+        'ai-block-demo',
+        '--task-id',
+        'task_1',
+        '--task-title',
+        'Update README',
+      ],
+      env
+    );
+    const initOutput = (initResult.stdout || '') + (initResult.stderr || '');
+    const initReport = parseJsonOutput(initResult, 'Block init');
+    console.log(initOutput);
+    if (initReport.ok !== true) {
+      throw new Error('Expected block init report ok to be true');
+    }
+    if (initReport.mode !== 'real-block-init') {
+      throw new Error('Expected block init mode real-block-init');
+    }
+    if (initReport.blockId !== paths.blockId) {
+      throw new Error(`Expected block init blockId ${paths.blockId}, got ${String(initReport.blockId)}`);
+    }
+    if (initReport.taskCount !== 1) {
+      throw new Error(`Expected block init taskCount 1, got ${String(initReport.taskCount)}`);
+    }
+    const initCommands = Array.isArray(initReport.nextCommands) ? initReport.nextCommands : [];
+    if (!initCommands.some((c: unknown) => typeof c === 'string' && c.includes('real-block-run-ai-checklist'))) {
+      throw new Error('Expected block init nextCommands to include checklist command');
+    }
+    if (!initCommands.some((c: unknown) => typeof c === 'string' && c.includes('real-block-run-ai-dry-run'))) {
+      throw new Error('Expected block init nextCommands to include dry-run command');
+    }
+    if (initOutput.includes('sk-demo-placeholder')) {
+      throw new Error('Block init output leaked fake demo secret');
+    }
+    console.log('Block init: passed');
+
+    printSection('Generated block edited for demo');
+    const generatedBlock = JSON.parse(readFileSync(paths.blockPath, 'utf-8')) as Record<string, unknown>;
+    if (!Array.isArray(generatedBlock.tasks) || generatedBlock.tasks.length !== 1) {
+      throw new Error('Expected generated starter block to contain exactly one task');
+    }
+    const editedBlock = {
+      ...generatedBlock,
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'Update README',
+          goal: 'Update README with demo content.',
+          allowed_files: ['README.md'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: [],
+        },
+        {
+          task_id: 'task_2',
+          title: 'Add feature note',
+          goal: 'Add a feature note file.',
+          allowed_files: ['feature.txt'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: [],
+        },
+      ],
+    };
+    writeFileSync(paths.blockPath, JSON.stringify(editedBlock, null, 2), 'utf-8');
+    const loadedEditedBlock = loadBlockDefinition(paths.blockPath);
+    if (loadedEditedBlock.work_branch === 'main') {
+      throw new Error('Edited block work_branch must not be main');
+    }
+    if (loadedEditedBlock.providers.coder.provider !== 'kimi' || loadedEditedBlock.providers.reviewer.provider !== 'kimi') {
+      throw new Error('Edited block providers must be kimi');
+    }
+    const editedTaskIds = loadedEditedBlock.tasks.map((t) => t.task_id);
+    if (!editedTaskIds.includes('task_1') || !editedTaskIds.includes('task_2')) {
+      throw new Error('Edited block tasks must include task_1 and task_2');
+    }
+    const editedBlockRaw = readFileSync(paths.blockPath, 'utf-8');
+    if (editedBlockRaw.includes('sk-demo-placeholder')) {
+      throw new Error('Edited block file leaked fake demo secret');
+    }
+    console.log('Generated block edited for demo: passed');
 
     printSection('Real run checklist');
     const checklistResult = runCli(['real-block-run-ai-checklist', paths.blockPath], env);
