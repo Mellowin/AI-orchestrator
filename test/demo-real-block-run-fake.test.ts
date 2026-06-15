@@ -103,10 +103,65 @@ describe('demo-real-block-run-fake static checks', () => {
     assert.doesNotMatch(source, /https\.request/);
   });
 
-  test('demo script does not use git push', () => {
+  test('demo script configures local git user.email', () => {
     const source = readDemoSource();
-    assert.doesNotMatch(source, /git\s*\[.*['"]push['"]/);
-    assert.doesNotMatch(source, /['"]push['"]/);
+    assert.match(source, /['"]config['"]\s*,\s*['"]user\.email['"]/);
+  });
+
+  test('demo script configures local git user.name', () => {
+    const source = readDemoSource();
+    assert.match(source, /['"]config['"]\s*,\s*['"]user\.name['"]/);
+  });
+
+  test('demo script does not use global git config', () => {
+    const source = readDemoSource();
+    assert.doesNotMatch(source, /['"]--global['"]/);
+  });
+
+  test('demo script checks git command failures', () => {
+    const source = readDemoSource();
+    assert.match(source, /if\s*\(\s*result\.status\s*!==\s*0\s*\)/);
+    assert.match(source, /throw\s+new\s+Error\s*\(\s*`git\s*\$\{command\}/);
+  });
+
+  test('demo script does not include raw stderr/stdout in git failure error', () => {
+    const source = readDemoSource();
+    const runGitMatch = source.match(/function runGit\([\s\S]*?\n\}/);
+    assert.ok(runGitMatch, 'runGit function must exist');
+    const runGitSource = runGitMatch[0];
+    assert.doesNotMatch(runGitSource, /result\.stderr/);
+    assert.doesNotMatch(runGitSource, /result\.stdout/);
+    assert.match(runGitSource, /throw new Error\(`git \$\{command\} failed with exit code \$\{result\.status\}`\)/);
+  });
+
+  test('demo script still uses shell:false for git', () => {
+    const source = readDemoSource();
+    const gitSpawnIndex = source.indexOf("spawnSync('git'");
+    assert.ok(gitSpawnIndex >= 0, 'must spawn git');
+    const snippet = source.slice(gitSpawnIndex, gitSpawnIndex + 200);
+    assert.match(snippet, /shell:\s*false/);
+  });
+
+  test('demo script still uses shell:false for CLI calls', () => {
+    const source = readDemoSource();
+    const cliSpawnIndex = source.indexOf('spawnSync(process.execPath');
+    assert.ok(cliSpawnIndex >= 0, 'must spawn CLI');
+    const snippet = source.slice(cliSpawnIndex, cliSpawnIndex + 250);
+    assert.match(snippet, /shell:\s*false/);
+  });
+
+  test('demo script does not call fetch/http/network directly', () => {
+    const source = readDemoSource();
+    assert.doesNotMatch(source, /\bfetch\s*\(/);
+    assert.doesNotMatch(source, /http\.request/);
+    assert.doesNotMatch(source, /https\.request/);
+  });
+
+  test('demo script does not use external remote URL', () => {
+    const source = readDemoSource();
+    assert.doesNotMatch(source, /github\.com/);
+    assert.doesNotMatch(source, /gitlab\.com/);
+    assert.match(source, /runGit\(\['remote',\s*'add',\s*'origin',\s*originPath\],\s*repoPath\)/);
   });
 
   test('demo script does not use git merge', () => {

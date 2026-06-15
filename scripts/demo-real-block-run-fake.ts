@@ -25,12 +25,35 @@ interface DemoPaths {
   blockId: string;
 }
 
-function git(args: string[], cwd: string): ReturnType<typeof spawnSync> {
-  return spawnSync('git', args, {
+const DEMO_GIT_USER_EMAIL = 'demo@example.invalid';
+const DEMO_GIT_USER_NAME = 'AI Orchestrator Demo';
+
+function runGit(args: string[], cwd: string): void {
+  const result = spawnSync('git', args, {
     cwd,
     encoding: 'utf-8',
     shell: false,
   });
+
+  if (result.status !== 0) {
+    const command = args[0] ?? 'command';
+    throw new Error(`git ${command} failed with exit code ${result.status}`);
+  }
+}
+
+function getGitOutput(args: string[], cwd: string): string {
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf-8',
+    shell: false,
+  });
+
+  if (result.status !== 0) {
+    const command = args[0] ?? 'command';
+    throw new Error(`git ${command} failed with exit code ${result.status}`);
+  }
+
+  return result.stdout.trim();
 }
 
 function runCli(args: string[], env: NodeJS.ProcessEnv): ReturnType<typeof spawnSync> {
@@ -74,15 +97,37 @@ function createTempRepo(repoPath: string, originPath: string): void {
   mkdirSync(repoPath, { recursive: true });
   writeFileSync(join(repoPath, 'README.md'), '# Demo repo\n', 'utf-8');
 
-  git(['init'], repoPath);
-  git(['add', '.'], repoPath);
-  git(['commit', '-m', 'init', '--no-gpg-sign'], repoPath);
-  git(['branch', '-m', 'main'], repoPath);
-  git(['checkout', '-b', 'ai-block-demo'], repoPath);
+  runGit(['init'], repoPath);
+  runGit(['config', 'user.email', DEMO_GIT_USER_EMAIL], repoPath);
+  runGit(['config', 'user.name', DEMO_GIT_USER_NAME], repoPath);
+  runGit(['add', '.'], repoPath);
+  runGit(['commit', '-m', 'init', '--no-gpg-sign'], repoPath);
+  runGit(['branch', '-m', 'main'], repoPath);
+  runGit(['checkout', '-b', 'ai-block-demo'], repoPath);
 
   mkdirSync(originPath, { recursive: true });
-  git(['init', '--bare'], originPath);
-  git(['remote', 'add', 'origin', originPath], repoPath);
+  runGit(['init', '--bare'], originPath);
+  runGit(['remote', 'add', 'origin', originPath], repoPath);
+
+  assertRepoSetup(repoPath);
+}
+
+function assertRepoSetup(repoPath: string): void {
+  if (!existsSync(join(repoPath, '.git'))) {
+    throw new Error('Temp repo setup failed: .git directory is missing');
+  }
+
+  const currentBranch = getGitOutput(['rev-parse', '--abbrev-ref', 'HEAD'], repoPath);
+  if (currentBranch !== 'ai-block-demo') {
+    throw new Error(`Temp repo setup failed: current branch is ${currentBranch}, expected ai-block-demo`);
+  }
+
+  const logCount = getGitOutput(['log', '--oneline'], repoPath)
+    .split('\n')
+    .filter((line) => line.length > 0).length;
+  if (logCount < 1) {
+    throw new Error('Temp repo setup failed: no baseline commit found');
+  }
 }
 
 function createBlockJson(blockPath: string, repoPath: string): string {
