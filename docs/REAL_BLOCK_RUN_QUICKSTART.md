@@ -239,11 +239,33 @@ Recommended real-run sequence:
 
 ```bash
 npx tsx src/cli.ts real-block-run-ai-checklist <blockPath>
+npx tsx src/cli.ts real-block-run-ai-dry-run <blockPath>
 npx tsx src/cli.ts real-provider-smoke --provider kimi
 npx tsx src/cli.ts real-block-run-ai-readiness <blockPath>
 npx tsx src/cli.ts real-block-run-ai <blockPath>
 npx tsx src/cli.ts real-block-run-ai-report runs/block/<block_id>/state.json
 ```
+
+## Dry-run before real execution (read-only)
+
+Inspect what would run without calling the provider or mutating the repository:
+
+```bash
+npx tsx src/cli.ts real-block-run-ai-dry-run <blockPath>
+# or resume mode:
+npx tsx src/cli.ts real-block-run-ai-dry-run <blockPath> --resume
+```
+
+This command:
+
+- runs the same readiness checks as `real-block-run-ai-readiness`
+- inspects provider-smoke env readiness (`ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, `KIMI_BASE_URL`)
+- loads the block definition and lists tasks in order
+- shows which tasks would be skipped on resume and which task would run next
+- prints a redacted JSON report with `ok`, `readiness`, `providerSmoke`, `tasks`, and `nextCommands`
+- exits non-zero if readiness fails, provider env is incomplete, or the provider is unsupported
+
+It does **not** call the provider, make network requests, apply patches, create commits, push, merge, checkout branches, write block state, or spawn the block runner.
 
 ## Real provider smoke check (optional, no repo mutation)
 
