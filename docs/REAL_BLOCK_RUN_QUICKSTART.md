@@ -177,6 +177,26 @@ REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES='["{...}"]'
 
 These arrays must contain one JSON string per task. They are intended for deterministic local testing only and are never sent to a real API.
 
+## Local fake demo
+
+You can run a full block execution locally without any real AI credentials or network access:
+
+```bash
+npm run demo:block:fake
+```
+
+This command:
+
+- creates a temporary git repository,
+- generates a temporary block file pointing to that repo,
+- runs `real-block-run-ai-readiness`,
+- runs `real-block-run-ai` with deterministic fake coder/reviewer responses,
+- executes two tasks: one accepted directly and one rejected then fixed and accepted,
+- prints the temp repo path, block file path, final state path, and task results,
+- cleans up temporary artifacts (set `KEEP_DEMO_ARTIFACTS=1` to keep them).
+
+The demo uses placeholder values for `KIMI_API_KEY` and `KIMI_BASE_URL`, forces fake responses via `REAL_BLOCK_TASK_*_FAKE_RESPONSES`, and does not push to any external remote.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

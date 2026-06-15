@@ -6,7 +6,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "dev": "tsx src/cli.ts",
-    "test": "tsx --test"
+    "test": "tsx --test",
+    "demo:block:fake": "tsx scripts/demo-real-block-run-fake.ts"
   },
   "dependencies": {
     "cross-spawn": "^7.0.6",
