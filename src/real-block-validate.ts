@@ -15,6 +15,8 @@ export interface RealBlockValidateTaskSummary {
 export interface RealBlockValidateReport {
   ok: boolean;
   mode: 'real-block-validate';
+  strict: boolean;
+  warningsAsErrors?: true;
   blockPath: string;
   blockId?: string;
   title?: string;
@@ -69,13 +71,18 @@ function buildTaskSummaries(block: BlockDefinition): RealBlockValidateTaskSummar
   }));
 }
 
-export function validateRealBlockFile(blockPath: string): RealBlockValidateReport {
+export function validateRealBlockFile(
+  blockPath: string,
+  options: { strict?: boolean } = {}
+): RealBlockValidateReport {
+  const strict = options.strict ?? false;
   const trimmedPath = blockPath?.trim();
   if (!trimmedPath) {
     const error = 'Block path is required';
     return {
       ok: false,
       mode: 'real-block-validate',
+      strict,
       blockPath: trimmedPath ?? '',
       warnings: [],
       error,
@@ -95,6 +102,7 @@ export function validateRealBlockFile(blockPath: string): RealBlockValidateRepor
     return {
       ok: false,
       mode: 'real-block-validate',
+      strict,
       blockPath: trimmedPath,
       warnings: [],
       error: redacted,
@@ -104,9 +112,30 @@ export function validateRealBlockFile(blockPath: string): RealBlockValidateRepor
 
   const warnings = collectWarnings(block);
 
+  if (strict && warnings.length > 0) {
+    return {
+      ok: false,
+      mode: 'real-block-validate',
+      strict: true,
+      warningsAsErrors: true,
+      blockPath: trimmedPath,
+      blockId: block.block_id,
+      title: block.title,
+      repoPath: block.repo_path,
+      baseBranch: block.base_branch,
+      workBranch: block.work_branch,
+      taskCount: block.tasks.length,
+      tasks: buildTaskSummaries(block),
+      warnings,
+      reasons: ['Strict validation failed because warnings were found'],
+      nextCommands: [],
+    };
+  }
+
   return {
     ok: true,
     mode: 'real-block-validate',
+    strict,
     blockPath: trimmedPath,
     blockId: block.block_id,
     title: block.title,

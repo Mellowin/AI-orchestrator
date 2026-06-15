@@ -228,11 +228,18 @@ Check that a block JSON file is structurally valid and safe to continue editing 
 npx tsx src/cli.ts real-block-validate ./my-block.json
 ```
 
+By default warnings (empty `allowed_files`, empty `checks`, placeholder goal, `work_branch` not starting with `ai-`) are reported but do not fail the command. To turn warnings into blocking errors — useful as a preflight gate before a real run — use `--strict`:
+
+```bash
+npx tsx src/cli.ts real-block-validate ./my-block.json --strict
+```
+
 This command:
 
 - loads and validates the block with the same loader used by the real block runner
 - returns a redacted JSON report with `ok`, `warnings`, and `nextCommands`
 - warns about empty `allowed_files`, empty `checks`, placeholder goals, and `work_branch` values that do not start with `ai-`
+- with `--strict`, exits non-zero when any warning is present and returns `warningsAsErrors: true`
 - does **not** require `ALLOW_REAL_BLOCK_RUN_AI`, `ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, or `KIMI_BASE_URL`
 - does **not** call any AI provider, make network requests, run git commands, touch the repository, write block state, or spawn the block runner
 

@@ -488,6 +488,266 @@ describe('real-block-validate CLI', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  test('CLI usage documents real-block-validate --strict', () => {
+    const result = runCli([]);
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.match(output, /real-block-validate/);
+    assert.match(output, /--strict/);
+  });
+
+  test('strict warning-only block exits non-zero', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, {
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'First task',
+          goal: 'Do thing.',
+          allowed_files: ['README.md'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: [],
+        },
+      ],
+    });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    assert.notStrictEqual(result.status, 0);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('strict warning-only output has ok false', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, {
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'First task',
+          goal: 'Do thing.',
+          allowed_files: ['README.md'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: [],
+        },
+      ],
+    });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const json = parseOutput(result.stdout);
+    assert.strictEqual(json.ok, false);
+    assert.strictEqual(json.strict, true);
+    assert.strictEqual(json.warningsAsErrors, true);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('strict warning-only output includes original warnings', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, {
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'First task',
+          goal: 'Do thing.',
+          allowed_files: ['README.md'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: [],
+        },
+      ],
+    });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const json = parseOutput(result.stdout);
+    const warnings = json.warnings as string[];
+    assert.ok(warnings.some((w) => /empty checks/i.test(w)));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('strict warning-only output includes deterministic reason', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, {
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'First task',
+          goal: 'Do thing.',
+          allowed_files: ['README.md'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: [],
+        },
+      ],
+    });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const json = parseOutput(result.stdout);
+    const reasons = json.reasons as string[];
+    assert.ok(reasons.some((r) => /Strict validation failed/i.test(r)));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('strict warning-only output has empty nextCommands', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, {
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'First task',
+          goal: 'Do thing.',
+          allowed_files: ['README.md'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: [],
+        },
+      ],
+    });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const json = parseOutput(result.stdout);
+    assert.deepStrictEqual(json.nextCommands, []);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('strict valid block exits 0', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir);
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    assert.strictEqual(result.status, 0, result.stderr);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('strict valid block output has ok true and strict true', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir);
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const json = parseOutput(result.stdout);
+    assert.strictEqual(json.ok, true);
+    assert.strictEqual(json.strict, true);
+    assert.strictEqual(json.warningsAsErrors, undefined);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('structural invalid block exits non-zero in strict mode', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir);
+    const block = JSON.parse(readFileSync(blockPath, 'utf-8'));
+    delete block.block_id;
+    writeFileSync(blockPath, JSON.stringify(block), 'utf-8');
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    assert.notStrictEqual(result.status, 0);
+    const json = parseOutput(result.stdout);
+    assert.strictEqual(json.ok, false);
+    assert.strictEqual(json.strict, true);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('placeholder goal warning becomes strict failure', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, {
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'First task',
+          goal: 'Edit this goal to describe what the task should accomplish.',
+          allowed_files: ['README.md'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: ['npm run typecheck'],
+        },
+      ],
+    });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const json = parseOutput(result.stdout);
+    assert.notStrictEqual(result.status, 0);
+    assert.strictEqual(json.ok, false);
+    assert.strictEqual(json.warningsAsErrors, true);
+    const warnings = json.warnings as string[];
+    assert.ok(warnings.some((w) => /placeholder/i.test(w)));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('empty allowed_files warning becomes strict failure', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, {
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'First task',
+          goal: 'Do thing.',
+          allowed_files: [],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: ['npm run typecheck'],
+        },
+      ],
+    });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const json = parseOutput(result.stdout);
+    assert.notStrictEqual(result.status, 0);
+    assert.strictEqual(json.ok, false);
+    assert.strictEqual(json.warningsAsErrors, true);
+    const warnings = json.warnings as string[];
+    assert.ok(warnings.some((w) => /empty allowed_files/i.test(w)));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('non-ai work branch warning becomes strict failure', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, { work_branch: 'feature-x' });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const json = parseOutput(result.stdout);
+    assert.notStrictEqual(result.status, 0);
+    assert.strictEqual(json.ok, false);
+    assert.strictEqual(json.warningsAsErrors, true);
+    const warnings = json.warnings as string[];
+    assert.ok(warnings.some((w) => /does not start with "ai-"/i.test(w)));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('strict failure preserves multiple warnings', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, {
+      work_branch: 'feature-x',
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'First task',
+          goal: 'Edit this goal to describe what the task should accomplish.',
+          allowed_files: [],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: [],
+        },
+      ],
+    });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const json = parseOutput(result.stdout);
+    assert.strictEqual(json.ok, false);
+    const warnings = json.warnings as string[];
+    assert.ok(warnings.length >= 3, `expected multiple warnings, got ${warnings.join(', ')}`);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('secret-like strings in title/goal are redacted in strict failure', () => {
+    const tmpDir = createTempDir();
+    const { blockPath } = createBlockFile(tmpDir, {
+      title: 'My block sk-secret123456',
+      tasks: [
+        {
+          task_id: 'task_1',
+          title: 'First task',
+          goal: 'Do pk-secret789 thing.',
+          allowed_files: ['README.md'],
+          denied_files: [],
+          max_lines_changed: 100,
+          checks: [],
+        },
+      ],
+    });
+    const result = runCliWithoutKimi(['real-block-validate', blockPath, '--strict']);
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.notStrictEqual(result.status, 0);
+    assert.doesNotMatch(output, /sk-secret123456/);
+    assert.doesNotMatch(output, /pk-secret789/);
+    assert.match(output, /\[REDACTED\]/);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   test('unsafe block id fails through loader', () => {
     const tmpDir = createTempDir();
     const { blockPath } = createBlockFile(tmpDir, { block_id: '../evil' });
