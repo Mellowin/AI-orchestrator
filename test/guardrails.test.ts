@@ -39,6 +39,24 @@ describe('guardrails', () => {
     assert(result.reason?.includes('outside allow_modify'));
   });
 
+  test('validateFileList rejects all files when allow_modify is empty', () => {
+    const guardrails = makeGuardrails({
+      allow_modify: [],
+    });
+    const result = validateFileList(['README.md'], guardrails);
+    assert.strictEqual(result.ok, false);
+    assert(result.reason?.includes('outside allow_modify'));
+  });
+
+  test('empty allow_modify means no file is allowed', () => {
+    const guardrails = makeGuardrails({
+      allow_modify: [],
+    });
+    assert.strictEqual(validateFileList(['src/index.ts'], guardrails).ok, false);
+    assert.strictEqual(validateFileList(['README.md'], guardrails).ok, false);
+    assert.strictEqual(validateFileList(['.env'], guardrails).ok, false);
+  });
+
   test('validateFileList rejects denied files', () => {
     const guardrails = makeGuardrails();
     const result = validateFileList(['.env'], guardrails);

@@ -687,6 +687,121 @@ describe('cli real-block-run-ai', () => {
     }
   });
 
+  test('empty allowed_files blocks execution before apply/commit/push', () => {
+    const tmpBase = join(process.cwd(), 'tmp');
+    if (!existsSync(tmpBase)) {
+      mkdirSync(tmpBase);
+    }
+    const tmpDir = mkdtempSync(join(tmpBase, `rbrai-empty-allowed-${Date.now()}-`));
+    const repoPath = join(tmpDir, 'repo');
+    const originPath = join(tmpDir, 'origin.git');
+    const runsDir = join(tmpDir, 'runs');
+    mkdirSync(repoPath);
+
+    writeFileSync(join(repoPath, 'README.md'), '# hello\n', 'utf-8');
+    spawnSync('git', ['init'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['add', '.'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['branch', '-m', 'main'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['checkout', '-b', 'ai/block-work'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['init', '--bare', originPath], { encoding: 'utf-8', shell: false });
+    spawnSync('git', ['remote', 'add', 'origin', originPath], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    const blockId = `block-empty-allowed-${Date.now()}`;
+    const blockPath = join(tmpDir, 'block.json');
+    const blockDefinition = {
+      block_id: blockId,
+      title: 'Empty allowed files test',
+      repo_path: repoPath.replace(/\\/g, '/'),
+      base_branch: 'main',
+      work_branch: 'ai/block-work',
+      providers: {
+        coder: { provider: 'kimi', model: 'kimi-k2.6' },
+        reviewer: { provider: 'fake', model: 'gpt-4o' },
+      },
+      review_policy: {
+        require_deterministic_checks: false,
+        max_fix_attempts: 1,
+        reviewer_mode: 'single' as const,
+      },
+      tasks: [
+        {
+          task_id: 'task-one',
+          title: 'Update README',
+          goal: 'Update README with block content',
+          allowed_files: [],
+          denied_files: [],
+          max_lines_changed: 150,
+          checks: [],
+        },
+      ],
+    };
+    writeFileSync(blockPath, JSON.stringify(blockDefinition, null, 2), 'utf-8');
+
+    const cleanup = (): void => {
+      rmSync(tmpDir, { recursive: true, force: true });
+    };
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const initialReadme = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Looks good'),
+        ]),
+      }));
+
+      const output = result.stdout + result.stderr;
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${output}`);
+      assert(output.includes('Guardrails failed'), `Expected guardrails failure: ${output}`);
+      assert(output.includes('outside allow_modify'), `Expected outside allow_modify reason: ${output}`);
+      assert(output.includes('No apply was performed'), `Expected no apply message: ${output}`);
+      assert(output.includes('No commit was made'), `Expected no commit message: ${output}`);
+      assert(output.includes('No push was performed'), `Expected no push message: ${output}`);
+      assert(output.includes('No merge was performed'), `Expected no merge message: ${output}`);
+      assert(output.includes('No main touch was performed'), `Expected no main touch message: ${output}`);
+
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+      assert.strictEqual(
+        readFileSync(join(repoPath, 'README.md'), 'utf-8'),
+        initialReadme,
+        'README.md should not be modified'
+      );
+
+      const statusResult = spawnSync('git', ['status', '--porcelain'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      assert.strictEqual(statusResult.stdout.trim(), '', 'Working tree should be clean');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null, 'Block state should be written for failed task');
+      assert.notStrictEqual(state.status, 'completed');
+      assert.notStrictEqual(state.status, 'pushed');
+
+      const taskResults = state.taskResults as Record<string, unknown>[];
+      assert.strictEqual(taskResults.length, 1);
+      assert.notStrictEqual(taskResults[0].status, 'accepted');
+      assert.notStrictEqual(taskResults[0].status, 'fixed_and_accepted');
+      assert.notStrictEqual(taskResults[0].status, 'pushed');
+
+      const remoteRefs = spawnSync('git', ['ls-remote', 'origin'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      assert.strictEqual(remoteRefs.stdout.trim(), '', 'No refs should be pushed to origin');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('reviewer block_for_human stops block without fix attempt', () => {
     const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
     try {

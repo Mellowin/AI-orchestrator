@@ -235,6 +235,8 @@ This command:
 - does **not** require `ALLOW_REAL_BLOCK_RUN_AI`, `ALLOW_REAL_PROVIDER`, `KIMI_API_KEY`, or `KIMI_BASE_URL`
 - does **not** call any AI provider, make network requests, run git commands, touch the repository, write block state, or spawn the block runner
 
+Empty `allowed_files` is a validation warning, not a validation error, because it is a legitimate way to express "no file modifications are allowed for this task". During real execution the block runner still applies `allowed_files` to the guardrails, so an empty list means every proposed file change is rejected with `File is outside allow_modify`. Fill `allowed_files` before running the block unless you intentionally want a no-modification task.
+
 Recommended local authoring sequence:
 
 ```bash
