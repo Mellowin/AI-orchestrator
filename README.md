@@ -99,7 +99,7 @@ npx tsx src/cli.ts real-provider-smoke
 
 This is a read-only, no-repo-mutation check. It does not read or write block state, apply patches, create commits, push, or merge. The default timeout is 15 seconds and can be changed with `REAL_PROVIDER_SMOKE_TIMEOUT_MS` (clamped to 1–60 seconds).
 
-For a safe operator preflight that combines block readiness and provider-env checks, use `real-block-run-ai-checklist <blockPath>`. To inspect the planned task order without calling the provider or mutating the repo, use `real-block-run-ai-dry-run <blockPath>`. To generate a starter block JSON file, use `real-block-init <outputPath>`. To validate a block file after editing without touching the repo, provider, or state, use `real-block-validate <blockPath>`. See [`docs/REAL_BLOCK_RUN_QUICKSTART.md`](docs/REAL_BLOCK_RUN_QUICKSTART.md) for details.
+For a safe operator preflight that combines block readiness and provider-env checks, use `real-block-run-ai-checklist <blockPath>`. To run a single read-only aggregate preflight that performs strict validation, strict checklist, provider smoke, coder contract smoke, and reviewer contract smoke in order, use `real-block-preflight <blockPath>`. To inspect the planned task order without calling the provider or mutating the repo, use `real-block-run-ai-dry-run <blockPath>`. To generate a starter block JSON file, use `real-block-init <outputPath>`. To validate a block file after editing without touching the repo, provider, or state, use `real-block-validate <blockPath>`. See [`docs/REAL_BLOCK_RUN_QUICKSTART.md`](docs/REAL_BLOCK_RUN_QUICKSTART.md) for details.
 
 ## Current MVP workflow
 

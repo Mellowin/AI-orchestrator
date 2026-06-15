@@ -315,15 +315,14 @@ npx tsx src/cli.ts real-block-run-ai-checklist ./my-block.json --strict
 Recommended real-run sequence:
 
 ```bash
-npx tsx src/cli.ts real-block-run-ai-checklist <blockPath>
+npx tsx src/cli.ts real-block-preflight <blockPath> --provider kimi
 npx tsx src/cli.ts real-block-run-ai-dry-run <blockPath>
-npx tsx src/cli.ts real-provider-smoke --provider kimi
-npx tsx src/cli.ts real-coder-contract-smoke --provider kimi
-npx tsx src/cli.ts real-reviewer-contract-smoke --provider kimi
 npx tsx src/cli.ts real-block-run-ai-readiness <blockPath>
 npx tsx src/cli.ts real-block-run-ai <blockPath>
 npx tsx src/cli.ts real-block-run-ai-report runs/block/<block_id>/state.json
 ```
+
+The individual smoke checks (`real-provider-smoke`, `real-coder-contract-smoke`, `real-reviewer-contract-smoke`) are still available if you need to debug a single layer.
 
 ## Dry-run before real execution (read-only)
 
@@ -425,6 +424,44 @@ This command:
 - exits non-zero if credentials are missing, the provider is unsupported, the call fails or times out, or the response does not match the reviewer gate contract
 
 It does **not** read or write block state, apply patches, create commits, push, merge, or touch the repository. Use `REAL_REVIEWER_CONTRACT_SMOKE_FAKE_RESPONSE` only for deterministic local testing of the contract validator.
+
+## Real block preflight (aggregate, read-only)
+
+To run all safe preflight checks in one command, use `real-block-preflight <blockPath>`. It executes, in order:
+
+1. strict `real-block-validate`
+2. strict `real-block-run-ai-checklist`
+3. `real-provider-smoke`
+4. `real-coder-contract-smoke`
+5. `real-reviewer-contract-smoke`
+
+```bash
+export ALLOW_REAL_PROVIDER=true
+export ALLOW_REAL_BLOCK_RUN_AI=true
+export ALLOW_REAL_REPO_APPLY=true
+export ALLOW_REAL_REPO_COMMIT=true
+export ALLOW_REAL_REPO_PUSH=true
+export KIMI_API_KEY="sk-your-key"
+export KIMI_BASE_URL="https://api.moonshot.cn/v1"
+
+npx tsx src/cli.ts real-block-preflight ./my-block.json --provider kimi
+```
+
+Options:
+
+- `--provider kimi` — provider to use for the smoke checks (default: `kimi`)
+- `--timeout-ms <ms>` — timeout for each smoke call (default `15000`, clamped to 1–60 seconds)
+- `--resume` — forwarded to the strict checklist for resume-mode readiness checks
+
+This command:
+
+- collects all five preflight reports into a single redacted JSON report with `ok`, `blockPath`, `provider`, `resume`, `timeoutMs`, `steps`, `reasons`, and `nextCommands`
+- runs every step even when an earlier step fails, so all blockers are visible
+- skips provider/coder/reviewer real calls when the provider is unsupported or unsafe
+- exits non-zero if any step fails
+- does **not** run the block, mutate the repository, write block state, apply patches, create commits, push, merge, or touch the repository
+
+Use `REAL_PROVIDER_SMOKE_FAKE_RESPONSE`, `REAL_CODER_CONTRACT_SMOKE_FAKE_RESPONSE`, and `REAL_REVIEWER_CONTRACT_SMOKE_FAKE_RESPONSE` only for deterministic local testing of the validator.
 
 ## Troubleshooting
 
