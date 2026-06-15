@@ -225,6 +225,8 @@ This command runs:
 
 It proves the typecheck, build, test suite, and local fake block demo all pass. No real AI credentials or network access are required.
 
+The same product verification command is run by GitHub Actions on every push and pull request to `main` (see `.github/workflows/product-verify.yml`).
+
 ## Next steps
 
 1. Copy `examples/block-smoke.json`.

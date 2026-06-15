@@ -83,6 +83,8 @@ This runs:
 
 No real external AI or network access is required. The command uses fake responses and a temporary git repository.
 
+The same product verification command is run automatically by GitHub Actions on every push and pull request to `main` (see `.github/workflows/product-verify.yml`).
+
 ## Current MVP workflow
 
 ### Recommended safe flow
