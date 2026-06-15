@@ -245,14 +245,18 @@ function runSingleTask(
   }
 
   const cliPath = join(projectRoot, 'src', 'cli.ts');
-  const command = `npx tsx "${cliPath.replace(/"/g, '\\"')}" real-repo-run-ai "${task.task_id.replace(/"/g, '\\"')}"`;
-  const result = spawnSync(command, {
-    cwd: projectRoot,
-    env,
-    encoding: 'utf-8',
-    shell: true,
-    timeout: 120000,
-  });
+  const tsxCliPath = join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const result = spawnSync(
+    process.execPath,
+    [tsxCliPath, cliPath, 'real-repo-run-ai', task.task_id],
+    {
+      cwd: projectRoot,
+      env,
+      encoding: 'utf-8',
+      shell: false,
+      timeout: 120000,
+    }
+  );
 
   if (result.status !== 0) {
     const output = (result.stderr || result.stdout || '').trim();
@@ -401,10 +405,20 @@ function assertRequiredEnv(name: string): void {
   }
 }
 
+function assertBlockRunOptIn(): void {
+  const allow = process.env.ALLOW_REAL_BLOCK_RUN_AI === 'true';
+  const legacy = process.env.REAL_BLOCK_RUN_AI === '1';
+  if (!allow && !legacy) {
+    throw new Error(
+      'ALLOW_REAL_BLOCK_RUN_AI=true (or REAL_BLOCK_RUN_AI=1) is required'
+    );
+  }
+}
+
 export async function runRealBlockRunAI(
   blockPath: string
 ): Promise<{ exitCode: number; blockState: RealBlockRunState }> {
-  assertRequiredEnv('ALLOW_REAL_BLOCK_RUN_AI');
+  assertBlockRunOptIn();
   assertRequiredEnv('ALLOW_REAL_PROVIDER');
   assertRequiredEnv('ALLOW_REAL_REPO_APPLY');
   assertRequiredEnv('ALLOW_REAL_REPO_COMMIT');

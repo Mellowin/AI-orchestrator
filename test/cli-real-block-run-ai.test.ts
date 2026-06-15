@@ -282,7 +282,7 @@ describe('cli real-block-run-ai', () => {
     assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
   });
 
-  test('missing ALLOW_REAL_BLOCK_RUN_AI refuses before provider call', () => {
+  test('missing opt-in refuses before provider call', () => {
     const { blockPath, cleanup } = createTempBlockEnv();
     try {
       const result = runCli(['real-block-run-ai', blockPath], {
@@ -294,9 +294,95 @@ describe('cli real-block-run-ai', () => {
         KIMI_BASE_URL: 'http://localhost:9999',
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('ALLOW_REAL_BLOCK_RUN_AI=true is required'), `Expected opt-in refusal: ${result.stderr}`);
+      assert(
+        result.stderr.includes('ALLOW_REAL_BLOCK_RUN_AI=true') || result.stderr.includes('REAL_BLOCK_RUN_AI=1'),
+        `Expected opt-in refusal: ${result.stderr}`
+      );
       assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
     } finally {
+      cleanup();
+    }
+  });
+
+  test('REAL_BLOCK_RUN_AI=1 opt-in works', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath], {
+        REAL_BLOCK_RUN_AI: '1',
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one looks good'),
+          buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
+        ]),
+        REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
+          null,
+          buildFakeKimiOutput([{ path: 'fix.txt', content: 'fix applied\n' }]),
+        ]),
+        REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          null,
+          buildAcceptReview('Fix looks good'),
+        ]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3);
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'completed');
+    } finally {
+      cleanup();
+    }
+  });
+
+  function createTempBlockEnvWithTaskIds(taskIds: string[]): TempBlockEnv {
+    const base = createTempBlockEnv();
+    const definition = JSON.parse(readFileSync(base.blockPath, 'utf-8')) as Record<string, unknown>;
+    const tasks = (definition.tasks as Record<string, unknown>[]).slice(0, taskIds.length);
+    for (let i = 0; i < tasks.length; i++) {
+      tasks[i].task_id = taskIds[i];
+      tasks[i].title = `Task ${taskIds[i]}`;
+    }
+    definition.tasks = tasks;
+    writeFileSync(base.blockPath, JSON.stringify(definition, null, 2), 'utf-8');
+    return base;
+  }
+
+  test('malicious task id with shell metacharacters does not execute shell', () => {
+    const maliciousId = 'task-evil;touch SHOULD_NOT_EXIST';
+    const { blockPath, repoPath, runsDir, cleanup, blockId } = createTempBlockEnvWithTaskIds([
+      maliciousId,
+    ]);
+    const shouldNotExistRepo = join(repoPath, 'SHOULD_NOT_EXIST');
+    const shouldNotExistProject = join(process.cwd(), 'SHOULD_NOT_EXIST');
+    const shouldNotExistTmp = join(runsDir, 'SHOULD_NOT_EXIST');
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Looks good'),
+        ]),
+      }));
+      assert.notStrictEqual(result.status, 0, `Expected refusal or failure: ${result.stderr}`);
+      assert(!existsSync(shouldNotExistRepo), 'SHOULD_NOT_EXIST must not be created in repo');
+      assert(!existsSync(shouldNotExistProject), 'SHOULD_NOT_EXIST must not be created in project root');
+      assert(!existsSync(shouldNotExistTmp), 'SHOULD_NOT_EXIST must not be created in runs dir');
+    } finally {
+      if (existsSync(shouldNotExistProject)) {
+        rmSync(shouldNotExistProject, { force: true });
+      }
       cleanup();
     }
   });
