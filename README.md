@@ -66,6 +66,23 @@ The autonomous block execution pipeline is proven and documented:
 - [Stage 5 Operator Guide](STAGE5_OPERATOR_GUIDE.md) — exact safe operator sequence
 - [Stage 5 PR Boundary Audit](STAGE5_PR_BOUNDARY_AUDIT.md) — what the tool does and does not do at each stage
 
+## Product verification
+
+Run the full local verification in one command:
+
+```bash
+npm run verify:product
+```
+
+This runs:
+
+1. `npm run typecheck` — TypeScript strict check
+2. `npm run build` — production build
+3. `npm test` — full test suite
+4. `npm run demo:block:fake` — local fake-provider block demo
+
+No real external AI or network access is required. The command uses fake responses and a temporary git repository.
+
 ## Current MVP workflow
 
 ### Recommended safe flow

@@ -208,6 +208,23 @@ The demo uses placeholder values for `KIMI_API_KEY` and `KIMI_BASE_URL`, forces 
 | `Existing block run is incomplete. Enable resume mode` | Previous run stopped | Add `--resume` or set `REAL_BLOCK_RUN_RESUME=1`. |
 | Readiness fails on repo path | `repo_path` does not exist or is not a git repo | Create the target repo first or fix the path. |
 
+## Product verification
+
+To verify the whole product locally with one command:
+
+```bash
+npm run verify:product
+```
+
+This command runs:
+
+1. `npm run typecheck`
+2. `npm run build`
+3. `npm test`
+4. `npm run demo:block:fake`
+
+It proves the typecheck, build, test suite, and local fake block demo all pass. No real AI credentials or network access are required.
+
 ## Next steps
 
 1. Copy `examples/block-smoke.json`.
