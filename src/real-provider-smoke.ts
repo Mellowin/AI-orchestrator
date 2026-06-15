@@ -10,8 +10,39 @@ export interface RealProviderSmokeResult {
   error?: string;
 }
 
+const SAFE_PROVIDER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
+const SUPPORTED_PROVIDERS = new Set(['kimi']);
+
+function looksLikeSecret(value: string): boolean {
+  const lower = value.toLowerCase();
+  return (
+    /^\s*(sk-|pk-|Bearer|ghp_|github_pat_)/.test(value) ||
+    /(secret|token|key|password)/i.test(lower)
+  );
+}
+
 function getEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
   return env[name]?.trim();
+}
+
+export function normalizeRealProviderSmokeProvider(raw: string | undefined): {
+  provider: string;
+  supported: boolean;
+  error?: string;
+} {
+  const name = raw?.trim() ?? 'kimi';
+  const isSafeShape = SAFE_PROVIDER_NAME_PATTERN.test(name) && !looksLikeSecret(name);
+  const safeName = isSafeShape ? name : 'unknown';
+
+  if (SUPPORTED_PROVIDERS.has(name)) {
+    return { provider: name, supported: true };
+  }
+
+  return {
+    provider: safeName,
+    supported: false,
+    error: 'Unsupported provider for real-provider-smoke: only kimi is supported',
+  };
 }
 
 function validateSmokeEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string } {
@@ -67,6 +98,17 @@ export async function runRealProviderSmoke(
   fetchFn?: typeof fetch,
   env: NodeJS.ProcessEnv = process.env
 ): Promise<RealProviderSmokeResult> {
+  const providerCheck = normalizeRealProviderSmokeProvider(provider);
+  if (!providerCheck.supported) {
+    return {
+      ok: false,
+      provider: providerCheck.provider,
+      mode: 'real-provider-smoke',
+      responseParsed: false,
+      error: providerCheck.error,
+    };
+  }
+
   const { apiKey, baseUrl, model } = validateSmokeEnv(env);
 
   const client = createKimiClient({

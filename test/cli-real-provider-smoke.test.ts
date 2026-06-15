@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runRealProviderSmoke } from '../src/real-provider-smoke.js';
+import { runRealProviderSmoke, normalizeRealProviderSmokeProvider } from '../src/real-provider-smoke.js';
 
 const PROJECT_ROOT = process.cwd();
 const TSX_CLI_PATH = join(PROJECT_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -264,5 +264,100 @@ describe('real-provider-smoke CLI', () => {
     const nextBranchIndex = source.indexOf("command === 'provider-preview'", smokeIndex);
     const snippet = source.slice(smokeIndex, nextBranchIndex);
     assert.doesNotMatch(snippet, /shell:\s*true/);
+  });
+
+  test('default provider is kimi', async () => {
+    const normalized = normalizeRealProviderSmokeProvider(undefined);
+    assert.strictEqual(normalized.provider, 'kimi');
+    assert.strictEqual(normalized.supported, true);
+  });
+
+  test('--provider kimi is accepted', async () => {
+    const normalized = normalizeRealProviderSmokeProvider('kimi');
+    assert.strictEqual(normalized.provider, 'kimi');
+    assert.strictEqual(normalized.supported, true);
+  });
+
+  test('--provider openai exits non-zero', async () => {
+    const result = await runRealProviderSmoke('openai', undefined, {});
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.provider, 'openai');
+  });
+
+  test('unsupported provider exits before env validation', async () => {
+    const result = await runRealProviderSmoke('openai', undefined, {
+      ALLOW_REAL_PROVIDER: '',
+      KIMI_API_KEY: '',
+      KIMI_BASE_URL: '',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /Unsupported provider/i);
+  });
+
+  test('unsupported provider does not call provider/fetch', async () => {
+    let called = false;
+    const fetchFn = async () => {
+      called = true;
+      return {} as unknown as Response;
+    };
+    const result = await runRealProviderSmoke('openai', fetchFn as unknown as typeof fetch, {});
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(called, false);
+  });
+
+  test('unsupported provider output is JSON parseable', async () => {
+    const result = await runRealProviderSmoke('openai', undefined, {});
+    const json = JSON.stringify(result);
+    const parsed = JSON.parse(json);
+    assert.strictEqual(parsed.ok, false);
+    assert.strictEqual(parsed.mode, 'real-provider-smoke');
+  });
+
+  test('unsupported provider output contains deterministic error', async () => {
+    const result = await runRealProviderSmoke('openai', undefined, {});
+    assert.match(result.error, /Unsupported provider for real-provider-smoke: only kimi is supported/);
+  });
+
+  test('unsupported safe provider name is shown safely', async () => {
+    const result = await runRealProviderSmoke('openai', undefined, {});
+    assert.strictEqual(result.provider, 'openai');
+  });
+
+  test('unsafe provider string is not echoed raw', async () => {
+    const result = await runRealProviderSmoke('openai;rm -rf', undefined, {});
+    assert.strictEqual(result.provider, 'unknown');
+    assert.doesNotMatch(result.error, /openai;rm -rf/);
+    assert.doesNotMatch(JSON.stringify(result), /openai;rm -rf/);
+  });
+
+  test('secret-like provider string is redacted or replaced with unknown', async () => {
+    const result = await runRealProviderSmoke('sk-secret', undefined, {});
+    assert.strictEqual(result.provider, 'unknown');
+    assert.doesNotMatch(JSON.stringify(result), /sk-secret/);
+  });
+
+  test('very long provider string is not echoed raw', async () => {
+    const longName = 'a'.repeat(100);
+    const result = await runRealProviderSmoke(longName, undefined, {});
+    assert.strictEqual(result.provider, 'unknown');
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(longName));
+  });
+
+  test('unsupported provider does not require KIMI_API_KEY', async () => {
+    const result = await runRealProviderSmoke('openai', undefined, {
+      ALLOW_REAL_PROVIDER: 'true',
+      KIMI_BASE_URL: 'http://localhost.invalid',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /Unsupported provider/i);
+  });
+
+  test('unsupported provider does not require KIMI_BASE_URL', async () => {
+    const result = await runRealProviderSmoke('openai', undefined, {
+      ALLOW_REAL_PROVIDER: 'true',
+      KIMI_API_KEY: 'sk-test',
+    });
+    assert.strictEqual(result.ok, false);
+    assert.match(result.error, /Unsupported provider/i);
   });
 });
