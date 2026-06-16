@@ -91,7 +91,14 @@ function looksLikeSecret(value: string): boolean {
   const lower = value.toLowerCase();
   return (
     /^\s*(sk-|pk-|Bearer|ghp_|github_pat_)/.test(value) ||
-    /(secret|token|key|password)/i.test(lower)
+    /\b(sk-[a-zA-Z0-9_-]{10,})\b/.test(value) ||
+    /\b(pk-[a-zA-Z0-9_-]{10,})\b/.test(value) ||
+    /\b(Bearer\s+[a-zA-Z0-9_-]{10,})\b/.test(value) ||
+    /\b(ghp_[a-zA-Z0-9]{30,})\b/.test(value) ||
+    /\b(github_pat_[a-zA-Z0-9]{20,})\b/.test(value) ||
+    /\b([a-zA-Z0-9_-]*(?:secret|api[_-]?key|password|token)[a-zA-Z0-9_-]*\s*[:=]\s*)([^\s\n]+)/i.test(
+      value
+    )
   );
 }
 

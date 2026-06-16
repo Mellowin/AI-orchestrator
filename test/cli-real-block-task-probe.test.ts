@@ -626,14 +626,31 @@ describe('real-block-task-probe CLI', () => {
       ['real-block-task-probe', blockPath],
       buildEnv({
         REAL_BLOCK_TASK_PROBE_FAKE_CODER_RESPONSE:
-          '{"summary":"secret token","files":[{"path":"README.md","content":"x"}],"notes":[]}',
+          '{"summary":"sk-fake-token-leaked","files":[{"path":"README.md","content":"x"}],"notes":[]}',
       })
     );
     cleanupRepo(repoPath);
     assert.notStrictEqual(result.status, 0);
     const output = result.stdout + result.stderr;
-    assert.doesNotMatch(output, /secret token/i);
+    assert.doesNotMatch(output, /sk-fake-token-leaked/i);
     assert.match(output, /\[REDACTED\]/);
+  });
+
+  test('coder response with prose token is accepted', async () => {
+    const repoPath = createTempRepo();
+    const { blockPath } = createBlockFile(repoPath);
+    const result = runCli(
+      ['real-block-task-probe', blockPath],
+      buildEnv({
+        REAL_BLOCK_TASK_PROBE_FAKE_CODER_RESPONSE:
+          '{"summary":"No token is exposed","files":[{"path":"README.md","content":"# Hello"}],"notes":[]}',
+      })
+    );
+    cleanupRepo(repoPath);
+    const parsed = parseOutput(result.stdout + result.stderr);
+    assert.strictEqual(parsed.ok, true);
+    const coder = parsed.coder as Record<string, unknown>;
+    assert.strictEqual(coder.ok, true);
   });
 
   test('reviewer invalid JSON exits non-zero', async () => {
@@ -676,14 +693,31 @@ describe('real-block-task-probe CLI', () => {
       ['real-block-task-probe', blockPath],
       buildEnv({
         REAL_BLOCK_TASK_PROBE_FAKE_REVIEWER_RESPONSE:
-          '{"decision":"accepted","confidence":"high","blocking_issues":[],"non_blocking_issues":[],"review_summary":"secret token","fix_task":"","next_action":"advance_to_next_task"}',
+          '{"decision":"accepted","confidence":"high","blocking_issues":[],"non_blocking_issues":[],"review_summary":"sk-fake-token-leaked","fix_task":"","next_action":"advance_to_next_task"}',
       })
     );
     cleanupRepo(repoPath);
     assert.notStrictEqual(result.status, 0);
     const output = result.stdout + result.stderr;
-    assert.doesNotMatch(output, /secret token/i);
+    assert.doesNotMatch(output, /sk-fake-token-leaked/i);
     assert.match(output, /\[REDACTED\]/);
+  });
+
+  test('reviewer response with prose token is accepted', async () => {
+    const repoPath = createTempRepo();
+    const { blockPath } = createBlockFile(repoPath);
+    const result = runCli(
+      ['real-block-task-probe', blockPath],
+      buildEnv({
+        REAL_BLOCK_TASK_PROBE_FAKE_REVIEWER_RESPONSE:
+          '{"decision":"accepted","confidence":"high","blocking_issues":[],"non_blocking_issues":[],"review_summary":"No token is exposed","fix_task":"","next_action":"advance_to_next_task"}',
+      })
+    );
+    cleanupRepo(repoPath);
+    const parsed = parseOutput(result.stdout + result.stderr);
+    assert.strictEqual(parsed.ok, true);
+    const reviewer = parsed.reviewer as Record<string, unknown>;
+    assert.strictEqual(reviewer.ok, true);
   });
 
   test('--timeout-ms sets report timeoutMs', async () => {
