@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runRealBlockTaskProbe, formatRealBlockTaskProbeReport, parseRealBlockTaskProbeTimeoutMs } from '../src/real-block-task-probe.js';
+import { runRealBlockTaskProbe, formatRealBlockTaskProbeReport, parseRealBlockTaskProbeTimeoutMs, buildReviewerProbePrompt } from '../src/real-block-task-probe.js';
+import type { BlockTaskDefinition } from '../src/block/block-types.js';
 
 const PROJECT_ROOT = process.cwd();
 const TSX_CLI_PATH = join(PROJECT_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -142,6 +143,96 @@ describe('real-block-task-probe module', () => {
 
   test('parseRealBlockTaskProbeTimeoutMs rejects invalid', () => {
     assert.throws(() => parseRealBlockTaskProbeTimeoutMs({ REAL_BLOCK_TASK_PROBE_TIMEOUT_MS: 'abc' }), /Invalid timeout/);
+  });
+});
+
+function buildSampleTask(overrides: Partial<BlockTaskDefinition> = {}): BlockTaskDefinition {
+  return {
+    task_id: 'task_1',
+    title: 'Update README',
+    goal: 'Update the README with a greeting.',
+    allowed_files: ['README.md'],
+    denied_files: ['package.json'],
+    max_lines_changed: 100,
+    checks: ['npm run typecheck'],
+    ...overrides,
+  };
+}
+
+describe('buildReviewerProbePrompt', () => {
+  test('includes proposed coder content', () => {
+    const task = buildSampleTask();
+    const prompt = buildReviewerProbePrompt(task, {
+      summary: 'Add greeting',
+      files: [{ path: 'README.md', content: '# Hello World' }],
+      notes: [],
+    });
+    assert.match(prompt, /# Hello World/);
+  });
+
+  test('includes proposed file path', () => {
+    const task = buildSampleTask();
+    const prompt = buildReviewerProbePrompt(task, {
+      summary: 'Add greeting',
+      files: [{ path: 'README.md', content: '# Hello' }],
+      notes: [],
+    });
+    assert.match(prompt, /README\.md/);
+  });
+
+  test('includes task goal', () => {
+    const task = buildSampleTask();
+    const prompt = buildReviewerProbePrompt(task, {
+      summary: 'Add greeting',
+      files: [{ path: 'README.md', content: '# Hello' }],
+      notes: [],
+    });
+    assert.match(prompt, /Update the README with a greeting/);
+  });
+
+  test('includes allowed_files', () => {
+    const task = buildSampleTask();
+    const prompt = buildReviewerProbePrompt(task, {
+      summary: 'Add greeting',
+      files: [{ path: 'README.md', content: '# Hello' }],
+      notes: [],
+    });
+    assert.match(prompt, /README\.md/);
+    assert.match(prompt, /Allowed files/);
+  });
+
+  test('includes denied_files', () => {
+    const task = buildSampleTask();
+    const prompt = buildReviewerProbePrompt(task, {
+      summary: 'Add greeting',
+      files: [{ path: 'README.md', content: '# Hello' }],
+      notes: [],
+    });
+    assert.match(prompt, /package\.json/);
+    assert.match(prompt, /Denied files/);
+  });
+
+  test('includes checks', () => {
+    const task = buildSampleTask();
+    const prompt = buildReviewerProbePrompt(task, {
+      summary: 'Add greeting',
+      files: [{ path: 'README.md', content: '# Hello' }],
+      notes: [],
+    });
+    assert.match(prompt, /npm run typecheck/);
+    assert.match(prompt, /Checks/);
+  });
+
+  test('bounds oversized content', () => {
+    const task = buildSampleTask();
+    const longContent = 'a'.repeat(2500);
+    const prompt = buildReviewerProbePrompt(task, {
+      summary: 'Add greeting',
+      files: [{ path: 'README.md', content: longContent }],
+      notes: [],
+    });
+    assert.ok(prompt.length < longContent.length + 500);
+    assert.match(prompt, /a\.\.\./);
   });
 });
 
@@ -371,6 +462,45 @@ describe('real-block-task-probe CLI', () => {
     const result = runCli(['real-block-task-probe', blockPath], buildEnv());
     cleanupRepo(repoPath);
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+  });
+
+  test('public output does not include full proposed coder content', async () => {
+    const repoPath = createTempRepo();
+    const { blockPath } = createBlockFile(repoPath);
+    const proposedContent = 'unique proposed coder content abc12345 xyz';
+    const result = runCli(
+      ['real-block-task-probe', blockPath],
+      buildEnv({
+        REAL_BLOCK_TASK_PROBE_FAKE_CODER_RESPONSE:
+          `{"summary":"update README","files":[{"path":"README.md","content":"${proposedContent}"}],"notes":[]}`,
+      })
+    );
+    cleanupRepo(repoPath);
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    const output = result.stdout + result.stderr;
+    assert.ok(!output.includes(proposedContent), 'output should not contain full coder content');
+  });
+
+  test('coder content too long exits non-zero before reviewer call', async () => {
+    const repoPath = createTempRepo();
+    const { blockPath } = createBlockFile(repoPath);
+    const longContent = 'a'.repeat(2001);
+    const result = runCli(
+      ['real-block-task-probe', blockPath],
+      buildEnv({
+        REAL_BLOCK_TASK_PROBE_FAKE_CODER_RESPONSE:
+          `{"summary":"x","files":[{"path":"README.md","content":"${longContent}"}],"notes":[]}`,
+      })
+    );
+    cleanupRepo(repoPath);
+    assert.notStrictEqual(result.status, 0);
+    const parsed = parseOutput(result.stdout + result.stderr);
+    assert.strictEqual(parsed.ok, false);
+    const coder = parsed.coder as Record<string, unknown>;
+    const reviewer = parsed.reviewer as Record<string, unknown>;
+    assert.strictEqual(coder.ok, false);
+    assert.strictEqual(reviewer.ok, false);
+    assert.match(String(reviewer.error), /Skipped/i);
   });
 
   test('valid output has correct shape', async () => {

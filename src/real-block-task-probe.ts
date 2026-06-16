@@ -119,6 +119,12 @@ function makeBoundedPreview(text: string): string {
   return redactSecretLike(clamped);
 }
 
+function boundReviewerPromptContent(text: string): string {
+  const clamped =
+    text.length > MAX_CONTENT_LENGTH ? text.slice(0, MAX_CONTENT_LENGTH) + '...' : text;
+  return redactSecretLike(clamped);
+}
+
 function extractJsonFromText(text: string): unknown {
   const trimmed = text.trim();
   try {
@@ -249,10 +255,14 @@ function buildCoderProbePrompt(task: BlockTaskDefinition): string {
   );
 }
 
-function buildReviewerProbePrompt(
+export function buildReviewerProbePrompt(
   task: BlockTaskDefinition,
   coderPlan: ProbeContractResponse
 ): string {
+  const filesWithBoundedContent = coderPlan.files.map((f) => ({
+    path: f.path,
+    content: boundReviewerPromptContent(f.content),
+  }));
   return (
     'You are a code reviewer. Review the proposed patch plan below. ' +
     'Return ONLY a single JSON object with no markdown and no extra text. ' +
@@ -275,7 +285,7 @@ function buildReviewerProbePrompt(
     `Denied files: ${JSON.stringify(task.denied_files)}\n` +
     `Checks: ${JSON.stringify(task.checks)}\n\n` +
     `Proposed patch summary: ${coderPlan.summary}\n` +
-    `Proposed files: ${JSON.stringify(coderPlan.files.map((f) => f.path))}\n`
+    `Proposed files with bounded content: ${JSON.stringify(filesWithBoundedContent, null, 2)}\n`
   );
 }
 
@@ -345,12 +355,17 @@ function validateTaskSafety(block: BlockDefinition, task: BlockTaskDefinition): 
   return reasons;
 }
 
+interface CoderProbeSuccess {
+  result: CoderProbeResult;
+  contract: ProbeContractResponse;
+}
+
 async function runCoderProbe(
   task: BlockTaskDefinition,
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   fetchFn?: typeof fetch
-): Promise<CoderProbeResult> {
+): Promise<CoderProbeSuccess> {
   const fakeResponse = getEnv(env, 'REAL_BLOCK_TASK_PROBE_FAKE_CODER_RESPONSE');
   let client: { generate(prompt: string): Promise<string> };
   if (fakeResponse !== undefined) {
@@ -369,25 +384,34 @@ async function runCoderProbe(
     const parsed = extractJsonFromText(raw);
     const contract = validateProbeCoderResponse(parsed, task);
     return {
-      ok: true,
-      contractValid: true,
-      summaryPreview: contract.summary,
-      fileCount: contract.files.length,
-      paths: contract.files.map((f) => f.path),
+      result: {
+        ok: true,
+        contractValid: true,
+        summaryPreview: contract.summary,
+        fileCount: contract.files.length,
+        paths: contract.files.map((f) => f.path),
+      },
+      contract,
     };
   } catch (err) {
     if (isAbortError(err)) {
       return {
-        ok: false,
-        contractValid: false,
-        error: 'Coder probe timed out',
+        result: {
+          ok: false,
+          contractValid: false,
+          error: 'Coder probe timed out',
+        },
+        contract: { summary: '', files: [], notes: [] },
       };
     }
     const message = err instanceof Error ? err.message : String(err);
     return {
-      ok: false,
-      contractValid: false,
-      error: redactSecrets(message),
+      result: {
+        ok: false,
+        contractValid: false,
+        error: redactSecrets(message),
+      },
+      contract: { summary: '', files: [], notes: [] },
     };
   }
 }
@@ -611,7 +635,8 @@ export async function runRealBlockTaskProbe(options: {
     };
   }
 
-  const coderResult = await runCoderProbe(task, env, timeoutMs, options.fetchFn);
+  const coderSuccess = await runCoderProbe(task, env, timeoutMs, options.fetchFn);
+  const coderResult = coderSuccess.result;
   if (!coderResult.ok) {
     return {
       ok: false,
@@ -632,11 +657,7 @@ export async function runRealBlockTaskProbe(options: {
     };
   }
 
-  const coderPlan: ProbeContractResponse = {
-    summary: coderResult.summaryPreview ?? '',
-    files: (coderResult.paths ?? []).map((p) => ({ path: p, content: '' })),
-    notes: [],
-  };
+  const coderPlan = coderSuccess.contract;
   const reviewerResult = await runReviewerProbe(task, coderPlan, env, timeoutMs, options.fetchFn);
 
   const ok = coderResult.ok && reviewerResult.ok;
