@@ -2788,6 +2788,7 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual(captured.branchName, `ai/${taskId}`, `Should include branch name`);
       assert(typeof captured.commitSha === 'string' && captured.commitSha.length === 40, `Should include full commit SHA`);
       assert(typeof captured.checkSummary === 'object' && captured.checkSummary !== null, `Should include check summary`);
+      assert.strictEqual((captured.checkSummary as Record<string, unknown>).test, 'pass', `Check summary should reflect passing tests`);
       assert.strictEqual(captured.stateStatus, 'pushed', `Should include state status`);
       assert(typeof captured.safety === 'object' && captured.safety !== null, `Should include safety flags`);
       assert.strictEqual(captured.safety.commitShaIsFullLength, true);

@@ -1259,6 +1259,7 @@ if (command === 'real-repo-run-ai') {
       }
 
       const checkResult = runChecks(task.repo_path, task.checks);
+      lastCheckResult = checkResult;
       if (!checkResult.success) {
         if (manifest && manifest.length > 0) {
           try {
