@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs';
+import * as path from 'node:path';
 import { resolve, join, isAbsolute, dirname } from 'node:path';
 import { redactSecrets } from './sandbox-preflight-repair.js';
 
@@ -112,17 +113,30 @@ function validateBlockDefinition(block: unknown): BlockDefinition {
   };
 }
 
+export function isPathInsideOrEqual(
+  parent: string,
+  candidate: string,
+  pathImpl: Pick<typeof path, 'resolve' | 'relative' | 'isAbsolute'> = path
+): boolean {
+  const resolvedParent = pathImpl.resolve(parent);
+  const resolvedCandidate = pathImpl.resolve(candidate);
+  if (resolvedCandidate === resolvedParent) {
+    return true;
+  }
+  const rel = pathImpl.relative(resolvedParent, resolvedCandidate);
+  return rel !== '' && !rel.startsWith('..') && !pathImpl.isAbsolute(rel);
+}
+
 function validateRepoPath(repoPath: string, projectRoot: string): void {
-  const resolvedRepo = resolve(repoPath);
   const resolvedProject = resolve(projectRoot);
+  const resolvedRepo = resolve(projectRoot, repoPath);
   if (!existsSync(resolvedRepo)) {
     throw new Error(`repo_path does not exist: ${repoPath}`);
   }
   if (resolvedRepo === resolvedProject) {
     throw new Error('repo_path must not be the current project repo');
   }
-  const prefix = resolvedProject.endsWith('/') ? resolvedProject : `${resolvedProject}\\`;
-  if (resolvedRepo === resolvedProject || resolvedRepo.startsWith(prefix)) {
+  if (isPathInsideOrEqual(resolvedProject, resolvedRepo)) {
     throw new Error('repo_path must not be inside the current project repo');
   }
 }

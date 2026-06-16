@@ -9,8 +9,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { runDisposablePilot, type CommandRunner } from '../src/real-block-disposable-pilot.js';
+import { join, dirname, relative } from 'node:path';
+import * as path from 'node:path';
+import { runDisposablePilot, isPathInsideOrEqual, type CommandRunner } from '../src/real-block-disposable-pilot.js';
 
 let counter = 0;
 
@@ -363,6 +364,81 @@ describe('real-block-disposable-pilot helper', () => {
       assert(result.error?.includes('repo_path'), `Should mention repo_path: ${result.error}`);
     } finally {
       tmp.cleanup();
+    }
+  });
+
+  describe('isPathInsideOrEqual', () => {
+    test('POSIX equal paths are inside-or-equal', () => {
+      assert.strictEqual(isPathInsideOrEqual('/tmp/project', '/tmp/project', path.posix), true);
+    });
+    test('POSIX repo inside project root', () => {
+      assert.strictEqual(isPathInsideOrEqual('/tmp/project', '/tmp/project/repo', path.posix), true);
+    });
+    test('POSIX sibling prefix is not inside', () => {
+      assert.strictEqual(isPathInsideOrEqual('/tmp/project', '/tmp/project-other', path.posix), false);
+    });
+    test('POSIX completely outside path is not inside', () => {
+      assert.strictEqual(isPathInsideOrEqual('/tmp/project', '/other/repo', path.posix), false);
+    });
+
+    test('Windows equal paths are inside-or-equal', () => {
+      assert.strictEqual(isPathInsideOrEqual('C:\\project', 'C:\\project', path.win32), true);
+    });
+    test('Windows repo inside project root', () => {
+      assert.strictEqual(isPathInsideOrEqual('C:\\project', 'C:\\project\\repo', path.win32), true);
+    });
+    test('Windows sibling prefix is not inside', () => {
+      assert.strictEqual(isPathInsideOrEqual('C:\\project', 'C:\\project-other', path.win32), false);
+    });
+    test('Windows completely outside path is not inside', () => {
+      assert.strictEqual(isPathInsideOrEqual('C:\\project', 'D:\\other', path.win32), false);
+    });
+
+  });
+
+  test('relative repo_path inside project root refuses', async () => {
+    const tmp = createTempProject();
+    const insideDir = join(tmp.path, 'inside-repo');
+    mkdirSync(insideDir, { recursive: true });
+    const blockPath = join(tmp.path, 'block.json');
+    buildBlockFile({ blockPath, repoPath: './inside-repo', workBranch: 'ai-test' });
+    try {
+      const result = await runDisposablePilot({
+        blockPath,
+        provider: 'kimi',
+        timeoutMs: 120000,
+        projectRoot: tmp.path,
+        env: { ALLOW_REAL_PROVIDER: 'true' },
+        runCommand: makeMockRunner(),
+      });
+      assert.strictEqual(result.ok, false);
+      assert(result.error?.includes('must not be inside the current project repo'), `Expected inside error: ${result.error}`);
+    } finally {
+      tmp.cleanup();
+    }
+  });
+
+  test('relative repo_path outside project root is allowed if exists', async () => {
+    const tmp = createTempProject();
+    const outsideDir = mkdtempSync(join(dirname(tmp.path), 'pilot-outside-'));
+    const relRepoPath = relative(tmp.path, outsideDir);
+    const blockPath = join(tmp.path, 'block.json');
+    buildBlockFile({ blockPath, repoPath: relRepoPath, workBranch: 'ai-test' });
+    try {
+      const result = await runDisposablePilot({
+        blockPath,
+        provider: 'kimi',
+        timeoutMs: 120000,
+        projectRoot: tmp.path,
+        env: { ALLOW_REAL_PROVIDER: 'true' },
+        runCommand: makeMockRunner(),
+      });
+      assert.strictEqual(result.ok, false);
+      assert(!result.error?.includes('must not be inside the current project repo'), `Should not refuse outside repo: ${result.error}`);
+      assert(result.error?.includes('Mutation opt-ins required'), `Expected mutation opt-in error: ${result.error}`);
+    } finally {
+      tmp.cleanup();
+      rmSync(outsideDir, { recursive: true, force: true });
     }
   });
 
