@@ -2,6 +2,7 @@ import type { ReviewerEvidence } from './reviewer-evidence.js';
 
 export interface ReviewerInput {
   role: 'reviewer';
+  repoPath: string;
   taskId: string;
   taskGoal: string;
   commitSha: string;
@@ -26,6 +27,7 @@ export interface ReviewerInput {
 export function buildReviewerInput(evidence: ReviewerEvidence): ReviewerInput {
   return {
     role: 'reviewer',
+    repoPath: evidence.repoPath,
     taskId: evidence.taskId,
     taskGoal: evidence.taskGoal,
     commitSha: evidence.commitSha,

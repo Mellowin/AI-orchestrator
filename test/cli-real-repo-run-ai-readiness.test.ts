@@ -38,6 +38,9 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.REAL_REPO_PROVIDER_RESPONSE;
   delete env.RUNS_DIR;
   delete env.REAL_REPO_AI_MAX_ATTEMPTS;
+  delete env.REAL_REPO_REVIEWER_FAKE_RESPONSE;
+  delete env.KIMI_FAKE_REVIEWER_RESPONSE;
+  delete env.REAL_REPO_REVIEWER_NO_DEFAULT;
   env.AI_PROVIDER = 'mock';
   return env;
 }
@@ -51,6 +54,21 @@ function runCli(
   stderr: string;
 } {
   const env = { ...getCleanEnv(), ...envOverrides };
+  if (
+    !env.REAL_REPO_REVIEWER_FAKE_RESPONSE &&
+    !env.KIMI_FAKE_REVIEWER_RESPONSE &&
+    env.REAL_REPO_REVIEWER_NO_DEFAULT !== '1' &&
+    (env.ALLOW_REAL_PROVIDER === 'true' || env.ALLOW_REAL_PROVIDER === '1')
+  ) {
+    env.REAL_REPO_REVIEWER_FAKE_RESPONSE = JSON.stringify({
+      decision: 'accept',
+      confidence: 'high',
+      blockingIssues: [],
+      nonBlockingIssues: [],
+      reviewSummary: 'Default test reviewer acceptance.',
+      nextAction: 'continue',
+    });
+  }
   const result = spawnSync(
     `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ${args.join(' ')}`,
     {

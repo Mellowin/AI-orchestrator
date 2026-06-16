@@ -1014,6 +1014,7 @@ if (command === 'real-repo-run-ai') {
     }
 
     const model = process.env.KIMI_MODEL?.trim() || 'kimi-k2.6';
+    const userAgent = process.env.KIMI_USER_AGENT?.trim();
 
     const fakeResponse = process.env.KIMI_FAKE_RESPONSE;
     const fakeResponsesRaw = process.env.KIMI_FAKE_RESPONSES;
@@ -1416,9 +1417,11 @@ if (command === 'real-repo-run-ai') {
         break commandDispatch;
       }
 
-      // Reviewer gate (fake env only)
+      // Reviewer gate (fake or real Kimi)
       const fakeReviewerResponse = process.env.REAL_REPO_REVIEWER_FAKE_RESPONSE;
-      if (fakeReviewerResponse) {
+      const allowRealProvider =
+        process.env.ALLOW_REAL_PROVIDER === 'true' || process.env.ALLOW_REAL_PROVIDER === '1';
+      if (fakeReviewerResponse || allowRealProvider) {
         let reviewerGatePersisted:
           | {
               status: ReviewerGateStatus;
@@ -1449,7 +1452,69 @@ if (command === 'real-repo-run-ai') {
               if (process.env.REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR === 'true') {
                 throw new Error('Forced reviewer provider error for testing.');
               }
-              return fakeReviewerResponse;
+              if (fakeReviewerResponse) {
+                return fakeReviewerResponse;
+              }
+
+              const reviewerProvider = createKimiReviewerProvider(
+                { provider: 'kimi', apiKey, baseUrl, model, userAgent },
+                {
+                  allowReal: true,
+                  fakeResponse: process.env.KIMI_FAKE_REVIEWER_RESPONSE,
+                  fetchFn: globalThis.fetch as unknown as FetchFn,
+                }
+              );
+              const diffResult = spawnSync('git', ['show', '--format=', '-p', headSha], {
+                cwd: task.repo_path,
+                shell: false,
+                encoding: 'utf-8',
+              });
+              const diff = diffResult.status === 0 ? diffResult.stdout : '';
+              const gitStatusResult = spawnSync('git', ['status', '--short'], {
+                cwd: task.repo_path,
+                shell: false,
+                encoding: 'utf-8',
+              });
+              const gitStatus = gitStatusResult.status === 0 ? gitStatusResult.stdout : '';
+              const providerInput = buildReviewInput({
+                taskId,
+                taskTitle: task.title,
+                taskGoal: task.goal,
+                allowedFiles: task.guardrails.allow_modify ?? [],
+                deniedFiles: task.guardrails.deny_modify,
+                maxLinesChanged: task.guardrails.max_lines_changed ?? Number.MAX_SAFE_INTEGER,
+                commitSha: headSha,
+                changedFiles: input.changedFiles,
+                diff,
+                typecheckResult: input.checkSummary.typecheck ?? 'pass',
+                buildResult: input.checkSummary.build ?? 'pass',
+                testResult: input.checkSummary.test ?? (lastCheckResult?.success ? 'pass' : 'fail'),
+                gitStatus,
+                safetyFindings: [],
+              });
+              const decision = await reviewerProvider.reviewCommit(providerInput);
+              const nextAction = decision.next_action;
+              const mappedDecision =
+                nextAction === 'advance_to_next_task'
+                  ? 'accept'
+                  : nextAction === 'send_fix_to_coder'
+                    ? 'reject'
+                    : 'block_for_human';
+              const mappedNextAction =
+                nextAction === 'advance_to_next_task'
+                  ? 'continue'
+                  : nextAction === 'send_fix_to_coder'
+                    ? 'fix'
+                    : 'block';
+              return JSON.stringify({
+                decision: mappedDecision,
+                confidence: decision.confidence,
+                blockingIssues: decision.blocking_issues,
+                nonBlockingIssues: decision.non_blocking_issues,
+                reviewSummary: decision.review_summary,
+                nextAction: mappedNextAction,
+                fixTask: decision.fix_task ?? undefined,
+              });
             },
           });
           const gate = reviewerResult.reviewerRunnerResult.gateResult;

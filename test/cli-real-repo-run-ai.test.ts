@@ -39,6 +39,8 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.RUNS_DIR;
   delete env.REAL_REPO_AI_MAX_ATTEMPTS;
   delete env.REAL_REPO_REVIEWER_FAKE_RESPONSE;
+  delete env.KIMI_FAKE_REVIEWER_RESPONSE;
+  delete env.REAL_REPO_REVIEWER_NO_DEFAULT;
   delete env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
   delete env.REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR;
   delete env.REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE;
@@ -59,6 +61,21 @@ function runCli(
   stderr: string;
 } {
   const env = { ...getCleanEnv(), ...envOverrides };
+  if (
+    !env.REAL_REPO_REVIEWER_FAKE_RESPONSE &&
+    !env.KIMI_FAKE_REVIEWER_RESPONSE &&
+    env.REAL_REPO_REVIEWER_NO_DEFAULT !== '1' &&
+    (env.ALLOW_REAL_PROVIDER === 'true' || env.ALLOW_REAL_PROVIDER === '1')
+  ) {
+    env.REAL_REPO_REVIEWER_FAKE_RESPONSE = JSON.stringify({
+      decision: 'accept',
+      confidence: 'high',
+      blockingIssues: [],
+      nonBlockingIssues: [],
+      reviewSummary: 'Default test reviewer acceptance.',
+      nextAction: 'continue',
+    });
+  }
   const result = spawnSync(
     `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ${args.join(' ')}`,
     {
@@ -2441,7 +2458,7 @@ describe('cli real-repo-run-ai', () => {
     }
   });
 
-  test('without REAL_REPO_REVIEWER_FAKE_RESPONSE existing success behavior unchanged', () => {
+  test('real reviewer accept path runs when ALLOW_REAL_PROVIDER is set', () => {
     const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
     try {
       const before = getBareRefs(originPath);
@@ -2454,25 +2471,328 @@ describe('cli real-repo-run-ai', () => {
         KIMI_API_KEY: 'fake',
         KIMI_BASE_URL: 'http://localhost:9999',
         KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        KIMI_FAKE_REVIEWER_RESPONSE: JSON.stringify({
+          decision: 'accepted',
+          confidence: 'high',
+          blocking_issues: [],
+          non_blocking_issues: [],
+          review_summary: 'Real reviewer acceptance.',
+          fix_task: null,
+          next_action: 'advance_to_next_task',
+        }),
         RUNS_DIR: runsDir,
       });
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert(!result.stderr.includes('Reviewer gate'), `Should not run reviewer gate without env: ${result.stderr}`);
+      assert(result.stderr.includes('Reviewer gate accepted'), `Should show reviewer gate accepted: ${result.stderr}`);
       const after = getBareRefs(originPath);
       assert.notDeepStrictEqual(after, before, 'Should push to remote');
       const state = loadStateFromPath(runsDir, taskId);
       assert(state !== null);
       assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
-      assert.strictEqual((state as Record<string, unknown>).reviewer_gate, undefined, `Should not have reviewer_gate without env`);
-      assert.strictEqual((state as Record<string, unknown>).reviewer_block_review_result, undefined, `Should not have reviewer_block_review_result without env`);
-      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task, undefined, `Should not have pending_reviewer_fix_task without env`);
-      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_state, undefined, `Should not have pending_reviewer_fix_task_state without env`);
-      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_plan, undefined, `Should not have pending_reviewer_fix_task_execution_plan without env`);
-      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not have pending_reviewer_fix_task_execution_request without env`);
-      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not have pending_reviewer_fix_task_execution_request_state without env`);
-      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not have reviewer_fix_task_run_plan without env`);
-      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not have reviewer_fix_task_run_plan_state without env`);
-      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined, `Should not have reviewer_fix_task_controlled_run without env`);
+      const reviewerGate = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown> | undefined;
+      assert(reviewerGate !== undefined, `Should have reviewer_gate`);
+      assert.strictEqual(reviewerGate.status, 'accepted');
+      assert.strictEqual(reviewerGate.nextAction, 'continue');
+      assert(Array.isArray(reviewerGate.blockingIssues) && reviewerGate.blockingIssues.length === 0);
+      assert(Array.isArray(reviewerGate.nonBlockingIssues) && reviewerGate.nonBlockingIssues.length === 0);
+      assert((state as Record<string, unknown>).reviewer_block_review_result !== undefined, `Should have reviewer_block_review_result`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task, undefined, `Should not have pending_reviewer_fix_task`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_state, undefined, `Should not have pending_reviewer_fix_task_state`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_plan, undefined, `Should not have pending_reviewer_fix_task_execution_plan`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request, undefined, `Should not have pending_reviewer_fix_task_execution_request`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task_execution_request_state, undefined, `Should not have pending_reviewer_fix_task_execution_request_state`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan, undefined, `Should not have reviewer_fix_task_run_plan`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_run_plan_state, undefined, `Should not have reviewer_fix_task_run_plan_state`);
+      assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_controlled_run, undefined, `Should not have reviewer_fix_task_controlled_run`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('real reviewer reject persists reviewer_gate and pending fix task with redacted secrets', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_REVIEWER_NO_DEFAULT: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        KIMI_FAKE_REVIEWER_RESPONSE: JSON.stringify({
+          decision: 'rejected',
+          confidence: 'high',
+          blocking_issues: ['sk-fake-real-reviewer-secret'],
+          non_blocking_issues: ['pk-fake-real-reviewer-public'],
+          review_summary: 'Needs fix',
+          fix_task: 'use Bearer fake-real-reviewer-token',
+          next_action: 'send_fix_to_coder',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('Reviewer gate fix_required'), `Should show fix_required: ${result.stderr}`);
+      assert(!result.stderr.includes('sk-fake-real-reviewer-secret'), `Should not leak sk secret in stderr: ${result.stderr}`);
+      assert(!result.stderr.includes('Bearer fake-real-reviewer-token'), `Should not leak Bearer token in stderr: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.notDeepStrictEqual(after, before, 'Push should still have happened');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
+      const rg = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown>;
+      assert(rg !== undefined, `Should persist reviewer_gate`);
+      assert.strictEqual(rg.status, 'fix_required');
+      assert.strictEqual(rg.source, 'reviewer');
+      assert.strictEqual(rg.nextAction, 'fix');
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes('sk-fake-real-reviewer-secret'), `Should not leak sk secret in persisted state`);
+      assert(!stateRaw.includes('Bearer fake-real-reviewer-token'), `Should not leak Bearer token in persisted state`);
+      assert(!stateRaw.includes('pk-fake-real-reviewer-public'), `Should not leak pk secret in persisted state`);
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+      assert.strictEqual(rbr.blockId, `single-task-review:${taskId}`);
+      const resolutionPlan = rbr.resolutionPlan as Record<string, unknown>;
+      assert.strictEqual(resolutionPlan.action, 'append_fix_task');
+      const pending = (state as Record<string, unknown>).pending_reviewer_fix_task as Record<string, unknown>;
+      assert(pending !== undefined, `Should persist pending_reviewer_fix_task on fix_required`);
+      assert.strictEqual(pending.status, 'pending');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('real reviewer block_for_human persists reviewer_gate with no pending fix task', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_REVIEWER_NO_DEFAULT: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        KIMI_FAKE_REVIEWER_RESPONSE: JSON.stringify({
+          decision: 'rejected',
+          confidence: 'high',
+          blocking_issues: ['sk-fake-block-for-human-secret'],
+          non_blocking_issues: [],
+          review_summary: 'Blocked for human review',
+          fix_task: null,
+          next_action: 'block_for_human',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('Reviewer gate blocked'), `Should show blocked: ${result.stderr}`);
+      assert(!result.stderr.includes('sk-fake-block-for-human-secret'), `Should not leak sk secret in stderr: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.notDeepStrictEqual(after, before, 'Push should still have happened');
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      assert.strictEqual((state as Record<string, unknown>).status, 'pushed');
+      const rg = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown>;
+      assert(rg !== undefined, `Should persist reviewer_gate`);
+      assert.strictEqual(rg.status, 'blocked');
+      assert.strictEqual(rg.source, 'reviewer');
+      assert.strictEqual(rg.nextAction, 'block');
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes('sk-fake-block-for-human-secret'), `Should not leak sk secret in persisted state`);
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+      assert.strictEqual((state as Record<string, unknown>).pending_reviewer_fix_task, undefined, `Should not persist pending_reviewer_fix_task on block_for_human`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('real reviewer invalid JSON response exits non-zero with provider block', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_REVIEWER_NO_DEFAULT: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        KIMI_FAKE_REVIEWER_RESPONSE: 'not-valid-json',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('Reviewer gate blocked') || result.stderr.includes('Reviewer gate error'), `Should show blocked/error: ${result.stderr}`);
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const rg = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown>;
+      assert(rg !== undefined, `Should persist reviewer_gate`);
+      assert.strictEqual(rg.status, 'blocked');
+      assert.strictEqual(rg.source, 'provider');
+      const rbr = (state as Record<string, unknown>).reviewer_block_review_result as Record<string, unknown>;
+      assert(rbr !== undefined, `Should persist reviewer_block_review_result`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('real reviewer invalid schema response exits non-zero with provider block', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_REVIEWER_NO_DEFAULT: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        KIMI_FAKE_REVIEWER_RESPONSE: JSON.stringify({
+          decision: 'accepted',
+          confidence: 'high',
+          blocking_issues: ['should be empty for accepted'],
+          non_blocking_issues: [],
+          review_summary: 'Invalid accepted',
+          fix_task: null,
+          next_action: 'advance_to_next_task',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('Reviewer gate blocked') || result.stderr.includes('Reviewer gate error'), `Should show blocked/error: ${result.stderr}`);
+      const state = loadStateFromPath(runsDir, taskId);
+      assert(state !== null);
+      const rg = (state as Record<string, unknown>).reviewer_gate as Record<string, unknown>;
+      assert(rg !== undefined, `Should persist reviewer_gate`);
+      assert.strictEqual(rg.status, 'blocked');
+      assert.strictEqual(rg.source, 'provider');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('real reviewer missing KIMI_API_KEY fails before provider call', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_REVIEWER_NO_DEFAULT: '1',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_API_KEY: '',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        KIMI_FAKE_REVIEWER_RESPONSE: JSON.stringify({
+          decision: 'accepted',
+          confidence: 'high',
+          blocking_issues: [],
+          non_blocking_issues: [],
+          review_summary: 'Should not be reached',
+          fix_task: null,
+          next_action: 'advance_to_next_task',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('KIMI_API_KEY env var is required'), `Should require API key: ${result.stderr}`);
+      assert(!result.stderr.includes('Reviewer gate'), `Should not reach reviewer gate: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, 'Should not push without API key');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('real reviewer missing KIMI_BASE_URL fails before provider call', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const before = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_REVIEWER_NO_DEFAULT: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: '',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        KIMI_FAKE_REVIEWER_RESPONSE: JSON.stringify({
+          decision: 'accepted',
+          confidence: 'high',
+          blocking_issues: [],
+          non_blocking_issues: [],
+          review_summary: 'Should not be reached',
+          fix_task: null,
+          next_action: 'advance_to_next_task',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('KIMI_BASE_URL env var is required'), `Should require base URL: ${result.stderr}`);
+      assert(!result.stderr.includes('Reviewer gate'), `Should not reach reviewer gate: ${result.stderr}`);
+      const after = getBareRefs(originPath);
+      assert.deepStrictEqual(after, before, 'Should not push without base URL');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('real reviewer input capture includes repo path task goal commit sha branch check summary state status', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    const captureFile = join(runsDir, 'real-reviewer-input-capture.json');
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        REAL_REPO_REVIEWER_NO_DEFAULT: '1',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        KIMI_FAKE_REVIEWER_RESPONSE: JSON.stringify({
+          decision: 'accepted',
+          confidence: 'high',
+          blocking_issues: [],
+          non_blocking_issues: [],
+          review_summary: 'Real reviewer acceptance.',
+          fix_task: null,
+          next_action: 'advance_to_next_task',
+        }),
+        REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE: captureFile,
+        RUNS_DIR: runsDir,
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(existsSync(captureFile), `Capture file should exist`);
+      const captured = JSON.parse(readFileSync(captureFile, 'utf-8'));
+      assert.strictEqual(captured.repoPath, repoPath.replace(/\\/g, '/'), `Should include repo path`);
+      assert.strictEqual(captured.taskId, taskId, `Should include task id`);
+      assert.strictEqual(captured.taskGoal, 'Test goal', `Should include task goal`);
+      assert.strictEqual(captured.branchName, `ai/${taskId}`, `Should include branch name`);
+      assert(typeof captured.commitSha === 'string' && captured.commitSha.length === 40, `Should include full commit SHA`);
+      assert(typeof captured.checkSummary === 'object' && captured.checkSummary !== null, `Should include check summary`);
+      assert.strictEqual(captured.stateStatus, 'pushed', `Should include state status`);
+      assert(typeof captured.safety === 'object' && captured.safety !== null, `Should include safety flags`);
+      assert.strictEqual(captured.safety.commitShaIsFullLength, true);
+      assert.strictEqual(captured.safety.branchIsNotMain, true);
+      assert.strictEqual(captured.safety.hasChangedFiles, true);
     } finally {
       cleanup();
     }
