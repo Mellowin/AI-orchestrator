@@ -120,7 +120,7 @@ function buildSingleTaskYaml(block: BlockDefinition, task: BlockTaskDefinition):
         base_branch: block.base_branch,
         work_branch: block.work_branch,
         goal: task.goal,
-        context_files: [],
+        context_files: task.allowed_files.filter((file) => existsSync(resolve(block.repo_path, file))),
         checks:
           task.checks.length > 0
             ? task.checks.map((line) => {

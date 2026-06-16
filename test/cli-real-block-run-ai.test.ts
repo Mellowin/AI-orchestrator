@@ -1440,4 +1440,29 @@ describe('cli real-block-run-ai', () => {
       cleanup();
     }
   });
+
+  test('generated per-task tasks.yaml contains context_files from allowed_files', () => {
+    const { blockId, blockPath, runsDir, cleanup } = createTempBlockEnvWithTaskIds(['task-one']);
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Looks good'),
+        ]),
+      }));
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const tasksFilePath = join(runsDir, 'block', blockId, 'task-one.tasks.yaml');
+      assert(existsSync(tasksFilePath), 'Per-task tasks.yaml should be written');
+      const tasksObject = JSON.parse(readFileSync(tasksFilePath, 'utf-8')) as Record<string, unknown>;
+      const task = (tasksObject.tasks as Record<string, unknown>[])[0];
+      assert(Array.isArray(task.context_files), 'context_files should be an array');
+      assert((task.context_files as string[]).includes('README.md'), 'context_files should include README.md');
+      assert.strictEqual((task.context_files as string[]).length, 1, 'context_files should match allowed_files length');
+    } finally {
+      cleanup();
+    }
+  });
 });
