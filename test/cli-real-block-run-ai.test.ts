@@ -277,7 +277,35 @@ function baseBlockEnv(overrides: Record<string, string> = {}): Record<string, st
   };
 }
 
+function getRealBlockRunAiBranchSource(): string {
+  const source = readFileSync(join(process.cwd(), 'src', 'cli.ts'), 'utf-8');
+  const start = source.indexOf("if (command === 'real-block-run-ai') {");
+  if (start === -1) {
+    throw new Error('real-block-run-ai branch not found in src/cli.ts');
+  }
+  const end = source.indexOf("if (command === 'real-block-run-ai-report') {", start);
+  if (end === -1) {
+    throw new Error('real-block-run-ai-report branch not found in src/cli.ts');
+  }
+  return source.slice(start, end);
+}
+
 describe('cli real-block-run-ai', () => {
+  test('branch source does not use direct process.exit(', () => {
+    const branch = getRealBlockRunAiBranchSource();
+    assert(!branch.includes('process.exit('), 'Expected no direct process.exit call in real-block-run-ai branch');
+  });
+
+  test('branch source uses process.exitCode', () => {
+    const branch = getRealBlockRunAiBranchSource();
+    assert(branch.includes('process.exitCode'), 'Expected process.exitCode assignment in real-block-run-ai branch');
+  });
+
+  test('branch source uses break commandDispatch', () => {
+    const branch = getRealBlockRunAiBranchSource();
+    assert(branch.includes('break commandDispatch'), 'Expected break commandDispatch in real-block-run-ai branch');
+  });
+
   test('missing block path refuses before provider call', () => {
     const result = runCli(['real-block-run-ai']);
     assert.notStrictEqual(result.status, 0);

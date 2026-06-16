@@ -2883,12 +2883,14 @@ if (command === 'real-block-run-ai') {
       console.error('[real-block-run-ai] No merge was performed');
       console.error('[real-block-run-ai] No checkout was performed');
       console.error('[real-block-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     const resume = args.slice(2).includes('--resume');
     const { exitCode } = await runRealBlockRunAI(taskId, { resume });
-    process.exit(exitCode);
+    process.exitCode = exitCode;
+    break commandDispatch;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-block-run-ai] Error: ${redactSecrets(message)}`);
@@ -2899,7 +2901,8 @@ if (command === 'real-block-run-ai') {
     console.error('[real-block-run-ai] No merge was performed');
     console.error('[real-block-run-ai] No checkout was performed');
     console.error('[real-block-run-ai] No main touch was performed');
-    process.exit(1);
+    process.exitCode = 1;
+    break commandDispatch;
   }
 }
 
