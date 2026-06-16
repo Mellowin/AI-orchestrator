@@ -49,6 +49,11 @@ function createTempDirs(): {
     'ref: refs/heads/main\n',
     'utf-8'
   );
+  writeFileSync(
+    join(sourceRepo, '.git', 'config'),
+    '[core]\n\trepositoryformatversion = 0\n[remote "origin"]\n\turl = https://token123@example.com/owner/repo.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n',
+    'utf-8'
+  );
 
   return {
     sourceRepo,
@@ -144,6 +149,98 @@ describe('createSandboxRepoCopy', () => {
         assert.strictEqual(
           readFileSync(join(sandboxRepoPath, '.git', 'HEAD'), 'utf-8'),
           'ref: refs/heads/main\n'
+        );
+      } finally {
+        sandboxCleanup();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('scrubs remote URL in .git/config when preserveGit is true', () => {
+    const { sourceRepo, sandboxRoot, cleanup } = createTempDirs();
+    try {
+      const { sandboxRepoPath, cleanup: sandboxCleanup } = createSandboxRepoCopy(
+        sourceRepo,
+        sandboxRoot,
+        { preserveGit: true }
+      );
+      try {
+        const sandboxConfig = readFileSync(
+          join(sandboxRepoPath, '.git', 'config'),
+          'utf-8'
+        );
+        assert(
+          sandboxConfig.includes('[remote "origin"]'),
+          'remote section should be preserved'
+        );
+        assert(
+          sandboxConfig.includes('url = [REDACTED_REMOTE_URL]'),
+          'remote URL should be scrubbed'
+        );
+        assert(
+          !sandboxConfig.includes('token123'),
+          'credential token should not leak into sandbox config'
+        );
+        assert(
+          !sandboxConfig.includes('example.com/owner/repo.git'),
+          'original URL should not leak into sandbox config'
+        );
+      } finally {
+        sandboxCleanup();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('does not scrub source .git/config', () => {
+    const { sourceRepo, sandboxRoot, cleanup } = createTempDirs();
+    try {
+      const originalConfig = readFileSync(
+        join(sourceRepo, '.git', 'config'),
+        'utf-8'
+      );
+      const { cleanup: sandboxCleanup } = createSandboxRepoCopy(
+        sourceRepo,
+        sandboxRoot,
+        { preserveGit: true }
+      );
+      try {
+        const sourceConfigAfter = readFileSync(
+          join(sourceRepo, '.git', 'config'),
+          'utf-8'
+        );
+        assert.strictEqual(
+          sourceConfigAfter,
+          originalConfig,
+          'source .git/config must not be modified'
+        );
+      } finally {
+        sandboxCleanup();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('preserveGit true does not fail when .git/config is missing', () => {
+    const { sourceRepo, sandboxRoot, cleanup } = createTempDirs();
+    try {
+      const configPath = join(sourceRepo, '.git', 'config');
+      if (existsSync(configPath)) {
+        rmSync(configPath);
+      }
+      const { sandboxRepoPath, cleanup: sandboxCleanup } = createSandboxRepoCopy(
+        sourceRepo,
+        sandboxRoot,
+        { preserveGit: true }
+      );
+      try {
+        assert(
+          existsSync(join(sandboxRepoPath, '.git', 'HEAD')),
+          '.git/HEAD should still be copied'
         );
       } finally {
         sandboxCleanup();

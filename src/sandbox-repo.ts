@@ -2,10 +2,12 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   statSync,
   copyFileSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
@@ -44,6 +46,20 @@ function copyDirectoryRecursive(
     }
     // Symlinks are intentionally skipped.
   }
+}
+
+function scrubGitConfig(sandboxRepoPath: string): void {
+  const configPath = join(sandboxRepoPath, '.git', 'config');
+  if (!existsSync(configPath)) {
+    return;
+  }
+
+  const content = readFileSync(configPath, 'utf-8');
+  const scrubbed = content.replace(
+    /^([ \t]*)(url|pushurl)[ \t]*=.*$/gm,
+    '$1url = [REDACTED_REMOTE_URL]'
+  );
+  writeFileSync(configPath, scrubbed, 'utf-8');
 }
 
 export interface SandboxRepoResult {
@@ -96,6 +112,10 @@ export function createSandboxRepoCopy(
   const includeGit = options?.preserveGit ?? false;
   const sandboxRepoPath = mkdtempSync(join(sandboxRoot, 'sandbox-'));
   copyDirectoryRecursive(sourceRepoPath, sandboxRepoPath, includeGit);
+
+  if (includeGit) {
+    scrubGitConfig(sandboxRepoPath);
+  }
 
   return {
     sandboxRepoPath,

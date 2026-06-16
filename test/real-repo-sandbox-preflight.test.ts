@@ -86,6 +86,7 @@ function createRealGitSourceRepo(): {
   git(['init']);
   git(['config', 'user.email', 'test@example.com']);
   git(['config', 'user.name', 'Test User']);
+  git(['remote', 'add', 'origin', 'https://token123:x-oauth-secret@github.com/owner/repo.git']);
   git(['add', '-A']);
   git(['commit', '-m', 'base']);
 
@@ -303,6 +304,45 @@ describe('runRealRepoSandboxPreflight', () => {
 
       assert.strictEqual(result.ok, true, `Expected ok true, logs:\n${result.logs}`);
       assert.ok(result.logs.includes('step: checks'));
+    } finally {
+      cleanupSource();
+      cleanupSandboxRoot();
+    }
+  });
+
+  test('does not leak credential-bearing remote URL into sandbox or logs', () => {
+    const { repoPath, cleanup: cleanupSource } = createRealGitSourceRepo();
+    const { sandboxRoot, cleanup: cleanupSandboxRoot } = createSandboxRoot();
+    try {
+      const originalConfig = readFileSync(join(repoPath, '.git', 'config'), 'utf-8');
+      const task = {
+        ...baseTask([{ command: 'git', args: ['diff', '--check'] }]),
+        repo_path: repoPath,
+      };
+      const raw = validRawProvider([
+        { path: 'README.md', content: '# hello\n\nUpdated description.\n' },
+      ]);
+
+      const result = runRealRepoSandboxPreflight({
+        task,
+        rawProviderText: raw,
+        sandboxRoot,
+      });
+
+      assert.strictEqual(result.ok, true);
+      assert(
+        !result.logs.includes('token123'),
+        'logs should not contain remote credential token'
+      );
+      assert(
+        !result.logs.includes('x-oauth-secret'),
+        'logs should not contain remote credential secret'
+      );
+      assert.strictEqual(
+        readFileSync(join(repoPath, '.git', 'config'), 'utf-8'),
+        originalConfig,
+        'source .git/config must remain unchanged'
+      );
     } finally {
       cleanupSource();
       cleanupSandboxRoot();
