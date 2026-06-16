@@ -130,7 +130,7 @@ describe('real-block-preflight module', () => {
   });
 
   test('parseRealBlockPreflightTimeoutMs clamps upper bound', () => {
-    assert.strictEqual(parseRealBlockPreflightTimeoutMs({ REAL_BLOCK_PREFLIGHT_TIMEOUT_MS: '120000' }), 60000);
+    assert.strictEqual(parseRealBlockPreflightTimeoutMs({ REAL_BLOCK_PREFLIGHT_TIMEOUT_MS: '120000' }), 120000);
   });
 
   test('parseRealBlockPreflightTimeoutMs uses override', () => {

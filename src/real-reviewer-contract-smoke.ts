@@ -19,7 +19,7 @@ export interface RealReviewerContractSmokeReport {
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const MIN_TIMEOUT_MS = 1000;
-const MAX_TIMEOUT_MS = 60000;
+const MAX_TIMEOUT_MS = 120000;
 const MAX_RESPONSE_PREVIEW_CHARS = 500;
 
 function looksLikeSecret(value: string): boolean {
@@ -69,7 +69,7 @@ export function parseRealReviewerContractSmokeTimeoutMs(
   return parsed;
 }
 
-function validateReviewerEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string } {
+function validateReviewerEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string; userAgent?: string } {
   const allowReal = getEnv(env, 'ALLOW_REAL_PROVIDER');
   if (!isOptInEnabled(allowReal)) {
     throw new Error('ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required');
@@ -86,7 +86,8 @@ function validateReviewerEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl:
   }
 
   const model = getEnv(env, 'KIMI_MODEL') || 'kimi-k2.6';
-  return { apiKey, baseUrl, model };
+  const userAgent = getEnv(env, 'KIMI_USER_AGENT');
+  return { apiKey, baseUrl, model, userAgent };
 }
 
 function redactSecretLike(text: string): string {
@@ -152,11 +153,19 @@ function containsSecretLike(value: unknown): boolean {
 }
 
 function createTimeoutFetch(timeoutMs: number, underlyingFetch: typeof fetch): typeof fetch {
-  return (input, init) =>
-    underlyingFetch(input, {
+  return (input, init) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const promise = underlyingFetch(input, {
       ...init,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: controller.signal,
     });
+    promise.then(
+      () => clearTimeout(timer),
+      () => clearTimeout(timer)
+    );
+    return promise;
+  };
 }
 
 function isAbortError(err: unknown): boolean {
@@ -201,8 +210,9 @@ export async function runRealReviewerContractSmoke(
   let apiKey: string;
   let baseUrl: string;
   let model: string;
+  let userAgent: string | undefined;
   try {
-    ({ apiKey, baseUrl, model } = validateReviewerEnv(env));
+    ({ apiKey, baseUrl, model, userAgent } = validateReviewerEnv(env));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
@@ -222,7 +232,7 @@ export async function runRealReviewerContractSmoke(
     client = createMockAIClient(fakeResponse);
   } else {
     const effectiveFetch = createTimeoutFetch(timeoutMs, options.fetchFn ?? fetch);
-    client = createKimiClient({ apiKey, model, baseUrl, fetchFn: effectiveFetch });
+    client = createKimiClient({ apiKey, model, baseUrl, userAgent, fetchFn: effectiveFetch });
   }
 
   let raw: string | undefined;

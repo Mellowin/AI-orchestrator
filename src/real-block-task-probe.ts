@@ -43,7 +43,7 @@ export interface RealBlockTaskProbeReport {
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const MIN_TIMEOUT_MS = 1000;
-const MAX_TIMEOUT_MS = 60000;
+const MAX_TIMEOUT_MS = 120000;
 const MAX_RESPONSE_PREVIEW_CHARS = 500;
 const MAX_SUMMARY_LENGTH = 300;
 const MAX_CONTENT_LENGTH = 2000;
@@ -290,11 +290,19 @@ export function buildReviewerProbePrompt(
 }
 
 function createTimeoutFetch(timeoutMs: number, underlyingFetch: typeof fetch): typeof fetch {
-  return (input, init) =>
-    underlyingFetch(input, {
+  return (input, init) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const promise = underlyingFetch(input, {
       ...init,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: controller.signal,
     });
+    promise.then(
+      () => clearTimeout(timer),
+      () => clearTimeout(timer)
+    );
+    return promise;
+  };
 }
 
 function isAbortError(err: unknown): boolean {
@@ -304,7 +312,7 @@ function isAbortError(err: unknown): boolean {
   return lower.includes('timed out') || lower.includes('aborted');
 }
 
-function validateProbeEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string } {
+function validateProbeEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string; userAgent?: string } {
   const allowReal = getEnv(env, 'ALLOW_REAL_PROVIDER');
   if (!isOptInEnabled(allowReal)) {
     throw new Error('ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required');
@@ -321,7 +329,8 @@ function validateProbeEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: st
   }
 
   const model = getEnv(env, 'KIMI_MODEL') || 'kimi-k2.6';
-  return { apiKey, baseUrl, model };
+  const userAgent = getEnv(env, 'KIMI_USER_AGENT');
+  return { apiKey, baseUrl, model, userAgent };
 }
 
 function selectTask(block: BlockDefinition, taskId?: string): BlockTaskDefinition {
@@ -371,9 +380,9 @@ async function runCoderProbe(
   if (fakeResponse !== undefined) {
     client = createMockAIClient(fakeResponse);
   } else {
-    const { apiKey, baseUrl, model } = validateProbeEnv(env);
+    const { apiKey, baseUrl, model, userAgent } = validateProbeEnv(env);
     const effectiveFetch = createTimeoutFetch(timeoutMs, fetchFn ?? fetch);
-    client = createKimiClient({ apiKey, model, baseUrl, fetchFn: effectiveFetch });
+    client = createKimiClient({ apiKey, model, baseUrl, userAgent, fetchFn: effectiveFetch });
   }
 
   try {
@@ -428,9 +437,9 @@ async function runReviewerProbe(
   if (fakeResponse !== undefined) {
     client = createMockAIClient(fakeResponse);
   } else {
-    const { apiKey, baseUrl, model } = validateProbeEnv(env);
+    const { apiKey, baseUrl, model, userAgent } = validateProbeEnv(env);
     const effectiveFetch = createTimeoutFetch(timeoutMs, fetchFn ?? fetch);
-    client = createKimiClient({ apiKey, model, baseUrl, fetchFn: effectiveFetch });
+    client = createKimiClient({ apiKey, model, baseUrl, userAgent, fetchFn: effectiveFetch });
   }
 
   try {

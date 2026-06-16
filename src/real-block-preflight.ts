@@ -42,7 +42,7 @@ export interface RealBlockPreflightReport {
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const MIN_TIMEOUT_MS = 1000;
-const MAX_TIMEOUT_MS = 60000;
+const MAX_TIMEOUT_MS = 120000;
 
 function getEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
   return env[name]?.trim();

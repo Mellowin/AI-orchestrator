@@ -137,7 +137,7 @@ describe('real-reviewer-contract-smoke module', () => {
   });
 
   test('parse timeout clamps above maximum', () => {
-    assert.strictEqual(parseRealReviewerContractSmokeTimeoutMs({}, 120000), 60000);
+    assert.strictEqual(parseRealReviewerContractSmokeTimeoutMs({}, 120000), 120000);
   });
 
   test('parse timeout uses override', () => {
@@ -803,7 +803,7 @@ describe('real-reviewer-contract-smoke CLI', () => {
     );
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
     const json = parseOutput(result.stdout);
-    assert.strictEqual(json.timeoutMs, 60000);
+    assert.strictEqual(json.timeoutMs, 120000);
   });
 
   test('command does not write files', () => {

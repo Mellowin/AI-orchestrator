@@ -134,7 +134,7 @@ describe('real-block-task-probe module', () => {
   });
 
   test('parseRealBlockTaskProbeTimeoutMs clamps upper bound', () => {
-    assert.strictEqual(parseRealBlockTaskProbeTimeoutMs({ REAL_BLOCK_TASK_PROBE_TIMEOUT_MS: '120000' }), 60000);
+    assert.strictEqual(parseRealBlockTaskProbeTimeoutMs({ REAL_BLOCK_TASK_PROBE_TIMEOUT_MS: '120000' }), 120000);
   });
 
   test('parseRealBlockTaskProbeTimeoutMs uses override', () => {

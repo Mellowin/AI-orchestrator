@@ -18,7 +18,7 @@ export interface RealCoderContractSmokeReport {
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const MIN_TIMEOUT_MS = 1000;
-const MAX_TIMEOUT_MS = 60000;
+const MAX_TIMEOUT_MS = 120000;
 const MAX_RESPONSE_PREVIEW_CHARS = 500;
 const MAX_SUMMARY_LENGTH = 300;
 const MAX_CONTENT_LENGTH = 2000;
@@ -94,7 +94,7 @@ function isOptInEnabled(value: string | undefined): boolean {
   return value === 'true' || value === '1';
 }
 
-function validateContractEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string } {
+function validateContractEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string; userAgent?: string } {
   const allowReal = getEnv(env, 'ALLOW_REAL_PROVIDER');
   if (!isOptInEnabled(allowReal)) {
     throw new Error('ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required');
@@ -111,7 +111,8 @@ function validateContractEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl:
   }
 
   const model = getEnv(env, 'KIMI_MODEL') || 'kimi-k2.6';
-  return { apiKey, baseUrl, model };
+  const userAgent = getEnv(env, 'KIMI_USER_AGENT');
+  return { apiKey, baseUrl, model, userAgent };
 }
 
 function makeBoundedPreview(text: string): string {
@@ -219,11 +220,19 @@ function validateContractResponse(value: unknown): ContractResponse {
 }
 
 function createTimeoutFetch(timeoutMs: number, underlyingFetch: typeof fetch): typeof fetch {
-  return (input, init) =>
-    underlyingFetch(input, {
+  return (input, init) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const promise = underlyingFetch(input, {
       ...init,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: controller.signal,
     });
+    promise.then(
+      () => clearTimeout(timer),
+      () => clearTimeout(timer)
+    );
+    return promise;
+  };
 }
 
 function isAbortError(err: unknown): boolean {
@@ -280,8 +289,9 @@ export async function runRealCoderContractSmoke(
   let apiKey: string;
   let baseUrl: string;
   let model: string;
+  let userAgent: string | undefined;
   try {
-    ({ apiKey, baseUrl, model } = validateContractEnv(env));
+    ({ apiKey, baseUrl, model, userAgent } = validateContractEnv(env));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
@@ -304,7 +314,7 @@ export async function runRealCoderContractSmoke(
       timeoutMs,
       options.fetchFn ?? fetch
     );
-    client = createKimiClient({ apiKey, model, baseUrl, fetchFn: effectiveFetch });
+    client = createKimiClient({ apiKey, model, baseUrl, userAgent, fetchFn: effectiveFetch });
   }
 
   try {

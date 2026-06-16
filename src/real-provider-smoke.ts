@@ -32,6 +32,10 @@ function getEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
   return env[name]?.trim();
 }
 
+function isOptInEnabled(value: string | undefined): boolean {
+  return value === 'true' || value === '1';
+}
+
 export function normalizeRealProviderSmokeProvider(raw: string | undefined): {
   provider: string;
   supported: boolean;
@@ -74,10 +78,10 @@ export function parseRealProviderSmokeTimeoutMs(env: NodeJS.ProcessEnv): number 
   return parsed;
 }
 
-function validateSmokeEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string } {
+function validateSmokeEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: string; model: string; userAgent?: string } {
   const allowReal = getEnv(env, 'ALLOW_REAL_PROVIDER');
-  if (allowReal !== 'true') {
-    throw new Error('ALLOW_REAL_PROVIDER=true is required');
+  if (!isOptInEnabled(allowReal)) {
+    throw new Error('ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required');
   }
 
   const apiKey = getEnv(env, 'KIMI_API_KEY');
@@ -91,7 +95,8 @@ function validateSmokeEnv(env: NodeJS.ProcessEnv): { apiKey: string; baseUrl: st
   }
 
   const model = getEnv(env, 'KIMI_MODEL') || 'kimi-k2.6';
-  return { apiKey, baseUrl, model };
+  const userAgent = getEnv(env, 'KIMI_USER_AGENT');
+  return { apiKey, baseUrl, model, userAgent };
 }
 
 function makeBoundedPreview(text: string): string {
@@ -136,11 +141,19 @@ function validateSmokeResponse(value: unknown): { ok: boolean; message: string }
 }
 
 function createTimeoutFetch(timeoutMs: number, underlyingFetch: typeof fetch): typeof fetch {
-  return (input, init) =>
-    underlyingFetch(input, {
+  return (input, init) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const promise = underlyingFetch(input, {
       ...init,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: controller.signal,
     });
+    promise.then(
+      () => clearTimeout(timer),
+      () => clearTimeout(timer)
+    );
+    return promise;
+  };
 }
 
 function isAbortError(err: unknown): boolean {
@@ -180,7 +193,7 @@ export async function runRealProviderSmoke(
     };
   }
 
-  const { apiKey, baseUrl, model } = validateSmokeEnv(env);
+  const { apiKey, baseUrl, model, userAgent } = validateSmokeEnv(env);
 
   const effectiveFetch = createTimeoutFetch(
     timeoutMs,
@@ -191,6 +204,7 @@ export async function runRealProviderSmoke(
     apiKey,
     model,
     baseUrl,
+    userAgent,
     fetchFn: effectiveFetch,
   });
 

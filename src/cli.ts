@@ -268,6 +268,8 @@ function getRepoWorkingTreeChanges(repoPath: string): { modified: string[]; stag
   return { modified, staged, untracked, all };
 }
 
+commandDispatch: {
+
 if (command === 'real-repo-commit') {
   try {
     if (!taskId) {
@@ -3061,7 +3063,8 @@ if (command === 'real-provider-smoke') {
 
     const report = await runRealProviderSmoke(provider);
     console.log(redactSecrets(JSON.stringify(report, null, 2)));
-    process.exit(report.ok ? 0 : 1);
+    process.exitCode = report.ok ? 0 : 1;
+    break commandDispatch;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const report = {
@@ -3077,7 +3080,8 @@ if (command === 'real-provider-smoke') {
     console.error('[real-provider-smoke] No patch was applied');
     console.error('[real-provider-smoke] No git mutation was performed');
     console.error('[real-provider-smoke] No state mutation was performed');
-    process.exit(1);
+    process.exitCode = 1;
+    break commandDispatch;
   }
 }
 
@@ -3093,7 +3097,8 @@ if (command === 'real-coder-contract-smoke') {
 
     const report = await runRealCoderContractSmoke({ provider, timeoutMs });
     console.log(formatRealCoderContractSmokeReport(report));
-    process.exit(report.ok ? 0 : 1);
+    process.exitCode = report.ok ? 0 : 1;
+    break commandDispatch;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const report = {
@@ -3111,7 +3116,8 @@ if (command === 'real-coder-contract-smoke') {
     console.error('[real-coder-contract-smoke] No file was written');
     console.error('[real-coder-contract-smoke] No git mutation was performed');
     console.error('[real-coder-contract-smoke] No state mutation was performed');
-    process.exit(1);
+    process.exitCode = 1;
+    break commandDispatch;
   }
 }
 
@@ -3127,7 +3133,8 @@ if (command === 'real-reviewer-contract-smoke') {
 
     const report = await runRealReviewerContractSmoke({ provider, timeoutMs });
     console.log(formatRealReviewerContractSmokeReport(report));
-    process.exit(report.ok ? 0 : 1);
+    process.exitCode = report.ok ? 0 : 1;
+    break commandDispatch;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const report = {
@@ -3145,7 +3152,8 @@ if (command === 'real-reviewer-contract-smoke') {
     console.error('[real-reviewer-contract-smoke] No file was written');
     console.error('[real-reviewer-contract-smoke] No git mutation was performed');
     console.error('[real-reviewer-contract-smoke] No state mutation was performed');
-    process.exit(1);
+    process.exitCode = 1;
+    break commandDispatch;
   }
 }
 
@@ -3157,7 +3165,8 @@ if (command === 'real-block-preflight') {
       console.error('[real-block-preflight] No network call was made');
       console.error('[real-block-preflight] No repo mutation was performed');
       console.error('[real-block-preflight] No state mutation was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     const resume = args.includes('--resume');
@@ -3168,7 +3177,8 @@ if (command === 'real-block-preflight') {
 
     const report = await runRealBlockPreflight({ blockPath: taskId, resume, provider, timeoutMs });
     console.log(formatRealBlockPreflightReport(report));
-    process.exit(report.ok ? 0 : 1);
+    process.exitCode = report.ok ? 0 : 1;
+    break commandDispatch;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-block-preflight] Error: ${redactSecrets(message)}`);
@@ -3176,7 +3186,8 @@ if (command === 'real-block-preflight') {
     console.error('[real-block-preflight] No network call was made');
     console.error('[real-block-preflight] No repo mutation was performed');
     console.error('[real-block-preflight] No state mutation was performed');
-    process.exit(1);
+    process.exitCode = 1;
+    break commandDispatch;
   }
 }
 
@@ -3194,7 +3205,8 @@ if (command === 'real-block-task-probe') {
         env: { ...process.env, ALLOW_REAL_PROVIDER: '', KIMI_API_KEY: '', KIMI_BASE_URL: '' },
       });
       console.log(formatRealBlockTaskProbeReport(emptyReport));
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     const providerFlagIndex = args.indexOf('--provider');
@@ -3206,7 +3218,8 @@ if (command === 'real-block-task-probe') {
 
     const report = await runRealBlockTaskProbe({ blockPath: taskId, provider, taskId: taskIdFlag, timeoutMs });
     console.log(formatRealBlockTaskProbeReport(report));
-    process.exit(report.ok ? 0 : 1);
+    process.exitCode = report.ok ? 0 : 1;
+    break commandDispatch;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-block-task-probe] Error: ${redactSecrets(message)}`);
@@ -3214,7 +3227,8 @@ if (command === 'real-block-task-probe') {
     console.error('[real-block-task-probe] No network call was made');
     console.error('[real-block-task-probe] No repo mutation was performed');
     console.error('[real-block-task-probe] No state mutation was performed');
-    process.exit(1);
+    process.exitCode = 1;
+    break commandDispatch;
   }
 }
 
@@ -5485,5 +5499,7 @@ if (command === 'block-sandbox') {
 
 if (process.exitCode === undefined) {
   console.error(`Unknown command: ${command}`);
-  process.exit(1);
+  process.exitCode = 1;
+}
+
 }
