@@ -83,6 +83,7 @@ import { createRealBlockRunAIDryRunReport, formatRealBlockRunAIDryRunReport } fr
 import { createRealBlockInitFile, formatRealBlockInitReport, getFlagValue } from './real-block-init.js';
 import { validateRealBlockFile, formatRealBlockValidateReport } from './real-block-validate.js';
 import { runRealBlockPreflight, formatRealBlockPreflightReport } from './real-block-preflight.js';
+import { runDisposablePilot } from './real-block-disposable-pilot.js';
 import { runRealBlockTaskProbe, formatRealBlockTaskProbeReport } from './real-block-task-probe.js';
 
 function countLines(text: string): number {
@@ -3025,6 +3026,66 @@ if (command === 'real-block-run-ai-report') {
     console.error('[real-block-run-ai-report] No push was performed');
     console.error('[real-block-run-ai-report] No merge was performed');
     process.exit(1);
+  }
+}
+
+if (command === 'real-block-disposable-pilot') {
+  const pilotBlockPath = taskId;
+  const pilotProvider =
+    args.find((_, i) => args[i - 1] === '--provider') || process.env.AI_PROVIDER || 'kimi';
+  const timeoutArg = args.find((_, i) => args[i - 1] === '--timeout-ms');
+  const timeoutMs = timeoutArg ? Number(timeoutArg) : 120000;
+
+  if (!pilotBlockPath) {
+    console.error('[real-block-disposable-pilot] Error: block definition path is required');
+    console.error('[real-block-disposable-pilot] No provider call was made');
+    console.error('[real-block-disposable-pilot] No repo mutation was performed');
+    process.exitCode = 1;
+  } else if (Number.isNaN(timeoutMs) || timeoutMs < 1) {
+    console.error('[real-block-disposable-pilot] Error: --timeout-ms must be a positive integer');
+    console.error('[real-block-disposable-pilot] No provider call was made');
+    console.error('[real-block-disposable-pilot] No repo mutation was performed');
+    process.exitCode = 1;
+  } else {
+    try {
+      const projectRoot = process.cwd();
+      const { spawnSync } = await import('node:child_process');
+      const { join } = await import('node:path');
+      const runCommand: import('./real-block-disposable-pilot.js').CommandRunner = async (
+        commandArgs,
+        commandEnv
+      ) => {
+        const cliPath = join(projectRoot, 'src', 'cli.ts');
+        const tsxPath = join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+        const result = spawnSync(process.execPath, [tsxPath, cliPath, ...commandArgs], {
+          cwd: projectRoot,
+          env: commandEnv,
+          encoding: 'utf-8',
+          shell: false,
+        });
+        return {
+          exitCode: result.status ?? 1,
+          stdout: result.stdout || '',
+          stderr: result.stderr || '',
+        };
+      };
+      const pilotResult = await runDisposablePilot({
+        blockPath: pilotBlockPath,
+        provider: pilotProvider,
+        timeoutMs,
+        projectRoot,
+        env: process.env,
+        runCommand,
+      });
+      console.log(JSON.stringify(pilotResult, null, 2));
+      process.exitCode = pilotResult.ok ? 0 : 1;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[real-block-disposable-pilot] Error: ${redactSecrets(message)}`);
+      console.error('[real-block-disposable-pilot] No provider call was made');
+      console.error('[real-block-disposable-pilot] No repo mutation was performed');
+      process.exitCode = 1;
+    }
   }
 }
 
