@@ -880,7 +880,8 @@ if (command === 'real-repo-run-ai') {
       console.error('[real-repo-run-ai] No merge was performed');
       console.error('[real-repo-run-ai] No checkout was performed');
       console.error('[real-repo-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     if (process.env.ALLOW_REAL_PROVIDER !== 'true') {
@@ -892,7 +893,8 @@ if (command === 'real-repo-run-ai') {
       console.error('[real-repo-run-ai] No merge was performed');
       console.error('[real-repo-run-ai] No checkout was performed');
       console.error('[real-repo-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     if (process.env.ALLOW_REAL_REPO_APPLY !== 'true') {
@@ -904,7 +906,8 @@ if (command === 'real-repo-run-ai') {
       console.error('[real-repo-run-ai] No merge was performed');
       console.error('[real-repo-run-ai] No checkout was performed');
       console.error('[real-repo-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     if (process.env.ALLOW_REAL_REPO_COMMIT !== 'true') {
@@ -916,7 +919,8 @@ if (command === 'real-repo-run-ai') {
       console.error('[real-repo-run-ai] No merge was performed');
       console.error('[real-repo-run-ai] No checkout was performed');
       console.error('[real-repo-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     if (process.env.ALLOW_REAL_REPO_PUSH !== 'true') {
@@ -928,7 +932,8 @@ if (command === 'real-repo-run-ai') {
       console.error('[real-repo-run-ai] No merge was performed');
       console.error('[real-repo-run-ai] No checkout was performed');
       console.error('[real-repo-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     const task = loadTask(getTasksFilePath(), taskId);
@@ -958,7 +963,8 @@ if (command === 'real-repo-run-ai') {
       console.error('[real-repo-run-ai] No merge was performed');
       console.error('[real-repo-run-ai] No checkout was performed');
       console.error('[real-repo-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     let maxAttempts: number;
@@ -974,7 +980,8 @@ if (command === 'real-repo-run-ai') {
       console.error('[real-repo-run-ai] No merge was performed');
       console.error('[real-repo-run-ai] No checkout was performed');
       console.error('[real-repo-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     const apiKey = process.env.KIMI_API_KEY?.trim();
@@ -987,7 +994,8 @@ if (command === 'real-repo-run-ai') {
       console.error('[real-repo-run-ai] No merge was performed');
       console.error('[real-repo-run-ai] No checkout was performed');
       console.error('[real-repo-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     const baseUrl = process.env.KIMI_BASE_URL?.trim();
@@ -1000,7 +1008,8 @@ if (command === 'real-repo-run-ai') {
       console.error('[real-repo-run-ai] No merge was performed');
       console.error('[real-repo-run-ai] No checkout was performed');
       console.error('[real-repo-run-ai] No main touch was performed');
-      process.exit(1);
+      process.exitCode = 1;
+      break commandDispatch;
     }
 
     const model = process.env.KIMI_MODEL?.trim() || 'kimi-k2.6';
@@ -1049,7 +1058,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
       fetchFn = globalThis.fetch as unknown as FetchFn;
     }
@@ -1118,7 +1128,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       const updatePaths = kimiOutput.files.map((f) => f.path);
@@ -1132,7 +1143,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       if (task.guardrails.max_lines_changed !== undefined) {
@@ -1151,7 +1163,8 @@ if (command === 'real-repo-run-ai') {
           console.error('[real-repo-run-ai] No merge was performed');
           console.error('[real-repo-run-ai] No checkout was performed');
           console.error('[real-repo-run-ai] No main touch was performed');
-          process.exit(1);
+          process.exitCode = 1;
+          break commandDispatch;
         }
       }
 
@@ -1189,7 +1202,8 @@ if (command === 'real-repo-run-ai') {
           console.error('[real-repo-run-ai] No merge was performed');
           console.error('[real-repo-run-ai] No checkout was performed');
           console.error('[real-repo-run-ai] No main touch was performed');
-          process.exit(1);
+          process.exitCode = 1;
+          break commandDispatch;
         }
       } finally {
         if (existsSync(sandboxRootAi)) {
@@ -1223,7 +1237,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       let manifest: import('./types.js').PatchManifestEntry[] | undefined;
@@ -1237,7 +1252,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       const checkResult = runChecks(task.repo_path, task.checks);
@@ -1270,7 +1286,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       const approvedPaths = new Set(updatePaths);
@@ -1292,7 +1309,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       if (allChanges.length === 0) {
@@ -1302,7 +1320,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       const approvedChanged = allChanges.filter((p) => approvedPaths.has(p));
@@ -1319,7 +1338,8 @@ if (command === 'real-repo-run-ai') {
           console.error('[real-repo-run-ai] No merge was performed');
           console.error('[real-repo-run-ai] No checkout was performed');
           console.error('[real-repo-run-ai] No main touch was performed');
-          process.exit(1);
+          process.exitCode = 1;
+          break commandDispatch;
         }
       }
 
@@ -1336,7 +1356,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       const pushResult = spawnSync('git', ['push', 'origin', currentBranch], {
@@ -1350,7 +1371,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       const headResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
@@ -1389,7 +1411,8 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        process.exit(1);
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       // Reviewer gate (fake env only)
@@ -1712,11 +1735,13 @@ if (command === 'real-repo-run-ai') {
 
                 if (finalStatus === 'accepted') {
                   console.error('[real-repo-run-ai] Reviewer fix-loop completed: fix commit accepted');
-                  process.exit(0);
+                  process.exitCode = 0;
+                  break commandDispatch;
                 }
 
                 console.error(`[real-repo-run-ai] Reviewer fix-loop stopped: ${finalReason}`);
-                process.exit(1);
+                process.exitCode = 1;
+                break commandDispatch;
               }
             }
           }
@@ -1726,7 +1751,8 @@ if (command === 'real-repo-run-ai') {
             console.error('[real-repo-run-ai] Reviewer gate state write failed');
           }
           if (reviewerGatePersisted.status !== 'accepted') {
-            process.exit(1);
+            process.exitCode = 1;
+            break commandDispatch;
           }
         }
       }
@@ -1745,14 +1771,16 @@ if (command === 'real-repo-run-ai') {
     console.error('[real-repo-run-ai] Push completed');
     console.error('[real-repo-run-ai] State written');
     console.error('[real-repo-run-ai] Human review required before merge');
-    process.exit(0);
+    process.exitCode = 0;
+    break commandDispatch;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-repo-run-ai] Error: ${message}`);
     console.error('[real-repo-run-ai] No merge was performed');
     console.error('[real-repo-run-ai] No checkout was performed');
     console.error('[real-repo-run-ai] No main touch was performed');
-    process.exit(1);
+    process.exitCode = 1;
+    break commandDispatch;
   }
 }
 

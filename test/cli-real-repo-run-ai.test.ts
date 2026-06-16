@@ -250,11 +250,78 @@ function getCommittedFiles(repoPath: string): string[] {
   return result.stdout.trim().split('\n').filter((l) => l.length > 0);
 }
 
+function getRealRepoRunAiBranchSource(): string {
+  const source = readFileSync(join(process.cwd(), 'src', 'cli.ts'), 'utf-8');
+  const start = source.indexOf("if (command === 'real-repo-run-ai') {");
+  if (start === -1) {
+    throw new Error('real-repo-run-ai branch not found in src/cli.ts');
+  }
+  const end = source.indexOf("if (command === 'real-repo-run-ai-readiness') {", start);
+  if (end === -1) {
+    throw new Error('real-repo-run-ai-readiness branch not found in src/cli.ts');
+  }
+  return source.slice(start, end);
+}
+
 describe('cli real-repo-run-ai', () => {
+  test('branch source does not use direct process.exit(', () => {
+    const branch = getRealRepoRunAiBranchSource();
+    assert(!branch.includes('process.exit('), 'Expected no direct process.exit call in real-repo-run-ai branch');
+  });
+
+  test('branch source uses process.exitCode', () => {
+    const branch = getRealRepoRunAiBranchSource();
+    assert(branch.includes('process.exitCode'), 'Expected process.exitCode assignment in real-repo-run-ai branch');
+  });
+
+  test('branch source uses break commandDispatch', () => {
+    const branch = getRealRepoRunAiBranchSource();
+    assert(branch.includes('break commandDispatch'), 'Expected break commandDispatch in real-repo-run-ai branch');
+  });
+
   test('missing taskId refuses', () => {
     const result = runCli(['real-repo-run-ai']);
     assert.notStrictEqual(result.status, 0);
     assert(result.stderr.includes('task id is required'), `Expected task id required: ${result.stderr}`);
+  });
+
+  test('success path with fake setup exits 0', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('failure path with guardrails violation exits non-zero', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: '.env', content: 'SECRET=1\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('Guardrails failed'), `Expected guardrails failure: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
   });
 
   test('missing ALLOW_REAL_PROVIDER refuses before provider call', () => {
