@@ -106,9 +106,23 @@ function safeRedact(value: string | undefined): string | undefined {
   return redactSecrets(value);
 }
 
-function buildNextCommands(blockPath: string, block: BlockDefinition | undefined): string[] {
+function buildNextCommands(
+  blockPath: string,
+  block: BlockDefinition | undefined,
+  provider: string,
+  timeoutMs: number,
+  includeTimeout: boolean
+): string[] {
   if (!block) return [];
+  const taskProbeParts = [
+    `npx tsx src/cli.ts real-block-task-probe ${blockPath}`,
+    `--provider ${provider}`,
+  ];
+  if (includeTimeout) {
+    taskProbeParts.push(`--timeout-ms ${timeoutMs}`);
+  }
   return [
+    taskProbeParts.join(' '),
     `npx tsx src/cli.ts real-block-run-ai ${blockPath}`,
     `npx tsx src/cli.ts real-block-run-ai-report runs/block/${block.block_id}/state.json`,
   ];
@@ -382,7 +396,15 @@ export async function runRealBlockPreflight(
     coderContractReport.ok &&
     reviewerContractReport.ok;
 
-  const nextCommands = ok ? buildNextCommands(options.blockPath, block) : [];
+  const nextCommands = ok
+    ? buildNextCommands(
+        options.blockPath,
+        block,
+        provider,
+        timeoutMs,
+        options.timeoutMs !== undefined
+      )
+    : [];
 
   return {
     ok,

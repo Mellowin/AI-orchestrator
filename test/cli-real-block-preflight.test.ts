@@ -194,8 +194,98 @@ describe('real-block-preflight CLI', () => {
     cleanupRepo(repoPath);
     const parsed = parseOutput(result.stdout);
     const commands = parsed.nextCommands as string[];
+    assert.ok(commands.some((c) => c.includes('real-block-task-probe')));
     assert.ok(commands.some((c) => c.includes('real-block-run-ai')));
     assert.ok(commands.some((c) => c.includes('real-block-run-ai-report')));
+  });
+
+  test('nextCommands order is task probe → real run → report', async () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-preflight', blockPath], buildEnv());
+    cleanupRepo(repoPath);
+    const parsed = parseOutput(result.stdout);
+    const commands = parsed.nextCommands as string[];
+    const probeIndex = commands.findIndex((c) => c.includes('real-block-task-probe'));
+    const runIndex = commands.findIndex((c) => c.includes('real-block-run-ai ') && !c.includes('report'));
+    const reportIndex = commands.findIndex((c) => c.includes('real-block-run-ai-report'));
+    assert.ok(probeIndex >= 0);
+    assert.ok(runIndex >= 0);
+    assert.ok(reportIndex >= 0);
+    assert.ok(probeIndex < runIndex);
+    assert.ok(runIndex < reportIndex);
+  });
+
+  test('task probe command includes --provider kimi by default', async () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-preflight', blockPath], buildEnv());
+    cleanupRepo(repoPath);
+    const parsed = parseOutput(result.stdout);
+    const commands = parsed.nextCommands as string[];
+    const probeCommand = commands.find((c) => c.includes('real-block-task-probe'));
+    assert.ok(probeCommand);
+    assert.match(probeCommand as string, /--provider kimi/);
+  });
+
+  test('task probe command includes --provider kimi when passed explicitly', async () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-preflight', blockPath, '--provider', 'kimi'], buildEnv());
+    cleanupRepo(repoPath);
+    const parsed = parseOutput(result.stdout);
+    const commands = parsed.nextCommands as string[];
+    const probeCommand = commands.find((c) => c.includes('real-block-task-probe'));
+    assert.ok(probeCommand);
+    assert.match(probeCommand as string, /--provider kimi/);
+  });
+
+  test('task probe command includes --timeout-ms when passed', async () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-preflight', blockPath, '--timeout-ms', '15000'], buildEnv());
+    cleanupRepo(repoPath);
+    const parsed = parseOutput(result.stdout);
+    const commands = parsed.nextCommands as string[];
+    const probeCommand = commands.find((c) => c.includes('real-block-task-probe'));
+    assert.ok(probeCommand);
+    assert.match(probeCommand as string, /--timeout-ms 15000/);
+  });
+
+  test('failure preflight has empty nextCommands', async () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(
+      ['real-block-preflight', blockPath],
+      buildEnv({ REAL_PROVIDER_SMOKE_FAKE_RESPONSE: 'not-json' })
+    );
+    cleanupRepo(repoPath);
+    const parsed = parseOutput(result.stdout + result.stderr);
+    assert.strictEqual(parsed.ok, false);
+    const commands = parsed.nextCommands as string[];
+    assert.strictEqual(commands.length, 0);
+  });
+
+  test('unsupported provider has empty nextCommands', async () => {
+    const repoPath = createTempRepo();
+    const blockPath = createBlockFile(repoPath);
+    const result = runCli(['real-block-preflight', blockPath, '--provider', 'openai'], buildEnv());
+    cleanupRepo(repoPath);
+    const parsed = parseOutput(result.stdout + result.stderr);
+    assert.strictEqual(parsed.ok, false);
+    const commands = parsed.nextCommands as string[];
+    assert.strictEqual(commands.length, 0);
+  });
+
+  test('strict validation failure has empty nextCommands', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'preflight-invalid-'));
+    const missingPath = join(tmpDir, 'missing.json');
+    const result = runCli(['real-block-preflight', missingPath], buildEnv());
+    rmSync(tmpDir, { recursive: true, force: true });
+    const parsed = parseOutput(result.stdout + result.stderr);
+    assert.strictEqual(parsed.ok, false);
+    const commands = parsed.nextCommands as string[];
+    assert.strictEqual(commands.length, 0);
   });
 
   test('invalid block path fails validation and overall ok false', async () => {
@@ -296,6 +386,7 @@ describe('real-block-preflight CLI', () => {
     }
     assert.strictEqual(report.mode, 'real-block-preflight');
     assert.strictEqual(report.ok, true);
+    assert.ok(report.nextCommands.some((c) => c.includes('real-block-task-probe')));
     assert.ok(report.nextCommands.some((c) => c.includes('real-block-run-ai')));
     assert.ok(report.nextCommands.some((c) => c.includes('real-block-run-ai-report')));
   });
