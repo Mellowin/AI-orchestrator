@@ -54,7 +54,8 @@ export function checkProviderSmokeReadiness(
   }
 
   const missingEnv: string[] = [];
-  if (getEnv(env, 'ALLOW_REAL_PROVIDER') !== 'true') {
+  const allowRealProvider = getEnv(env, 'ALLOW_REAL_PROVIDER') === 'true' || getEnv(env, 'ALLOW_REAL_PROVIDER') === '1';
+  if (!allowRealProvider) {
     missingEnv.push('ALLOW_REAL_PROVIDER');
   }
   if (!getEnv(env, 'KIMI_API_KEY')) {

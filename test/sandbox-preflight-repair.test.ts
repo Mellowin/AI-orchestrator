@@ -79,6 +79,20 @@ describe('sandbox-preflight-repair', () => {
     assert(decision.repairPrompt.includes(baseInput.logs), `Prompt should include logs: ${decision.repairPrompt}`);
   });
 
+  test('repair prompt includes raw provider text for context', () => {
+    const decision = buildSandboxPreflightRepairDecision(baseInput);
+    assert(decision.repairPrompt !== undefined);
+    assert(decision.repairPrompt.includes(baseInput.rawProviderText), `Prompt should include raw provider text: ${decision.repairPrompt}`);
+  });
+
+  test('repair prompt includes explicit JSON schema example', () => {
+    const decision = buildSandboxPreflightRepairDecision(baseInput);
+    assert(decision.repairPrompt !== undefined);
+    assert(decision.repairPrompt.includes('"files"'), `Prompt should include files schema: ${decision.repairPrompt}`);
+    assert(decision.repairPrompt.includes('"path"'), `Prompt should include path schema: ${decision.repairPrompt}`);
+    assert(decision.repairPrompt.includes('"content"'), `Prompt should include content schema: ${decision.repairPrompt}`);
+  });
+
   test('repair prompt does not include obvious secret-looking values if present in logs', () => {
     const decision = buildSandboxPreflightRepairDecision({
       ...baseInput,
@@ -88,6 +102,16 @@ describe('sandbox-preflight-repair', () => {
     assert(!decision.repairPrompt.includes('sk-fake12345'), `Prompt should not contain API key: ${decision.repairPrompt}`);
     assert(!decision.repairPrompt.includes('abc123'), `Prompt should not contain secret token: ${decision.repairPrompt}`);
     assert(decision.repairPrompt.includes('[REDACTED]'), `Prompt should contain redaction marker: ${decision.repairPrompt}`);
+  });
+
+  test('repair prompt redacts secrets in raw provider text', () => {
+    const decision = buildSandboxPreflightRepairDecision({
+      ...baseInput,
+      rawProviderText: '{"files":[{"path":"README.md","content":"SECRET=sk-fake-repair"}]}',
+    });
+    assert(decision.repairPrompt !== undefined);
+    assert(!decision.repairPrompt.includes('sk-fake-repair'), `Prompt should not contain secret in raw provider text: ${decision.repairPrompt}`);
+    assert(decision.repairPrompt.includes('[REDADACTED]') || decision.repairPrompt.includes('[REDACTED]'), `Prompt should contain redaction marker: ${decision.repairPrompt}`);
   });
 
   test('helper is pure and does not call provider APIs or mutate files', () => {

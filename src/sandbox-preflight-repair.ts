@@ -29,6 +29,7 @@ function buildRepairPrompt(
   rawProviderText: string
 ): string {
   const redactedLogs = redactSecrets(logs);
+  const redactedRawProviderText = redactSecrets(rawProviderText);
 
   return (
     `# Task (Repair Attempt)\n\n` +
@@ -36,11 +37,21 @@ function buildRepairPrompt(
     `# Previous Attempt Failed\n\n` +
     `Sandbox preflight failed at step: ${failedStep}\n\n` +
     `Check output summary:\n${redactedLogs}\n\n` +
+    `# Previously Proposed Output\n\n` +
+    `${redactedRawProviderText}\n\n` +
+    `# Required JSON Schema\n\n` +
+    `Return ONLY a single valid JSON object (no markdown outside JSON) with this exact shape:\n` +
+    `{\n` +
+    `  "files": [\n` +
+    `    {\n` +
+    `      "path": "README.md",\n` +
+    `      "content": "<full file content as a single string>"\n` +
+    `    }\n` +
+    `  ]\n` +
+    `}\n\n` +
     `# Instructions\n\n` +
     `Fix the issue that caused the check to fail. ` +
-    `Return ONLY valid JSON using the file_update schema. ` +
-    `Return full file content, not diffs. ` +
-    `Do not include markdown outside JSON. ` +
+    `Return full file content for every file, not diffs. ` +
     `Do not modify files outside allowed scope. ` +
     `Do not include secrets, tokens, or API keys.`
   );

@@ -347,6 +347,37 @@ describe('cli real-block-run-ai-readiness', () => {
     }
   });
 
+  test('ALLOW_REAL_PROVIDER=1 returns ready true', () => {
+    const { blockPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const result = runCli(
+        ['real-block-run-ai-readiness', blockPath],
+        baseReadinessEnv(runsDir, { ALLOW_REAL_PROVIDER: '1' })
+      );
+      assert.strictEqual(result.status, 0, `Expected readiness success: ${result.stderr}`);
+      const report = parseReport(result);
+      assert.strictEqual(report.ready, true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('ALLOW_REAL_PROVIDER=false returns ready false', () => {
+    const { blockPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const result = runCli(
+        ['real-block-run-ai-readiness', blockPath],
+        baseReadinessEnv(runsDir, { ALLOW_REAL_PROVIDER: 'false' })
+      );
+      assert.notStrictEqual(result.status, 0);
+      const report = parseReport(result);
+      assert.strictEqual(report.ready, false);
+      assert((report.reasons as string[]).some((r) => r.includes('ALLOW_REAL_PROVIDER')));
+    } finally {
+      cleanup();
+    }
+  });
+
   test('missing KIMI_API_KEY returns ready false', () => {
     const { blockPath, runsDir, cleanup } = createTempBlockEnv();
     try {

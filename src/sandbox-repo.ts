@@ -9,10 +9,11 @@ import {
 } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
-const EXCLUDED_NAMES = new Set(['.git', 'node_modules', 'runs', '.env']);
+const ALWAYS_EXCLUDED_NAMES = new Set(['node_modules', 'runs', '.env']);
 
-function isExcluded(name: string): boolean {
-  if (EXCLUDED_NAMES.has(name)) return true;
+function isExcluded(name: string, includeGit: boolean): boolean {
+  if (name === '.git') return !includeGit;
+  if (ALWAYS_EXCLUDED_NAMES.has(name)) return true;
   if (name.startsWith('.env.')) return true;
   return false;
 }
@@ -23,17 +24,21 @@ function validatePath(path: string): void {
   }
 }
 
-function copyDirectoryRecursive(src: string, dest: string): void {
+function copyDirectoryRecursive(
+  src: string,
+  dest: string,
+  includeGit: boolean
+): void {
   mkdirSync(dest, { recursive: true });
   for (const entry of readdirSync(src)) {
-    if (isExcluded(entry)) {
+    if (isExcluded(entry, includeGit)) {
       continue;
     }
     const srcPath = join(src, entry);
     const destPath = join(dest, entry);
     const stats = statSync(srcPath);
     if (stats.isDirectory()) {
-      copyDirectoryRecursive(srcPath, destPath);
+      copyDirectoryRecursive(srcPath, destPath, includeGit);
     } else if (stats.isFile()) {
       copyFileSync(srcPath, destPath);
     }
@@ -46,9 +51,14 @@ export interface SandboxRepoResult {
   cleanup: () => void;
 }
 
+export interface CreateSandboxRepoCopyOptions {
+  preserveGit?: boolean;
+}
+
 export function createSandboxRepoCopy(
   sourceRepoPath: string,
-  sandboxRoot: string
+  sandboxRoot: string,
+  options?: CreateSandboxRepoCopyOptions
 ): SandboxRepoResult {
   validatePath(sourceRepoPath);
   validatePath(sandboxRoot);
@@ -83,8 +93,9 @@ export function createSandboxRepoCopy(
     );
   }
 
+  const includeGit = options?.preserveGit ?? false;
   const sandboxRepoPath = mkdtempSync(join(sandboxRoot, 'sandbox-'));
-  copyDirectoryRecursive(sourceRepoPath, sandboxRepoPath);
+  copyDirectoryRecursive(sourceRepoPath, sandboxRepoPath, includeGit);
 
   return {
     sandboxRepoPath,

@@ -128,6 +128,31 @@ describe('createSandboxRepoCopy', () => {
     }
   });
 
+  test('copies .git when preserveGit is true', () => {
+    const { sourceRepo, sandboxRoot, cleanup } = createTempDirs();
+    try {
+      const { sandboxRepoPath, cleanup: sandboxCleanup } = createSandboxRepoCopy(
+        sourceRepo,
+        sandboxRoot,
+        { preserveGit: true }
+      );
+      try {
+        assert(
+          existsSync(join(sandboxRepoPath, '.git')),
+          '.git should be copied'
+        );
+        assert.strictEqual(
+          readFileSync(join(sandboxRepoPath, '.git', 'HEAD'), 'utf-8'),
+          'ref: refs/heads/main\n'
+        );
+      } finally {
+        sandboxCleanup();
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
   test('excludes node_modules', () => {
     const { sourceRepo, sandboxRoot, cleanup } = createTempDirs();
     try {

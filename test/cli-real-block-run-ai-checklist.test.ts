@@ -224,6 +224,46 @@ describe('real-block-run-ai-checklist CLI', () => {
     assert.deepStrictEqual(result.missingEnv, ['ALLOW_REAL_PROVIDER', 'KIMI_API_KEY', 'KIMI_BASE_URL']);
   });
 
+  test('ALLOW_REAL_PROVIDER=1 makes provider smoke env ready', () => {
+    const result = checkProviderSmokeReadiness({
+      ALLOW_REAL_PROVIDER: '1',
+      KIMI_API_KEY: 'sk-test',
+      KIMI_BASE_URL: 'http://localhost.invalid',
+    }, 'kimi');
+    assert.strictEqual(result.envReady, true);
+    assert.strictEqual(result.missingEnv, undefined);
+  });
+
+  test('ALLOW_REAL_PROVIDER=false makes provider smoke env not ready', () => {
+    const result = checkProviderSmokeReadiness({
+      ALLOW_REAL_PROVIDER: 'false',
+      KIMI_API_KEY: 'sk-test',
+      KIMI_BASE_URL: 'http://localhost.invalid',
+    }, 'kimi');
+    assert.strictEqual(result.envReady, false);
+    assert.deepStrictEqual(result.missingEnv, ['ALLOW_REAL_PROVIDER']);
+  });
+
+  test('ALLOW_REAL_PROVIDER=yes makes provider smoke env not ready', () => {
+    const result = checkProviderSmokeReadiness({
+      ALLOW_REAL_PROVIDER: 'yes',
+      KIMI_API_KEY: 'sk-test',
+      KIMI_BASE_URL: 'http://localhost.invalid',
+    }, 'kimi');
+    assert.strictEqual(result.envReady, false);
+    assert.deepStrictEqual(result.missingEnv, ['ALLOW_REAL_PROVIDER']);
+  });
+
+  test('ALLOW_REAL_PROVIDER=0 makes provider smoke env not ready', () => {
+    const result = checkProviderSmokeReadiness({
+      ALLOW_REAL_PROVIDER: '0',
+      KIMI_API_KEY: 'sk-test',
+      KIMI_BASE_URL: 'http://localhost.invalid',
+    }, 'kimi');
+    assert.strictEqual(result.envReady, false);
+    assert.deepStrictEqual(result.missingEnv, ['ALLOW_REAL_PROVIDER']);
+  });
+
   test('checklist never calls runRealProviderSmoke', () => {
     const source = readFileSync(SOURCE_PATH, 'utf-8');
     assert.doesNotMatch(source, /runRealProviderSmoke/);

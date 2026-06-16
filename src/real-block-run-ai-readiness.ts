@@ -40,16 +40,20 @@ function checkEnv(report: ReadinessReport): void {
     addReason(report, 'ALLOW_REAL_BLOCK_RUN_AI=true (or REAL_BLOCK_RUN_AI=1) is required');
   }
 
-  const requiredFlags = [
-    'ALLOW_REAL_PROVIDER',
+  const requiredTrueFlags = [
     'ALLOW_REAL_REPO_APPLY',
     'ALLOW_REAL_REPO_COMMIT',
     'ALLOW_REAL_REPO_PUSH',
   ];
-  for (const name of requiredFlags) {
+  for (const name of requiredTrueFlags) {
     if (process.env[name] !== 'true') {
       addReason(report, `${name}=true is required`);
     }
+  }
+
+  const allowRealProvider = process.env.ALLOW_REAL_PROVIDER === 'true' || process.env.ALLOW_REAL_PROVIDER === '1';
+  if (!allowRealProvider) {
+    addReason(report, 'ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required');
   }
 
   if (!process.env.KIMI_API_KEY || process.env.KIMI_API_KEY.trim() === '') {

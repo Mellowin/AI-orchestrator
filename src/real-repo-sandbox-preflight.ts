@@ -21,6 +21,7 @@ export function runRealRepoSandboxPreflight(
     task: input.task,
     rawProviderText: input.rawProviderText,
     sandboxRoot: input.sandboxRoot,
+    preserveGit: true,
   });
 
   return {

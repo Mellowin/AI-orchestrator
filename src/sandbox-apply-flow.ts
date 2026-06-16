@@ -12,6 +12,7 @@ export interface SandboxApplyFlowInput {
   task: Task;
   rawProviderText: string;
   sandboxRoot: string;
+  preserveGit?: boolean;
 }
 
 export interface SandboxApplyFlowResult {
@@ -88,7 +89,8 @@ export function runSandboxApplyFlow(
   try {
     const sandboxResult = createSandboxRepoCopy(
       input.task.repo_path,
-      input.sandboxRoot
+      input.sandboxRoot,
+      { preserveGit: input.preserveGit }
     );
     sandboxRepoPath = sandboxResult.sandboxRepoPath;
     sandboxCleanupFn = sandboxResult.cleanup;
