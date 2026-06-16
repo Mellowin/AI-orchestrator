@@ -884,8 +884,9 @@ if (command === 'real-repo-run-ai') {
       break commandDispatch;
     }
 
-    if (process.env.ALLOW_REAL_PROVIDER !== 'true') {
-      console.error('[real-repo-run-ai] ALLOW_REAL_PROVIDER=true is required');
+    const allowRealProvider = process.env.ALLOW_REAL_PROVIDER === 'true' || process.env.ALLOW_REAL_PROVIDER === '1';
+    if (!allowRealProvider) {
+      console.error('[real-repo-run-ai] ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required');
       console.error('[real-repo-run-ai] No provider call was made');
       console.error('[real-repo-run-ai] No apply was performed');
       console.error('[real-repo-run-ai] No commit was made');

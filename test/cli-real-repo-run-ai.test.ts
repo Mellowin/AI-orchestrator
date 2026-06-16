@@ -334,11 +334,60 @@ describe('cli real-repo-run-ai', () => {
         ALLOW_REAL_REPO_PUSH: 'true',
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('ALLOW_REAL_PROVIDER=true is required'), `Expected provider opt-in: ${result.stderr}`);
+      assert(result.stderr.includes('ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required'), `Expected provider opt-in: ${result.stderr}`);
       assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
     } finally {
       cleanup();
     }
+  });
+
+  test('ALLOW_REAL_PROVIDER=1 works', () => {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: '1',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  function assertInvalidAllowRealProvider(value: string): void {
+    const { taskId, tasksFilePath, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: value,
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.notStrictEqual(result.status, 0, `Expected refusal for ALLOW_REAL_PROVIDER=${value}`);
+      assert(result.stderr.includes('ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required'), `Expected opt-in message: ${result.stderr}`);
+      assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
+    } finally {
+      cleanup();
+    }
+  }
+
+  test('ALLOW_REAL_PROVIDER=false refuses before provider call', () => {
+    assertInvalidAllowRealProvider('false');
+  });
+
+  test('ALLOW_REAL_PROVIDER=yes refuses before provider call', () => {
+    assertInvalidAllowRealProvider('yes');
+  });
+
+  test('ALLOW_REAL_PROVIDER=0 refuses before provider call', () => {
+    assertInvalidAllowRealProvider('0');
   });
 
   test('missing ALLOW_REAL_REPO_APPLY refuses before provider call', () => {
