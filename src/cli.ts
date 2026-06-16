@@ -83,6 +83,7 @@ import { createRealBlockRunAIDryRunReport, formatRealBlockRunAIDryRunReport } fr
 import { createRealBlockInitFile, formatRealBlockInitReport, getFlagValue } from './real-block-init.js';
 import { validateRealBlockFile, formatRealBlockValidateReport } from './real-block-validate.js';
 import { runRealBlockPreflight, formatRealBlockPreflightReport } from './real-block-preflight.js';
+import { runRealBlockTaskProbe, formatRealBlockTaskProbeReport } from './real-block-task-probe.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -3179,9 +3180,47 @@ if (command === 'real-block-preflight') {
   }
 }
 
+if (command === 'real-block-task-probe') {
+  try {
+    if (!taskId) {
+      console.error('[real-block-task-probe] Error: block path is required');
+      console.error('[real-block-task-probe] No provider call was made');
+      console.error('[real-block-task-probe] No network call was made');
+      console.error('[real-block-task-probe] No repo mutation was performed');
+      console.error('[real-block-task-probe] No state mutation was performed');
+      const emptyReport = await runRealBlockTaskProbe({
+        blockPath: '',
+        provider: 'kimi',
+        env: { ...process.env, ALLOW_REAL_PROVIDER: '', KIMI_API_KEY: '', KIMI_BASE_URL: '' },
+      });
+      console.log(formatRealBlockTaskProbeReport(emptyReport));
+      process.exit(1);
+    }
+
+    const providerFlagIndex = args.indexOf('--provider');
+    const provider = providerFlagIndex >= 0 && args[providerFlagIndex + 1] ? args[providerFlagIndex + 1] : undefined;
+    const taskIdFlagIndex = args.indexOf('--task-id');
+    const taskIdFlag = taskIdFlagIndex >= 0 && args[taskIdFlagIndex + 1] ? args[taskIdFlagIndex + 1] : undefined;
+    const timeoutFlagIndex = args.indexOf('--timeout-ms');
+    const timeoutMs = timeoutFlagIndex >= 0 && args[timeoutFlagIndex + 1] ? Number(args[timeoutFlagIndex + 1]) : undefined;
+
+    const report = await runRealBlockTaskProbe({ blockPath: taskId, provider, taskId: taskIdFlag, timeoutMs });
+    console.log(formatRealBlockTaskProbeReport(report));
+    process.exit(report.ok ? 0 : 1);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[real-block-task-probe] Error: ${redactSecrets(message)}`);
+    console.error('[real-block-task-probe] No provider call was made');
+    console.error('[real-block-task-probe] No network call was made');
+    console.error('[real-block-task-probe] No repo mutation was performed');
+    console.error('[real-block-task-probe] No state mutation was performed');
+    process.exit(1);
+  }
+}
+
 if (!command || !taskId) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }

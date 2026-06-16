@@ -316,6 +316,7 @@ Recommended real-run sequence:
 
 ```bash
 npx tsx src/cli.ts real-block-preflight <blockPath> --provider kimi
+npx tsx src/cli.ts real-block-task-probe <blockPath> --provider kimi --task-id <taskId>
 npx tsx src/cli.ts real-block-run-ai-dry-run <blockPath>
 npx tsx src/cli.ts real-block-run-ai-readiness <blockPath>
 npx tsx src/cli.ts real-block-run-ai <blockPath>
@@ -462,6 +463,32 @@ This command:
 - does **not** run the block, mutate the repository, write block state, apply patches, create commits, push, merge, or touch the repository
 
 Use `REAL_PROVIDER_SMOKE_FAKE_RESPONSE`, `REAL_CODER_CONTRACT_SMOKE_FAKE_RESPONSE`, and `REAL_REVIEWER_CONTRACT_SMOKE_FAKE_RESPONSE` only for deterministic local testing of the validator.
+
+## Real block task probe (read-only, no mutation)
+
+After the combined preflight passes, probe a single real block task with real AI before applying anything:
+
+```bash
+export ALLOW_REAL_PROVIDER=true
+export KIMI_API_KEY="sk-your-key"
+export KIMI_BASE_URL="https://api.moonshot.cn/v1"
+
+npx tsx src/cli.ts real-block-task-probe ./my-block.json --provider kimi --task-id task_1
+```
+
+This command:
+
+- loads the block and performs strict block validation
+- selects the task specified by `--task-id`, or the first task if omitted
+- enforces task safety before calling the provider (non-empty `allowed_files`, non-empty `checks`, `work_branch` not `main`, `work_branch` not equal `base_branch`)
+- calls the real coder provider with the actual task context and validates the patch-plan contract
+- rejects proposed files outside `allowed_files` or inside `denied_files` before calling the reviewer
+- calls the real reviewer provider with the proposed plan and validates the decision through the existing reviewer gate parser
+- prints a single redacted JSON report with `ok`, `coder`, `reviewer`, `mutated: false`, and `nextCommands`
+- exits non-zero if validation, safety, env, coder contract, or reviewer contract fails
+- does **not** apply patches, create commits, push, merge, write files, write block state, run git commands, or spawn the block runner
+
+Use `REAL_BLOCK_TASK_PROBE_FAKE_CODER_RESPONSE` and `REAL_BLOCK_TASK_PROBE_FAKE_REVIEWER_RESPONSE` only for deterministic local testing of the validator.
 
 ## Troubleshooting
 
