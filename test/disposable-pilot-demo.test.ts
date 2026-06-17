@@ -17,6 +17,7 @@ function cleanEnv(): NodeJS.ProcessEnv {
     'ALLOW_REAL_PROVIDER',
     'ALLOW_KIMI_REVIEWER',
     'KIMI_API_KEY',
+    'KIMI_BASE_URL',
     'REAL_BLOCK_RUN_AI',
     'ALLOW_REAL_REPO_APPLY',
     'ALLOW_REAL_REPO_COMMIT',
@@ -119,6 +120,12 @@ describe('disposable pilot demo kit', () => {
     assert(!output.includes('"ok":'), `Should not contain pilot JSON result: ${output}`);
   });
 
+  test('demo script without real env prints KIMI_BASE_URL in instructions', () => {
+    const result = runScript();
+    const output = result.stdout + result.stderr;
+    assert(output.includes('KIMI_BASE_URL'), `Should mention KIMI_BASE_URL: ${output}`);
+  });
+
   test('runDemo returns repo outside project root and does not dirty project repo', async () => {
     const demo = await runDemo(cleanEnv());
     try {
@@ -135,6 +142,7 @@ describe('disposable pilot demo kit', () => {
       ALLOW_REAL_PROVIDER: 'true',
       ALLOW_KIMI_REVIEWER: 'true',
       KIMI_API_KEY: 'sk-test',
+      KIMI_BASE_URL: 'https://api.moonshot.cn/v1',
       REAL_BLOCK_RUN_AI: '1',
       ALLOW_REAL_REPO_APPLY: 'true',
       ALLOW_REAL_REPO_COMMIT: 'true',
@@ -143,7 +151,8 @@ describe('disposable pilot demo kit', () => {
     assert.strictEqual(hasRealRunOptIns(base), true);
 
     for (const key of Object.keys(base)) {
-      const missing = { ...base, [key]: key === 'KIMI_API_KEY' ? '' : 'false' };
+      const isKeyValue = key === 'KIMI_API_KEY' || key === 'KIMI_BASE_URL';
+      const missing = { ...base, [key]: isKeyValue ? '' : 'false' };
       assert.strictEqual(hasRealRunOptIns(missing), false, `Expected false when ${key} is missing/invalid`);
     }
   });
@@ -154,6 +163,7 @@ describe('disposable pilot demo kit', () => {
       ALLOW_REAL_PROVIDER: 'true',
       ALLOW_KIMI_REVIEWER: 'true',
       KIMI_API_KEY: 'sk-live-secret-token',
+      KIMI_BASE_URL: 'https://api.moonshot.cn/v1',
       REAL_BLOCK_RUN_AI: '1',
       ALLOW_REAL_REPO_APPLY: 'true',
       ALLOW_REAL_REPO_COMMIT: 'true',
@@ -164,5 +174,17 @@ describe('disposable pilot demo kit', () => {
     } finally {
       rmSync(demo.tempDir, { recursive: true, force: true });
     }
+  });
+
+  test('demo script source uses process.exitCode and no direct process.exit', () => {
+    const source = readFileSync(runScriptPath, 'utf-8');
+    assert(!/process\.exit\(/.test(source), 'Source should not call process.exit(...) directly');
+    assert(source.includes('process.exitCode'), 'Source should set process.exitCode');
+  });
+
+  test('verify:product script includes demo:disposable-pilot', () => {
+    const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf-8'));
+    assert(typeof pkg.scripts['verify:product'] === 'string');
+    assert(pkg.scripts['verify:product'].includes('demo:disposable-pilot'), `verify:product should include demo:disposable-pilot: ${pkg.scripts['verify:product']}`);
   });
 });

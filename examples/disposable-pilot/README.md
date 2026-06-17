@@ -41,6 +41,7 @@ export ALLOW_REAL_REPO_APPLY=true
 export ALLOW_REAL_REPO_COMMIT=true
 export ALLOW_REAL_REPO_PUSH=true
 export KIMI_API_KEY="your-key"
+export KIMI_BASE_URL="https://api.moonshot.cn/v1"
 ```
 
 Then run:

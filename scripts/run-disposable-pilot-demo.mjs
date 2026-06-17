@@ -21,6 +21,8 @@ export function hasRealRunOptIns(env) {
     env.ALLOW_KIMI_REVIEWER === 'true' &&
     typeof env.KIMI_API_KEY === 'string' &&
     env.KIMI_API_KEY.length > 0 &&
+    typeof env.KIMI_BASE_URL === 'string' &&
+    env.KIMI_BASE_URL.length > 0 &&
     env.REAL_BLOCK_RUN_AI === '1' &&
     env.ALLOW_REAL_REPO_APPLY === 'true' &&
     env.ALLOW_REAL_REPO_COMMIT === 'true' &&
@@ -100,6 +102,7 @@ export async function runDemo(env = process.env) {
       '  ALLOW_REAL_PROVIDER=true',
       '  ALLOW_KIMI_REVIEWER=true',
       '  KIMI_API_KEY=...',
+      '  KIMI_BASE_URL=https://api.moonshot.cn/v1',
       '  REAL_BLOCK_RUN_AI=1',
       '  ALLOW_REAL_REPO_APPLY=true',
       '  ALLOW_REAL_REPO_COMMIT=true',
@@ -116,10 +119,10 @@ if (process.argv[1] === __filename) {
   runDemo()
     .then((result) => {
       console.log(result.output);
-      process.exit(result.exitCode);
+      process.exitCode = result.exitCode;
     })
     .catch((err) => {
       console.error(err.message);
-      process.exit(1);
+      process.exitCode = 1;
     });
 }
