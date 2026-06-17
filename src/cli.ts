@@ -103,6 +103,17 @@ function validateMaxAttempts(raw: string | undefined): number {
   return num;
 }
 
+function validateReviewerMaxFixAttempts(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') {
+    return 1;
+  }
+  const num = Number(raw.trim());
+  if (!Number.isInteger(num) || num < 1 || num > 5) {
+    throw new Error(`Invalid REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS: "${raw}". Must be an integer between 1 and 5.`);
+  }
+  return num;
+}
+
 function buildRepairPrompt(
   task: import('./types.js').Task,
   branch: string,
@@ -986,6 +997,23 @@ if (command === 'real-repo-run-ai') {
       break commandDispatch;
     }
 
+    let reviewerMaxFixAttempts: number;
+    try {
+      reviewerMaxFixAttempts = validateReviewerMaxFixAttempts(process.env.REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS);
+    } catch (reviewerMaxErr) {
+      const reviewerMaxMessage = reviewerMaxErr instanceof Error ? reviewerMaxErr.message : String(reviewerMaxErr);
+      console.error(`[real-repo-run-ai] ${reviewerMaxMessage}`);
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+
     const apiKey = process.env.KIMI_API_KEY?.trim();
     if (!apiKey) {
       console.error('[real-repo-run-ai] Error: KIMI_API_KEY env var is required');
@@ -1557,25 +1585,50 @@ if (command === 'real-repo-run-ai') {
         if (reviewerGatePersisted) {
           const stateWithGate = { ...pushState };
           (stateWithGate as Record<string, unknown>).reviewer_gate = reviewerGatePersisted;
-          const reviewResult = deriveReviewerBlockReviewResult({
-            blockId: `single-task-review:${taskId}`,
-            tasks: [
-              {
-                taskId,
-                taskTitle: task.title,
-                taskGoal: task.goal,
-                runState: stateWithGate,
+
+          const enableFixLoop = process.env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP !== '0';
+          const fakeExecutorResponse = process.env.REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE;
+          let fixAttemptCount = 0;
+
+          while (true) {
+            const reviewResult = deriveReviewerBlockReviewResult({
+              blockId: `single-task-review:${taskId}`,
+              tasks: [
+                {
+                  taskId,
+                  taskTitle: task.title,
+                  taskGoal: task.goal,
+                  runState: stateWithGate,
+                },
+              ],
+              existingFixAttemptsByParentTaskId: {
+                [taskId]: fixAttemptCount,
               },
-            ],
-            existingFixAttemptsByParentTaskId: {},
-            maxFixAttempts: 1,
-          });
-          (stateWithGate as Record<string, unknown>).reviewer_block_review_result = reviewResult;
-          const resolutionPlan = reviewResult.resolutionPlan;
-          if (
-            resolutionPlan.action === 'append_fix_task' &&
-            resolutionPlan.fixTask
-          ) {
+              maxFixAttempts: reviewerMaxFixAttempts,
+            });
+            (stateWithGate as Record<string, unknown>).reviewer_block_review_result = reviewResult;
+
+            const resolutionPlan = reviewResult.resolutionPlan;
+            if (
+              resolutionPlan.action !== 'append_fix_task' ||
+              !resolutionPlan.fixTask
+            ) {
+              // No automated fix action (accepted, blocked, wait, etc.): persist and exit accordingly.
+              try {
+                saveState(taskId, stateWithGate as RunState);
+              } catch (stateErr) {
+                console.error('[real-repo-run-ai] Reviewer gate state write failed');
+              }
+              if (
+                (stateWithGate as Record<string, unknown>).reviewer_gate !== undefined &&
+                ((stateWithGate as Record<string, unknown>).reviewer_gate as Record<string, unknown>).status !== 'accepted'
+              ) {
+                process.exitCode = 1;
+                break commandDispatch;
+              }
+              break;
+            }
+
             (stateWithGate as Record<string, unknown>).pending_reviewer_fix_task = {
               status: 'pending',
               source: 'reviewer_gate',
@@ -1608,8 +1661,7 @@ if (command === 'real-repo-run-ai') {
               runState: stateWithGate,
             });
             (stateWithGate as Record<string, unknown>).reviewer_fix_task_run_plan_state = runPlanState;
-            const enableFixLoop = process.env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP === '1';
-            const fakeExecutorResponse = process.env.REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE;
+
             let controlledRun:
               | import('./reviewer-fix-task-controlled-run.js').ReviewerFixTaskControlledRunResult
               | undefined;
@@ -1666,159 +1718,179 @@ if (command === 'real-repo-run-ai') {
               });
             }
 
-            if (controlledRun) {
-              (stateWithGate as Record<string, unknown>).reviewer_fix_task_controlled_run = {
-                runnerResultStatus: controlledRun.runnerResult.status,
-                runnerResultNextAction: controlledRun.runnerResult.nextAction,
-                persistedState: controlledRun.persistedState,
-              };
-
-              const postRunPlan = deriveReviewerFixTaskPostRunReviewPlan({
-                persistedRunnerState: controlledRun.persistedState,
-              });
-              (stateWithGate as Record<string, unknown>).reviewer_fix_task_post_run_review_plan = postRunPlan;
-
-              if (
-                postRunPlan.action === 'review_fix_result' &&
-                postRunPlan.commitSha
-              ) {
-                const secondReviewerResponse =
-                  process.env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE ?? fakeReviewerResponse;
-                let secondReviewPersisted:
-                  | {
-                      status: ReviewerGateStatus;
-                      source: ReviewerGateDecisionSource;
-                      nextAction: 'continue' | 'fix' | 'block';
-                      blockingIssues: string[];
-                      nonBlockingIssues: string[];
-                      reviewSummary: string;
-                      fixTask?: string;
-                    }
-                  | undefined;
-                let secondReviewError: string | undefined;
-                if (secondReviewerResponse) {
-                  try {
-                    const secondReviewerResult = await runCommittedTaskReviewerGate({
-                      repoPath: task.repo_path,
-                      taskId: postRunPlan.taskId ?? 'unknown',
-                      taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
-                      branchName: currentBranch,
-                      commitSha: postRunPlan.commitSha,
-                      checkSummary: { test: 'pass' },
-                      stateStatus: 'fix_review',
-                      reviewer: async () => secondReviewerResponse,
-                    });
-                    const secondGate = secondReviewerResult.reviewerRunnerResult.gateResult;
-                    secondReviewPersisted = {
-                      status: secondGate.status,
-                      source: secondGate.source,
-                      nextAction: secondGate.nextAction,
-                      blockingIssues: secondGate.blockingIssues.map((i) => redactSecrets(i)),
-                      nonBlockingIssues: secondGate.nonBlockingIssues.map((i) => redactSecrets(i)),
-                      reviewSummary: redactSecrets(secondGate.reviewSummary),
-                      fixTask: secondGate.fixTask ? redactSecrets(secondGate.fixTask) : undefined,
-                    };
-                  } catch (secondErr) {
-                    const msg = secondErr instanceof Error ? secondErr.message : String(secondErr);
-                    secondReviewError = redactSecrets(msg);
-                    secondReviewPersisted = {
-                      status: 'blocked',
-                      source: 'provider',
-                      nextAction: 'block',
-                      blockingIssues: [secondReviewError],
-                      nonBlockingIssues: [],
-                      reviewSummary: redactSecrets('Second reviewer gate unexpected error.'),
-                    };
-                  }
-                } else {
-                  secondReviewError = 'No second reviewer response configured; fix commit requires human review.';
-                  secondReviewPersisted = {
-                    status: 'blocked',
-                    source: 'deterministic_safety',
-                    nextAction: 'block',
-                    blockingIssues: [secondReviewError],
-                    nonBlockingIssues: [],
-                    reviewSummary: redactSecrets('Second reviewer gate was not configured.'),
-                  };
-                }
-
-                let finalStatus: 'accepted' | 'fix_required' | 'blocked';
-                let finalNextAction: 'continue' | 'block' | 'manual_followup';
-                let finalReason: string;
-                if (secondReviewPersisted.status === 'accepted') {
-                  finalStatus = 'accepted';
-                  finalNextAction = 'continue';
-                  finalReason = 'Second reviewer gate accepted the fix commit.';
-                } else if (secondReviewPersisted.status === 'fix_required') {
-                  finalStatus = 'fix_required';
-                  finalNextAction = 'manual_followup';
-                  finalReason = 'Second reviewer gate rejected the fix commit; max fix attempts reached for this vertical slice.';
-                } else {
-                  finalStatus = 'blocked';
-                  finalNextAction = 'block';
-                  finalReason = secondReviewError
-                    ? `Second reviewer gate blocked: ${secondReviewError}`
-                    : 'Second reviewer gate blocked the fix commit.';
-                }
-
-                const secondReviewRunState = {
-                  ...stateWithGate,
-                  reviewer_gate: secondReviewPersisted,
-                };
-
-                const secondReviewParentTaskId = postRunPlan.parentTaskId ?? taskId;
-                const secondReviewBlockResult = deriveReviewerBlockReviewResult({
-                  blockId: `single-task-review:${secondReviewParentTaskId}`,
-                  tasks: [
-                    {
-                      taskId: secondReviewParentTaskId,
-                      taskTitle: postRunPlan.fixTask?.title ?? task.title,
-                      taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
-                      runState: secondReviewRunState,
-                    },
-                  ],
-                  existingFixAttemptsByParentTaskId: {
-                    [secondReviewParentTaskId]: postRunPlan.attempt ?? 1,
-                  },
-                  maxFixAttempts: 1,
-                });
-
-                (stateWithGate as Record<string, unknown>).reviewer_fix_task_second_review = {
-                  fixTaskId: postRunPlan.taskId,
-                  parentTaskId: postRunPlan.parentTaskId,
-                  attempt: postRunPlan.attempt,
-                  fixCommitSha: postRunPlan.commitSha,
-                  reviewerGate: secondReviewPersisted,
-                  reviewerBlockReviewResult: secondReviewBlockResult,
-                  finalStatus,
-                  nextAction: finalNextAction,
-                  reason: redactSecrets(finalReason),
-                };
-
-                try {
-                  saveState(taskId, stateWithGate as RunState);
-                } catch (stateErr) {
-                  console.error('[real-repo-run-ai] Reviewer fix-loop state write failed');
-                }
-
-                if (finalStatus === 'accepted') {
-                  console.error('[real-repo-run-ai] Reviewer fix-loop completed: fix commit accepted');
-                  process.exitCode = 0;
-                  break commandDispatch;
-                }
-
-                console.error(`[real-repo-run-ai] Reviewer fix-loop stopped: ${finalReason}`);
-                process.exitCode = 1;
-                break commandDispatch;
+            if (!controlledRun) {
+              try {
+                saveState(taskId, stateWithGate as RunState);
+              } catch (stateErr) {
+                console.error('[real-repo-run-ai] Reviewer fix-loop state write failed');
               }
+              console.error('[real-repo-run-ai] Reviewer fix-loop stopped: fix execution not configured');
+              process.exitCode = 1;
+              break commandDispatch;
             }
-          }
-          try {
-            saveState(taskId, stateWithGate as RunState);
-          } catch (stateErr) {
-            console.error('[real-repo-run-ai] Reviewer gate state write failed');
-          }
-          if (reviewerGatePersisted.status !== 'accepted') {
+
+            (stateWithGate as Record<string, unknown>).reviewer_fix_task_controlled_run = {
+              runnerResultStatus: controlledRun.runnerResult.status,
+              runnerResultNextAction: controlledRun.runnerResult.nextAction,
+              persistedState: controlledRun.persistedState,
+            };
+
+            const postRunPlan = deriveReviewerFixTaskPostRunReviewPlan({
+              persistedRunnerState: controlledRun.persistedState,
+            });
+            (stateWithGate as Record<string, unknown>).reviewer_fix_task_post_run_review_plan = postRunPlan;
+
+            if (
+              postRunPlan.action !== 'review_fix_result' ||
+              !postRunPlan.commitSha
+            ) {
+              try {
+                saveState(taskId, stateWithGate as RunState);
+              } catch (stateErr) {
+                console.error('[real-repo-run-ai] Reviewer fix-loop state write failed');
+              }
+              console.error('[real-repo-run-ai] Reviewer fix-loop stopped: fix execution blocked or failed');
+              process.exitCode = 1;
+              break commandDispatch;
+            }
+
+            // Fix executed successfully; count this attempt.
+            fixAttemptCount++;
+
+            const secondReviewerResponse =
+              process.env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE ?? fakeReviewerResponse;
+            let secondReviewPersisted:
+              | {
+                  status: ReviewerGateStatus;
+                  source: ReviewerGateDecisionSource;
+                  nextAction: 'continue' | 'fix' | 'block';
+                  blockingIssues: string[];
+                  nonBlockingIssues: string[];
+                  reviewSummary: string;
+                  fixTask?: string;
+                }
+              | undefined;
+            let secondReviewError: string | undefined;
+            if (secondReviewerResponse) {
+              try {
+                const secondReviewerResult = await runCommittedTaskReviewerGate({
+                  repoPath: task.repo_path,
+                  taskId: postRunPlan.taskId ?? 'unknown',
+                  taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
+                  branchName: currentBranch,
+                  commitSha: postRunPlan.commitSha,
+                  checkSummary: { test: 'pass' },
+                  stateStatus: 'fix_review',
+                  reviewer: async () => secondReviewerResponse,
+                });
+                const secondGate = secondReviewerResult.reviewerRunnerResult.gateResult;
+                secondReviewPersisted = {
+                  status: secondGate.status,
+                  source: secondGate.source,
+                  nextAction: secondGate.nextAction,
+                  blockingIssues: secondGate.blockingIssues.map((i) => redactSecrets(i)),
+                  nonBlockingIssues: secondGate.nonBlockingIssues.map((i) => redactSecrets(i)),
+                  reviewSummary: redactSecrets(secondGate.reviewSummary),
+                  fixTask: secondGate.fixTask ? redactSecrets(secondGate.fixTask) : undefined,
+                };
+              } catch (secondErr) {
+                const msg = secondErr instanceof Error ? secondErr.message : String(secondErr);
+                secondReviewError = redactSecrets(msg);
+                secondReviewPersisted = {
+                  status: 'blocked',
+                  source: 'provider',
+                  nextAction: 'block',
+                  blockingIssues: [secondReviewError],
+                  nonBlockingIssues: [],
+                  reviewSummary: redactSecrets('Second reviewer gate unexpected error.'),
+                };
+              }
+            } else {
+              secondReviewError = 'No second reviewer response configured; fix commit requires human review.';
+              secondReviewPersisted = {
+                status: 'blocked',
+                source: 'deterministic_safety',
+                nextAction: 'block',
+                blockingIssues: [secondReviewError],
+                nonBlockingIssues: [],
+                reviewSummary: redactSecrets('Second reviewer gate was not configured.'),
+              };
+            }
+
+            let finalStatus: 'accepted' | 'fix_required' | 'blocked';
+            let finalNextAction: 'continue' | 'block' | 'manual_followup';
+            let finalReason: string;
+            if (secondReviewPersisted.status === 'accepted') {
+              finalStatus = 'accepted';
+              finalNextAction = 'continue';
+              finalReason = 'Second reviewer gate accepted the fix commit.';
+            } else if (secondReviewPersisted.status === 'fix_required') {
+              finalStatus = 'fix_required';
+              finalNextAction = 'manual_followup';
+              finalReason =
+                fixAttemptCount < reviewerMaxFixAttempts
+                  ? 'Second reviewer gate rejected the fix commit; preparing another fix attempt.'
+                  : 'Second reviewer gate rejected the fix commit; max fix attempts reached for this vertical slice.';
+            } else {
+              finalStatus = 'blocked';
+              finalNextAction = 'block';
+              finalReason = secondReviewError
+                ? `Second reviewer gate blocked: ${secondReviewError}`
+                : 'Second reviewer gate blocked the fix commit.';
+            }
+
+            const secondReviewRunState = {
+              ...stateWithGate,
+              reviewer_gate: secondReviewPersisted,
+            };
+
+            const secondReviewParentTaskId = postRunPlan.parentTaskId ?? taskId;
+            const secondReviewBlockResult = deriveReviewerBlockReviewResult({
+              blockId: `single-task-review:${secondReviewParentTaskId}`,
+              tasks: [
+                {
+                  taskId: secondReviewParentTaskId,
+                  taskTitle: postRunPlan.fixTask?.title ?? task.title,
+                  taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
+                  runState: secondReviewRunState,
+                },
+              ],
+              existingFixAttemptsByParentTaskId: {
+                [secondReviewParentTaskId]: fixAttemptCount,
+              },
+              maxFixAttempts: reviewerMaxFixAttempts,
+            });
+
+            (stateWithGate as Record<string, unknown>).reviewer_fix_task_second_review = {
+              fixTaskId: postRunPlan.taskId,
+              parentTaskId: postRunPlan.parentTaskId,
+              attempt: postRunPlan.attempt,
+              fixCommitSha: postRunPlan.commitSha,
+              reviewerGate: secondReviewPersisted,
+              reviewerBlockReviewResult: secondReviewBlockResult,
+              finalStatus,
+              nextAction: finalNextAction,
+              reason: redactSecrets(finalReason),
+            };
+
+            try {
+              saveState(taskId, stateWithGate as RunState);
+            } catch (stateErr) {
+              console.error('[real-repo-run-ai] Reviewer fix-loop state write failed');
+            }
+
+            if (finalStatus === 'accepted') {
+              console.error('[real-repo-run-ai] Reviewer fix-loop completed: fix commit accepted');
+              process.exitCode = 0;
+              break commandDispatch;
+            }
+
+            if (finalStatus === 'fix_required' && fixAttemptCount < reviewerMaxFixAttempts) {
+              (stateWithGate as Record<string, unknown>).reviewer_gate = secondReviewPersisted;
+              continue;
+            }
+
+            console.error(`[real-repo-run-ai] Reviewer fix-loop stopped: ${finalReason}`);
             process.exitCode = 1;
             break commandDispatch;
           }

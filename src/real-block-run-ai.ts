@@ -190,6 +190,15 @@ function runSingleTask(
   env.RUNS_DIR = runsDir;
   env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP = '1';
 
+  const blockMaxFixAttempts =
+    typeof block.review_policy?.max_fix_attempts === 'number' &&
+    Number.isInteger(block.review_policy.max_fix_attempts) &&
+    block.review_policy.max_fix_attempts >= 1 &&
+    block.review_policy.max_fix_attempts <= 5
+      ? block.review_policy.max_fix_attempts
+      : 1;
+  env.REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS = String(blockMaxFixAttempts);
+
   const kimiResponse = getTaskFakeResponse(arrays, 'kimi', index);
   if (kimiResponse !== undefined) {
     env.KIMI_FAKE_RESPONSE = kimiResponse;

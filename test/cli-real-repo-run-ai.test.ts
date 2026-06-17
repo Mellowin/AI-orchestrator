@@ -45,6 +45,7 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR;
   delete env.REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE;
   delete env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP;
+  delete env.REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS;
   delete env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE;
   delete env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE;
   delete env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES;
@@ -248,6 +249,12 @@ function setupCheckFileWithSecrets(repoPath: string): void {
   writeFileSync(join(repoPath, 'check-secret.cjs'), `require('fs').readFileSync('README.md','utf8').includes('fail')&&(console.error('sk-fake-e2e-secret Bearer fake-e2e-token api_key=fake-e2e-key'),process.exit(1))`, 'utf-8');
   spawnSync('git', ['add', 'check-secret.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
   spawnSync('git', ['commit', '-m', 'add check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+}
+
+function setupFixFailingCheck(repoPath: string): void {
+  writeFileSync(join(repoPath, 'check-fix.cjs'), `require('fs').existsSync('fix.txt')&&process.exit(1)`, 'utf-8');
+  spawnSync('git', ['add', 'check-fix.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+  spawnSync('git', ['commit', '-m', 'add fix check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
 }
 
 function loadStateFromPath(runsDir: string, taskId: string): unknown {
@@ -2880,6 +2887,7 @@ describe('cli real-repo-run-ai', () => {
           nextAction: 'fix',
           fixTask: 'use Bearer fake-reviewer-token',
         }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '0',
         REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE: JSON.stringify({
           status: 'completed',
           reason: 'Fake fix completed',
@@ -3082,7 +3090,7 @@ describe('cli real-repo-run-ai', () => {
     }
   });
 
-  test('fix_required without fake executor env does not persist controlled run', () => {
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=0 fix_required does not execute fix task', () => {
     const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
     try {
       const beforeLogCount = getGitLogCount(repoPath);
@@ -3095,6 +3103,7 @@ describe('cli real-repo-run-ai', () => {
         KIMI_API_KEY: 'fake',
         KIMI_BASE_URL: 'http://localhost:9999',
         KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '0',
         REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
           decision: 'reject',
           confidence: 'high',
@@ -3129,6 +3138,7 @@ describe('cli real-repo-run-ai', () => {
         KIMI_API_KEY: 'fake',
         KIMI_BASE_URL: 'http://localhost:9999',
         KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '0',
         REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
           decision: 'reject',
           confidence: 'high',
@@ -3223,6 +3233,7 @@ describe('cli real-repo-run-ai', () => {
         KIMI_API_KEY: 'fake',
         KIMI_BASE_URL: 'http://localhost:9999',
         KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '0',
         REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
           decision: 'reject',
           confidence: 'high',
@@ -3621,7 +3632,7 @@ describe('cli real-repo-run-ai', () => {
     return result.stdout.trim();
   }
 
-  test('without REAL_REPO_ENABLE_REVIEWER_FIX_LOOP fix_required does not execute fix task', () => {
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=0 fix_required does not execute fix task', () => {
     const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
     try {
       const beforeLogCount = getGitLogCount(repoPath);
@@ -3643,6 +3654,7 @@ describe('cli real-repo-run-ai', () => {
           nextAction: 'fix',
           fixTask: 'add fix.txt',
         }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '0',
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
@@ -3751,7 +3763,98 @@ describe('cli real-repo-run-ai', () => {
     }
   });
 
-  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 second reviewer reject does not recursively fix', () => {
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 fix_required invalid fix JSON exits non-zero and explains invalid response', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['missing fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: 'not-json sk-fake-fix-invalid',
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('fix execution blocked or failed') || result.stderr.includes('Invalid Kimi JSON'), `Should explain invalid fix response: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create only original commit');
+
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert(state !== null);
+      const controlledRun = state.reviewer_fix_task_controlled_run as Record<string, unknown>;
+      assert(controlledRun !== undefined, 'Should persist controlled run');
+      assert.strictEqual(controlledRun.runnerResultStatus, 'blocked');
+
+      const controlledRunRaw = JSON.stringify(controlledRun);
+      assert(!controlledRunRaw.includes('sk-fake-fix-invalid'), 'Should not leak invalid JSON secret in controlled run');
+      assert(!result.stderr.includes('sk-fake-fix-invalid'), 'Should not leak invalid JSON secret in stderr');
+      assert(!result.stdout.includes('sk-fake-fix-invalid'), 'Should not leak invalid JSON secret in stdout');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 fix_required fix checks fail exits non-zero and persists check failure', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv(['node', 'check-fix.cjs']);
+    try {
+      setupFixFailingCheck(repoPath);
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['missing fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: buildFakeKimiOutput([
+          { path: 'fix.txt', content: 'fix applied\n' },
+        ]),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create only original commit');
+      assert(result.stderr.includes('fix execution blocked or failed') || result.stderr.includes('Checks failed'), `Should report check failure: ${result.stderr}`);
+
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert(state !== null);
+      const controlledRun = state.reviewer_fix_task_controlled_run as Record<string, unknown>;
+      assert(controlledRun !== undefined, 'Should persist controlled run');
+      assert.strictEqual(controlledRun.runnerResultStatus, 'blocked');
+      const persistedState = controlledRun.persistedState as Record<string, unknown>;
+      assert(typeof persistedState.reason === 'string' && persistedState.reason.length > 0, 'Should persist blocked reason');
+    } finally {
+      cleanup();
+    }
+  });
+
+
+  test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 and max_fix_attempts=1 second reviewer reject does not recursively fix', () => {
     const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
     try {
       const beforeLogCount = getGitLogCount(repoPath);
@@ -3786,6 +3889,7 @@ describe('cli real-repo-run-ai', () => {
           fixTask: 'add more tests',
         }),
         REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS: '1',
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
@@ -3891,7 +3995,7 @@ describe('cli real-repo-run-ai', () => {
           fixTask: 'add fix.txt',
         }),
         REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: buildFakeKimiOutput([
-          { path: '.env', content: 'SECRET=1\n' },
+          { path: '.env', content: 'SECRET=sk-fake-env-secret\n' },
         ]),
         REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
         RUNS_DIR: runsDir,
@@ -3904,6 +4008,11 @@ describe('cli real-repo-run-ai', () => {
       assert(controlledRun !== undefined);
       assert.strictEqual(controlledRun.runnerResultStatus, 'blocked');
       assert.strictEqual((state as Record<string, unknown>).reviewer_fix_task_second_review, undefined, 'Should not run second review when fix execution blocked');
+
+      const combinedOutput = result.stdout + result.stderr;
+      assert(!combinedOutput.includes('sk-fake-env-secret'), 'Should not leak env secret in output');
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes('sk-fake-env-secret'), 'Should not leak env secret in state');
     } finally {
       cleanup();
     }

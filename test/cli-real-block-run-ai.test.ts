@@ -45,6 +45,7 @@ function getCleanEnv(): NodeJS.ProcessEnv {
     'REAL_REPO_REVIEWER_FORCE_PROVIDER_ERROR',
     'REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE',
     'REAL_REPO_ENABLE_REVIEWER_FIX_LOOP',
+    'REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS',
     'REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE',
     'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE',
     'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES',
@@ -662,6 +663,61 @@ describe('cli real-block-run-ai', () => {
       const stateRaw = JSON.stringify(state);
       assert(!stateRaw.includes('sk-fake-secret'), 'Block state should redact secrets');
       assert(!stateRaw.includes('fix applied'), 'Block state should not contain raw file content');
+    } finally {
+      cleanup();
+    }
+  });
+
+
+  test('max_fix_attempts=2 from block review_policy is passed and no infinite loop on repeated reject', () => {
+    const base = createTempBlockEnv();
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = base;
+    const definition = JSON.parse(readFileSync(base.blockPath, 'utf-8')) as Record<string, unknown>;
+    (definition.review_policy as Record<string, unknown>).max_fix_attempts = 2;
+    writeFileSync(base.blockPath, JSON.stringify(definition, null, 2), 'utf-8');
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one looks good'),
+          buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
+        ]),
+        REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
+          null,
+          buildFakeKimiOutput([{ path: 'fix.txt', content: 'fix applied\n' }]),
+        ]),
+        REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          null,
+          buildRejectReview('Still needs more', ['still missing more'], 'add more tests'),
+        ]),
+      }));
+
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Should create task1, task2 original, and one fix commit only; no infinite loop');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'blocked');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-two');
+      assert.strictEqual(summary.acceptedTasks, 1);
+      assert.strictEqual(summary.fixedTasks, 0);
+
+      const taskResults = state.taskResults as Record<string, unknown>[];
+      assert.strictEqual(taskResults.length, 2);
+      assert.strictEqual(taskResults[0].status, 'accepted');
+
+      const taskTwo = taskResults[1];
+      assert.strictEqual(taskTwo.status, 'fix_required');
+      assert.strictEqual(taskTwo.fixAttempted, true);
+      assert.strictEqual(taskTwo.finalStatus, 'fix_required');
+      assert.strictEqual(taskTwo.nextAction, 'manual_followup');
     } finally {
       cleanup();
     }

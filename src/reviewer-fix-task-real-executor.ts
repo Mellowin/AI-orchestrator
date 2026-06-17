@@ -50,11 +50,34 @@ function countLines(text: string): number {
 }
 
 function buildFixTaskPrompt(
-  input: ReviewerFixTaskExecutorInput
+  input: ReviewerFixTaskExecutorInput,
+  context: {
+    parentGoal: string;
+    allowedFiles: string[];
+    deniedFiles: string[];
+    previousChangedFiles: string[];
+    checks: Array<{ command: string; args: string[] }>;
+  }
 ): string {
   const blocking = input.blockingIssues.length > 0
     ? input.blockingIssues.map((i) => `- ${i}`).join('\n')
     : '- No blocking issues';
+
+  const allowed = context.allowedFiles.length > 0
+    ? context.allowedFiles.map((f) => `- ${f}`).join('\n')
+    : '- No allowed files specified';
+
+  const denied = context.deniedFiles.length > 0
+    ? context.deniedFiles.map((f) => `- ${f}`).join('\n')
+    : '- No denied files specified';
+
+  const previous = context.previousChangedFiles.length > 0
+    ? context.previousChangedFiles.map((f) => `- ${f}`).join('\n')
+    : '- No previous changed files';
+
+  const checks = context.checks.length > 0
+    ? context.checks.map((c) => `- ${c.command} ${c.args.join(' ')}`).join('\n')
+    : '- No checks';
 
   return (
     `# Reviewer Fix Task\n\n` +
@@ -62,10 +85,15 @@ function buildFixTaskPrompt(
     `Parent Task ID: ${input.parentTaskId}\n` +
     `Attempt: ${input.attempt}\n` +
     `Title: ${input.title}\n` +
-    `Goal: ${input.goal}\n\n` +
+    `Fix Task Goal: ${input.goal}\n` +
+    `Original Parent Task Goal: ${context.parentGoal}\n\n` +
     `# Blocking Issues to Address\n\n${blocking}\n\n` +
+    `# Allowed Files\n\n${allowed}\n\n` +
+    `# Denied Files\n\n${denied}\n\n` +
+    `# Previous Changed Files\n\n${previous}\n\n` +
+    `# Check Commands\n\n${checks}\n\n` +
     `# Instructions\n\n` +
-    `Apply the minimal safe fix. ` +
+    `Apply the minimal safe fix to address the blocking issues. ` +
     `Return ONLY valid JSON using the file_update schema. ` +
     `Return full file content, not diffs. ` +
     `Do not include markdown outside JSON. ` +
@@ -212,6 +240,16 @@ export function createReviewerFixTaskRealExecutor(
       guardrails: parentTask.guardrails,
     };
 
+    const previousHeadResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: repoPath,
+      shell: false,
+      encoding: 'utf-8',
+    });
+    const previousChangedFiles =
+      previousHeadResult.status === 0
+        ? getCommitChangedFiles(repoPath, previousHeadResult.stdout.trim())
+        : [];
+
     let kimiOutput: KimiOutput;
     let rawProviderText: string;
     try {
@@ -223,7 +261,13 @@ export function createReviewerFixTaskRealExecutor(
         model,
         userAgent: process.env.KIMI_USER_AGENT?.trim(),
       });
-      const prompt = buildFixTaskPrompt(input);
+      const prompt = buildFixTaskPrompt(input, {
+        parentGoal: parentTask.goal,
+        allowedFiles: parentTask.guardrails.allow_modify ?? [],
+        deniedFiles: parentTask.guardrails.deny_modify,
+        previousChangedFiles,
+        checks: parentTask.checks,
+      });
       const providerInput = buildProviderCallInput('coder', prompt, 'kimi', model);
       const result = await realProviderCall(providerInput);
       const normalized = normalizeProviderCallResult(result);
