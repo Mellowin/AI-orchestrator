@@ -320,6 +320,51 @@ describe('deriveReviewerFixTaskPostRunReviewPlan', () => {
     assert.deepStrictEqual(result.executorResult!.blockingIssues, ['issue']);
   });
 
+  it('executed review plan preserves checkSummary', () => {
+    const result = derive({
+      executorResult: buildExecutorResult({
+        checkSummary: {
+          typecheck: 'pass',
+          build: 'pass',
+          test: 'pass',
+          tests: { total: 3, suites: 0, failures: 0 },
+        },
+      }),
+    });
+    assert.deepStrictEqual(result.checkSummary, {
+      typecheck: 'pass',
+      build: 'pass',
+      test: 'pass',
+      tests: { total: 3, suites: 0, failures: 0 },
+    });
+  });
+
+  it('executed review plan checkSummary is undefined when executor result has none', () => {
+    const result = derive({
+      executorResult: buildExecutorResult({ checkSummary: undefined }),
+    });
+    assert.strictEqual(result.checkSummary, undefined);
+  });
+
+  it('executorResult checkSummary is cloned', () => {
+    const checkSummary = {
+      typecheck: 'pass',
+      build: 'pass',
+      test: 'pass',
+      tests: { total: 3, suites: 0, failures: 0 },
+    };
+    const state = buildPersistedRunnerState({
+      executorResult: buildExecutorResult({ checkSummary }),
+    });
+    const result = deriveReviewerFixTaskPostRunReviewPlan({
+      persistedRunnerState: state,
+    });
+    assert.notStrictEqual(result.checkSummary, checkSummary);
+    assert.notStrictEqual(result.checkSummary!.tests, checkSummary.tests);
+    checkSummary.tests.failures = 99;
+    assert.strictEqual(result.checkSummary!.tests.failures, 0);
+  });
+
   it('helper does not mutate input', () => {
     const state = buildPersistedRunnerState();
     const before = JSON.stringify(state);

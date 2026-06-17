@@ -343,6 +343,72 @@ describe('runReviewerFixTaskWithExecutor', () => {
     assert.deepStrictEqual(result.executorResult?.changedFiles, ['src/file.ts']);
   });
 
+  it('completed executor result preserves checkSummary', async () => {
+    const result = await runReviewerFixTaskWithExecutor({
+      runPlanState: buildReadyState(),
+      executor: async () => ({
+        status: 'completed',
+        reason: 'Done',
+        checkSummary: {
+          typecheck: 'pass',
+          build: 'pass',
+          test: 'pass',
+          tests: { total: 3, suites: 0, failures: 0 },
+        },
+      }),
+    });
+    assert.deepStrictEqual(result.executorResult?.checkSummary, {
+      typecheck: 'pass',
+      build: 'pass',
+      test: 'pass',
+      tests: { total: 3, suites: 0, failures: 0 },
+    });
+  });
+
+  it('blocked executor result preserves checkSummary', async () => {
+    const result = await runReviewerFixTaskWithExecutor({
+      runPlanState: buildReadyState(),
+      executor: async () => ({
+        status: 'blocked',
+        reason: 'Checks failed.',
+        blockingIssues: ['test failed'],
+        checkSummary: {
+          typecheck: 'not_run',
+          build: 'not_run',
+          test: 'fail',
+          tests: { total: 1, suites: 0, failures: 1 },
+        },
+      }),
+    });
+    assert.deepStrictEqual(result.executorResult?.checkSummary, {
+      typecheck: 'not_run',
+      build: 'not_run',
+      test: 'fail',
+      tests: { total: 1, suites: 0, failures: 1 },
+    });
+  });
+
+  it('returned executorResult checkSummary is cloned', async () => {
+    const checkSummary = {
+      typecheck: 'pass',
+      build: 'pass',
+      test: 'pass',
+      tests: { total: 3, suites: 0, failures: 0 },
+    };
+    const result = await runReviewerFixTaskWithExecutor({
+      runPlanState: buildReadyState(),
+      executor: async () => ({
+        status: 'completed',
+        reason: 'Done',
+        checkSummary,
+      }),
+    });
+    assert.notStrictEqual(result.executorResult?.checkSummary, checkSummary);
+    assert.notStrictEqual(result.executorResult?.checkSummary?.tests, checkSummary.tests);
+    checkSummary.tests.failures = 99;
+    assert.strictEqual(result.executorResult?.checkSummary?.tests?.failures, 0);
+  });
+
   it('blocked executor result maps to blocked', async () => {
     const result = await runReviewerFixTaskWithExecutor({
       runPlanState: buildReadyState(),

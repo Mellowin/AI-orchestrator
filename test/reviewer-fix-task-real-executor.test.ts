@@ -1,0 +1,277 @@
+import { describe, test, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert';
+import { spawnSync } from 'node:child_process';
+import {
+  mkdtempSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+import { createReviewerFixTaskRealExecutor } from '../src/reviewer-fix-task-real-executor.js';
+import type { Task } from '../src/types.js';
+import type { ReviewerFixTaskExecutorInput } from '../src/reviewer-fix-task-runner.js';
+
+const envBackup: Record<string, string | undefined> = {};
+
+function setEnv(key: string, value: string): void {
+  if (!(key in envBackup)) {
+    envBackup[key] = process.env[key];
+  }
+  process.env[key] = value;
+}
+
+function restoreEnv(): void {
+  for (const [key, value] of Object.entries(envBackup)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
+function createTempRepo(): { repoPath: string; baseBranch: string } {
+  const tmpBase = join(process.cwd(), 'tmp');
+  if (!existsSync(tmpBase)) {
+    mkdirSync(tmpBase);
+  }
+  const repoPath = mkdtempSync(join(tmpBase, 'fix-real-exec-'));
+  spawnSync('git', ['init'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.email', 'test@test.com'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  spawnSync('git', ['config', 'user.name', 'Test'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  writeFileSync(join(repoPath, 'base.txt'), 'base\n', 'utf-8');
+  spawnSync('git', ['add', '.'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+
+  const branchResult = spawnSync('git', ['branch', '--show-current'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  const baseBranch = branchResult.stdout.trim();
+
+  spawnSync('git', ['checkout', '-b', 'ai/parent-1'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+
+  return { repoPath, baseBranch };
+}
+
+function makeFakeResponse(filePath: string, content: string): string {
+  return JSON.stringify({
+    notes: 'apply fix',
+    files: [{ path: filePath, content }],
+  });
+}
+
+function makeParentTask(
+  repoPath: string,
+  baseBranch: string,
+  checks: Task['checks']
+): Task {
+  return {
+    id: 'parent-1',
+    title: 'Parent task',
+    repo_path: repoPath,
+    base_branch: baseBranch,
+    work_branch: 'ai/parent-1',
+    goal: 'Fix the bug',
+    context_files: [],
+    checks,
+    guardrails: {
+      allow_modify: ['fix.txt'],
+      deny_modify: [],
+      auto_commit: false,
+      auto_push: false,
+      auto_merge: false,
+    },
+  };
+}
+
+function makeInput(fixTaskGoal: string): ReviewerFixTaskExecutorInput {
+  return {
+    executionRequest: {
+      kind: 'reviewer_fix_task',
+      status: 'pending',
+      source: 'reviewer_gate',
+      taskId: 'fix-task-1',
+      parentTaskId: 'parent-1',
+      attempt: 1,
+      title: 'Fix task',
+      goal: fixTaskGoal,
+      blockingIssues: ['something is wrong'],
+      task: {
+        taskId: 'fix-task-1',
+        parentTaskId: 'parent-1',
+        title: 'Fix task',
+        goal: fixTaskGoal,
+        attempt: 1,
+        blockingIssues: ['something is wrong'],
+        source: 'reviewer_gate',
+      },
+    },
+    fixTask: {
+      taskId: 'fix-task-1',
+      parentTaskId: 'parent-1',
+      title: 'Fix task',
+      goal: fixTaskGoal,
+      attempt: 1,
+      blockingIssues: ['something is wrong'],
+      source: 'reviewer_gate',
+    },
+    taskId: 'fix-task-1',
+    parentTaskId: 'parent-1',
+    attempt: 1,
+    title: 'Fix task',
+    goal: fixTaskGoal,
+    blockingIssues: ['something is wrong'],
+  };
+}
+
+describe('createReviewerFixTaskRealExecutor', () => {
+  beforeEach(() => {
+    envBackup['ALLOW_REAL_PROVIDER'] = process.env.ALLOW_REAL_PROVIDER;
+    envBackup['ALLOW_REAL_REPO_APPLY'] = process.env.ALLOW_REAL_REPO_APPLY;
+    envBackup['ALLOW_REAL_REPO_COMMIT'] = process.env.ALLOW_REAL_REPO_COMMIT;
+    envBackup['ALLOW_REAL_REPO_PUSH'] = process.env.ALLOW_REAL_REPO_PUSH;
+    envBackup['KIMI_API_KEY'] = process.env.KIMI_API_KEY;
+    envBackup['KIMI_BASE_URL'] = process.env.KIMI_BASE_URL;
+    envBackup['KIMI_MODEL'] = process.env.KIMI_MODEL;
+    envBackup['REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE'] =
+      process.env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE;
+
+    setEnv('ALLOW_REAL_PROVIDER', 'true');
+    setEnv('ALLOW_REAL_REPO_APPLY', 'true');
+    setEnv('ALLOW_REAL_REPO_COMMIT', 'true');
+    setEnv('KIMI_API_KEY', 'fake-key');
+    setEnv('KIMI_BASE_URL', 'https://api.moonshot.cn/v1');
+  });
+
+  afterEach(() => {
+    restoreEnv();
+  });
+
+  test('completed run returns actual passing check summary', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+
+    const checks: Task['checks'] = [
+      {
+        command: 'node',
+        args: ['-e', 'console.log("typecheck"); process.exit(0);'],
+      },
+      {
+        command: 'node',
+        args: ['-e', 'console.log("build"); process.exit(0);'],
+      },
+      {
+        command: 'node',
+        args: ['-e', 'console.log("test"); process.exit(0);'],
+      },
+    ];
+    const parentTask = makeParentTask(repoPath, baseBranch, checks);
+
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE',
+      makeFakeResponse('fix.txt', 'fixed\n')
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'completed');
+    assert(result.commitSha);
+    assert.strictEqual(result.commitSha.length, 40);
+    assert(result.changedFiles?.includes('fix.txt'));
+    assert(result.checkSummary);
+    assert.strictEqual(result.checkSummary.typecheck, 'pass');
+    assert.strictEqual(result.checkSummary.build, 'pass');
+    assert.strictEqual(result.checkSummary.test, 'pass');
+    assert.deepStrictEqual(result.checkSummary.tests, {
+      total: 3,
+      suites: 0,
+      failures: 0,
+    });
+
+    const committedContent = readFileSync(join(repoPath, 'fix.txt'), 'utf-8');
+    assert.strictEqual(committedContent, 'fixed\n');
+  });
+
+  test('failed run returns actual failing check summary and rolls back', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+
+    const checks: Task['checks'] = [
+      {
+        command: 'node',
+        args: ['-e', 'console.log("test"); process.exit(1);'],
+      },
+    ];
+    const parentTask = makeParentTask(repoPath, baseBranch, checks);
+
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE',
+      makeFakeResponse('fix.txt', 'broken\n')
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'blocked');
+    assert(result.checkSummary);
+    assert.strictEqual(result.checkSummary.typecheck, 'not_run');
+    assert.strictEqual(result.checkSummary.build, 'not_run');
+    assert.strictEqual(result.checkSummary.test, 'fail');
+    assert.deepStrictEqual(result.checkSummary.tests, {
+      total: 1,
+      suites: 0,
+      failures: 1,
+    });
+
+    const rolledBackContent = readFileSync(join(repoPath, 'fix.txt'), 'utf-8');
+    assert.strictEqual(rolledBackContent, 'initial\n');
+
+    const statusResult = spawnSync(
+      'git',
+      ['status', '--porcelain', '--untracked-files=all'],
+      { cwd: repoPath, encoding: 'utf-8', shell: false }
+    );
+    assert.strictEqual(statusResult.stdout.trim(), '');
+  });
+});

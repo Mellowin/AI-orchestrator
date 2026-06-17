@@ -27,6 +27,16 @@ export interface ReviewerFixTaskPostRunReviewPlan {
   executionRequest?: ReviewerFixTaskExecutionRequest;
   fixTask?: ReviewerFixTaskDraft;
   executorResult?: PersistedReviewerFixTaskExecutorResult;
+  checkSummary?: {
+    typecheck?: string;
+    build?: string;
+    test?: string;
+    tests?: {
+      total?: number;
+      suites?: number;
+      failures?: number;
+    };
+  };
   blockingIssues: string[];
 }
 
@@ -69,6 +79,23 @@ function cloneFixTask(value: ReviewerFixTaskDraft): ReviewerFixTaskDraft {
   };
 }
 
+function cloneCheckSummary(
+  value: NonNullable<PersistedReviewerFixTaskExecutorResult['checkSummary']>
+): NonNullable<PersistedReviewerFixTaskExecutorResult['checkSummary']> {
+  return {
+    typecheck: value.typecheck,
+    build: value.build,
+    test: value.test,
+    tests: value.tests
+      ? {
+          total: value.tests.total,
+          suites: value.tests.suites,
+          failures: value.tests.failures,
+        }
+      : undefined,
+  };
+}
+
 function cloneExecutorResult(
   value: PersistedReviewerFixTaskExecutorResult
 ): PersistedReviewerFixTaskExecutorResult {
@@ -88,6 +115,21 @@ function cloneExecutorResult(
 
   if (value.blockingIssues !== undefined) {
     result.blockingIssues = [...value.blockingIssues];
+  }
+
+  if (value.checkSummary !== undefined) {
+    result.checkSummary = {
+      typecheck: value.checkSummary.typecheck,
+      build: value.checkSummary.build,
+      test: value.checkSummary.test,
+      tests: value.checkSummary.tests
+        ? {
+            total: value.checkSummary.tests.total,
+            suites: value.checkSummary.tests.suites,
+            failures: value.checkSummary.tests.failures,
+          }
+        : undefined,
+    };
   }
 
   return result;
@@ -212,6 +254,10 @@ export function deriveReviewerFixTaskPostRunReviewPlan(
     attempt: state.attempt,
     commitSha,
     changedFiles: changedFilesFromExecutorResult(state.executorResult),
+    checkSummary:
+      state.executorResult.checkSummary === undefined
+        ? undefined
+        : cloneCheckSummary(state.executorResult.checkSummary),
     executionRequest:
       state.executionRequest !== undefined
         ? cloneExecutionRequest(state.executionRequest)

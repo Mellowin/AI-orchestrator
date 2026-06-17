@@ -35,6 +35,16 @@ export interface ReviewerFixTaskExecutorResult {
   commitSha?: string;
   changedFiles?: string[];
   blockingIssues?: string[];
+  checkSummary?: {
+    typecheck?: string;
+    build?: string;
+    test?: string;
+    tests?: {
+      total?: number;
+      suites?: number;
+      failures?: number;
+    };
+  };
 }
 
 export type ReviewerFixTaskExecutor = (
@@ -100,7 +110,7 @@ function cloneFixTask(value: ReviewerFixTaskDraft): ReviewerFixTaskDraft {
 function cloneExecutorResult(
   value: ReviewerFixTaskExecutorResult
 ): ReviewerFixTaskExecutorResult {
-  return {
+  const result: ReviewerFixTaskExecutorResult = {
     status: value.status,
     reason: value.reason,
     runState: value.runState,
@@ -112,6 +122,23 @@ function cloneExecutorResult(
         ? undefined
         : [...value.blockingIssues],
   };
+
+  if (value.checkSummary !== undefined) {
+    result.checkSummary = {
+      typecheck: value.checkSummary.typecheck,
+      build: value.checkSummary.build,
+      test: value.checkSummary.test,
+      tests: value.checkSummary.tests
+        ? {
+            total: value.checkSummary.tests.total,
+            suites: value.checkSummary.tests.suites,
+            failures: value.checkSummary.tests.failures,
+          }
+        : undefined,
+    };
+  }
+
+  return result;
 }
 
 export async function runReviewerFixTaskWithExecutor(

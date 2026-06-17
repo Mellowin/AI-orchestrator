@@ -13,6 +13,16 @@ export interface PersistedReviewerFixTaskExecutorResult {
   changedFiles?: string[];
   blockingIssues?: string[];
   hasRunState: boolean;
+  checkSummary?: {
+    typecheck?: string;
+    build?: string;
+    test?: string;
+    tests?: {
+      total?: number;
+      suites?: number;
+      failures?: number;
+    };
+  };
 }
 
 export interface PersistedReviewerFixTaskRunnerResultState {
@@ -98,6 +108,21 @@ function buildPersistedExecutorResult(
 
   if (value.blockingIssues !== undefined) {
     result.blockingIssues = redactStrings(value.blockingIssues);
+  }
+
+  if (value.checkSummary !== undefined) {
+    result.checkSummary = {
+      typecheck: value.checkSummary.typecheck,
+      build: value.checkSummary.build,
+      test: value.checkSummary.test,
+      tests: value.checkSummary.tests
+        ? {
+            total: value.checkSummary.tests.total,
+            suites: value.checkSummary.tests.suites,
+            failures: value.checkSummary.tests.failures,
+          }
+        : undefined,
+    };
   }
 
   return result;

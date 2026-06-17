@@ -1816,7 +1816,7 @@ if (command === 'real-repo-run-ai') {
                   taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
                   branchName: currentBranch,
                   commitSha: fixCommitSha,
-                  checkSummary: { test: 'pass', typecheck: 'pass', build: 'pass' },
+                  checkSummary: postRunPlan.checkSummary ?? { test: 'not_run' },
                   stateStatus: 'fix_review',
                   reviewer: async (input) => {
                     const captureFile = process.env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;

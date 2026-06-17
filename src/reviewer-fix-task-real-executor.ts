@@ -38,6 +38,7 @@ import type {
   ReviewerFixTaskExecutorInput,
   ReviewerFixTaskExecutorResult,
 } from './reviewer-fix-task-runner.js';
+import type { ReviewerEvidenceInput } from './reviewer-evidence.js';
 
 export interface CreateReviewerFixTaskRealExecutorOptions {
   parentTask: Task;
@@ -47,6 +48,40 @@ function countLines(text: string): number {
   if (text.length === 0) return 0;
   const lines = text.split('\n');
   return text.endsWith('\n') ? lines.length - 1 : lines.length;
+}
+
+function classifyCheckCommand(command: string, args: string[]): string {
+  const full = `${command} ${args.join(' ')}`.toLowerCase();
+  if (full.includes('typecheck') || full.includes('tsc')) return 'typecheck';
+  if (full.includes('build')) return 'build';
+  if (full.includes('test')) return 'test';
+  return 'other';
+}
+
+function buildFixCheckSummary(
+  checks: Array<{ command: string; args: string[] }>,
+  success: boolean
+): ReviewerEvidenceInput['checkSummary'] {
+  const hasTypecheck = checks.some((c) => classifyCheckCommand(c.command, c.args) === 'typecheck');
+  const hasBuild = checks.some((c) => classifyCheckCommand(c.command, c.args) === 'build');
+  const hasTest = checks.some((c) => classifyCheckCommand(c.command, c.args) === 'test');
+
+  const summary: ReviewerEvidenceInput['checkSummary'] = {
+    test: hasTest ? (success ? 'pass' : 'fail') : 'not_run',
+  };
+
+  summary.typecheck = hasTypecheck ? (success ? 'pass' : 'fail') : 'not_run';
+  summary.build = hasBuild ? (success ? 'pass' : 'fail') : 'not_run';
+
+  if (hasTest) {
+    summary.tests = {
+      total: checks.length,
+      suites: 0,
+      failures: success ? 0 : 1,
+    };
+  }
+
+  return summary;
 }
 
 function buildFixTaskPrompt(
@@ -148,12 +183,14 @@ function buildFetchFnForFixTask(): FetchFn | undefined {
 
 function blockResult(
   reason: string,
-  blockingIssues: string[] = []
+  blockingIssues: string[] = [],
+  checkSummary?: ReviewerEvidenceInput['checkSummary']
 ): ReviewerFixTaskExecutorResult {
   return {
     status: 'blocked',
     reason: redactSecrets(reason),
     blockingIssues: blockingIssues.map((i) => redactSecrets(i)),
+    checkSummary,
   };
 }
 
@@ -309,9 +346,14 @@ export function createReviewerFixTaskRealExecutor(
         sandboxRoot,
       });
       if (!preflightResult.ok) {
+        const preflightCheckSummary =
+          preflightResult.failedStep === 'checks'
+            ? buildFixCheckSummary(fixTask.checks, false)
+            : undefined;
         return blockResult(
           `Sandbox preflight failed at step: ${preflightResult.failedStep ?? 'unknown'}`,
-          [redactSecrets(preflightResult.logs)]
+          [redactSecrets(preflightResult.logs)],
+          preflightCheckSummary
         );
       }
     } finally {
@@ -348,6 +390,7 @@ export function createReviewerFixTaskRealExecutor(
     }
 
     const checkResult = runChecks(repoPath, fixTask.checks);
+    const fixCheckSummary = buildFixCheckSummary(fixTask.checks, checkResult.success);
     if (!checkResult.success) {
       if (manifest && manifest.length > 0) {
         try {
@@ -356,12 +399,12 @@ export function createReviewerFixTaskRealExecutor(
           const msg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
           return blockResult(`Checks failed and rollback failed: ${redactSecrets(msg)}`, [
             redactSecrets(checkResult.logs),
-          ]);
+          ], fixCheckSummary);
         }
       }
       return blockResult('Checks failed after applying fix.', [
         redactSecrets(checkResult.logs),
-      ]);
+      ], fixCheckSummary);
     }
 
     const approvedPaths = new Set(updatePaths);
@@ -440,6 +483,7 @@ export function createReviewerFixTaskRealExecutor(
       commitSha,
       changedFiles,
       blockingIssues: [],
+      checkSummary: fixCheckSummary,
     };
   };
 }
