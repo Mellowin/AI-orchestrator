@@ -1,0 +1,49 @@
+{
+  "block_id": "disposable_pilot_demo",
+  "title": "Golden disposable pilot demo",
+  "repo_path": "__DISPOSABLE_REPO_PATH__",
+  "base_branch": "main",
+  "work_branch": "ai-demo-branch",
+  "providers": {
+    "coder": {
+      "provider": "kimi",
+      "model": "kimi-k2.6"
+    },
+    "reviewer": {
+      "provider": "kimi",
+      "model": "kimi-k2.6"
+    }
+  },
+  "review_policy": {
+    "require_deterministic_checks": true,
+    "max_fix_attempts": 2,
+    "reviewer_mode": "single"
+  },
+  "tasks": [
+    {
+      "task_id": "demo_task_1",
+      "title": "Update README with a demo note",
+      "status": "pending",
+      "allowed_files": [
+        "README.md",
+        "metadata.yml"
+      ],
+      "denied_files": [
+        ".env",
+        ".env.local",
+        "node_modules/**",
+        ".git/**"
+      ],
+      "checks": [
+        {
+          "command": "node",
+          "args": [
+            "-e",
+            "console.log('demo check ok')"
+          ]
+        }
+      ],
+      "max_lines_changed": 50
+    }
+  ]
+}
