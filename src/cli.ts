@@ -1588,6 +1588,9 @@ if (command === 'real-repo-run-ai') {
 
           const enableFixLoop = process.env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP !== '0';
           const fakeExecutorResponse = process.env.REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE;
+          const realExecutor = enableFixLoop
+            ? createReviewerFixTaskRealExecutor({ parentTask: task })
+            : undefined;
           let fixAttemptCount = 0;
 
           while (true) {
@@ -1666,10 +1669,7 @@ if (command === 'real-repo-run-ai') {
               | import('./reviewer-fix-task-controlled-run.js').ReviewerFixTaskControlledRunResult
               | undefined;
 
-            if (enableFixLoop) {
-              const realExecutor = createReviewerFixTaskRealExecutor({
-                parentTask: task,
-              });
+            if (realExecutor) {
               controlledRun = await runReviewerFixTaskControlled({
                 runPlanState,
                 executor: realExecutor,
@@ -1756,6 +1756,7 @@ if (command === 'real-repo-run-ai') {
 
             // Fix executed successfully; count this attempt.
             fixAttemptCount++;
+            const fixCommitSha = postRunPlan.commitSha;
 
             const secondReviewerResponse =
               process.env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE ?? fakeReviewerResponse;
@@ -1772,6 +1773,7 @@ if (command === 'real-repo-run-ai') {
               | undefined;
             let secondReviewError: string | undefined;
             if (secondReviewerResponse) {
+              // Explicit fake second reviewer response (legacy/fake path) — keep unchanged.
               try {
                 const secondReviewerResult = await runCommittedTaskReviewerGate({
                   repoPath: task.repo_path,
@@ -1782,6 +1784,109 @@ if (command === 'real-repo-run-ai') {
                   checkSummary: { test: 'pass' },
                   stateStatus: 'fix_review',
                   reviewer: async () => secondReviewerResponse,
+                });
+                const secondGate = secondReviewerResult.reviewerRunnerResult.gateResult;
+                secondReviewPersisted = {
+                  status: secondGate.status,
+                  source: secondGate.source,
+                  nextAction: secondGate.nextAction,
+                  blockingIssues: secondGate.blockingIssues.map((i) => redactSecrets(i)),
+                  nonBlockingIssues: secondGate.nonBlockingIssues.map((i) => redactSecrets(i)),
+                  reviewSummary: redactSecrets(secondGate.reviewSummary),
+                  fixTask: secondGate.fixTask ? redactSecrets(secondGate.fixTask) : undefined,
+                };
+              } catch (secondErr) {
+                const msg = secondErr instanceof Error ? secondErr.message : String(secondErr);
+                secondReviewError = redactSecrets(msg);
+                secondReviewPersisted = {
+                  status: 'blocked',
+                  source: 'provider',
+                  nextAction: 'block',
+                  blockingIssues: [secondReviewError],
+                  nonBlockingIssues: [],
+                  reviewSummary: redactSecrets('Second reviewer gate unexpected error.'),
+                };
+              }
+            } else if (allowRealProvider) {
+              // Real second reviewer gate on the fix commit.
+              try {
+                const secondReviewerResult = await runCommittedTaskReviewerGate({
+                  repoPath: task.repo_path,
+                  taskId: postRunPlan.taskId ?? 'unknown',
+                  taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
+                  branchName: currentBranch,
+                  commitSha: fixCommitSha,
+                  checkSummary: { test: 'pass', typecheck: 'pass', build: 'pass' },
+                  stateStatus: 'fix_review',
+                  reviewer: async (input) => {
+                    const captureFile = process.env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
+                    if (captureFile) {
+                      writeFileSync(captureFile, JSON.stringify(input, null, 2), 'utf-8');
+                    }
+                    if (process.env.REAL_REPO_REVIEWER_SECOND_FORCE_PROVIDER_ERROR === 'true') {
+                      throw new Error('Forced second reviewer provider error for testing.');
+                    }
+
+                    const reviewerProvider = createKimiReviewerProvider(
+                      { provider: 'kimi', apiKey, baseUrl, model, userAgent },
+                      {
+                        allowReal: true,
+                        fakeResponse: process.env.REAL_REPO_REVIEWER_SECOND_KIMI_FAKE_RESPONSE,
+                        fetchFn: globalThis.fetch as unknown as FetchFn,
+                      }
+                    );
+                    const diffResult = spawnSync('git', ['show', '--format=', '-p', fixCommitSha], {
+                      cwd: task.repo_path,
+                      shell: false,
+                      encoding: 'utf-8',
+                    });
+                    const diff = diffResult.status === 0 ? diffResult.stdout : '';
+                    const gitStatusResult = spawnSync('git', ['status', '--short'], {
+                      cwd: task.repo_path,
+                      shell: false,
+                      encoding: 'utf-8',
+                    });
+                    const gitStatus = gitStatusResult.status === 0 ? gitStatusResult.stdout : '';
+                    const providerInput = buildReviewInput({
+                      taskId: postRunPlan.taskId ?? 'unknown',
+                      taskTitle: postRunPlan.fixTask?.title ?? task.title,
+                      taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
+                      allowedFiles: task.guardrails.allow_modify ?? [],
+                      deniedFiles: task.guardrails.deny_modify,
+                      maxLinesChanged: task.guardrails.max_lines_changed ?? Number.MAX_SAFE_INTEGER,
+                      commitSha: fixCommitSha,
+                      changedFiles: input.changedFiles,
+                      diff,
+                      typecheckResult: input.checkSummary.typecheck ?? 'pass',
+                      buildResult: input.checkSummary.build ?? 'pass',
+                      testResult: input.checkSummary.test ?? 'pass',
+                      gitStatus,
+                      safetyFindings: [],
+                    });
+                    const decision = await reviewerProvider.reviewCommit(providerInput);
+                    const nextAction = decision.next_action;
+                    const mappedDecision =
+                      nextAction === 'advance_to_next_task'
+                        ? 'accept'
+                        : nextAction === 'send_fix_to_coder'
+                          ? 'reject'
+                          : 'block_for_human';
+                    const mappedNextAction =
+                      nextAction === 'advance_to_next_task'
+                        ? 'continue'
+                        : nextAction === 'send_fix_to_coder'
+                          ? 'fix'
+                          : 'block';
+                    return JSON.stringify({
+                      decision: mappedDecision,
+                      confidence: decision.confidence,
+                      blockingIssues: decision.blocking_issues,
+                      nonBlockingIssues: decision.non_blocking_issues,
+                      reviewSummary: decision.review_summary,
+                      nextAction: mappedNextAction,
+                      fixTask: decision.fix_task ?? undefined,
+                    });
+                  },
                 });
                 const secondGate = secondReviewerResult.reviewerRunnerResult.gateResult;
                 secondReviewPersisted = {

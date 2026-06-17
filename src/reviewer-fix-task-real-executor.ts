@@ -181,11 +181,15 @@ export function createReviewerFixTaskRealExecutor(
 ): ReviewerFixTaskExecutor {
   const { parentTask } = options;
 
+  const fetchFn = buildFetchFnForFixTask();
+
   return async (
     input: ReviewerFixTaskExecutorInput
   ): Promise<ReviewerFixTaskExecutorResult> => {
-    if (process.env.ALLOW_REAL_PROVIDER !== 'true') {
-      return blockResult('ALLOW_REAL_PROVIDER=true is required to execute reviewer fix task.');
+    const allowRealProvider =
+      process.env.ALLOW_REAL_PROVIDER === 'true' || process.env.ALLOW_REAL_PROVIDER === '1';
+    if (!allowRealProvider) {
+      return blockResult('ALLOW_REAL_PROVIDER=true or ALLOW_REAL_PROVIDER=1 is required to execute reviewer fix task.');
     }
     if (process.env.ALLOW_REAL_REPO_APPLY !== 'true') {
       return blockResult('ALLOW_REAL_REPO_APPLY=true is required to execute reviewer fix task.');
@@ -223,7 +227,6 @@ export function createReviewerFixTaskRealExecutor(
       return blockResult(`Safety check failed: ${safetyResult.reason}`);
     }
 
-    const fetchFn = buildFetchFnForFixTask();
     if (!fetchFn) {
       return blockResult('global fetch is not available and no fix-task fake response is configured.');
     }
