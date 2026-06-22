@@ -208,6 +208,32 @@ ${checkLines}
   };
 }
 
+const ZERO_SHA = '0000000000000000000000000000000000000000';
+
+function corruptLocalBranchRef(repoPath: string, branch: string): void {
+  writeFileSync(
+    join(repoPath, '.git', 'refs', 'heads', branch),
+    `${ZERO_SHA}\n`,
+    'utf-8'
+  );
+}
+
+function corruptRemoteBaseRef(repoPath: string, branch: string): void {
+  const remoteDir = join(repoPath, '.git', 'refs', 'remotes', 'origin');
+  if (!existsSync(remoteDir)) {
+    mkdirSync(remoteDir, { recursive: true });
+  }
+  writeFileSync(
+    join(remoteDir, branch),
+    `${ZERO_SHA}\n`,
+    'utf-8'
+  );
+}
+
+function invalidateHead(repoPath: string): void {
+  writeFileSync(join(repoPath, '.git', 'HEAD'), 'ref: refs/heads/nonexistent\n', 'utf-8');
+}
+
 function getCurrentBranch(repoPath: string): string {
   const result = spawnSync('git', ['branch', '--show-current'], {
     cwd: repoPath,
@@ -1931,6 +1957,75 @@ describe('cli real-repo-run-ai', () => {
       const combined = result.stdout + result.stderr;
       assert(!combined.includes('Failed check command:'), `Repair prompt should not be printed: ${combined}`);
       assert(!combined.includes('Previously proposed files:'), `Repair prompt should not be printed: ${combined}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('corrupted local branch ref refuses before provider call', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      corruptLocalBranchRef(repoPath, 'main');
+      const beforeLog = getGitLogCount(repoPath);
+      const beforeRefs = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Git repository health check failed'), `Expected health check failure: ${result.stderr}`);
+      assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLog, `No commit should be made`);
+      assert.deepStrictEqual(getBareRefs(originPath), beforeRefs, `Remote should not change`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('corrupted remote origin/main ref refuses before provider call', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      corruptRemoteBaseRef(repoPath, 'main');
+      const beforeLog = getGitLogCount(repoPath);
+      const beforeRefs = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Git repository health check failed'), `Expected health check failure: ${result.stderr}`);
+      assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLog, `No commit should be made`);
+      assert.deepStrictEqual(getBareRefs(originPath), beforeRefs, `Remote should not change`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('invalid HEAD refuses before provider call', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, cleanup } = createTempEnv();
+    try {
+      invalidateHead(repoPath);
+      const beforeLog = getGitLogCount(repoPath);
+      const beforeRefs = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+      });
+      assert.notStrictEqual(result.status, 0);
+      assert(result.stderr.includes('Git repository health check failed'), `Expected health check failure: ${result.stderr}`);
+      assert(result.stderr.includes('No provider call was made'), `Expected no provider call: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLog, `No commit should be made`);
+      assert.deepStrictEqual(getBareRefs(originPath), beforeRefs, `Remote should not change`);
     } finally {
       cleanup();
     }

@@ -27,6 +27,7 @@ import {
   RunLockError,
 } from './run-lock.js';
 import { writeJsonAtomic } from './state-atomic-write.js';
+import { runGitHealthPreflight, formatGitHealthPreflightError } from './git-health-preflight.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, '..');
@@ -664,6 +665,23 @@ export async function runRealBlockRunAI(
   }
 
   const block = loadBlockDefinition(blockPath);
+
+  const gitHealth = runGitHealthPreflight({
+    repoPath: block.repo_path,
+    workBranch: block.work_branch,
+    baseBranch: block.base_branch,
+  });
+  if (!gitHealth.ok) {
+    console.error(`[real-block-run-ai] ${formatGitHealthPreflightError(gitHealth.issues)}`);
+    console.error('[real-block-run-ai] No provider call was made');
+    console.error('[real-block-run-ai] No apply was performed');
+    console.error('[real-block-run-ai] No commit was made');
+    console.error('[real-block-run-ai] No push was performed');
+    console.error('[real-block-run-ai] No merge was performed');
+    console.error('[real-block-run-ai] No checkout was performed');
+    console.error('[real-block-run-ai] No main touch was performed');
+    return { exitCode: 1, blockState: null };
+  }
 
   if (pauseAfterTaskId !== undefined && pauseAfterTaskId.trim() !== '') {
     const found = block.tasks.some((t) => t.task_id === pauseAfterTaskId);

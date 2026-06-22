@@ -80,6 +80,7 @@ import { buildBlockStatusReport } from './block/block-report.js';
 import { runOneTaskLoop } from './block/block-one-task-loop.js';
 import { runMultiTaskLoop, runMultiTaskFakeLoop } from './block/block-multi-task-loop.js';
 import { runRealBlockRunAI } from './real-block-run-ai.js';
+import { runGitHealthPreflight, formatGitHealthPreflightError } from './git-health-preflight.js';
 import { runRealProviderSmoke } from './real-provider-smoke.js';
 import { runRealCoderContractSmoke, formatRealCoderContractSmokeReport } from './real-coder-contract-smoke.js';
 import { runRealReviewerContractSmoke, formatRealReviewerContractSmokeReport } from './real-reviewer-contract-smoke.js';
@@ -958,6 +959,24 @@ if (command === 'real-repo-run-ai') {
     }
 
     const task = loadTask(getTasksFilePath(), taskId);
+
+    const gitHealth = runGitHealthPreflight({
+      repoPath: task.repo_path,
+      workBranch: task.work_branch,
+      baseBranch: task.base_branch,
+    });
+    if (!gitHealth.ok) {
+      console.error(`[real-repo-run-ai] ${formatGitHealthPreflightError(gitHealth.issues)}`);
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
 
     let currentBranch = '';
     let isClean = false;
