@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -2527,6 +2528,29 @@ describe('cli real-block-run-ai', () => {
       assert.notStrictEqual(result.status, 0, `Expected lock refusal: ${result.stderr}`);
       const output = result.stdout + result.stderr;
       assert(!output.includes(secret), `Secret should be redacted: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('block state save leaves no temp files', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const blockDir = join(runsDir, 'block', blockId);
+      const tmpFiles = readdirSync(blockDir).filter((name) => name.includes('.tmp.'));
+      assert.strictEqual(tmpFiles.length, 0, `Expected no temp files, found: ${tmpFiles.join(', ')}`);
     } finally {
       cleanup();
     }

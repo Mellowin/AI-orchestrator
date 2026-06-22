@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -100,6 +100,19 @@ describe('state-manager', () => {
       assert.strictEqual(loaded!.status, 'coding');
       assert.strictEqual(loaded!.current_attempt, 2);
       assert.strictEqual(loaded!.branch, 'ai/test-task');
+    } finally {
+      rmSync(tempRuns, { recursive: true });
+    }
+  });
+
+  test('saveState leaves no temp files', () => {
+    const tempRuns = createTempRunsDir();
+    try {
+      const state = makeState();
+      saveState(TASK_ID, state, tempRuns);
+      const runDir = getRunDir(TASK_ID, tempRuns);
+      const tmpFiles = readdirSync(runDir).filter((name) => name.includes('.tmp.'));
+      assert.strictEqual(tmpFiles.length, 0, `Expected no temp files, found: ${tmpFiles.join(', ')}`);
     } finally {
       rmSync(tempRuns, { recursive: true });
     }

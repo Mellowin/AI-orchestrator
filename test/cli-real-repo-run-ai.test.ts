@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -4740,6 +4741,23 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual(result3.status, 0, `Expected success for different repo: ${result3.stderr}`);
     } finally {
       env3.cleanup();
+    }
+  });
+
+  test('task state save leaves no temp files', () => {
+    const { taskId, tasksFilePath, runsDir, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ...baseRepoEnv(runsDir),
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      const runDir = join(runsDir, taskId);
+      const tmpFiles = readdirSync(runDir).filter((name) => name.includes('.tmp.'));
+      assert.strictEqual(tmpFiles.length, 0, `Expected no temp files, found: ${tmpFiles.join(', ')}`);
+    } finally {
+      cleanup();
     }
   });
 });

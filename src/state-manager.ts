@@ -2,12 +2,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   writeFileSync,
 } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { RunState, RunStatus, Task } from './types.js';
 import { config } from './config.js';
+import { writeJsonAtomic } from './state-atomic-write.js';
 
 const VALID_STATUSES: RunStatus[] = [
   'pending',
@@ -111,11 +111,7 @@ export function saveState(taskId: string, state: RunState, runsDir?: string): vo
   }
 
   const statePath = getStatePath(taskId, runsDir);
-  const tmpPath = `${statePath}.tmp`;
-  const data = JSON.stringify(state, null, 2);
-
-  writeFileSync(tmpPath, data, 'utf-8');
-  renameSync(tmpPath, statePath);
+  writeJsonAtomic(statePath, state);
 }
 
 export function initState(task: Task): RunState {

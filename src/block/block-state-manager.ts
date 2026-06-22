@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve, normalize } from 'node:path';
 import type { BlockDefinition, BlockState, BlockTaskState, BlockTaskStatus } from './block-types.js';
+import { writeJsonAtomic } from '../state-atomic-write.js';
 
 const BLOCK_RUNS_DIR = process.env.BLOCK_RUNS_DIR || join(process.cwd(), 'runs', 'blocks');
 
@@ -74,9 +75,7 @@ export function saveBlockState(state: BlockState): void {
     mkdirSync(dir, { recursive: true });
   }
 
-  const tempPath = statePath + '.tmp';
-  writeFileSync(tempPath, JSON.stringify(state, null, 2), 'utf-8');
-  renameSync(tempPath, statePath);
+  writeJsonAtomic(statePath, state);
 }
 
 export function updateBlockState(blockId: string, updater: (state: BlockState) => BlockState): BlockState {

@@ -26,6 +26,7 @@ import {
   releaseRunLock,
   RunLockError,
 } from './run-lock.js';
+import { writeJsonAtomic } from './state-atomic-write.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, '..');
@@ -155,10 +156,7 @@ function saveBlockState(block: BlockDefinition, state: RealBlockRunState): void 
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const statePath = getBlockStatePath(block);
-  const tmpPath = `${statePath}.tmp`;
-  writeFileSync(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
-  renameSync(tmpPath, statePath);
+  writeJsonAtomic(getBlockStatePath(block), state);
 }
 
 function buildBaseChildEnv(): NodeJS.ProcessEnv {
