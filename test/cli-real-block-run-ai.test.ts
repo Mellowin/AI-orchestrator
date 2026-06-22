@@ -1787,6 +1787,250 @@ describe('cli real-block-run-ai', () => {
       assert.strictEqual(summary.blockedTaskId, 'task-two');
       const output = result.stdout + result.stderr;
       assert(output.includes('incomplete child state'), `Expected incomplete child state message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  function writeCorruptChildRunState(
+    runsDir: string,
+    taskId: string,
+    content: string
+  ): void {
+    const runDir = join(runsDir, taskId);
+    if (!existsSync(runDir)) {
+      mkdirSync(runDir, { recursive: true });
+    }
+    writeFileSync(join(runDir, 'state.json'), content, 'utf-8');
+  }
+
+  function buildChildAcceptedStateMissingSha(
+    taskId: string,
+    repoPath: string
+  ): Record<string, unknown> {
+    const state = buildChildAcceptedState(taskId, repoPath, 'placeholder');
+    delete (state as Record<string, unknown>).commit_sha;
+    return state;
+  }
+
+  function buildChildFixedStateMissingFixSha(
+    taskId: string,
+    repoPath: string,
+    originalSha: string
+  ): Record<string, unknown> {
+    const state = buildChildFixedState(taskId, repoPath, originalSha, 'placeholder');
+    const secondReview = state.reviewer_fix_task_second_review as Record<string, unknown>;
+    delete secondReview.fixCommitSha;
+    return state;
+  }
+
+  test('resume blocks safely on corrupted child state JSON', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const partialState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'blocked',
+      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+    );
+    writeBlockState(runsDir, blockId, partialState);
+    writeCorruptChildRunState(runsDir, 'task-two', '{ not valid json');
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'blocked');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-two');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('Corrupted child state'), `Expected corrupted child state message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume blocks safely on corrupted block state JSON before provider call', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const dir = join(runsDir, 'block', blockId);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(join(dir, 'state.json'), '{ invalid block state', 'utf-8');
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('valid JSON'), `Expected invalid JSON message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume blocks safely when child state task_id mismatches expected task', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const partialState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'blocked',
+      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+    );
+    writeBlockState(runsDir, blockId, partialState);
+    writeChildRunState(runsDir, 'task-two', buildChildAcceptedState('wrong-task', repoPath, 'b'.repeat(40)));
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'blocked');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-two');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('task_id mismatch'), `Expected task_id mismatch message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume blocks safely when child state repo_path mismatches block repo_path', () => {
+    const { blockId, blockPath, repoPath, runsDir, tmpDir, cleanup } = createTempBlockEnv();
+    const partialState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'blocked',
+      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+    );
+    writeBlockState(runsDir, blockId, partialState);
+    const foreignRepoPath = join(tmpDir, 'foreign-repo');
+    writeChildRunState(runsDir, 'task-two', buildChildAcceptedState('task-two', foreignRepoPath, 'b'.repeat(40)));
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'blocked');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-two');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('repo_path mismatch'), `Expected repo_path mismatch message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume blocks safely when completed accepted child state is missing commit_sha', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const partialState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'blocked',
+      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+    );
+    writeBlockState(runsDir, blockId, partialState);
+    writeChildRunState(runsDir, 'task-two', buildChildAcceptedStateMissingSha('task-two', repoPath));
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'blocked');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-two');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('missing a valid original commit SHA'), `Expected missing original SHA message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume blocks safely when completed fixed child state is missing fixCommitSha', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const originalSha = 'b'.repeat(40);
+    const partialState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'blocked',
+      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+    );
+    writeBlockState(runsDir, blockId, partialState);
+    writeChildRunState(runsDir, 'task-two', buildChildFixedStateMissingFixSha('task-two', repoPath, originalSha));
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'blocked');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-two');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('missing a valid fix commit SHA'), `Expected missing fix SHA message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume error output redacts token-like text from corrupted child state', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const secret = 'sk-fake-child-secret';
+    const partialState = buildBaseState(
+      blockId,
+      'Test block',
+      runsDir,
+      'blocked',
+      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+    );
+    writeBlockState(runsDir, blockId, partialState);
+    writeCorruptChildRunState(runsDir, 'task-two', `{"token":"${secret}","not":"valid`);
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const output = result.stdout + result.stderr;
+      assert(!output.includes(secret), `Secret should be redacted in output: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
     } finally {
       cleanup();
     }

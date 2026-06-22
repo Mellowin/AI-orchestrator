@@ -254,15 +254,136 @@ function getStateString(
   return typeof value === 'string' ? value : undefined;
 }
 
-function tryLoadChildState(
+type ChildStateLoadResult =
+  | { kind: 'missing' }
+  | { kind: 'loaded'; state: Record<string, unknown> }
+  | { kind: 'corrupted'; error: string };
+
+function isObject(val: unknown): val is Record<string, unknown> {
+  return typeof val === 'object' && val !== null && !Array.isArray(val);
+}
+
+function loadChildState(
   taskId: string,
   runsDir: string
-): Record<string, unknown> | null {
-  try {
-    return loadState(taskId, runsDir) as Record<string, unknown> | null;
-  } catch {
-    return null;
+): ChildStateLoadResult {
+  const statePath = join(runsDir, taskId, 'state.json');
+  if (!existsSync(statePath)) {
+    return { kind: 'missing' };
   }
+
+  let raw: string;
+  try {
+    raw = readFileSync(statePath, 'utf-8');
+  } catch {
+    return { kind: 'corrupted', error: 'Child state file could not be read' };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { kind: 'corrupted', error: 'Child state file is not valid JSON' };
+  }
+
+  if (!isObject(parsed)) {
+    return { kind: 'corrupted', error: 'Child state is not a valid object' };
+  }
+
+  return { kind: 'loaded', state: parsed };
+}
+
+interface ValidChildState {
+  valid: true;
+  state: Record<string, unknown>;
+}
+
+interface InvalidChildState {
+  valid: false;
+  reason: string;
+}
+
+type ChildStateValidationResult = ValidChildState | InvalidChildState;
+
+function validateChildState(
+  task: BlockTaskDefinition,
+  block: BlockDefinition,
+  state: Record<string, unknown>
+): ChildStateValidationResult {
+  const stateTaskId = state.task_id;
+  if (typeof stateTaskId !== 'string' || stateTaskId !== task.task_id) {
+    return {
+      valid: false,
+      reason: `Child state task_id mismatch for task ${task.task_id}: expected ${task.task_id}, got ${String(stateTaskId)}`,
+    };
+  }
+
+  const stateRepoPath = state.repo_path;
+  if (typeof stateRepoPath === 'string' && stateRepoPath.trim().length > 0) {
+    const expectedRepoPath = resolve(block.repo_path);
+    const actualRepoPath = resolve(stateRepoPath);
+    if (expectedRepoPath !== actualRepoPath) {
+      return {
+        valid: false,
+        reason: `Child state repo_path mismatch for task ${task.task_id}`,
+      };
+    }
+  }
+
+  return { valid: true, state };
+}
+
+function validateCompletedChildResult(
+  result: RealBlockRunTaskResult
+): string | undefined {
+  if (result.status === 'accepted') {
+    if (
+      typeof result.originalCommitSha !== 'string' ||
+      result.originalCommitSha.length !== 40
+    ) {
+      return `Completed accepted task ${result.taskId} is missing a valid original commit SHA`;
+    }
+  }
+
+  if (result.status === 'fixed_and_accepted') {
+    if (
+      typeof result.originalCommitSha !== 'string' ||
+      result.originalCommitSha.length !== 40
+    ) {
+      return `Completed fixed task ${result.taskId} is missing a valid original commit SHA`;
+    }
+    if (
+      typeof result.fixCommitSha !== 'string' ||
+      result.fixCommitSha.length !== 40
+    ) {
+      return `Completed fixed task ${result.taskId} is missing a valid fix commit SHA`;
+    }
+  }
+
+  return undefined;
+}
+
+function blockResumeFailure(
+  block: BlockDefinition,
+  blockState: RealBlockRunState,
+  taskId: string,
+  reason: string
+): { exitCode: number; blockState: RealBlockRunState } {
+  blockState.status = 'blocked';
+  blockState.summary.blockedTaskId = taskId;
+  blockState.currentTaskId = null;
+  blockState.finishedAt = new Date().toISOString();
+  blockState.summary.stoppedReason = redactSecrets(reason);
+  saveBlockState(block, blockState);
+  console.error('[real-block-run-ai] Resume blocked: cannot continue safely');
+  console.error(`[real-block-run-ai] Reason: ${redactSecrets(reason)}`);
+  console.error('[real-block-run-ai] No provider call was made');
+  console.error('[real-block-run-ai] No apply was performed');
+  console.error('[real-block-run-ai] No commit was made');
+  console.error('[real-block-run-ai] No push was performed');
+  console.error('[real-block-run-ai] No merge was performed');
+  printBlockRunSummary(blockState);
+  return { exitCode: 1, blockState };
 }
 
 function getGateSummary(gate: Record<string, unknown> | undefined): string | undefined {
@@ -628,24 +749,41 @@ export async function runRealBlockRunAI(
     saveBlockState(block, blockState);
 
     let taskResult: RealBlockRunTaskResult;
-    const childState = resume
-      ? tryLoadChildState(task.task_id, getRunsDir())
-      : null;
+    const childLoad = resume
+      ? loadChildState(task.task_id, getRunsDir())
+      : { kind: 'missing' as const };
 
-    if (childState !== null) {
-      const derived = deriveTaskResult(task, { exitCode: 0, state: childState });
-      if (isCompletedTaskStatus(derived.status)) {
-        taskResult = derived;
-      } else {
-        blockState.status = 'blocked';
-        blockState.summary.blockedTaskId = task.task_id;
-        blockState.currentTaskId = null;
-        blockState.finishedAt = new Date().toISOString();
-        blockState.summary.stoppedReason = `Task ${task.task_id} has incomplete child state (${derived.status}); resume cannot continue safely.`;
-        saveBlockState(block, blockState);
-        printBlockRunSummary(blockState);
-        return { exitCode: 1, blockState };
+    if (childLoad.kind === 'corrupted') {
+      return blockResumeFailure(
+        block,
+        blockState,
+        task.task_id,
+        `Corrupted child state for task ${task.task_id}: ${childLoad.error}. Cannot resume safely.`
+      );
+    }
+
+    if (childLoad.kind === 'loaded') {
+      const validation = validateChildState(task, block, childLoad.state);
+      if (!validation.valid) {
+        return blockResumeFailure(block, blockState, task.task_id, validation.reason);
       }
+
+      const derived = deriveTaskResult(task, { exitCode: 0, state: validation.state });
+      if (!isCompletedTaskStatus(derived.status)) {
+        return blockResumeFailure(
+          block,
+          blockState,
+          task.task_id,
+          `Task ${task.task_id} has incomplete child state (${derived.status}); resume cannot continue safely.`
+        );
+      }
+
+      const shaError = validateCompletedChildResult(derived);
+      if (shaError) {
+        return blockResumeFailure(block, blockState, task.task_id, shaError);
+      }
+
+      taskResult = derived;
     } else {
       const run = runSingleTask(block, task, i, arrays);
       taskResult = deriveTaskResult(task, run);
