@@ -254,6 +254,17 @@ function getStateString(
   return typeof value === 'string' ? value : undefined;
 }
 
+function tryLoadChildState(
+  taskId: string,
+  runsDir: string
+): Record<string, unknown> | null {
+  try {
+    return loadState(taskId, runsDir) as Record<string, unknown> | null;
+  } catch {
+    return null;
+  }
+}
+
 function getGateSummary(gate: Record<string, unknown> | undefined): string | undefined {
   if (gate === undefined) {
     return undefined;
@@ -616,8 +627,29 @@ export async function runRealBlockRunAI(
     blockState.currentTaskId = task.task_id;
     saveBlockState(block, blockState);
 
-    const run = runSingleTask(block, task, i, arrays);
-    const taskResult = deriveTaskResult(task, run);
+    let taskResult: RealBlockRunTaskResult;
+    const childState = resume
+      ? tryLoadChildState(task.task_id, getRunsDir())
+      : null;
+
+    if (childState !== null) {
+      const derived = deriveTaskResult(task, { exitCode: 0, state: childState });
+      if (isCompletedTaskStatus(derived.status)) {
+        taskResult = derived;
+      } else {
+        blockState.status = 'blocked';
+        blockState.summary.blockedTaskId = task.task_id;
+        blockState.currentTaskId = null;
+        blockState.finishedAt = new Date().toISOString();
+        blockState.summary.stoppedReason = `Task ${task.task_id} has incomplete child state (${derived.status}); resume cannot continue safely.`;
+        saveBlockState(block, blockState);
+        printBlockRunSummary(blockState);
+        return { exitCode: 1, blockState };
+      }
+    } else {
+      const run = runSingleTask(block, task, i, arrays);
+      taskResult = deriveTaskResult(task, run);
+    }
 
     if (existingResultIndex >= 0) {
       blockState.taskResults[existingResultIndex] = taskResult;
