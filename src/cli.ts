@@ -30,6 +30,13 @@ import type { FetchFn } from './provider-call.js';
 import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
 import { runRealRepoSandboxPreflight } from './real-repo-sandbox-preflight.js';
 import { buildSandboxPreflightRepairDecision, redactSecrets } from './sandbox-preflight-repair.js';
+import {
+  acquireRunLock,
+  formatRunLockError,
+  getRepoRunLockPath,
+  releaseRunLock,
+  RunLockError,
+} from './run-lock.js';
 import { validateRealRepoApplySafety } from './real-repo-apply-safety.js';
 import { buildRealRepoApplyDryRunSummary } from './real-repo-apply-dry-run.js';
 import { buildRealRepoApplyPlan } from './real-repo-apply-plan.js';
@@ -882,6 +889,7 @@ if (command === 'real-repo-run') {
 
 if (command === 'real-repo-run-ai') {
   let applyStarted = false;
+  let repoLockPath: string | undefined;
   try {
     if (!taskId) {
       console.error('[real-repo-run-ai] Error: task id is required');
@@ -1031,6 +1039,34 @@ if (command === 'real-repo-run-ai') {
     const baseUrl = process.env.KIMI_BASE_URL?.trim();
     if (!baseUrl) {
       console.error('[real-repo-run-ai] Error: KIMI_BASE_URL env var is required');
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+
+    repoLockPath = getRepoRunLockPath(task.repo_path, task.work_branch);
+    try {
+      acquireRunLock(repoLockPath, {
+        pid: process.pid,
+        command: 'real-repo-run-ai',
+        repoPath: task.repo_path,
+        workBranch: task.work_branch,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      const message =
+        err instanceof RunLockError
+          ? formatRunLockError(err.lockPath, err.metadata)
+          : err instanceof Error
+          ? err.message
+          : String(err);
+      console.error(`[real-repo-run-ai] ${redactSecrets(message)}`);
       console.error('[real-repo-run-ai] No provider call was made');
       console.error('[real-repo-run-ai] No apply was performed');
       console.error('[real-repo-run-ai] No commit was made');
@@ -2027,6 +2063,10 @@ if (command === 'real-repo-run-ai') {
     console.error('[real-repo-run-ai] No main touch was performed');
     process.exitCode = 1;
     break commandDispatch;
+  } finally {
+    if (repoLockPath) {
+      releaseRunLock(repoLockPath);
+    }
   }
 }
 

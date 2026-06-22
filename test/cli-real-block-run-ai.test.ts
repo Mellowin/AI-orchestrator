@@ -2386,4 +2386,149 @@ describe('cli real-block-run-ai', () => {
       cleanup();
     }
   });
+
+  function getBlockLockPath(runsDir: string, blockId: string): string {
+    return join(runsDir, 'block', blockId, 'run.lock');
+  }
+
+  function writeBlockLock(
+    runsDir: string,
+    blockId: string,
+    metadata: Record<string, unknown>
+  ): void {
+    const lockPath = getBlockLockPath(runsDir, blockId);
+    const dir = join(runsDir, 'block', blockId);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(lockPath, JSON.stringify(metadata, null, 2), 'utf-8');
+  }
+
+  test('block run creates and releases lock on success', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const lockPath = getBlockLockPath(runsDir, blockId);
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(!existsSync(lockPath), 'Lock should be released after success');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('block run releases lock after pause', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const lockPath = getBlockLockPath(runsDir, blockId);
+      const result = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'task-one'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+      assert.strictEqual(result.status, 0, `Expected pause success: ${result.stderr}`);
+      assert(!existsSync(lockPath), 'Lock should be released after pause');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('block run releases lock after task failure', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const lockPath = getBlockLockPath(runsDir, blockId);
+      const result = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'task-one'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          null,
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildBlockReview('Blocked for human', ['needs review']),
+          null,
+        ]),
+      }));
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(!existsSync(lockPath), 'Lock should be released after failure');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('block run refuses if lock exists before provider call', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      writeBlockLock(runsDir, blockId, {
+        pid: 99999,
+        command: 'real-block-run-ai',
+        blockId,
+        createdAt: new Date().toISOString(),
+      });
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected lock refusal: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('Another run appears to be active'), `Expected lock conflict message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume refuses if block lock exists before provider call', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      writeBlockLock(runsDir, blockId, {
+        pid: 99999,
+        command: 'real-block-run-ai',
+        blockId,
+        createdAt: new Date().toISOString(),
+      });
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected lock refusal: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('Another run appears to be active'), `Expected lock conflict message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('block lock conflict redacts token-like text', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const secret = 'sk-fake-lock-secret';
+    try {
+      writeBlockLock(runsDir, blockId, {
+        pid: 99999,
+        command: 'real-block-run-ai',
+        blockId: `${blockId}-${secret}`,
+        createdAt: new Date().toISOString(),
+      });
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.notStrictEqual(result.status, 0, `Expected lock refusal: ${result.stderr}`);
+      const output = result.stdout + result.stderr;
+      assert(!output.includes(secret), `Secret should be redacted: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
 });

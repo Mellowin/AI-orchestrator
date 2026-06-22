@@ -20,6 +20,12 @@ import {
   isCompletedTaskStatus,
   loadExistingBlockState,
 } from './real-block-run-ai-state.js';
+import {
+  acquireRunLock,
+  formatRunLockError,
+  releaseRunLock,
+  RunLockError,
+} from './run-lock.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, '..');
@@ -693,8 +699,33 @@ export async function runRealBlockRunAI(
     );
   }
 
-  const now = new Date().toISOString();
-  const blockRunDir = getBlockRunDir(block);
+  const lockPath = join(getBlockRunDir(block), 'run.lock');
+  try {
+    acquireRunLock(lockPath, {
+      pid: process.pid,
+      command: 'real-block-run-ai',
+      blockId: block.block_id,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    const message =
+      err instanceof RunLockError
+        ? formatRunLockError(err.lockPath, err.metadata)
+        : err instanceof Error
+        ? err.message
+        : String(err);
+    console.error(`[real-block-run-ai] ${redactSecrets(message)}`);
+    console.error('[real-block-run-ai] No provider call was made');
+    console.error('[real-block-run-ai] No apply was performed');
+    console.error('[real-block-run-ai] No commit was made');
+    console.error('[real-block-run-ai] No push was performed');
+    console.error('[real-block-run-ai] No merge was performed');
+    return { exitCode: 1, blockState: null };
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const blockRunDir = getBlockRunDir(block);
   if (!existsSync(blockRunDir)) {
     mkdirSync(blockRunDir, { recursive: true });
   }
@@ -888,4 +919,7 @@ export async function runRealBlockRunAI(
   printBlockRunSummary(blockState);
 
   return { exitCode: blockState.status === 'completed' ? 0 : 1, blockState };
+  } finally {
+    releaseRunLock(lockPath);
+  }
 }

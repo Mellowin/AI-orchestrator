@@ -9,7 +9,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { getRepoRunLockPath } from '../src/run-lock.js';
+import { dirname, join } from 'node:path';
 
 let counter = 0;
 
@@ -4590,6 +4591,155 @@ describe('cli real-repo-run-ai', () => {
       assert.strictEqual(captured.safety.hasChangedFiles, true);
     } finally {
       cleanup();
+    }
+  });
+
+  function getRepoLockPath(repoPath: string, workBranch: string, runsDir: string): string {
+    return getRepoRunLockPath(repoPath, workBranch, runsDir);
+  }
+
+  function writeRepoLock(lockPath: string, metadata: Record<string, unknown>): void {
+    const dir = dirname(lockPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(lockPath, JSON.stringify(metadata, null, 2), 'utf-8');
+  }
+
+  function baseRepoEnv(runsDir: string): Record<string, string> {
+    return {
+      ALLOW_REAL_PROVIDER: 'true',
+      ALLOW_REAL_REPO_APPLY: 'true',
+      ALLOW_REAL_REPO_COMMIT: 'true',
+      ALLOW_REAL_REPO_PUSH: 'true',
+      KIMI_API_KEY: 'fake',
+      KIMI_BASE_URL: 'http://localhost:9999',
+      RUNS_DIR: runsDir,
+    };
+  }
+
+  test('repo run creates and releases lock on success', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const lockPath = getRepoLockPath(repoPath, `ai/${taskId}`, runsDir);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ...baseRepoEnv(runsDir),
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert(!existsSync(lockPath), 'Repo lock should be released after success');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('repo run releases lock after failure', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const lockPath = getRepoLockPath(repoPath, `ai/${taskId}`, runsDir);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ...baseRepoEnv(runsDir),
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: '.env', content: 'SECRET=1\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('Guardrails failed'), `Expected guardrails failure: ${result.stderr}`);
+      assert(!existsSync(lockPath), 'Repo lock should be released after failure');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('repo run refuses if lock exists before provider call', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLog = getGitLogCount(repoPath);
+      const lockPath = getRepoLockPath(repoPath, `ai/${taskId}`, runsDir);
+      writeRepoLock(lockPath, {
+        pid: 99999,
+        command: 'real-repo-run-ai',
+        repoPath: repoPath.replace(/\\/g, '/'),
+        workBranch: `ai/${taskId}`,
+        createdAt: new Date().toISOString(),
+      });
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ...baseRepoEnv(runsDir),
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected lock refusal: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLog, 'No commit should be created');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('Another run appears to be active'), `Expected lock conflict message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('repo lock is scoped by repo path and work branch', () => {
+    const env1 = createTempEnv();
+    try {
+      const lockPath1 = getRepoLockPath(env1.repoPath, `ai/${env1.taskId}`, env1.runsDir);
+      writeRepoLock(lockPath1, {
+        pid: 99999,
+        command: 'real-repo-run-ai',
+        repoPath: env1.repoPath.replace(/\\/g, '/'),
+        workBranch: `ai/${env1.taskId}`,
+        createdAt: new Date().toISOString(),
+      });
+      const result1 = runCli(['real-repo-run-ai', env1.taskId], {
+        TASKS_FILE: env1.tasksFilePath,
+        ...baseRepoEnv(env1.runsDir),
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.notStrictEqual(result1.status, 0, `Expected same-repo same-branch conflict: ${result1.stderr}`);
+      assert(result1.stderr.includes('Another run appears to be active'), `Expected lock conflict: ${result1.stderr}`);
+    } finally {
+      env1.cleanup();
+    }
+
+    const env2 = createTempEnv();
+    try {
+      const lockPath2 = getRepoLockPath(env2.repoPath, 'ai/other-branch', env2.runsDir);
+      writeRepoLock(lockPath2, {
+        pid: 99999,
+        command: 'real-repo-run-ai',
+        repoPath: env2.repoPath.replace(/\\/g, '/'),
+        workBranch: 'ai/other-branch',
+        createdAt: new Date().toISOString(),
+      });
+      const result2 = runCli(['real-repo-run-ai', env2.taskId], {
+        TASKS_FILE: env2.tasksFilePath,
+        ...baseRepoEnv(env2.runsDir),
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.strictEqual(result2.status, 0, `Expected success for different branch: ${result2.stderr}`);
+    } finally {
+      env2.cleanup();
+    }
+
+    const env3 = createTempEnv();
+    try {
+      const foreignRepoPath = '/tmp/foreign-repo-for-lock-test';
+      const lockPath3 = getRepoLockPath(foreignRepoPath, `ai/${env3.taskId}`, env3.runsDir);
+      writeRepoLock(lockPath3, {
+        pid: 99999,
+        command: 'real-repo-run-ai',
+        repoPath: foreignRepoPath,
+        workBranch: `ai/${env3.taskId}`,
+        createdAt: new Date().toISOString(),
+      });
+      const result3 = runCli(['real-repo-run-ai', env3.taskId], {
+        TASKS_FILE: env3.tasksFilePath,
+        ...baseRepoEnv(env3.runsDir),
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.strictEqual(result3.status, 0, `Expected success for different repo: ${result3.stderr}`);
+    } finally {
+      env3.cleanup();
     }
   });
 });
