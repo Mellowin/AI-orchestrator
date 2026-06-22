@@ -629,9 +629,11 @@ function printBlockRunSummary(state: RealBlockRunState): void {
 
 export async function runRealBlockRunAI(
   blockPath: string,
-  options?: { resume?: boolean }
+  options?: { resume?: boolean; pauseAfterTaskId?: string }
 ): Promise<{ exitCode: number; blockState: RealBlockRunState | null }> {
   const resume = (options?.resume ?? false) || process.env.REAL_BLOCK_RUN_RESUME === '1';
+  const pauseAfterTaskId =
+    options?.pauseAfterTaskId ?? process.env.REAL_BLOCK_RUN_PAUSE_AFTER_TASK_ID;
   const readiness = checkRealBlockRunReadiness(blockPath, { resume });
 
   if (!readiness.ready) {
@@ -658,6 +660,23 @@ export async function runRealBlockRunAI(
   }
 
   const block = loadBlockDefinition(blockPath);
+
+  if (pauseAfterTaskId !== undefined && pauseAfterTaskId.trim() !== '') {
+    const found = block.tasks.some((t) => t.task_id === pauseAfterTaskId);
+    if (!found) {
+      const safeTaskId = redactSecrets(pauseAfterTaskId);
+      console.error(
+        `[real-block-run-ai] Error: pause-after-task target "${safeTaskId}" not found in block definition`
+      );
+      console.error('[real-block-run-ai] No provider call was made');
+      console.error('[real-block-run-ai] No apply was performed');
+      console.error('[real-block-run-ai] No commit was made');
+      console.error('[real-block-run-ai] No push was performed');
+      console.error('[real-block-run-ai] No merge was performed');
+      return { exitCode: 1, blockState: null };
+    }
+  }
+
   const arrays = loadFakeResponseArrays(block);
   validateFakeResponseArrays(block, arrays);
 
@@ -812,6 +831,34 @@ export async function runRealBlockRunAI(
     }
 
     saveBlockState(block, blockState);
+
+    if (pauseAfterTaskId === task.task_id) {
+      const acceptedCount = blockState.taskResults.filter(
+        (r) => r.status === 'accepted'
+      ).length;
+      const fixedCount = blockState.taskResults.filter(
+        (r) => r.status === 'fixed_and_accepted'
+      ).length;
+
+      blockState.currentTaskId = null;
+      blockState.finishedAt = new Date().toISOString();
+      blockState.summary.acceptedTasks = acceptedCount;
+      blockState.summary.fixedTasks = fixedCount;
+      blockState.summary.completedTasks = acceptedCount + fixedCount;
+      blockState.status = 'paused';
+      const resumeCommand = `npx tsx src/cli.ts real-block-run-ai ${blockPath} --resume`;
+      blockState.summary.stoppedReason = `Paused after task ${task.task_id}. Resume with: ${resumeCommand}`;
+      saveBlockState(block, blockState);
+      printBlockRunSummary(blockState);
+      console.error(`[real-block-run-ai] Paused after task ${task.task_id}`);
+      console.error(`[real-block-run-ai] Resume with: ${resumeCommand}`);
+      console.error('[real-block-run-ai] No provider call was made for remaining tasks');
+      console.error('[real-block-run-ai] No apply was performed for remaining tasks');
+      console.error('[real-block-run-ai] No commit was made for remaining tasks');
+      console.error('[real-block-run-ai] No push was performed for remaining tasks');
+      console.error('[real-block-run-ai] No merge was performed for remaining tasks');
+      return { exitCode: 0, blockState };
+    }
   }
 
   const acceptedCount = blockState.taskResults.filter(

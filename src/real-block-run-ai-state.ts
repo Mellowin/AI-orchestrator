@@ -39,7 +39,7 @@ export interface RealBlockRunSummary {
 export interface RealBlockRunState {
   block_id: string;
   title: string;
-  status: 'completed' | 'blocked' | 'failed';
+  status: 'completed' | 'blocked' | 'failed' | 'paused';
   currentTaskId: string | null;
   statePath: string;
   taskResults: RealBlockRunTaskResult[];
@@ -90,7 +90,7 @@ function validateBlockRunState(
     throw new Error('Existing block state file does not match block_id');
   }
 
-  const validStatuses = ['completed', 'blocked', 'failed'];
+  const validStatuses = ['completed', 'blocked', 'failed', 'paused'];
   if (typeof parsed.status !== 'string' || !validStatuses.includes(parsed.status)) {
     throw new Error('Existing block state file has invalid status');
   }

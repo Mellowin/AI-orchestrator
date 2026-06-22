@@ -2035,4 +2035,355 @@ describe('cli real-block-run-ai', () => {
       cleanup();
     }
   });
+
+  function addTaskToBlock(blockPath: string, taskId: string): void {
+    const definition = JSON.parse(readFileSync(blockPath, 'utf-8')) as Record<string, unknown>;
+    const tasks = definition.tasks as Record<string, unknown>[];
+    tasks.push({
+      task_id: taskId,
+      title: `Task ${taskId}`,
+      goal: `Goal ${taskId}`,
+      allowed_files: ['README.md'],
+      denied_files: [],
+      max_lines_changed: 150,
+      checks: [],
+    });
+    definition.tasks = tasks;
+    writeFileSync(blockPath, JSON.stringify(definition, null, 2), 'utf-8');
+  }
+
+  test('pause after accepted task exits 0 and stops before next task', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'task-one'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+
+      assert.strictEqual(result.status, 0, `Expected pause success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Only task-one commit should be created');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'paused');
+
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.completedTasks, 1);
+      assert.strictEqual(summary.acceptedTasks, 1);
+      assert.strictEqual(summary.fixedTasks, 0);
+
+      const taskResults = state.taskResults as Record<string, unknown>[];
+      assert.strictEqual(taskResults.length, 1);
+      assert.strictEqual(taskResults[0].status, 'accepted');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('Paused after task task-one'), `Expected pause message: ${output}`);
+      assert(output.includes('--resume'), `Expected resume command: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('resume after pause completes remaining tasks without duplicate commits', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const pauseResult = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'task-one'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+      assert.strictEqual(pauseResult.status, 0, `Expected pause success: ${pauseResult.stderr}`);
+
+      const afterPauseLogCount = getGitLogCount(repoPath);
+      assert.strictEqual(afterPauseLogCount, beforeLogCount + 1, 'Only task-one commit should be created on pause');
+
+      const resumeResult = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+      assert.strictEqual(resumeResult.status, 0, `Expected resume success: ${resumeResult.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), afterPauseLogCount + 1, 'Only task-two commit should be added on resume');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'completed');
+
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.completedTasks, 2);
+      assert.strictEqual(summary.acceptedTasks, 2);
+
+      const taskResults = state.taskResults as Record<string, unknown>[];
+      assert.strictEqual(taskResults.length, 2);
+      assert.strictEqual(taskResults[0].status, 'accepted');
+      assert.strictEqual(taskResults[1].status, 'accepted');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('pause after fixed_and_accepted task persists fix details and stops before next task', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    addTaskToBlock(blockPath, 'task-three');
+
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'task-two'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: '# three\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildRejectReview('Task two needs fix', ['missing fix.txt'], 'add fix.txt'),
+          buildAcceptReview('Task three good'),
+        ]),
+        REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
+          null,
+          buildFakeKimiOutput([{ path: 'fix.txt', content: 'fix\n' }]),
+          null,
+        ]),
+        REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          null,
+          buildAcceptReview('Task two fix good'),
+          null,
+        ]),
+      }));
+
+      assert.strictEqual(result.status, 0, `Expected pause success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'task-one + task-two original + task-two fix commits');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'paused');
+
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.completedTasks, 2);
+      assert.strictEqual(summary.acceptedTasks, 1);
+      assert.strictEqual(summary.fixedTasks, 1);
+
+      const taskResults = state.taskResults as Record<string, unknown>[];
+      assert.strictEqual(taskResults.length, 2);
+      assert.strictEqual(taskResults[0].status, 'accepted');
+
+      const taskTwo = taskResults[1];
+      assert.strictEqual(taskTwo.status, 'fixed_and_accepted');
+      assert.strictEqual(typeof taskTwo.fixCommitSha, 'string');
+      assert.strictEqual((taskTwo.fixCommitSha as string).length, 40);
+      assert.strictEqual(typeof taskTwo.originalCommitSha, 'string');
+      assert.deepStrictEqual(taskTwo.fixCheckSummary, {
+        typecheck: 'not_run',
+        build: 'not_run',
+        test: 'not_run',
+      });
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('Paused after task task-two'), `Expected pause message: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('block report shows paused state and resume command', () => {
+    const { blockId, blockPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const pauseResult = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'task-one'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+      assert.strictEqual(pauseResult.status, 0, `Expected pause success: ${pauseResult.stderr}`);
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      const statePath = state.statePath as string;
+
+      const reportResult = runCli(['real-block-run-ai-report', statePath], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.strictEqual(reportResult.status, 0, `Report should succeed: ${reportResult.stderr}`);
+      const reportOutput = reportResult.stdout;
+      assert(reportOutput.includes('Status: paused'), `Report should show paused status: ${reportOutput}`);
+      assert(reportOutput.includes('task-one — accepted'), `Report should show completed task: ${reportOutput}`);
+      assert(reportOutput.includes('Resume with:'), `Report should show resume command: ${reportOutput}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('pause-after-task with unknown task id fails before provider call', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'nonexistent-task'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+      }));
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('not found in block definition'), `Expected not found message: ${output}`);
+      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
+      assert.strictEqual(getBlockState(runsDir, blockId), null, 'No block state should be written');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('pause-after-task does not mask task failure', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'task-one'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          null,
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildBlockReview('Blocked for human', ['needs review']),
+          null,
+        ]),
+      }));
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      const afterLogCount = getGitLogCount(repoPath);
+      assert(afterLogCount >= beforeLogCount, 'Log count should not decrease');
+      assert.strictEqual(afterLogCount, beforeLogCount + 1, 'Task-one commit may be created, but task-two should not run');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'blocked');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-one');
+
+      const output = result.stdout + result.stderr;
+      assert(!output.includes('Paused after task'), `Should not report paused: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('pause-after-task via env var stops after target task', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_RUN_PAUSE_AFTER_TASK_ID: 'task-one',
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+
+      assert.strictEqual(result.status, 0, `Expected pause success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Only task-one commit should be created');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'paused');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.completedTasks, 1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('pause-after-task CLI flag overrides env var', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'task-one'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_RUN_PAUSE_AFTER_TASK_ID: 'task-two',
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+
+      assert.strictEqual(result.status, 0, `Expected pause success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Only task-one commit should be created');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'paused');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.completedTasks, 1);
+
+      const output = result.stdout + result.stderr;
+      assert(output.includes('Paused after task task-one'), `Expected pause after task-one: ${output}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('pause state and output do not leak token-like text', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const secret = 'sk-fake-pause-secret';
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath, '--pause-after-task', 'task-one'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        KIMI_API_KEY: secret,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# one\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one good'),
+          buildAcceptReview('Task two good'),
+        ]),
+      }));
+
+      assert.strictEqual(result.status, 0, `Expected pause success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Only task-one commit should be created');
+
+      const output = result.stdout + result.stderr;
+      assert(!output.includes(secret), `Secret should not leak to output: ${output}`);
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes(secret), `Secret should not leak to state: ${stateRaw}`);
+    } finally {
+      cleanup();
+    }
+  });
 });

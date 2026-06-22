@@ -3162,7 +3162,13 @@ if (command === 'real-block-run-ai') {
     }
 
     const resume = args.slice(2).includes('--resume');
-    const { exitCode } = await runRealBlockRunAI(taskId, { resume });
+    const pauseAfterTaskIndex = args.indexOf('--pause-after-task');
+    const pauseAfterTaskId =
+      pauseAfterTaskIndex >= 0 ? args[pauseAfterTaskIndex + 1] : undefined;
+    const { exitCode } = await runRealBlockRunAI(taskId, {
+      resume,
+      pauseAfterTaskId,
+    });
     process.exitCode = exitCode;
     break commandDispatch;
   } catch (err) {

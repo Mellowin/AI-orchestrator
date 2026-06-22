@@ -7,8 +7,8 @@ function isObject(val: unknown): val is Record<string, unknown> {
   return typeof val === 'object' && val !== null && !Array.isArray(val);
 }
 
-function isValidStatus(status: unknown): status is 'completed' | 'blocked' | 'failed' {
-  return typeof status === 'string' && ['completed', 'blocked', 'failed'].includes(status);
+function isValidStatus(status: unknown): status is 'completed' | 'blocked' | 'failed' | 'paused' {
+  return typeof status === 'string' && ['completed', 'blocked', 'failed', 'paused'].includes(status);
 }
 
 function isValidTaskStatus(status: unknown): status is RealBlockRunTaskResult['status'] {
