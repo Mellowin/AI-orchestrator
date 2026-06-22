@@ -74,6 +74,12 @@ function buildCompletedState(): RealBlockRunState {
         fixCommitSha: '44556677889900aabbccddeeff00112233445566',
         reviewerGateStatus: 'fix_required',
         secondReviewerGateStatus: 'accepted',
+        fixCheckSummary: {
+          typecheck: 'pass',
+          build: 'pass',
+          test: 'pass',
+          tests: { total: 3, suites: 0, failures: 0 },
+        },
         childStateTaskId: 'task_2',
       },
     ],
@@ -257,6 +263,38 @@ describe('cli real-block-run-ai-report', () => {
     const result = runCli(['real-block-run-ai-report', statePath]);
     assert.strictEqual(result.status, 0, result.stderr);
     assert.match(result.stdout, /fixCommitSha:\s+44556677889900aabbccddeeff00112233445566/);
+  });
+
+  test('valid completed state prints fixCheckSummary typecheck', () => {
+    const tmpDir = makeTempDir();
+    const statePath = writeState(tmpDir, buildCompletedState());
+    const result = runCli(['real-block-run-ai-report', statePath]);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.match(result.stdout, /typecheck:\s+pass/);
+  });
+
+  test('valid completed state prints fixCheckSummary build', () => {
+    const tmpDir = makeTempDir();
+    const statePath = writeState(tmpDir, buildCompletedState());
+    const result = runCli(['real-block-run-ai-report', statePath]);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.match(result.stdout, /build:\s+pass/);
+  });
+
+  test('valid completed state prints fixCheckSummary test', () => {
+    const tmpDir = makeTempDir();
+    const statePath = writeState(tmpDir, buildCompletedState());
+    const result = runCli(['real-block-run-ai-report', statePath]);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.match(result.stdout, /test:\s+pass/);
+  });
+
+  test('valid completed state prints fixCheckSummary test counts', () => {
+    const tmpDir = makeTempDir();
+    const statePath = writeState(tmpDir, buildCompletedState());
+    const result = runCli(['real-block-run-ai-report', statePath]);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.match(result.stdout, /tests:\s+total=3 suites=0 failures=0/);
   });
 
   test('valid completed state prints reviewerGateStatus', () => {

@@ -248,6 +248,21 @@ function createTempBlockEnv(): TempBlockEnv {
   };
 }
 
+function setTaskChecks(
+  env: TempBlockEnv,
+  taskId: string,
+  checks: string[]
+): void {
+  const definition = JSON.parse(readFileSync(env.blockPath, 'utf-8')) as Record<string, unknown>;
+  const tasks = definition.tasks as Record<string, unknown>[];
+  const task = tasks.find((t) => t.task_id === taskId);
+  if (!task) {
+    throw new Error(`Task ${taskId} not found in block definition`);
+  }
+  task.checks = checks;
+  writeFileSync(env.blockPath, JSON.stringify(definition, null, 2), 'utf-8');
+}
+
 function getGitLogCount(repoPath: string): number {
   const result = spawnSync('git', ['log', '--oneline'], {
     cwd: repoPath,
@@ -515,7 +530,13 @@ describe('cli real-block-run-ai', () => {
   });
 
   test('two tasks complete with second task fix loop accepted', () => {
-    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const env = createTempBlockEnv();
+    setTaskChecks(env, 'task-two', [
+      "node -e console.log('typecheck');process.exit(0)",
+      "node -e console.log('build');process.exit(0)",
+      "node -e console.log('test');process.exit(0)",
+    ]);
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = env;
     try {
       const beforeLogCount = getGitLogCount(repoPath);
       const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
@@ -582,6 +603,23 @@ describe('cli real-block-run-ai', () => {
       assert.strictEqual(taskTwo.finalStatus, 'accepted');
       assert.strictEqual(taskTwo.nextAction, 'continue');
       assert.strictEqual(taskTwo.childStateTaskId, 'task-two');
+
+      assert(taskTwo.fixCheckSummary, 'Fixed task should have actual fix check summary');
+      assert.strictEqual(taskTwo.fixCheckSummary.typecheck, 'pass');
+      assert.strictEqual(taskTwo.fixCheckSummary.build, 'pass');
+      assert.strictEqual(taskTwo.fixCheckSummary.test, 'pass');
+      assert.deepStrictEqual(taskTwo.fixCheckSummary.tests, { total: 3, suites: 0, failures: 0 });
+
+      const reportResult = runCli(['real-block-run-ai-report', state.statePath as string], baseBlockEnv({ RUNS_DIR: runsDir }));
+      assert.strictEqual(reportResult.status, 0, `Report command should succeed: ${reportResult.stderr}`);
+      const reportOutput = reportResult.stdout;
+      assert(reportOutput.includes('task-two — fixed_and_accepted'), `Report should show task-two fixed_and_accepted: ${reportOutput}`);
+      assert(reportOutput.includes('fixCheckSummary:'), `Report should include fixCheckSummary section: ${reportOutput}`);
+      assert(reportOutput.includes('typecheck: pass'), `Report should show typecheck pass: ${reportOutput}`);
+      assert(reportOutput.includes('build: pass'), `Report should show build pass: ${reportOutput}`);
+      assert(reportOutput.includes('test: pass'), `Report should show test pass: ${reportOutput}`);
+      assert(reportOutput.includes('tests: total=3 suites=0 failures=0'), `Report should show test counts: ${reportOutput}`);
+      assert(reportOutput.includes(taskTwo.fixCommitSha as string), `Report should show fix commit SHA: ${reportOutput}`);
 
       const output = result.stdout;
       assert(output.includes(blockId), `CLI output should include block id: ${output}`);

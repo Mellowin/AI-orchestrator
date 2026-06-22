@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import type { RealBlockRunState, RealBlockRunTaskResult, RealBlockRunSummary } from './real-block-run-ai-state.js';
+import type { ReviewerEvidence } from './reviewer-evidence.js';
 
 function isObject(val: unknown): val is Record<string, unknown> {
   return typeof val === 'object' && val !== null && !Array.isArray(val);
@@ -76,6 +77,9 @@ function validateTaskResult(result: unknown, index: number): RealBlockRunTaskRes
     fixRunnerNextAction: typeof result.fixRunnerNextAction === 'string' ? result.fixRunnerNextAction : undefined,
     secondReviewerGateStatus: typeof result.secondReviewerGateStatus === 'string' ? result.secondReviewerGateStatus : undefined,
     secondReviewerSummary: typeof result.secondReviewerSummary === 'string' ? result.secondReviewerSummary : undefined,
+    fixCheckSummary: isObject(result.fixCheckSummary)
+      ? (result.fixCheckSummary as ReviewerEvidence['checkSummary'])
+      : undefined,
     finalStatus: typeof result.finalStatus === 'string' ? result.finalStatus : status,
     nextAction: typeof result.nextAction === 'string' ? result.nextAction : 'continue',
     reason: typeof result.reason === 'string' ? result.reason : undefined,
@@ -174,6 +178,25 @@ function formatTaskResult(result: RealBlockRunTaskResult, index: number): string
   }
   if (result.secondReviewerSummary) {
     lines.push(`   secondReviewerSummary: ${redactSecrets(result.secondReviewerSummary)}`);
+  }
+  if (result.fixCheckSummary) {
+    lines.push('   fixCheckSummary:');
+    const summary = result.fixCheckSummary;
+    if (summary.typecheck !== undefined) {
+      lines.push(`     typecheck: ${summary.typecheck}`);
+    }
+    if (summary.build !== undefined) {
+      lines.push(`     build: ${summary.build}`);
+    }
+    if (summary.test !== undefined) {
+      lines.push(`     test: ${summary.test}`);
+    }
+    if (summary.tests !== undefined) {
+      const tests = summary.tests;
+      lines.push(
+        `     tests: total=${tests.total ?? '?'} suites=${tests.suites ?? '?'} failures=${tests.failures ?? '?'}`
+      );
+    }
   }
   if (result.reason) {
     lines.push(`   reason: ${redactSecrets(result.reason)}`);

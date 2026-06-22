@@ -1973,6 +1973,7 @@ if (command === 'real-repo-run-ai') {
               fixCommitSha: postRunPlan.commitSha,
               reviewerGate: secondReviewPersisted,
               reviewerBlockReviewResult: secondReviewBlockResult,
+              checkSummary: postRunPlan.checkSummary,
               finalStatus,
               nextAction: finalNextAction,
               reason: redactSecrets(finalReason),

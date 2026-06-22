@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition } from './block/block-types.js';
 import { config } from './config.js';
+import type { ReviewerEvidence } from './reviewer-evidence.js';
 
 export interface RealBlockRunTaskResult {
   taskId: string;
@@ -18,6 +19,7 @@ export interface RealBlockRunTaskResult {
   fixRunnerNextAction?: string;
   secondReviewerGateStatus?: string;
   secondReviewerSummary?: string;
+  fixCheckSummary?: ReviewerEvidence['checkSummary'];
   finalStatus: string;
   nextAction: string;
   reason?: string;

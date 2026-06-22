@@ -7,6 +7,7 @@ import type { BlockDefinition, BlockTaskDefinition } from './block/block-types.j
 import { loadState } from './state-manager.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
+import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type {
   RealBlockRunState,
   RealBlockRunSummary,
@@ -339,6 +340,15 @@ function deriveTaskResult(
     const fixTaskId = secondReview.fixTaskId;
     if (typeof fixTaskId === 'string') {
       base.fixTaskId = fixTaskId;
+    }
+
+    const checkSummary = secondReview.checkSummary;
+    if (
+      checkSummary !== null &&
+      typeof checkSummary === 'object' &&
+      !Array.isArray(checkSummary)
+    ) {
+      base.fixCheckSummary = checkSummary as ReviewerEvidence['checkSummary'];
     }
 
     const secondGate = secondReview.reviewerGate as Record<string, unknown> | undefined;
