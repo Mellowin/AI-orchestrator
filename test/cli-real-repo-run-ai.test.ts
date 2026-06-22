@@ -849,6 +849,40 @@ describe('cli real-repo-run-ai', () => {
     }
   });
 
+  test('push failure rolls back local commit and restores repo', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['remote', 'set-url', 'origin', '/nonexistent/remote'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const beforeContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('Git push failed'), `Expected push failure: ${result.stderr}`);
+      assert(result.stderr.includes('Rollback attempted'), `Expected rollback attempt: ${result.stderr}`);
+      const afterContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const normalize = (s: string) => s.replace(/\r\n/g, '\n');
+      assert.strictEqual(normalize(afterContent), normalize(beforeContent), 'README should be restored after rollback');
+      const afterLogCount = getGitLogCount(repoPath);
+      assert.strictEqual(afterLogCount, beforeLogCount, 'Local commit should be rolled back');
+      assert.strictEqual(getGitPorcelain(repoPath), '', 'Working tree should be clean after rollback');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('state does not include provider raw output', () => {
     const { taskId, tasksFilePath, runsDir, cleanup } = createTempEnv();
     try {

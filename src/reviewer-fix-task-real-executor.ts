@@ -22,7 +22,12 @@ import {
   validateFileList,
   validateProposedFileLineDeltas,
 } from './guardrails.js';
-import { applyFileUpdates, rollbackFileUpdates } from './patch-engine.js';
+import { applyFileUpdates } from './patch-engine.js';
+import {
+  captureCheckpoint,
+  rollbackToCheckpoint,
+  type RepoCheckpoint,
+} from './real-repo-rollback.js';
 import { runChecks } from './runner.js';
 import { runRealRepoSandboxPreflight } from './real-repo-sandbox-preflight.js';
 import {
@@ -362,6 +367,27 @@ export function createReviewerFixTaskRealExecutor(
       }
     }
 
+    let checkpoint: RepoCheckpoint;
+    try {
+      checkpoint = captureCheckpoint(repoPath);
+    } catch (cpErr) {
+      const msg = cpErr instanceof Error ? cpErr.message : String(cpErr);
+      return blockResult(`Failed to capture rollback checkpoint: ${msg}`);
+    }
+
+    function rollbackAndBlock(
+      reason: string,
+      blockingIssues: string[] = [],
+      checkSummary?: ReviewerEvidenceInput['checkSummary']
+    ): ReviewerFixTaskExecutorResult {
+      const result = rollbackToCheckpoint(checkpoint);
+      const rollbackInfo =
+        `rollback_status=${result.status} attempted=${result.attempted} ` +
+        `checkpointHead=${result.checkpointHead} finalHead=${result.finalHead ?? 'n/a'} ` +
+        `reason=${result.reason ?? 'none'}`;
+      return blockResult(`${reason} (${rollbackInfo})`, blockingIssues, checkSummary);
+    }
+
     const existingPaths: string[] = [];
     for (const f of kimiOutput.files) {
       const filePath = join(repoPath, f.path);
@@ -381,49 +407,32 @@ export function createReviewerFixTaskRealExecutor(
       return blockResult(`Apply plan failed: ${planResult.reason}`);
     }
 
-    let manifest: import('./types.js').PatchManifestEntry[] | undefined;
     try {
-      manifest = applyFileUpdates(repoPath, kimiOutput.files, planResult.runDir);
+      applyFileUpdates(repoPath, kimiOutput.files, planResult.runDir);
     } catch (applyErr) {
       const msg = applyErr instanceof Error ? applyErr.message : String(applyErr);
-      return blockResult(`Apply failed: ${msg}`);
+      return rollbackAndBlock(`Apply failed: ${msg}`);
     }
 
     const checkResult = runChecks(repoPath, fixTask.checks);
     const fixCheckSummary = buildFixCheckSummary(fixTask.checks, checkResult.success);
     if (!checkResult.success) {
-      if (manifest && manifest.length > 0) {
-        try {
-          rollbackFileUpdates(repoPath, manifest);
-        } catch (rollbackErr) {
-          const msg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
-          return blockResult(`Checks failed and rollback failed: ${redactSecrets(msg)}`, [
-            redactSecrets(checkResult.logs),
-          ], fixCheckSummary);
-        }
-      }
-      return blockResult('Checks failed after applying fix.', [
-        redactSecrets(checkResult.logs),
-      ], fixCheckSummary);
+      return rollbackAndBlock(
+        'Checks failed after applying fix.',
+        [redactSecrets(checkResult.logs)],
+        fixCheckSummary
+      );
     }
 
     const approvedPaths = new Set(updatePaths);
     const allChanges = getChangedFiles(repoPath);
     const unrelated = allChanges.filter((p) => !approvedPaths.has(p));
     if (unrelated.length > 0) {
-      if (manifest && manifest.length > 0) {
-        try {
-          rollbackFileUpdates(repoPath, manifest);
-        } catch (rollbackErr) {
-          const msg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
-          return blockResult(`Unrelated changes detected and rollback failed: ${redactSecrets(msg)}`);
-        }
-      }
-      return blockResult(`Unrelated changes detected: ${unrelated.join(', ')}`);
+      return rollbackAndBlock(`Unrelated changes detected: ${unrelated.join(', ')}`);
     }
 
     if (allChanges.length === 0) {
-      return blockResult('No working tree changes match the approved apply manifest.');
+      return rollbackAndBlock('No working tree changes match the approved apply manifest.');
     }
 
     for (const p of allChanges.filter((p) => approvedPaths.has(p))) {
@@ -433,7 +442,7 @@ export function createReviewerFixTaskRealExecutor(
         encoding: 'utf-8',
       });
       if (addResult.status !== 0) {
-        return blockResult(`Git add failed for ${p}`);
+        return rollbackAndBlock(`Git add failed for ${p}`);
       }
     }
 
@@ -448,7 +457,7 @@ export function createReviewerFixTaskRealExecutor(
       }
     );
     if (commitResult.status !== 0) {
-      return blockResult(`Git commit failed: ${redactSecrets(commitResult.stderr)}`);
+      return rollbackAndBlock(`Git commit failed: ${redactSecrets(commitResult.stderr)}`);
     }
 
     if (process.env.ALLOW_REAL_REPO_PUSH === 'true') {
@@ -462,7 +471,7 @@ export function createReviewerFixTaskRealExecutor(
         }
       );
       if (pushResult.status !== 0) {
-        return blockResult(`Git push failed: ${redactSecrets(pushResult.stderr)}`);
+        return rollbackAndBlock(`Git push failed: ${redactSecrets(pushResult.stderr)}`);
       }
     }
 

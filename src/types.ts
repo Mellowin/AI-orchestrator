@@ -37,6 +37,14 @@ export type RunStatus =
   | 'failed_max_attempts'
   | 'pushed';
 
+export interface RollbackRecord {
+  attempted: boolean;
+  status: 'succeeded' | 'failed' | 'skipped';
+  checkpointHead: string;
+  finalHead?: string;
+  reason?: string;
+}
+
 export interface RunState {
   task_id: string;
   status: RunStatus;
@@ -52,6 +60,7 @@ export interface RunState {
   pushed_ref?: string;
   commit_sha?: string;
   safety_note?: string;
+  rollback?: RollbackRecord;
 }
 
 export interface KimiOutput {

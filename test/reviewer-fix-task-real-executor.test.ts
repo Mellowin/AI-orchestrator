@@ -49,6 +49,11 @@ function createTempRepo(): { repoPath: string; baseBranch: string } {
     encoding: 'utf-8',
     shell: false,
   });
+  spawnSync('git', ['config', 'core.autocrlf', 'false'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
   writeFileSync(join(repoPath, 'base.txt'), 'base\n', 'utf-8');
   spawnSync('git', ['add', '.'], { cwd: repoPath, encoding: 'utf-8', shell: false });
   spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], {
@@ -223,7 +228,7 @@ describe('createReviewerFixTaskRealExecutor', () => {
     assert.strictEqual(committedContent, 'fixed\n');
   });
 
-  test('failed run returns actual failing check summary and rolls back', async () => {
+  test('failed sandbox preflight returns failing check summary without mutation', async () => {
     const { repoPath, baseBranch } = createTempRepo();
     writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
     spawnSync('git', ['add', 'fix.txt'], {
@@ -266,6 +271,71 @@ describe('createReviewerFixTaskRealExecutor', () => {
 
     const rolledBackContent = readFileSync(join(repoPath, 'fix.txt'), 'utf-8');
     assert.strictEqual(rolledBackContent, 'initial\n');
+
+    const statusResult = spawnSync(
+      'git',
+      ['status', '--porcelain', '--untracked-files=all'],
+      { cwd: repoPath, encoding: 'utf-8', shell: false }
+    );
+    assert.strictEqual(statusResult.stdout.trim(), '');
+  });
+
+  test('failed push rolls back fix commit to pre-fix HEAD', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+
+    // Set an invalid remote so push fails after commit.
+    spawnSync('git', ['remote', 'add', 'origin', '/nonexistent/remote'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+
+    const checks: Task['checks'] = [
+      {
+        command: 'node',
+        args: ['-e', 'console.log("test"); process.exit(0);'],
+      },
+    ];
+    const parentTask = makeParentTask(repoPath, baseBranch, checks);
+
+    setEnv('ALLOW_REAL_REPO_PUSH', 'true');
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE',
+      makeFakeResponse('fix.txt', 'fixed\n')
+    );
+
+    const beforeHead = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    }).stdout.trim();
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'blocked');
+    assert(result.reason.includes('rollback_status='), `Expected rollback info in reason: ${result.reason}`);
+
+    const afterHead = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    }).stdout.trim();
+    assert.strictEqual(afterHead, beforeHead, 'Rollback should restore pre-fix HEAD');
+
+    const content = readFileSync(join(repoPath, 'fix.txt'), 'utf-8');
+    assert.strictEqual(content, 'initial\n');
 
     const statusResult = spawnSync(
       'git',
