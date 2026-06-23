@@ -7,9 +7,10 @@
     "build": "tsc",
     "dev": "tsx src/cli.ts",
     "test": "tsx --test",
+    "test:chunks": "node scripts/run-test-chunks.mjs",
     "demo:block:fake": "tsx scripts/demo-real-block-run-fake.ts",
     "demo:disposable-pilot": "node scripts/run-disposable-pilot-demo.mjs",
-    "verify:product": "npm run typecheck && npm run build && npm test && npm run demo:block:fake && npm run demo:disposable-pilot"
+    "verify:product": "npm run typecheck && npm run build && npm run test:chunks && npm run demo:block:fake && npm run demo:disposable-pilot"
   },
   "dependencies": {
     "cross-spawn": "^7.0.6",

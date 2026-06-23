@@ -30,10 +30,10 @@ describe('product verification script', () => {
     assert.match(script, /npm run build/);
   });
 
-  test('verify:product includes test', () => {
+  test('verify:product includes test:chunks', () => {
     const pkg = readPackage();
     const script = pkg.scripts?.['verify:product'] ?? '';
-    assert.match(script, /npm test/);
+    assert.match(script, /npm run test:chunks/);
   });
 
   test('verify:product includes demo:block:fake', () => {
