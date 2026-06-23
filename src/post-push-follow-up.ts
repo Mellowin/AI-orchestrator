@@ -79,8 +79,8 @@ function validateCommitSha(repoPath: string, sha: string): void {
   if (!SHA_RE.test(sha)) {
     throw new Error(`Invalid commit SHA format: ${sha}`);
   }
-  const verify = runGit(repoPath, ['rev-parse', '--verify', sha]);
-  if (verify.status !== 0) {
+  const verify = runGit(repoPath, ['cat-file', '-t', sha]);
+  if (verify.status !== 0 || verify.stdout.trim() !== 'commit') {
     throw new Error(`Preserved commit SHA does not exist in repository: ${sha}`);
   }
 }
@@ -116,12 +116,14 @@ function getFixCommitSha(state: RunState): string | undefined {
   return undefined;
 }
 
-function validatePostPushState(state: RunState): void {
-  const s = state as unknown as Record<string, unknown>;
-
-  if (s.task_id !== state.task_id) {
-    throw new Error('State task_id mismatch');
+function validatePostPushState(state: RunState, expectedTaskId: string): void {
+  if (state.task_id !== expectedTaskId) {
+    throw new Error(
+      `State task_id mismatch: expected "${expectedTaskId}", got "${state.task_id}"`
+    );
   }
+
+  const s = state as unknown as Record<string, unknown>;
 
   const rollback = s.rollback;
   if (!isObject(rollback)) {
@@ -155,6 +157,11 @@ function validatePostPushState(state: RunState): void {
   }
   if (gate.status === 'accepted') {
     throw new Error('Reviewer gate status is accepted; no human follow-up required');
+  }
+
+  const fixCommitSha = getFixCommitSha(state);
+  if (fixCommitSha) {
+    validateCommitSha(state.repo_path, fixCommitSha);
   }
 }
 
@@ -289,7 +296,7 @@ export function runPostPushFollowUp(input: PostPushFollowUpInput): PostPushFollo
       throw new Error(`State file does not exist for task "${input.taskId}"`);
     }
 
-    validatePostPushState(state);
+    validatePostPushState(state, input.taskId);
 
     const report = buildReport(state);
 

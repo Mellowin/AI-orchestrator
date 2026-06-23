@@ -212,6 +212,25 @@ describe('cli post-push follow-up', () => {
     assert.ok((result.stdout + result.stderr).includes('task id is required'));
   });
 
+  test('refuses mismatched internal task_id', () => {
+    const { repoPath, cleanup, headSha } = createTempRepo('ai/cli-follow-up-mismatch');
+    cleanups.push(cleanup);
+    const requestedTaskId = 'cli-follow-up-mismatch';
+    const internalTaskId = 'cli-different-task';
+    const runsDir = join(process.cwd(), 'tmp', `clippfu-runs-${Date.now()}`);
+    mkdirSync(runsDir, { recursive: true });
+    cleanups.push(() => rmSync(runsDir, { recursive: true, force: true }));
+    const state = buildValidState(internalTaskId, repoPath, 'ai/cli-follow-up-mismatch', headSha);
+    saveState(requestedTaskId, state, runsDir);
+
+    const result = runCli(['real-repo-follow-up', requestedTaskId, '--report-only'], { RUNS_DIR: runsDir });
+    assert.strictEqual(result.status, 1, result.stdout + result.stderr);
+    const output = result.stdout + result.stderr;
+    assert.ok(output.includes('task_id mismatch') || output.includes('mismatch'), output);
+    assert.ok(output.includes('No provider call was made'));
+    assert.ok(output.includes('No repository mutation was performed'));
+  });
+
   test('report-only does not mutate repo', () => {
     const { repoPath, cleanup, headSha } = createTempRepo('ai/cli-follow-up-no-mutate');
     cleanups.push(cleanup);

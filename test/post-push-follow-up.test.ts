@@ -420,4 +420,61 @@ describe('post-push follow-up', () => {
     assert.strictEqual(loaded!.task_id, taskId);
     assert.strictEqual(loaded!.status, 'pushed');
   });
+
+  test('rejects state with mismatched internal task_id', () => {
+    const { repoPath, cleanup, headSha } = createTempRepo('ai/follow-up-mismatch');
+    cleanups.push(cleanup);
+    const requestedTaskId = 'follow-up-mismatch';
+    const internalTaskId = 'different-task-id';
+    const runsDir = join(process.cwd(), 'tmp', `ppfu-runs-${Date.now()}`);
+    mkdirSync(runsDir, { recursive: true });
+    cleanups.push(() => rmSync(runsDir, { recursive: true, force: true }));
+    const state = buildValidState(internalTaskId, repoPath, 'ai/follow-up-mismatch', headSha);
+    saveState(requestedTaskId, state, runsDir);
+
+    const result = runPostPushFollowUp({ taskId: requestedTaskId, reportOnly: true, runsDir });
+    assert.strictEqual(result.exitCode, 1, result.report);
+    assert.ok(
+      result.report.includes('task_id mismatch') || result.report.includes('mismatch'),
+      `report should mention task_id mismatch, got: ${result.report}`
+    );
+    assert.ok(result.report.includes('No provider call was made'));
+    assert.ok(result.report.includes('No repository mutation was performed'));
+  });
+
+  test('rejects invalid fix commit SHA format', () => {
+    const { repoPath, cleanup, headSha } = createTempRepo('ai/follow-up-bad-fix-sha');
+    cleanups.push(cleanup);
+    const taskId = 'follow-up-bad-fix-sha';
+    const runsDir = join(process.cwd(), 'tmp', `ppfu-runs-${Date.now()}`);
+    mkdirSync(runsDir, { recursive: true });
+    cleanups.push(() => rmSync(runsDir, { recursive: true, force: true }));
+    const state = buildStateWithFixCommit(taskId, repoPath, 'ai/follow-up-bad-fix-sha', headSha, 'deadbeef');
+    saveState(taskId, state, runsDir);
+
+    const result = runPostPushFollowUp({ taskId, reportOnly: true, runsDir });
+    assert.strictEqual(result.exitCode, 1, result.report);
+    assert.ok(result.report.includes('commit SHA'));
+  });
+
+  test('rejects nonexistent fix commit SHA', () => {
+    const { repoPath, cleanup, headSha } = createTempRepo('ai/follow-up-missing-fix-sha');
+    cleanups.push(cleanup);
+    const taskId = 'follow-up-missing-fix-sha';
+    const runsDir = join(process.cwd(), 'tmp', `ppfu-runs-${Date.now()}`);
+    mkdirSync(runsDir, { recursive: true });
+    cleanups.push(() => rmSync(runsDir, { recursive: true, force: true }));
+    const state = buildStateWithFixCommit(
+      taskId,
+      repoPath,
+      'ai/follow-up-missing-fix-sha',
+      headSha,
+      '0000000000000000000000000000000000000000'
+    );
+    saveState(taskId, state, runsDir);
+
+    const result = runPostPushFollowUp({ taskId, reportOnly: true, runsDir });
+    assert.strictEqual(result.exitCode, 1, result.report);
+    assert.ok(result.report.includes('commit SHA'));
+  });
 });
