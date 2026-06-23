@@ -34,8 +34,8 @@ const RUNNER_ARGS = [join(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.m
  * --chunk-size N
  * --chunk-index N (0-based, runs only that chunk)
  * --test-dir path
- * --concurrency N (max parallel chunks, default based on CPU count, capped at 4)
- * --chunk-timeout-ms N (per-chunk timeout, default 240000)
+ * --concurrency N (max parallel chunks, default based on CPU count, capped at 12)
+ * --chunk-timeout-ms N (per-chunk timeout, default 300000)
  * --list-chunks (print chunks and exit)
  */
 function parseArgs(argv) {
