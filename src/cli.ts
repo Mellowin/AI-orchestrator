@@ -94,6 +94,7 @@ import { validateRealBlockFile, formatRealBlockValidateReport } from './real-blo
 import { runRealBlockPreflight, formatRealBlockPreflightReport } from './real-block-preflight.js';
 import { runDisposablePilot } from './real-block-disposable-pilot.js';
 import { runRealBlockTaskProbe, formatRealBlockTaskProbeReport } from './real-block-task-probe.js';
+import { runPostPushFollowUp } from './post-push-follow-up.js';
 
 function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -3785,9 +3786,9 @@ if (command === 'real-block-task-probe') {
   }
 }
 
-if (!command || !taskId) {
+if (!command || (!taskId && command !== 'real-repo-follow-up')) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-follow-up [--report-only|--create-follow-up <newTaskId>]|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg3] [arg4]'
   );
   process.exit(1);
 }
@@ -6047,6 +6048,37 @@ if (command === 'block-sandbox') {
     console.error('[block-sandbox] No main touch was performed');
     console.error('[block-sandbox] No provider call was made');
     process.exit(1);
+  }
+}
+
+if (command === 'real-repo-follow-up') {
+  try {
+    if (!taskId) {
+      console.error('[post-push-follow-up] Error: task id is required');
+      console.error('[post-push-follow-up] No provider call was made');
+      console.error('[post-push-follow-up] No repository mutation was performed');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+    const reportOnly = args.includes('--report-only');
+    const followUpTaskId = getFlagValue(args, '--create-follow-up');
+    const result = runPostPushFollowUp({ taskId, reportOnly, followUpTaskId });
+    console.log(result.report);
+    if (result.followUpFilePath) {
+      console.log(`[post-push-follow-up] Follow-up task file: ${result.followUpFilePath}`);
+    }
+    if (result.nextCommand) {
+      console.log(`[post-push-follow-up] Next command: ${result.nextCommand}`);
+    }
+    process.exitCode = result.exitCode;
+    break commandDispatch;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[post-push-follow-up] Error: ${message}`);
+    console.error('[post-push-follow-up] No provider call was made');
+    console.error('[post-push-follow-up] No repository mutation was performed');
+    process.exitCode = 1;
+    break commandDispatch;
   }
 }
 
