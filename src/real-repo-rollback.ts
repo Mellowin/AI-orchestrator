@@ -17,6 +17,7 @@ export interface RollbackResult {
   checkpointHead: string;
   finalHead?: string;
   reason?: string;
+  policy?: import('./types.js').RollbackPolicy;
 }
 
 interface GitCmdSuccess {
@@ -182,6 +183,7 @@ export function formatRollbackResult(result: RollbackResult): string {
     `checkpointHead=${result.checkpointHead}`,
   ];
   if (result.finalHead) parts.push(`finalHead=${result.finalHead}`);
+  if (result.policy) parts.push(`policy=${result.policy}`);
   if (result.reason) parts.push(`reason=${redactSecrets(result.reason)}`);
   return parts.join(' ');
 }

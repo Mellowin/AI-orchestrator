@@ -384,6 +384,7 @@ export function createReviewerFixTaskRealExecutor(
       const rollbackInfo =
         `rollback_status=${result.status} attempted=${result.attempted} ` +
         `checkpointHead=${result.checkpointHead} finalHead=${result.finalHead ?? 'n/a'} ` +
+        `policy=fix_attempt_rollback ` +
         `reason=${result.reason ?? 'none'}`;
       return blockResult(`${reason} (${rollbackInfo})`, blockingIssues, checkSummary);
     }

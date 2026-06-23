@@ -433,6 +433,14 @@ function deriveTaskResult(
   const state = run.state;
   base.originalCommitSha = getStateString(state, 'commit_sha');
 
+  const rollback = state.rollback as Record<string, unknown> | undefined;
+  if (rollback !== undefined) {
+    base.rollbackPolicy =
+      typeof rollback.policy === 'string' ? rollback.policy : undefined;
+    base.rollbackReason =
+      typeof rollback.reason === 'string' ? redactSecrets(rollback.reason) : undefined;
+  }
+
   const reviewerGate = state.reviewer_gate as Record<string, unknown> | undefined;
   const controlledRun = state.reviewer_fix_task_controlled_run as
     | Record<string, unknown>

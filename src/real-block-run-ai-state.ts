@@ -23,6 +23,8 @@ export interface RealBlockRunTaskResult {
   finalStatus: string;
   nextAction: string;
   reason?: string;
+  rollbackPolicy?: string;
+  rollbackReason?: string;
   childStateTaskId: string;
 }
 

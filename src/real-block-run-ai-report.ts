@@ -83,6 +83,8 @@ function validateTaskResult(result: unknown, index: number): RealBlockRunTaskRes
     finalStatus: typeof result.finalStatus === 'string' ? result.finalStatus : status,
     nextAction: typeof result.nextAction === 'string' ? result.nextAction : 'continue',
     reason: typeof result.reason === 'string' ? result.reason : undefined,
+    rollbackPolicy: typeof result.rollbackPolicy === 'string' ? result.rollbackPolicy : undefined,
+    rollbackReason: typeof result.rollbackReason === 'string' ? result.rollbackReason : undefined,
     childStateTaskId: typeof result.childStateTaskId === 'string' ? result.childStateTaskId : taskId,
   };
 }
@@ -200,6 +202,12 @@ function formatTaskResult(result: RealBlockRunTaskResult, index: number): string
   }
   if (result.reason) {
     lines.push(`   reason: ${redactSecrets(result.reason)}`);
+  }
+  if (result.rollbackPolicy) {
+    lines.push(`   rollbackPolicy: ${result.rollbackPolicy}`);
+  }
+  if (result.rollbackReason) {
+    lines.push(`   rollbackReason: ${redactSecrets(result.rollbackReason)}`);
   }
 
   return lines.join('\n');

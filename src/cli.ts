@@ -895,12 +895,38 @@ if (command === 'real-repo-run-ai') {
   let checkpoint: RepoCheckpoint | undefined;
   let rollbackRecord: RollbackResult | undefined;
 
-  function performRollback(reason: string): RollbackResult | undefined {
+  let originalCommitPushed = false;
+
+  function performRollback(
+    reason: string,
+    policy: import('./types.js').RollbackPolicy = 'pre_push_failure'
+  ): RollbackResult | undefined {
     if (!checkpoint) return undefined;
     const result = rollbackToCheckpoint(checkpoint);
-    rollbackRecord = result;
-    console.error(`[real-repo-run-ai] Rollback attempted: ${formatRollbackResult(result)}`);
-    return result;
+    rollbackRecord = { ...result, policy };
+    console.error(`[real-repo-run-ai] Rollback attempted: ${formatRollbackResult(rollbackRecord)}`);
+    return rollbackRecord;
+  }
+
+  function skipRollbackForPostPush(state: RunState, reason: string): void {
+    if (!checkpoint) return;
+    rollbackRecord = {
+      ok: true,
+      status: 'skipped',
+      attempted: false,
+      checkpointHead: checkpoint.headSha,
+      policy: 'post_push_preserve_for_human',
+      reason,
+    };
+    const s = state as unknown as Record<string, unknown>;
+    s.rollback = {
+      attempted: rollbackRecord.attempted,
+      status: rollbackRecord.status,
+      checkpointHead: rollbackRecord.checkpointHead,
+      finalHead: rollbackRecord.finalHead,
+      policy: rollbackRecord.policy,
+      reason: rollbackRecord.reason,
+    };
   }
 
   function attachRollbackMetadata(state: RunState): void {
@@ -911,6 +937,7 @@ if (command === 'real-repo-run-ai') {
       status: rollbackRecord.status,
       checkpointHead: rollbackRecord.checkpointHead,
       finalHead: rollbackRecord.finalHead,
+      policy: rollbackRecord.policy,
       reason: rollbackRecord.reason,
     };
   }
@@ -1374,7 +1401,7 @@ if (command === 'real-repo-run-ai') {
       } catch (applyErr) {
         const applyMessage = applyErr instanceof Error ? applyErr.message : String(applyErr);
         console.error(`[real-repo-run-ai] Apply failed: ${applyMessage}`);
-        performRollback('Apply failed');
+        performRollback('Apply failed', 'pre_push_failure');
         console.error('[real-repo-run-ai] Manual inspection required');
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
@@ -1407,7 +1434,7 @@ if (command === 'real-repo-run-ai') {
         }
 
         console.error(`[real-repo-run-ai] Checks failed after ${attempt} attempt(s)`);
-        performRollback('Checks failed after apply');
+        performRollback('Checks failed after apply', 'pre_push_failure');
         console.error('[real-repo-run-ai] No commit was made');
         console.error('[real-repo-run-ai] No push was performed');
         console.error('[real-repo-run-ai] No state write was performed');
@@ -1438,14 +1465,14 @@ if (command === 'real-repo-run-ai') {
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
-        performRollback('Unrelated changes detected');
+        performRollback('Unrelated changes detected', 'pre_push_failure');
         process.exitCode = 1;
         break commandDispatch;
       }
 
       if (allChanges.length === 0) {
         console.error('[real-repo-run-ai] No working tree changes match the approved apply manifest');
-        performRollback('No working tree changes after apply');
+        performRollback('No working tree changes after apply', 'pre_push_failure');
         console.error('[real-repo-run-ai] No commit was made');
         console.error('[real-repo-run-ai] No push was performed');
         console.error('[real-repo-run-ai] No merge was performed');
@@ -1464,7 +1491,7 @@ if (command === 'real-repo-run-ai') {
         });
         if (addResult.status !== 0) {
           console.error('[real-repo-run-ai] Git add failed');
-          performRollback('Git add failed');
+          performRollback('Git add failed', 'pre_push_failure');
           console.error('[real-repo-run-ai] No commit was made');
           console.error('[real-repo-run-ai] No push was performed');
           console.error('[real-repo-run-ai] No merge was performed');
@@ -1483,7 +1510,7 @@ if (command === 'real-repo-run-ai') {
       });
       if (commitResult.status !== 0) {
         console.error('[real-repo-run-ai] Git commit failed');
-        performRollback('Git commit failed');
+        performRollback('Git commit failed', 'pre_push_failure');
         console.error('[real-repo-run-ai] Manual inspection required');
         console.error('[real-repo-run-ai] No push was performed');
         console.error('[real-repo-run-ai] No merge was performed');
@@ -1500,7 +1527,7 @@ if (command === 'real-repo-run-ai') {
       });
       if (pushResult.status !== 0) {
         console.error('[real-repo-run-ai] Git push failed');
-        performRollback('Git push failed');
+        performRollback('Git push failed', 'pre_push_failure');
         console.error('[real-repo-run-ai] Manual inspection required');
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
@@ -1509,11 +1536,14 @@ if (command === 'real-repo-run-ai') {
         break commandDispatch;
       }
 
+      originalCommitPushed = true;
+
       rollbackRecord = {
         ok: true,
         status: 'skipped',
         attempted: false,
         checkpointHead: checkpoint.headSha,
+        policy: 'rollback_skipped_success',
         reason: 'Mutation completed successfully; rollback not needed.',
       };
 
@@ -1548,7 +1578,7 @@ if (command === 'real-repo-run-ai') {
       try {
         saveState(taskId, pushState);
       } catch (stateErr) {
-        performRollback('State write failed after push');
+        performRollback('State write failed after push', 'pre_push_failure');
         console.error('[real-repo-run-ai] Push completed');
         console.error('[real-repo-run-ai] State write failed');
         console.error('[real-repo-run-ai] Manual inspection required');
@@ -1729,17 +1759,32 @@ if (command === 'real-repo-run-ai') {
               !resolutionPlan.fixTask
             ) {
               // No automated fix action (accepted, blocked, wait, etc.): persist and exit accordingly.
-              // Do NOT roll back the original commit here; human review or follow-up
-              // commands are expected to act on the pushed/committed state.
+              if (reviewerGatePersisted.status !== 'accepted') {
+                // The original commit has already been pushed. Do NOT reset the
+                // local repo or rewrite remote history; preserve the pushed commit
+                // for human follow-up and make the policy explicit.
+                skipRollbackForPostPush(
+                  stateWithGate as RunState,
+                  'Commit was already pushed; rollback skipped to avoid local/remote divergence. Human follow-up required.'
+                );
+                console.error('[real-repo-run-ai] Rollback skipped: pushed commit preserved for human follow-up');
+                console.error('[real-repo-run-ai] No merge was performed');
+                console.error('[real-repo-run-ai] No checkout was performed');
+                console.error('[real-repo-run-ai] No main touch was performed');
+                try {
+                  saveState(taskId, stateWithGate as RunState);
+                } catch (stateErr) {
+                  console.error('[real-repo-run-ai] Reviewer gate state write failed');
+                }
+                process.exitCode = 1;
+                break commandDispatch;
+              }
+              // Accepted: the success rollback record (skipped) is already set.
               attachRollbackMetadata(stateWithGate as RunState);
               try {
                 saveState(taskId, stateWithGate as RunState);
               } catch (stateErr) {
                 console.error('[real-repo-run-ai] Reviewer gate state write failed');
-              }
-              if (reviewerGatePersisted.status !== 'accepted') {
-                process.exitCode = 1;
-                break commandDispatch;
               }
               break;
             }
@@ -1832,15 +1877,22 @@ if (command === 'real-repo-run-ai') {
 
             if (!controlledRun) {
               // Fix execution is not available (e.g. fix loop disabled and no fake
-              // executor configured). Keep the original commit and persist the gate
-              // state for human follow-up instead of rolling back.
-              attachRollbackMetadata(stateWithGate as RunState);
+              // executor configured). The original commit has already been pushed;
+              // preserve it for human follow-up and make the policy explicit.
+              skipRollbackForPostPush(
+                stateWithGate as RunState,
+                'Commit was already pushed and fix execution is not configured; rollback skipped. Human follow-up required.'
+              );
+              console.error('[real-repo-run-ai] Rollback skipped: pushed commit preserved for human follow-up');
+              console.error('[real-repo-run-ai] Reviewer fix-loop stopped: fix execution not configured');
+              console.error('[real-repo-run-ai] No merge was performed');
+              console.error('[real-repo-run-ai] No checkout was performed');
+              console.error('[real-repo-run-ai] No main touch was performed');
               try {
                 saveState(taskId, stateWithGate as RunState);
               } catch (stateErr) {
                 console.error('[real-repo-run-ai] Reviewer fix-loop state write failed');
               }
-              console.error('[real-repo-run-ai] Reviewer fix-loop stopped: fix execution not configured');
               process.exitCode = 1;
               break commandDispatch;
             }
@@ -1863,20 +1915,20 @@ if (command === 'real-repo-run-ai') {
               // The real fix-task executor already rolls back its own commit to
               // the pre-fix HEAD. The original task commit is preserved for human
               // review, so no CLI-level rollback is needed here.
-              rollbackRecord = {
-                ok: true,
-                status: 'skipped',
-                attempted: false,
-                checkpointHead: checkpoint.headSha,
-                reason: 'Reviewer fix execution blocked or failed; original task commit preserved.',
-              };
-              attachRollbackMetadata(stateWithGate as RunState);
+              skipRollbackForPostPush(
+                stateWithGate as RunState,
+                'Original task commit was already pushed; fix attempt rolled back locally to preserve it. Human follow-up required.'
+              );
+              console.error('[real-repo-run-ai] Rollback skipped: original pushed commit preserved; fix attempt rolled back locally');
+              console.error('[real-repo-run-ai] Reviewer fix-loop stopped: fix execution blocked or failed');
+              console.error('[real-repo-run-ai] No merge was performed');
+              console.error('[real-repo-run-ai] No checkout was performed');
+              console.error('[real-repo-run-ai] No main touch was performed');
               try {
                 saveState(taskId, stateWithGate as RunState);
               } catch (stateErr) {
                 console.error('[real-repo-run-ai] Reviewer fix-loop state write failed');
               }
-              console.error('[real-repo-run-ai] Reviewer fix-loop stopped: fix execution blocked or failed');
               process.exitCode = 1;
               break commandDispatch;
             }
@@ -2112,18 +2164,21 @@ if (command === 'real-repo-run-ai') {
                 status: 'skipped',
                 attempted: false,
                 checkpointHead: checkpoint.headSha,
+                policy: 'rollback_skipped_success',
                 reason: 'Fix commit accepted; rollback not needed.',
               };
             } else if (finalStatus !== 'fix_required' || fixAttemptCount >= reviewerMaxFixAttempts) {
-              // Fix loop ended without acceptance. Keep the original task commit
-              // (and any successful fix commits) for human review.
-              rollbackRecord = {
-                ok: true,
-                status: 'skipped',
-                attempted: false,
-                checkpointHead: checkpoint.headSha,
-                reason: `Reviewer fix-loop ended with ${finalStatus}; original task commit preserved.`,
-              };
+              // Fix loop ended without acceptance. The fix commit (if one was made)
+              // has already been pushed; keep it and the original commit for human
+              // review rather than rewriting remote history.
+              skipRollbackForPostPush(
+                stateWithGate as RunState,
+                `Reviewer fix-loop ended with ${finalStatus}; pushed commits preserved. Human follow-up required.`
+              );
+              console.error('[real-repo-run-ai] Rollback skipped: pushed commits preserved for human follow-up');
+              console.error('[real-repo-run-ai] No merge was performed');
+              console.error('[real-repo-run-ai] No checkout was performed');
+              console.error('[real-repo-run-ai] No main touch was performed');
             }
 
             attachRollbackMetadata(stateWithGate as RunState);
@@ -2171,7 +2226,7 @@ if (command === 'real-repo-run-ai') {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[real-repo-run-ai] Error: ${message}`);
     if (checkpoint && !rollbackRecord) {
-      performRollback('Unexpected error');
+      performRollback('Unexpected error', 'pre_push_failure');
     }
     console.error('[real-repo-run-ai] No merge was performed');
     console.error('[real-repo-run-ai] No checkout was performed');

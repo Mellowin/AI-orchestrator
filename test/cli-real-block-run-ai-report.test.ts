@@ -134,6 +134,20 @@ function buildResumedState(): RealBlockRunState {
   };
 }
 
+function buildPostPushBlockedState(): RealBlockRunState {
+  return {
+    ...buildBlockedState(),
+    taskResults: [
+      buildBlockedState().taskResults[0],
+      {
+        ...buildBlockedState().taskResults[1],
+        rollbackPolicy: 'post_push_preserve_for_human',
+        rollbackReason: 'Commit already pushed; rollback skipped for human follow-up',
+      },
+    ],
+  };
+}
+
 describe('cli real-block-run-ai-report', () => {
   test('report command exists in CLI usage', () => {
     const result = runCli([]);
@@ -350,6 +364,36 @@ describe('cli real-block-run-ai-report', () => {
     const result = runCli(['real-block-run-ai-report', statePath]);
     assert.strictEqual(result.status, 0, result.stderr);
     assert.doesNotMatch(result.stdout, /ghp_supersecret/);
+    assert.match(result.stdout, /\[REDACTED\]/);
+  });
+
+  test('post-push blocked state prints rollbackPolicy', () => {
+    const tmpDir = makeTempDir();
+    const statePath = writeState(tmpDir, buildPostPushBlockedState());
+    const result = runCli(['real-block-run-ai-report', statePath]);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.match(result.stdout, /rollbackPolicy:\s+post_push_preserve_for_human/);
+  });
+
+  test('post-push blocked state prints rollbackReason', () => {
+    const tmpDir = makeTempDir();
+    const statePath = writeState(tmpDir, buildPostPushBlockedState());
+    const result = runCli(['real-block-run-ai-report', statePath]);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      /rollbackReason:\s+Commit already pushed; rollback skipped for human follow-up/
+    );
+  });
+
+  test('secret-like rollbackReason is redacted in output', () => {
+    const tmpDir = makeTempDir();
+    const state = buildPostPushBlockedState();
+    state.taskResults[1].rollbackReason = 'sk-live-roll-policy-key exposed after push';
+    const statePath = writeState(tmpDir, state);
+    const result = runCli(['real-block-run-ai-report', statePath]);
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /sk-live-roll-policy-key/);
     assert.match(result.stdout, /\[REDACTED\]/);
   });
 

@@ -37,12 +37,19 @@ export type RunStatus =
   | 'failed_max_attempts'
   | 'pushed';
 
+export type RollbackPolicy =
+  | 'pre_push_failure'
+  | 'post_push_preserve_for_human'
+  | 'fix_attempt_rollback'
+  | 'rollback_skipped_success';
+
 export interface RollbackRecord {
   attempted: boolean;
   status: 'succeeded' | 'failed' | 'skipped';
   checkpointHead: string;
   finalHead?: string;
   reason?: string;
+  policy?: RollbackPolicy;
 }
 
 export interface RunState {

@@ -4889,4 +4889,276 @@ describe('cli real-repo-run-ai', () => {
       cleanup();
     }
   });
+
+  // --- Post-push rollback policy (Stage 17.4A) ---
+
+  test('post-push reviewer block preserves original commit and records skipped rollback', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const beforeRemote = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'block_for_human',
+          confidence: 'high',
+          blockingIssues: ['human review required'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Block',
+          nextAction: 'block',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should preserve original commit');
+      const afterRemote = getBareRefs(originPath);
+      assert.notDeepStrictEqual(afterRemote, beforeRemote, 'Original commit should be pushed');
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert(state !== null);
+      const rollback = state.rollback as Record<string, unknown>;
+      assert(rollback !== undefined, 'Should record rollback metadata');
+      assert.strictEqual(rollback.status, 'skipped');
+      assert.strictEqual(rollback.attempted, false);
+      assert.strictEqual(rollback.policy, 'post_push_preserve_for_human');
+      assert(typeof rollback.reason === 'string' && rollback.reason.includes('already pushed'), `Expected pushed reason: ${rollback.reason}`);
+      assert.strictEqual(state.commit_sha, getHeadSha(repoPath), 'State commit should match preserved HEAD');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('post-push reviewer reject with fix loop disabled preserves original commit and skipped rollback', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const beforeRemote = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['needs fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '0',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should preserve original commit');
+      const afterRemote = getBareRefs(originPath);
+      assert.notDeepStrictEqual(afterRemote, beforeRemote, 'Original commit should be pushed');
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert(state !== null);
+      const rollback = state.rollback as Record<string, unknown>;
+      assert(rollback !== undefined, 'Should record rollback metadata');
+      assert.strictEqual(rollback.status, 'skipped');
+      assert.strictEqual(rollback.attempted, false);
+      assert.strictEqual(rollback.policy, 'post_push_preserve_for_human');
+      assert(typeof rollback.reason === 'string' && rollback.reason.includes('fix execution is not configured'), `Expected fix-loop disabled reason: ${rollback.reason}`);
+      assert.strictEqual(state.commit_sha, getHeadSha(repoPath));
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('failed fix execution after original push preserves original commit and rolls back failed fix', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv(['node', 'check-fix.cjs']);
+    try {
+      setupFixFailingCheck(repoPath);
+      const beforeLogCount = getGitLogCount(repoPath);
+      const beforeRemote = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['missing fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'fix.txt', content: 'fix applied\n' }]),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should preserve only original commit locally');
+      const afterRemote = getBareRefs(originPath);
+      assert.notDeepStrictEqual(afterRemote, beforeRemote, 'Original commit should be pushed');
+      assert(!existsSync(join(repoPath, 'fix.txt')), 'Failed fix file should be rolled back');
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert(state !== null);
+      const rollback = state.rollback as Record<string, unknown>;
+      assert(rollback !== undefined, 'Should record rollback metadata');
+      assert.strictEqual(rollback.status, 'skipped');
+      assert.strictEqual(rollback.attempted, false);
+      assert.strictEqual(rollback.policy, 'post_push_preserve_for_human');
+      assert(typeof rollback.reason === 'string' && rollback.reason.includes('fix attempt rolled back locally'), `Expected fix rollback reason: ${rollback.reason}`);
+      assert.strictEqual(state.commit_sha, getHeadSha(repoPath));
+      const controlledRun = state.reviewer_fix_task_controlled_run as Record<string, unknown>;
+      assert(controlledRun !== undefined);
+      assert.strictEqual(controlledRun.runnerResultStatus, 'blocked');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('second reviewer block after pushed fix preserves both commits', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const beforeRemote = getBareRefs(originPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'reject',
+          confidence: 'high',
+          blockingIssues: ['missing fix'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Needs fix',
+          nextAction: 'fix',
+          fixTask: 'add fix.txt',
+        }),
+        REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'fix.txt', content: 'fix applied\n' }]),
+        REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE: JSON.stringify({
+          decision: 'block_for_human',
+          confidence: 'high',
+          blockingIssues: ['human review required'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Block fix',
+          nextAction: 'block',
+        }),
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '1',
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should preserve original and fix commits');
+      const afterRemote = getBareRefs(originPath);
+      assert.notDeepStrictEqual(afterRemote, beforeRemote, 'Commits should be pushed');
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert(state !== null);
+      const rollback = state.rollback as Record<string, unknown>;
+      assert(rollback !== undefined, 'Should record rollback metadata');
+      assert.strictEqual(rollback.status, 'skipped');
+      assert.strictEqual(rollback.attempted, false);
+      assert.strictEqual(rollback.policy, 'post_push_preserve_for_human');
+      assert(typeof rollback.reason === 'string' && rollback.reason.includes('pushed commits preserved'), `Expected pushed commits preserved reason: ${rollback.reason}`);
+      const secondReview = state.reviewer_fix_task_second_review as Record<string, unknown>;
+      assert(secondReview !== undefined);
+      const fixCommitSha = secondReview.fixCommitSha as string;
+      assert(typeof fixCommitSha === 'string' && fixCommitSha.length === 40);
+      assert.notStrictEqual(fixCommitSha, state.commit_sha, 'Fix commit should differ from original');
+      assert.strictEqual(fixCommitSha, getHeadSha(repoPath), 'Fix commit should be local HEAD');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('pre-push push failure performs rollback tagged with pre_push_failure policy', () => {
+    const { taskId, tasksFilePath, repoPath, cleanup } = createTempEnv();
+    try {
+      spawnSync('git', ['remote', 'set-url', 'origin', '/nonexistent/remote'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      });
+      const beforeContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      assert(result.stderr.includes('Git push failed'), `Expected push failure: ${result.stderr}`);
+      assert(result.stderr.includes('Rollback attempted'), `Expected rollback attempted: ${result.stderr}`);
+      assert(result.stderr.includes('policy=pre_push_failure'), `Expected pre_push_failure policy: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'Local commit should be rolled back');
+      assert.strictEqual(getGitPorcelain(repoPath), '', 'Working tree should be clean');
+      const afterContent = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(
+        afterContent.replace(/\r\n/g, '\n'),
+        beforeContent.replace(/\r\n/g, '\n'),
+        'README should be restored'
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('post-push rollback metadata does not leak reviewer secrets', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv();
+    try {
+      const result = runCli(['real-repo-run-ai', taskId], {
+        TASKS_FILE: tasksFilePath,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'fake',
+        KIMI_BASE_URL: 'http://localhost:9999',
+        KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
+        REAL_REPO_REVIEWER_FAKE_RESPONSE: JSON.stringify({
+          decision: 'block_for_human',
+          confidence: 'high',
+          blockingIssues: ['api_key=secret-roll-policy-key'],
+          nonBlockingIssues: [],
+          reviewSummary: 'Block with token=secret-roll-policy-token',
+          nextAction: 'block',
+        }),
+        RUNS_DIR: runsDir,
+      });
+      assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
+      const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
+      assert(state !== null);
+      const stateRaw = JSON.stringify(state);
+      assert(!stateRaw.includes('secret-roll-policy-key'), 'Should not leak api_key in state');
+      assert(!stateRaw.includes('secret-roll-policy-token'), 'Should not leak token in state');
+      const combined = result.stdout + result.stderr;
+      assert(!combined.includes('secret-roll-policy-key'), 'Should not leak api_key in output');
+      assert(!combined.includes('secret-roll-policy-token'), 'Should not leak token in output');
+      const rollback = state.rollback as Record<string, unknown>;
+      assert(rollback !== undefined);
+      assert.strictEqual(rollback.policy, 'post_push_preserve_for_human');
+    } finally {
+      cleanup();
+    }
+  });
 });
