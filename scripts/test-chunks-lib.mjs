@@ -71,37 +71,37 @@ export function parseNodeTestSummary(output) {
 
   const lines = output.split(/\r?\n/);
   for (const line of lines) {
-    const testsMatch = line.match(/^ℹ\s+tests\s+(\d+)$/);
+    const testsMatch = line.match(/^(?:ℹ|#)\s+tests\s+(\d+)$/);
     if (testsMatch) {
       result.tests = Number(testsMatch[1]);
       continue;
     }
-    const suitesMatch = line.match(/^ℹ\s+suites\s+(\d+)$/);
+    const suitesMatch = line.match(/^(?:ℹ|#)\s+suites\s+(\d+)$/);
     if (suitesMatch) {
       result.suites = Number(suitesMatch[1]);
       continue;
     }
-    const passMatch = line.match(/^ℹ\s+pass\s+(\d+)$/);
+    const passMatch = line.match(/^(?:ℹ|#)\s+pass\s+(\d+)$/);
     if (passMatch) {
       result.pass = Number(passMatch[1]);
       continue;
     }
-    const failMatch = line.match(/^ℹ\s+fail\s+(\d+)$/);
+    const failMatch = line.match(/^(?:ℹ|#)\s+fail\s+(\d+)$/);
     if (failMatch) {
       result.fail = Number(failMatch[1]);
       continue;
     }
-    const cancelledMatch = line.match(/^ℹ\s+cancelled\s+(\d+)$/);
+    const cancelledMatch = line.match(/^(?:ℹ|#)\s+cancelled\s+(\d+)$/);
     if (cancelledMatch) {
       result.cancelled = Number(cancelledMatch[1]);
       continue;
     }
-    const skippedMatch = line.match(/^ℹ\s+skipped\s+(\d+)$/);
+    const skippedMatch = line.match(/^(?:ℹ|#)\s+skipped\s+(\d+)$/);
     if (skippedMatch) {
       result.skipped = Number(skippedMatch[1]);
       continue;
     }
-    const durationMatch = line.match(/^ℹ\s+duration_ms\s+(\d+(?:\.\d+)?)$/);
+    const durationMatch = line.match(/^(?:ℹ|#)\s+duration_ms\s+(\d+(?:\.\d+)?)$/);
     if (durationMatch) {
       result.durationMs = Number(durationMatch[1]);
     }
