@@ -4046,7 +4046,6 @@ describe('cli real-repo-run-ai', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      writeFileSync('d:/AI orchestrator/tmp/debug2.json', JSON.stringify({ stderr: result.stderr }, null, 2), 'utf-8');
       assert(result.stderr.includes('max fix attempts reached'), `Should report max attempts reached: ${result.stderr}`);
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create original and one fix commit only');
 

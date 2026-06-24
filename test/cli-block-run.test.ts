@@ -44,17 +44,15 @@ function runCli(args: string[], envOverrides: Record<string, string> = {}): {
   stderr: string;
 } {
   const env = { ...getCleanEnv(), ...envOverrides };
-  const quotedArgs = args.map((a) => (a.includes(' ') || a.includes('\\') ? `"${a}"` : a));
-  const result = spawnSync(
-    `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ${quotedArgs.join(' ')}`,
-    {
-      cwd: process.cwd(),
-      env,
-      encoding: 'utf-8',
-      shell: true,
-      timeout: 30000,
-    }
-  );
+  const cliPath = join(process.cwd(), 'src', 'cli.ts');
+  const tsxPath = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const result = spawnSync(process.execPath, [tsxPath, cliPath, ...args], {
+    cwd: process.cwd(),
+    env,
+    encoding: 'utf-8',
+    shell: false,
+    timeout: 30000,
+  });
   return {
     status: result.status ?? 1,
     stdout: result.stdout || '',

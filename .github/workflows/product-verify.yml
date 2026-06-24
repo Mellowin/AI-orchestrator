@@ -24,6 +24,10 @@ jobs:
         run: |
           git config --global user.email "ci@example.com"
           git config --global user.name "CI User"
+          git config --global init.defaultBranch main
+
+      - name: Ensure local main branch for cwd-dependent tests
+        run: git checkout -B main ${{ github.sha }}
 
       - name: Verify product (CI-safe chunks)
         run: npm run verify:product:ci

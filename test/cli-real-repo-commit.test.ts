@@ -2,6 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -790,6 +791,7 @@ describe('cli real-repo-commit', () => {
       // Create a pre-commit hook that fails to force git commit to fail
       const hookPath = join(repoPath, '.git', 'hooks', 'pre-commit');
       writeFileSync(hookPath, '#!/bin/sh\nexit 1\n', 'utf-8');
+      chmodSync(hookPath, 0o755);
       const before = getGitLogCount(repoPath);
       const result = runCli(['real-repo-commit', taskId], {
         TASKS_FILE: tasksFilePath,
