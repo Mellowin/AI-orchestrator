@@ -113,6 +113,16 @@ function createTempEnv(checkObjects?: Array<{ command: string; args: string[] }>
     encoding: 'utf-8',
     shell: false,
   });
+  spawnSync('git', ['config', 'user.email', 'ci@example.com'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  spawnSync('git', ['config', 'user.name', 'CI User'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
   spawnSync('git', ['add', '.'], {
     cwd: repoPath,
     encoding: 'utf-8',
@@ -214,6 +224,16 @@ function createTempEnvNoCommit(): {
     encoding: 'utf-8',
     shell: false,
   });
+  spawnSync('git', ['config', 'user.email', 'ci@example.com'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  spawnSync('git', ['config', 'user.name', 'CI User'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
   spawnSync('git', ['branch', '-m', 'main'], {
     cwd: repoPath,
     encoding: 'utf-8',
@@ -296,6 +316,16 @@ function createTempEnvNoOrigin(): {
   writeFileSync(join(repoPath, 'README.md'), '# hello\n', 'utf-8');
 
   spawnSync('git', ['init'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  spawnSync('git', ['config', 'user.email', 'ci@example.com'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  spawnSync('git', ['config', 'user.name', 'CI User'], {
     cwd: repoPath,
     encoding: 'utf-8',
     shell: false,

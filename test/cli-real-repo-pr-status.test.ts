@@ -129,6 +129,16 @@ function createTempEnv(opts?: {
     encoding: 'utf-8',
     shell: false,
   });
+  spawnSync('git', ['config', 'user.email', 'ci@example.com'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  spawnSync('git', ['config', 'user.name', 'CI User'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
   spawnSync('git', ['add', '.'], {
     cwd: repoPath,
     encoding: 'utf-8',

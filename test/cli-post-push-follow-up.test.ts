@@ -68,6 +68,8 @@ function createTempRepo(branch = 'ai/task-x'): { repoPath: string; tmpDir: strin
   mkdirSync(repoPath);
   writeFileSync(join(repoPath, 'README.md'), '# hello\n', 'utf-8');
   spawnSync('git', ['init'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.email', 'ci@example.com'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.name', 'CI User'], { cwd: repoPath, encoding: 'utf-8', shell: false });
   spawnSync('git', ['add', '.'], { cwd: repoPath, encoding: 'utf-8', shell: false });
   spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
   spawnSync('git', ['branch', '-m', 'main'], { cwd: repoPath, encoding: 'utf-8', shell: false });

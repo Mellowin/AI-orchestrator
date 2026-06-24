@@ -45,6 +45,8 @@ function makeTempGitRepo(prefix: string): string {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'package.json'), '{}', 'utf-8');
   spawnSync('git', ['init'], { cwd: dir, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.email', 'ci@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.name', 'CI User'], { cwd: dir, encoding: 'utf-8', shell: false });
   spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf-8', shell: false });
   spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], { cwd: dir, encoding: 'utf-8', shell: false });
   spawnSync('git', ['branch', '-M', 'main'], { cwd: dir, encoding: 'utf-8', shell: false });

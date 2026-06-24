@@ -94,6 +94,8 @@ function createTempRepo(): { path: string; cleanup: () => void } {
   }
   const dir = mkdtempSync(join(tmpBase, `pilot-repo-${id}-`));
   spawnSync('git', ['init'], { cwd: dir, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.email', 'ci@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.name', 'CI User'], { cwd: dir, encoding: 'utf-8', shell: false });
   spawnSync('git', ['checkout', '-b', 'main'], { cwd: dir, encoding: 'utf-8', shell: false });
   writeFileSync(join(dir, 'README.md'), '# hello\n', 'utf-8');
   spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf-8', shell: false });
@@ -110,6 +112,8 @@ function createTempRepo(): { path: string; cleanup: () => void } {
 
 function initGitRepo(dir: string): void {
   spawnSync('git', ['init'], { cwd: dir, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.email', 'ci@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.name', 'CI User'], { cwd: dir, encoding: 'utf-8', shell: false });
   spawnSync('git', ['checkout', '-b', 'main'], { cwd: dir, encoding: 'utf-8', shell: false });
   writeFileSync(join(dir, 'initial.txt'), 'initial\n', 'utf-8');
   writeFileSync(join(dir, '.gitignore'), 'runs/\n', 'utf-8');

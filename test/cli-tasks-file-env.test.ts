@@ -18,6 +18,8 @@ describe('cli TASKS_FILE env override', () => {
     writeFileSync(join(baseDir, 'package.json'), '{}', 'utf-8');
 
     spawnSync('git', ['init'], { cwd: baseDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'ci@example.com'], { cwd: baseDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'CI User'], { cwd: baseDir, encoding: 'utf-8', shell: false });
     spawnSync('git', ['add', '.'], { cwd: baseDir, encoding: 'utf-8', shell: false });
     spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], {
       cwd: baseDir,
