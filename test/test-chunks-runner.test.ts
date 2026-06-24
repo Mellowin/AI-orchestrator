@@ -113,7 +113,9 @@ describe('test:chunks runner script', () => {
   });
 
   it('runner exits non-zero when chunk fails', async () => {
-    const tmpFile = join(PROJECT_ROOT, 'tmp', 'chunk-runner-failing.test.ts');
+    const base = join(PROJECT_ROOT, 'tmp', `chunk-runner-failing-${Date.now()}`);
+    mkdirSync(base, { recursive: true });
+    const tmpFile = join(base, 'chunk-runner-failing.test.ts');
     writeFileSync(
       tmpFile,
       `import { describe, it } from 'node:test';\nimport assert from 'node:assert/strict';\ndescribe('intentional failure', () => { it('fails', () => { assert.fail('intentional chunk failure'); }); });\n`,
@@ -123,7 +125,7 @@ describe('test:chunks runner script', () => {
     try {
       const result = spawnSync(
         process.execPath,
-        ['scripts/run-test-chunks.mjs', '--chunk-size', '2', '--test-dir', join(PROJECT_ROOT, 'tmp')],
+        ['scripts/run-test-chunks.mjs', '--chunk-size', '2', '--test-dir', base],
         {
           cwd: PROJECT_ROOT,
           encoding: 'utf8',
@@ -137,7 +139,7 @@ describe('test:chunks runner script', () => {
       assert.ok(output.includes('intentional chunk failure'), output);
     } finally {
       try {
-        await rm(tmpFile);
+        await rm(base, { recursive: true, force: true });
       } catch {
         // ignore cleanup errors
       }
