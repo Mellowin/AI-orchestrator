@@ -8,12 +8,13 @@
     "dev": "tsx src/cli.ts",
     "test": "tsx --test",
     "test:chunks": "node scripts/run-test-chunks.mjs",
+    "test:chunks:product": "node scripts/run-test-chunks.mjs --exclude test/test-chunks-runner.test.ts",
     "demo:block:fake": "tsx scripts/demo-real-block-run-fake.ts",
     "demo:disposable-pilot": "node scripts/run-disposable-pilot-demo.mjs",
     "demo:rollback-policy-drill": "node scripts/run-rollback-policy-drill.mjs",
     "demo:block-follow-up-drill": "node scripts/run-block-follow-up-drill.mjs",
     "demo:post-push-follow-up-drill": "node scripts/run-post-push-follow-up-drill.mjs",
-    "verify:product": "npm run typecheck && npm run build && npm run test:chunks && npm run demo:block:fake && npm run demo:disposable-pilot"
+    "verify:product": "npm run typecheck && npm run build && npx tsx --test test/test-chunks-runner.test.ts && npm run test:chunks:product && npm run demo:block:fake && npm run demo:disposable-pilot"
   },
   "dependencies": {
     "cross-spawn": "^7.0.6",

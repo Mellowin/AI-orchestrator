@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { cpus } from 'node:os';
 import {
   aggregateSummaries,
@@ -37,6 +37,7 @@ const RUNNER_ARGS = [join(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.m
  * --concurrency N (max parallel chunks, default based on CPU count, capped at 12)
  * --chunk-timeout-ms N (per-chunk timeout, default 300000)
  * --list-chunks (print chunks and exit)
+ * --exclude <path-or-basename> (exclude one or more test files; can be repeated)
  */
 function parseArgs(argv) {
   const args = {
@@ -46,6 +47,7 @@ function parseArgs(argv) {
     concurrency: DEFAULT_CONCURRENCY,
     chunkTimeoutMs: DEFAULT_CHUNK_TIMEOUT_MS,
     listChunks: false,
+    excludes: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -90,6 +92,13 @@ function parseArgs(argv) {
       i++;
     } else if (arg === '--list-chunks') {
       args.listChunks = true;
+    } else if (arg === '--exclude') {
+      const next = argv[i + 1];
+      if (next == null) {
+        throw new Error('Missing value for --exclude');
+      }
+      args.excludes.push(next);
+      i++;
     }
   }
   return args;
@@ -202,19 +211,33 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   console.log(`Discovering test files in ${args.testDir}...`);
-  const files = await discoverTestFiles(args.testDir);
-  if (files.length === 0) {
+  const discoveredFiles = await discoverTestFiles(args.testDir);
+  if (discoveredFiles.length === 0) {
     console.error('No .test.ts files found.');
     process.exitCode = 1;
     return;
   }
+
+  const normalizedExcludes = args.excludes.map((e) => e.replace(/\\/g, '/'));
+  const isExcluded = (file) => {
+    const base = basename(file);
+    const rel = relative(args.testDir, file).replace(/\\/g, '/');
+    const absFile = resolve(file).replace(/\\/g, '/');
+    return normalizedExcludes.some((ex) => {
+      if (base === ex || rel === ex || rel.endsWith(`/${ex}`)) return true;
+      const absEx = resolve(ex).replace(/\\/g, '/');
+      return absFile === absEx;
+    });
+  };
+  const files = discoveredFiles.filter((f) => !isExcluded(f));
+  const excludedCount = discoveredFiles.length - files.length;
 
   const heavy = files.filter((f) => HEAVY_FILE_NAMES.has(basename(f)));
   const rest = files.filter((f) => !HEAVY_FILE_NAMES.has(basename(f)));
   const chunks = [...heavy.map((f) => [f]), ...chunkFiles(rest, args.chunkSize)];
 
   if (args.listChunks) {
-    console.log(`Found ${files.length} test file(s), chunk size ${args.chunkSize} => ${chunks.length} chunk(s).`);
+    console.log(`Found ${files.length} test file(s), ${excludedCount} excluded, chunk size ${args.chunkSize} => ${chunks.length} chunk(s).`);
     for (let i = 0; i < chunks.length; i++) {
       console.log(`Chunk ${i + 1}:`);
       for (const file of chunks[i]) {
@@ -246,7 +269,7 @@ async function main() {
   }
 
   console.log(
-    `Found ${files.length} test file(s), chunk size ${args.chunkSize}, concurrency ${args.concurrency}, timeout ${args.chunkTimeoutMs}ms.`
+    `Found ${files.length} test file(s), ${excludedCount} excluded, chunk size ${args.chunkSize}, concurrency ${args.concurrency}, timeout ${args.chunkTimeoutMs}ms.`
   );
 
   const startMs = Date.now();

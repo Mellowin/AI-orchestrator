@@ -104,10 +104,11 @@ describe('test:chunks runner script', () => {
     assert.ok(pkg.scripts['test:chunks'].includes('run-test-chunks'));
   });
 
-  it('verify:product uses test:chunks, not raw npm test', async () => {
+  it('verify:product runs runner self-test separately and uses product chunks', async () => {
     const pkg = JSON.parse(await readFile(join(PROJECT_ROOT, 'package.json'), 'utf8'));
     assert.ok(pkg.scripts['verify:product']);
-    assert.ok(pkg.scripts['verify:product'].includes('test:chunks'));
+    assert.ok(pkg.scripts['verify:product'].includes('test/test-chunks-runner.test.ts'));
+    assert.ok(pkg.scripts['verify:product'].includes('test:chunks:product'));
     assert.ok(!pkg.scripts['verify:product'].includes('npm test'));
   });
 
@@ -219,6 +220,98 @@ describe('test:chunks runner script', () => {
     assert.ok(!content.includes('fetch('));
     assert.ok(!content.includes('http://'));
     assert.ok(!content.includes('https://'));
+  });
+
+  it('--exclude removes file from --list-chunks', async () => {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/run-test-chunks.mjs', '--list-chunks', '--exclude', 'test-chunks-runner.test.ts'],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
+    assert.equal(result.status, 0, `list-chunks failed: ${result.stderr}`);
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.ok(!output.includes('test-chunks-runner.test.ts'), output);
+    assert.ok(output.includes('1 excluded'), output);
+  });
+
+  it('multiple --exclude values work', async () => {
+    const base = join(PROJECT_ROOT, 'tmp', `chunk-exclude-multi-${Date.now()}`);
+    mkdirSync(base, { recursive: true });
+    writeFileSync(join(base, 'a.test.ts'), `import { describe, it } from 'node:test'; describe('a', () => { it('a1', () => {}); });\n`, 'utf8');
+    writeFileSync(join(base, 'b.test.ts'), `import { describe, it } from 'node:test'; describe('b', () => { it('b1', () => {}); });\n`, 'utf8');
+    writeFileSync(join(base, 'c.test.ts'), `import { describe, it } from 'node:test'; describe('c', () => { it('c1', () => {}); });\n`, 'utf8');
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        ['scripts/run-test-chunks.mjs', '--list-chunks', '--exclude', 'a.test.ts', '--exclude', 'b.test.ts', '--test-dir', base],
+        {
+          cwd: PROJECT_ROOT,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
+      assert.equal(result.status, 0, `list-chunks failed: ${result.stderr}`);
+      const output = `${result.stdout}\n${result.stderr}`;
+      assert.ok(!output.includes('a.test.ts'), output);
+      assert.ok(!output.includes('b.test.ts'), output);
+      assert.ok(output.includes('c.test.ts'), output);
+      assert.ok(output.includes('2 excluded'), output);
+    } finally {
+      try {
+        await rm(base, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+  });
+
+  it('excluded file is not executed', async () => {
+    const base = join(PROJECT_ROOT, 'tmp', `chunk-exclude-run-${Date.now()}`);
+    mkdirSync(base, { recursive: true });
+    writeFileSync(join(base, 'pass.test.ts'), `import { describe, it } from 'node:test'; describe('pass', () => { it('ok', () => {}); });\n`, 'utf8');
+    writeFileSync(join(base, 'fail.test.ts'), `import { describe, it } from 'node:test'; import assert from 'node:assert/strict'; describe('fail', () => { it('bad', () => { assert.fail('excluded failure'); }); });\n`, 'utf8');
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        ['scripts/run-test-chunks.mjs', '--exclude', 'fail.test.ts', '--test-dir', base],
+        {
+          cwd: PROJECT_ROOT,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
+      assert.equal(result.status, 0, `expected success when failing file is excluded: ${result.stderr}`);
+      const output = `${result.stdout}\n${result.stderr}`;
+      assert.ok(output.includes('OK: all test chunks passed'), output);
+      assert.ok(!output.includes('excluded failure'), output);
+    } finally {
+      try {
+        await rm(base, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+  });
+
+  it('invalid exclude does not crash', async () => {
+    const result = spawnSync(
+      process.execPath,
+      ['scripts/run-test-chunks.mjs', '--list-chunks', '--exclude', 'does-not-exist.test.ts'],
+      {
+        cwd: PROJECT_ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    );
+    assert.equal(result.status, 0, `expected success for invalid exclude: ${result.stderr}`);
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.ok(output.includes('0 excluded'), output);
   });
 
   it('isolates known heavy test files into single-file chunks', async () => {

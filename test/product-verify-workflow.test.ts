@@ -31,30 +31,23 @@ describe('product verification workflow', () => {
     assert.match(doc.name, /Product verification/);
   });
 
-  test('workflow triggers on push', () => {
+  test('workflow triggers on workflow_dispatch', () => {
+    const raw = readWorkflow();
+    const doc = parseWorkflow(raw) as { on?: { workflow_dispatch?: unknown } };
+    assert.ok(doc.on, 'workflow must define on triggers');
+    assert.ok('workflow_dispatch' in (doc.on ?? {}), 'workflow must trigger on workflow_dispatch');
+  });
+
+  test('workflow does not trigger on push', () => {
     const raw = readWorkflow();
     const doc = parseWorkflow(raw) as { on?: { push?: unknown } };
-    assert.ok(doc.on, 'workflow must define on triggers');
-    assert.ok(doc.on.push, 'workflow must trigger on push');
+    assert.ok(!doc.on?.push, 'workflow must not trigger on push');
   });
 
-  test('workflow triggers on pull_request', () => {
+  test('workflow does not trigger on pull_request', () => {
     const raw = readWorkflow();
     const doc = parseWorkflow(raw) as { on?: { pull_request?: unknown } };
-    assert.ok(doc.on, 'workflow must define on triggers');
-    assert.ok(doc.on.pull_request, 'workflow must trigger on pull_request');
-  });
-
-  test('workflow is scoped to main', () => {
-    const raw = readWorkflow();
-    const doc = parseWorkflow(raw) as {
-      on?: {
-        push?: { branches?: string[] };
-        pull_request?: { branches?: string[] };
-      };
-    };
-    assert.ok(doc.on?.push?.branches?.includes('main'), 'push must be scoped to main');
-    assert.ok(doc.on?.pull_request?.branches?.includes('main'), 'pull_request must be scoped to main');
+    assert.ok(!doc.on?.pull_request, 'workflow must not trigger on pull_request');
   });
 
   test('workflow uses ubuntu-latest', () => {
