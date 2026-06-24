@@ -72,6 +72,16 @@ function runCli(
   stderr: string;
 } {
   const env = { ...getCleanEnv(), ...envOverrides };
+  // Sweep any leftover orchestrator/provider-related env vars that were not
+  // explicitly set by the current test. This prevents order-dependent flakiness
+  // caused by variables leaking from earlier tests in the same process.
+  const overriddenKeys = new Set(Object.keys(envOverrides));
+  const leakedKeyPattern = /^(REAL_REPO_|REAL_BLOCK_|KIMI_|MOCK_|ALLOW_|SANDBOX_|OPENAI_|TASKS_FILE|RUNS_DIR|NODE_TEST_CONTEXT)/;
+  for (const key of Object.keys(env)) {
+    if (!overriddenKeys.has(key) && leakedKeyPattern.test(key)) {
+      delete env[key];
+    }
+  }
   const quotedArgs = args.map((arg) => `"${arg}"`).join(' ');
   const result = spawnSync(
     `npx tsx "${join(process.cwd(), 'src', 'cli.ts')}" ${quotedArgs}`,

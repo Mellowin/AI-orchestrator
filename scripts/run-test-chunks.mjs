@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { cpus } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   aggregateSummaries,
   chunkFiles,
@@ -38,6 +39,7 @@ const RUNNER_ARGS = [join(__dirname, '..', 'node_modules', 'tsx', 'dist', 'cli.m
  * --chunk-timeout-ms N (per-chunk timeout, default 300000)
  * --list-chunks (print chunks and exit)
  * --exclude <path-or-basename> (exclude one or more test files; can be repeated)
+ * --output-dir path (write each chunk's raw output to this directory)
  */
 function parseArgs(argv) {
   const args = {
@@ -48,6 +50,7 @@ function parseArgs(argv) {
     chunkTimeoutMs: DEFAULT_CHUNK_TIMEOUT_MS,
     listChunks: false,
     excludes: [],
+    outputDir: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -99,6 +102,13 @@ function parseArgs(argv) {
       }
       args.excludes.push(next);
       i++;
+    } else if (arg === '--output-dir') {
+      const next = argv[i + 1];
+      if (next == null) {
+        throw new Error('Missing value for --output-dir');
+      }
+      args.outputDir = next;
+      i++;
     }
   }
   return args;
@@ -111,14 +121,36 @@ function parseArgs(argv) {
 function buildChunkEnv() {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
+  // Provide fallback git identity so temp-repo tests are self-contained even if
+  // the child process clears HOME/GIT_CONFIG_GLOBAL.
+  env.GIT_AUTHOR_NAME = env.GIT_AUTHOR_NAME || 'CI User';
+  env.GIT_AUTHOR_EMAIL = env.GIT_AUTHOR_EMAIL || 'ci@example.com';
+  env.GIT_COMMITTER_NAME = env.GIT_COMMITTER_NAME || env.GIT_AUTHOR_NAME;
+  env.GIT_COMMITTER_EMAIL = env.GIT_COMMITTER_EMAIL || env.GIT_AUTHOR_EMAIL;
   return env;
 }
 
 /**
- * Run a single chunk of test files through tsx --test.
- * Returns { ok: boolean, output: string, summary: object, timedOut: boolean }.
+ * Write chunk output to a file if outputDir is provided.
+ * Returns the absolute path written, or null.
  */
-function runChunk(files, timeoutMs) {
+function writeChunkOutput(outputDir, index, output) {
+  if (!outputDir) return null;
+  try {
+    mkdirSync(outputDir, { recursive: true });
+    const outputPath = join(outputDir, `chunk-${index + 1}.log`);
+    writeFileSync(outputPath, output, 'utf8');
+    return outputPath;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Run a single chunk of test files through tsx --test.
+ * Returns { ok: boolean, output: string, summary: object, timedOut: boolean, outputPath: string | null }.
+ */
+function runChunk(files, timeoutMs, outputDir, index) {
   return new Promise((resolve) => {
     const child = spawn(RUNNER_BIN, [...RUNNER_ARGS, ...files], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -147,12 +179,14 @@ function runChunk(files, timeoutMs) {
       clearTimeout(timer);
       const combined = `${stdout}\n${stderr}`.trim();
       const summary = parseNodeTestSummary(combined);
+      const outputPath = writeChunkOutput(outputDir, index, combined);
       if (timedOut) {
         resolve({
           ok: false,
           output: `${combined}\nChunk timed out after ${timeoutMs}ms`.trim(),
           summary,
           timedOut: true,
+          outputPath,
         });
       } else {
         resolve({
@@ -160,17 +194,21 @@ function runChunk(files, timeoutMs) {
           output: combined,
           summary,
           timedOut: false,
+          outputPath,
         });
       }
     });
 
     child.on('error', (err) => {
       clearTimeout(timer);
+      const output = `Failed to spawn test runner: ${err.message}`;
+      const outputPath = writeChunkOutput(outputDir, index, output);
       resolve({
         ok: false,
-        output: `Failed to spawn test runner: ${err.message}`,
+        output,
         summary: parseNodeTestSummary(''),
         timedOut: false,
+        outputPath,
       });
     });
   });
@@ -178,24 +216,47 @@ function runChunk(files, timeoutMs) {
 
 /**
  * Run chunks with bounded concurrency. Prints a summary line as each chunk finishes.
+ * Logs are serialized through a queue to avoid interleaving from concurrent workers.
  */
-async function runChunks(chunks, concurrency, timeoutMs) {
+async function runChunks(chunks, concurrency, timeoutMs, outputDir) {
   const results = new Array(chunks.length);
   let nextIndex = 0;
+  const logQueue = [];
+  let logProcessing = false;
+
+  function flushLogs() {
+    if (logProcessing || logQueue.length === 0) return;
+    logProcessing = true;
+    while (logQueue.length > 0) {
+      const { failed, message } = logQueue.shift();
+      if (failed) {
+        console.error(message);
+      } else {
+        console.log(message);
+      }
+    }
+    logProcessing = false;
+  }
+
+  function enqueueLog(failed, message) {
+    logQueue.push({ failed, message });
+    flushLogs();
+  }
 
   async function worker() {
     while (nextIndex < chunks.length) {
       const index = nextIndex++;
-      const result = await runChunk(chunks[index], timeoutMs);
+      const result = await runChunk(chunks[index], timeoutMs, outputDir, index);
       results[index] = { index, files: chunks[index], ...result };
-      if (!result.ok) {
-        console.error(formatChunkSummary(index, chunks[index], result.summary, true));
-        if (result.timedOut) {
-          console.error(`Chunk ${index + 1} exceeded ${timeoutMs}ms timeout.`);
-        }
-      } else {
-        console.log(formatChunkSummary(index, chunks[index], result.summary, false));
+      const summaryLine = formatChunkSummary(index, chunks[index], result.summary, !result.ok);
+      const extraLines = [];
+      if (!result.ok && result.timedOut) {
+        extraLines.push(`Chunk ${index + 1} exceeded ${timeoutMs}ms timeout.`);
       }
+      if (!result.ok && result.outputPath) {
+        extraLines.push(`Chunk ${index + 1} output saved to: ${result.outputPath}`);
+      }
+      enqueueLog(!result.ok, [summaryLine, ...extraLines].join('\n'));
     }
   }
 
@@ -204,6 +265,8 @@ async function runChunks(chunks, concurrency, timeoutMs) {
     workers.push(worker());
   }
   await Promise.all(workers);
+  // Ensure any remaining logs are flushed after all workers finish.
+  flushLogs();
   return results;
 }
 
@@ -254,11 +317,14 @@ async function main() {
       return;
     }
     console.log(`Running chunk ${args.chunkIndex + 1}/${chunks.length} (${chunks[args.chunkIndex].length} files).`);
-    const result = await runChunk(chunks[args.chunkIndex], args.chunkTimeoutMs);
+    const result = await runChunk(chunks[args.chunkIndex], args.chunkTimeoutMs, args.outputDir, args.chunkIndex);
     if (!result.ok) {
       console.error(formatChunkSummary(args.chunkIndex, chunks[args.chunkIndex], result.summary, true));
       if (result.timedOut) {
         console.error(`Chunk exceeded ${args.chunkTimeoutMs}ms timeout.`);
+      }
+      if (result.outputPath) {
+        console.error(`Chunk output saved to: ${result.outputPath}`);
       }
       console.error(redactOutput(result.output));
       process.exitCode = 1;
@@ -271,15 +337,21 @@ async function main() {
   console.log(
     `Found ${files.length} test file(s), ${excludedCount} excluded, chunk size ${args.chunkSize}, concurrency ${args.concurrency}, timeout ${args.chunkTimeoutMs}ms.`
   );
+  if (args.outputDir) {
+    console.log(`Chunk outputs will be written to: ${args.outputDir}`);
+  }
 
   const startMs = Date.now();
-  const results = await runChunks(chunks, args.concurrency, args.chunkTimeoutMs);
+  const results = await runChunks(chunks, args.concurrency, args.chunkTimeoutMs, args.outputDir);
   const wallMs = Date.now() - startMs;
 
   let anyFailed = false;
   for (const result of results) {
     if (!result.ok) {
       anyFailed = true;
+      if (result.outputPath) {
+        console.error(`Chunk ${result.index + 1} output saved to: ${result.outputPath}`);
+      }
       console.error(redactOutput(result.output));
     }
   }

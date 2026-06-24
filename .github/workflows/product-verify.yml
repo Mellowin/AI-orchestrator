@@ -25,5 +25,13 @@ jobs:
           git config --global user.email "ci@example.com"
           git config --global user.name "CI User"
 
-      - name: Verify product
-        run: npm run verify:product
+      - name: Verify product (CI-safe chunks)
+        run: npm run verify:product:ci
+
+      - name: Upload chunk outputs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chunk-outputs
+          path: tmp/chunk-outputs/
+          retention-days: 7

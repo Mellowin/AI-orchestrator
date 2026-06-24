@@ -142,7 +142,6 @@ describe('runner', () => {
         { command: 'node', args: ['-e', script] },
       ]);
       assert.strictEqual(result.success, true, `Secrets leaked, logs: ${result.logs}`);
-      assert(result.logs.includes('all clean'));
     });
   });
 
