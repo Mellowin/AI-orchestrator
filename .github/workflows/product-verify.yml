@@ -20,5 +20,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Configure git identity for temp repo tests
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI User"
+
       - name: Verify product
         run: npm run verify:product
