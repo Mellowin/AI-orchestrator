@@ -302,12 +302,7 @@ function setupCheckFileWithSecrets(repoPath: string): void {
 }
 
 function setupFixFailingCheck(repoPath: string): void {
-  writeFileSync(
-    join(repoPath, 'check-fix.cjs'),
-    `console.error('CHECK_DEBUG cwd=' + process.cwd() + ' fixExists=' + require('fs').existsSync('fix.txt'));\n` +
-      `process.exit(require('fs').existsSync('fix.txt') ? 1 : 0);\n`,
-    'utf-8'
-  );
+  writeFileSync(join(repoPath, 'check-fix.cjs'), `require('fs').existsSync('fix.txt')&&process.exit(1)`, 'utf-8');
   spawnSync('git', ['add', 'check-fix.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
   spawnSync('git', ['commit', '-m', 'add fix check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
 }
@@ -3967,7 +3962,9 @@ describe('cli real-repo-run-ai', () => {
   });
 
   test('with REAL_REPO_ENABLE_REVIEWER_FIX_LOOP=1 fix_required fix checks fail exits non-zero and persists check failure', () => {
-    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv(['node', 'check-fix.cjs']);
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv([], [
+      { command: 'node', args: ['check-fix.cjs'] },
+    ]);
     try {
       setupFixFailingCheck(repoPath);
       const beforeLogCount = getGitLogCount(repoPath);
@@ -3996,19 +3993,7 @@ describe('cli real-repo-run-ai', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      const afterLogCount = getGitLogCount(repoPath);
-      console.error(`DEBUG_CHUNK2 test='fix checks fail' before=${beforeLogCount} after=${afterLogCount}`);
-      console.error(`DEBUG_CHUNK2 repoFiles=${JSON.stringify(readdirSync(repoPath))}`);
-      console.error(`DEBUG_CHUNK2 porcelain=${JSON.stringify(getGitPorcelain(repoPath))}`);
-      console.error(`DEBUG_CHUNK2 headSha=${getHeadSha(repoPath)} branch=${getCurrentBranch(repoPath)}`);
-      console.error(`DEBUG_CHUNK2 state=${JSON.stringify(loadStateFromPath(runsDir, taskId))}`);
-      console.error(`DEBUG_CHUNK2 stderr=${result.stderr}`);
-      console.error(`DEBUG_CHUNK2 stdout=${result.stdout}`);
-      assert.strictEqual(
-        afterLogCount,
-        beforeLogCount + 1,
-        `Should create only original commit (before=${beforeLogCount}, after=${afterLogCount}). stderr: ${result.stderr}`
-      );
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create only original commit');
       assert(result.stderr.includes('fix execution blocked or failed') || result.stderr.includes('Checks failed'), `Should report check failure: ${result.stderr}`);
 
       const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
@@ -5015,7 +5000,9 @@ describe('cli real-repo-run-ai', () => {
   });
 
   test('failed fix execution after original push preserves original commit and rolls back failed fix', () => {
-    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv(['node', 'check-fix.cjs']);
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv([], [
+      { command: 'node', args: ['check-fix.cjs'] },
+    ]);
     try {
       setupFixFailingCheck(repoPath);
       const beforeLogCount = getGitLogCount(repoPath);
@@ -5043,19 +5030,7 @@ describe('cli real-repo-run-ai', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      const afterLogCount = getGitLogCount(repoPath);
-      console.error(`DEBUG_CHUNK2 test='failed fix execution' before=${beforeLogCount} after=${afterLogCount}`);
-      console.error(`DEBUG_CHUNK2 repoFiles=${JSON.stringify(readdirSync(repoPath))}`);
-      console.error(`DEBUG_CHUNK2 porcelain=${JSON.stringify(getGitPorcelain(repoPath))}`);
-      console.error(`DEBUG_CHUNK2 headSha=${getHeadSha(repoPath)} branch=${getCurrentBranch(repoPath)}`);
-      console.error(`DEBUG_CHUNK2 state=${JSON.stringify(loadStateFromPath(runsDir, taskId))}`);
-      console.error(`DEBUG_CHUNK2 stderr=${result.stderr}`);
-      console.error(`DEBUG_CHUNK2 stdout=${result.stdout}`);
-      assert.strictEqual(
-        afterLogCount,
-        beforeLogCount + 1,
-        `Should preserve only original commit locally (before=${beforeLogCount}, after=${afterLogCount}). stderr: ${result.stderr}`
-      );
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should preserve only original commit locally');
       const afterRemote = getBareRefs(originPath);
       assert.notDeepStrictEqual(afterRemote, beforeRemote, 'Original commit should be pushed');
       assert(!existsSync(join(repoPath, 'fix.txt')), 'Failed fix file should be rolled back');
