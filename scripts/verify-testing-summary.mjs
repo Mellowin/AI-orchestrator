@@ -25,6 +25,10 @@ function runGit(args, options = {}) {
 
 function shaExists(sha) {
   const result = runGit(['cat-file', '-e', `${sha}^{commit}`]);
+  if (result.status !== 0) {
+    const err = (result.stderr || result.stdout || `exit ${result.status}`).trim();
+    fail(`git cannot resolve commit ${sha}: ${err}`);
+  }
   return result.status === 0;
 }
 
@@ -54,9 +58,7 @@ const seen = new Set();
 for (const sha of shas) {
   if (seen.has(sha)) continue;
   seen.add(sha);
-  if (!shaExists(sha)) {
-    fail(`TESTING_SUMMARY.md references commit not in git history: ${sha}`);
-  }
+  shaExists(sha);
 }
 
 // 4. No debug marker usage as actual logs anywhere in the repo text.
