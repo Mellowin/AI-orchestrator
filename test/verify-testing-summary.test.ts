@@ -54,6 +54,75 @@ describe('verify-testing-summary', () => {
     assert(result.stdout.includes('TESTING_SUMMARY verification passed'));
   });
 
+  test('validateTestingSummary passes when summary matches HEAD', () => {
+    const head = getActualHead();
+    const result = validateTestingSummary({
+      summaryText: validSummary(head),
+      headSha: head,
+      root: process.cwd(),
+    });
+    assert.strictEqual(result.ok, true, `Expected validation to pass, got: ${result.errors.join('; ')}`);
+    assert.strictEqual(result.matchedHead, true);
+    assert.strictEqual(result.matchedParent, false);
+  });
+
+  test('validateTestingSummary passes when Last verified is HEAD~1 and current commit is docs-only', () => {
+    const head = getActualHead();
+    const parent = getActualHeadParent();
+    const result = validateTestingSummary({
+      summaryText: validSummary(parent),
+      headSha: head,
+      root: process.cwd(),
+      parentSha: parent,
+      changedFilesFromParent: ['TESTING_SUMMARY.md'],
+    });
+    assert.strictEqual(result.ok, true, `Expected validation to pass, got: ${result.errors.join('; ')}`);
+    assert.strictEqual(result.matchedHead, false);
+    assert.strictEqual(result.matchedParent, true);
+  });
+
+  test('validateTestingSummary fails when Last verified is HEAD~1 but current commit changes scripts', () => {
+    const head = getActualHead();
+    const parent = getActualHeadParent();
+    const result = validateTestingSummary({
+      summaryText: validSummary(parent),
+      headSha: head,
+      root: process.cwd(),
+      parentSha: parent,
+      changedFilesFromParent: ['scripts/verify-testing-summary.mjs', 'TESTING_SUMMARY.md'],
+    });
+    assert.strictEqual(result.ok, false, 'Expected validation to fail for non-docs HEAD~1 evidence');
+    assert(
+      result.errors.some(
+        (e) =>
+          e.includes('not a docs-only summary commit') &&
+          e.includes('scripts/verify-testing-summary.mjs')
+      ),
+      `Expected docs-only error, got: ${result.errors.join('; ')}`
+    );
+  });
+
+  test('validateTestingSummary fails when Last verified is HEAD~1 but current commit changes tests', () => {
+    const head = getActualHead();
+    const parent = getActualHeadParent();
+    const result = validateTestingSummary({
+      summaryText: validSummary(parent),
+      headSha: head,
+      root: process.cwd(),
+      parentSha: parent,
+      changedFilesFromParent: ['test/verify-testing-summary.test.ts'],
+    });
+    assert.strictEqual(result.ok, false, 'Expected validation to fail for test-only HEAD~1 evidence');
+    assert(
+      result.errors.some(
+        (e) =>
+          e.includes('not a docs-only summary commit') &&
+          e.includes('test/verify-testing-summary.test.ts')
+      ),
+      `Expected docs-only error, got: ${result.errors.join('; ')}`
+    );
+  });
+
   test('validateTestingSummary fails when Last verified does not match HEAD or HEAD~1', () => {
     const head = getActualHead();
     const result = validateTestingSummary({
@@ -80,64 +149,6 @@ describe('verify-testing-summary', () => {
     assert(
       result.errors.some((e) => e.includes('Last verified commit') && e.includes('does not match current HEAD')),
       `Expected Last verified commit mismatch error, got: ${result.errors.join('; ')}`
-    );
-  });
-
-  test('validateTestingSummary passes when summary matches HEAD', () => {
-    const head = getActualHead();
-    const result = validateTestingSummary({
-      summaryText: validSummary(head),
-      headSha: head,
-      root: process.cwd(),
-    });
-    assert.strictEqual(result.ok, true, `Expected validation to pass, got: ${result.errors.join('; ')}`);
-    assert.strictEqual(result.matchedHead, true);
-    assert.strictEqual(result.matchedParent, false);
-  });
-
-  test('validateTestingSummary passes when Last verified is HEAD~1 and current commit is docs-only', () => {
-    const head = getActualHead();
-    const parent = getActualHeadParent();
-    const result = validateTestingSummary({
-      summaryText: validSummary(parent),
-      headSha: head,
-      root: process.cwd(),
-      parentFiles: ['TESTING_SUMMARY.md'],
-    });
-    assert.strictEqual(result.ok, true, `Expected validation to pass, got: ${result.errors.join('; ')}`);
-    assert.strictEqual(result.matchedHead, false);
-    assert.strictEqual(result.matchedParent, true);
-  });
-
-  test('validateTestingSummary fails when Last verified is HEAD~1 but current commit changes non-summary files', () => {
-    const head = getActualHead();
-    const parent = getActualHeadParent();
-    const result = validateTestingSummary({
-      summaryText: validSummary(parent),
-      headSha: head,
-      root: process.cwd(),
-      parentFiles: ['scripts/verify-testing-summary.mjs', 'TESTING_SUMMARY.md'],
-    });
-    assert.strictEqual(result.ok, false, 'Expected validation to fail for non-docs HEAD~1 evidence');
-    assert(
-      result.errors.some((e) => e.includes('not docs-only') && e.includes('scripts/verify-testing-summary.mjs')),
-      `Expected docs-only error, got: ${result.errors.join('; ')}`
-    );
-  });
-
-  test('validateTestingSummary fails when Last verified is HEAD~1 but current commit changes test files', () => {
-    const head = getActualHead();
-    const parent = getActualHeadParent();
-    const result = validateTestingSummary({
-      summaryText: validSummary(parent),
-      headSha: head,
-      root: process.cwd(),
-      parentFiles: ['test/verify-testing-summary.test.ts'],
-    });
-    assert.strictEqual(result.ok, false, 'Expected validation to fail for test-only HEAD~1 evidence');
-    assert(
-      result.errors.some((e) => e.includes('not docs-only') && e.includes('test/verify-testing-summary.test.ts')),
-      `Expected docs-only error, got: ${result.errors.join('; ')}`
     );
   });
 });

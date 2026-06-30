@@ -7,12 +7,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 function runGit(args, cwd) {
-  const result = spawnSync('git', args, {
+  return spawnSync('git', args, {
     cwd,
     encoding: 'utf-8',
     shell: false,
   });
-  return result;
 }
 
 function shaExists(sha, cwd, errors) {
@@ -25,30 +24,39 @@ function shaExists(sha, cwd, errors) {
   return true;
 }
 
+function getHeadSha(root) {
+  const result = runGit(['rev-parse', 'HEAD'], root);
+  return result.status === 0 ? result.stdout.trim() : '';
+}
+
 function getParentSha(root) {
   const result = runGit(['rev-parse', 'HEAD~1'], root);
   return result.status === 0 ? result.stdout.trim() : '';
 }
 
-function getChangedFilesSinceParent(root) {
+function getChangedFilesFromParent(root) {
   const result = runGit(['diff', '--name-only', 'HEAD~1..HEAD'], root);
   if (result.status !== 0) {
-    return null;
+    return [];
   }
   return result.stdout.trim().split('\n').filter(Boolean);
 }
 
-function isSummaryOnlyCommit(root, changedFilesOverride) {
-  const files = Array.isArray(changedFilesOverride)
-    ? changedFilesOverride
-    : getChangedFilesSinceParent(root);
-  if (!Array.isArray(files) || files.length === 0) {
-    return false;
-  }
-  return files.every((file) => file === 'TESTING_SUMMARY.md');
+function isSummaryOnlyCommit(changedFilesFromParent) {
+  return (
+    Array.isArray(changedFilesFromParent) &&
+    changedFilesFromParent.length === 1 &&
+    changedFilesFromParent[0] === 'TESTING_SUMMARY.md'
+  );
 }
 
-export function validateTestingSummary({ summaryText, headSha, root, parentFiles }) {
+export function validateTestingSummary({
+  summaryText,
+  headSha,
+  root,
+  parentSha,
+  changedFilesFromParent,
+}) {
   const errors = [];
 
   if (typeof summaryText !== 'string' || summaryText.length === 0) {
@@ -58,6 +66,10 @@ export function validateTestingSummary({ summaryText, headSha, root, parentFiles
 
   if (!/^[0-9a-f]{40}$/i.test(headSha || '')) {
     errors.push(`current HEAD is not a valid 40-char SHA: ${headSha}`);
+  }
+
+  if (parentSha && !/^[0-9a-f]{40}$/i.test(parentSha)) {
+    errors.push(`HEAD~1 is not a valid 40-char SHA: ${parentSha}`);
   }
 
   // 1. Isolate latest verification section.
@@ -72,55 +84,49 @@ export function validateTestingSummary({ summaryText, headSha, root, parentFiles
   }
 
   // 3. Last verified and Last verified commit must equal current HEAD.
-  // Allow HEAD~1 only when the current commit is a docs-only update that
-  // records the verification result of the previous (meaningful) commit.
+  // HEAD~1 is accepted only when the current commit is a docs-only update
+  // that records the verification result of the previous (meaningful) commit.
   const lastVerifiedMatch = latestSection.match(/\*\*Last verified:\*\*\s*`([0-9a-f]{40})`/i);
   const lastVerifiedCommitMatch = latestSection.match(/\*\*Last verified commit:\*\*\s*`([0-9a-f]{40})`/i);
-
-  const parentSha = getParentSha(root);
-  const allowedHeadShas = new Set([headSha.toLowerCase()]);
-  if (parentSha) {
-    allowedHeadShas.add(parentSha.toLowerCase());
-  }
 
   let matchedHead = false;
   let matchedParent = false;
 
-  if (!lastVerifiedMatch) {
-    errors.push('TESTING_SUMMARY.md latest section is missing "Last verified" SHA');
-  } else if (lastVerifiedMatch[1].toLowerCase() === headSha.toLowerCase()) {
-    matchedHead = true;
-  } else if (parentSha && lastVerifiedMatch[1].toLowerCase() === parentSha.toLowerCase()) {
-    matchedParent = true;
-  } else {
-    errors.push(
-      `TESTING_SUMMARY.md "Last verified" (${lastVerifiedMatch[1]}) does not match current HEAD (${headSha}) or HEAD~1`
-    );
-  }
-
-  if (!lastVerifiedCommitMatch) {
-    errors.push('TESTING_SUMMARY.md latest section is missing "Last verified commit" SHA');
-  } else if (lastVerifiedCommitMatch[1].toLowerCase() === headSha.toLowerCase()) {
-    // ok
-  } else if (parentSha && lastVerifiedCommitMatch[1].toLowerCase() === parentSha.toLowerCase()) {
-    // ok
-  } else {
-    errors.push(
-      `TESTING_SUMMARY.md "Last verified commit" (${lastVerifiedCommitMatch[1]}) does not match current HEAD (${headSha}) or HEAD~1`
-    );
-  }
-
-  // 3a. HEAD~1 evidence is allowed only for a docs-only summary commit.
-  if ((matchedParent || (lastVerifiedMatch && lastVerifiedMatch[1].toLowerCase() === parentSha.toLowerCase())) && parentSha) {
-    if (!isSummaryOnlyCommit(root, parentFiles)) {
-      const files = Array.isArray(parentFiles)
-        ? parentFiles
-        : getChangedFilesSinceParent(root) ?? [];
-      const nonSummary = files.filter((file) => file !== 'TESTING_SUMMARY.md');
-      errors.push(
-        `Last verified points to HEAD~1 (${parentSha}) but the current commit is not docs-only. Non-summary files changed: ${nonSummary.join(', ')}`
-      );
+  function checkShaField(value, label) {
+    if (!value) {
+      errors.push(`TESTING_SUMMARY.md latest section is missing "${label}" SHA`);
+      return;
     }
+    const normalized = value.toLowerCase();
+    if (normalized === (headSha || '').toLowerCase()) {
+      return;
+    }
+    if (parentSha && normalized === parentSha.toLowerCase()) {
+      if (!isSummaryOnlyCommit(changedFilesFromParent)) {
+        const files = Array.isArray(changedFilesFromParent) ? changedFilesFromParent : [];
+        const nonSummary = files.filter((file) => file !== 'TESTING_SUMMARY.md');
+        errors.push(
+          `TESTING_SUMMARY.md "${label}" points to HEAD~1 (${parentSha}) but the current commit is not a docs-only summary commit. Non-summary files changed: ${nonSummary.join(', ')}`
+        );
+      }
+      return;
+    }
+    errors.push(
+      `TESTING_SUMMARY.md "${label}" (${value}) does not match current HEAD (${headSha}) or HEAD~1 (${parentSha || 'none'})`
+    );
+  }
+
+  checkShaField(lastVerifiedMatch?.[1], 'Last verified');
+  checkShaField(lastVerifiedCommitMatch?.[1], 'Last verified commit');
+
+  if (lastVerifiedMatch?.[1] && lastVerifiedMatch[1].toLowerCase() === (headSha || '').toLowerCase()) {
+    matchedHead = true;
+  } else if (
+    lastVerifiedMatch?.[1] &&
+    parentSha &&
+    lastVerifiedMatch[1].toLowerCase() === parentSha.toLowerCase()
+  ) {
+    matchedParent = true;
   }
 
   // 4. Every full 40-char SHA in the latest verification section exists in git history.
@@ -198,10 +204,17 @@ function main() {
   }
 
   const summaryText = readFileSync(summaryPath, 'utf-8');
-  const headResult = runGit(['rev-parse', 'HEAD'], root);
-  const headSha = headResult.status === 0 ? headResult.stdout.trim() : '';
+  const headSha = getHeadSha(root);
+  const parentSha = getParentSha(root);
+  const changedFilesFromParent = getChangedFilesFromParent(root);
 
-  const result = validateTestingSummary({ summaryText, headSha, root });
+  const result = validateTestingSummary({
+    summaryText,
+    headSha,
+    root,
+    parentSha,
+    changedFilesFromParent,
+  });
 
   if (!result.ok) {
     console.error('TESTING_SUMMARY verification failed:');
