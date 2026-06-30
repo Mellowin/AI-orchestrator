@@ -3991,7 +3991,19 @@ describe('cli real-repo-run-ai', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create only original commit');
+      const afterLogCount = getGitLogCount(repoPath);
+      console.error(`DEBUG_CHUNK2 test='fix checks fail' before=${beforeLogCount} after=${afterLogCount}`);
+      console.error(`DEBUG_CHUNK2 repoFiles=${JSON.stringify(readdirSync(repoPath))}`);
+      console.error(`DEBUG_CHUNK2 porcelain=${JSON.stringify(getGitPorcelain(repoPath))}`);
+      console.error(`DEBUG_CHUNK2 headSha=${getHeadSha(repoPath)} branch=${getCurrentBranch(repoPath)}`);
+      console.error(`DEBUG_CHUNK2 state=${JSON.stringify(loadStateFromPath(runsDir, taskId))}`);
+      console.error(`DEBUG_CHUNK2 stderr=${result.stderr}`);
+      console.error(`DEBUG_CHUNK2 stdout=${result.stdout}`);
+      assert.strictEqual(
+        afterLogCount,
+        beforeLogCount + 1,
+        `Should create only original commit (before=${beforeLogCount}, after=${afterLogCount}). stderr: ${result.stderr}`
+      );
       assert(result.stderr.includes('fix execution blocked or failed') || result.stderr.includes('Checks failed'), `Should report check failure: ${result.stderr}`);
 
       const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
@@ -5026,7 +5038,19 @@ describe('cli real-repo-run-ai', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should preserve only original commit locally');
+      const afterLogCount = getGitLogCount(repoPath);
+      console.error(`DEBUG_CHUNK2 test='failed fix execution' before=${beforeLogCount} after=${afterLogCount}`);
+      console.error(`DEBUG_CHUNK2 repoFiles=${JSON.stringify(readdirSync(repoPath))}`);
+      console.error(`DEBUG_CHUNK2 porcelain=${JSON.stringify(getGitPorcelain(repoPath))}`);
+      console.error(`DEBUG_CHUNK2 headSha=${getHeadSha(repoPath)} branch=${getCurrentBranch(repoPath)}`);
+      console.error(`DEBUG_CHUNK2 state=${JSON.stringify(loadStateFromPath(runsDir, taskId))}`);
+      console.error(`DEBUG_CHUNK2 stderr=${result.stderr}`);
+      console.error(`DEBUG_CHUNK2 stdout=${result.stdout}`);
+      assert.strictEqual(
+        afterLogCount,
+        beforeLogCount + 1,
+        `Should preserve only original commit locally (before=${beforeLogCount}, after=${afterLogCount}). stderr: ${result.stderr}`
+      );
       const afterRemote = getBareRefs(originPath);
       assert.notDeepStrictEqual(afterRemote, beforeRemote, 'Original commit should be pushed');
       assert(!existsSync(join(repoPath, 'fix.txt')), 'Failed fix file should be rolled back');

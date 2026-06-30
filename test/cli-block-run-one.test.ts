@@ -207,6 +207,7 @@ describe('cli block-run-one', () => {
 
   test('real mode missing KIMI_API_KEY fails safely', () => {
     const result = runCli(['block-run-one', blockJsonPath], {
+      AI_PROVIDER: 'kimi',
       BLOCK_RUN_ONE_MODE: 'real_kimi_coder_fake_reviewer',
       ALLOW_BLOCK_RUN_ONE: 'true',
       ALLOW_REAL_PROVIDER: 'true',
@@ -223,6 +224,7 @@ describe('cli block-run-one', () => {
 
   test('real_kimi_coder_kimi_reviewer missing KIMI_API_KEY fails safely', () => {
     const result = runCli(['block-run-one', blockJsonPath], {
+      AI_PROVIDER: 'kimi',
       BLOCK_RUN_ONE_MODE: 'real_kimi_coder_kimi_reviewer',
       ALLOW_BLOCK_RUN_ONE: 'true',
       ALLOW_REAL_PROVIDER: 'true',

@@ -352,6 +352,7 @@ describe('cli block-run', () => {
 
     test('missing KIMI_API_KEY fails safely before provider call', () => {
       const result = runCli(['block-run', blockJsonPath], {
+        AI_PROVIDER: 'kimi',
         BLOCK_RUN_MODE: 'real_kimi_coder_kimi_reviewer',
         BLOCK_RUN_MAX_TASKS: '1',
         ALLOW_BLOCK_RUN_ONE: 'true',
