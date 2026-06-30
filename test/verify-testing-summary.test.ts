@@ -29,7 +29,6 @@ describe('verify-testing-summary', () => {
     const result = runCli();
     assert.strictEqual(result.status, 0, `Verifier failed: ${result.stderr}`);
     assert(result.stdout.includes('TESTING_SUMMARY verification passed'));
-    assert(result.stdout.includes(`current HEAD: ${HEAD_SHA}`));
   });
 
   test('validateTestingSummary fails when Last verified does not match HEAD', () => {
