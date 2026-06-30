@@ -51,9 +51,11 @@ while ((placeholderMatch = placeholderPattern.exec(latestSection)) !== null) {
   fail(`TESTING_SUMMARY.md latest section contains placeholder: "${placeholderMatch[1]}"`);
 }
 
-// 3. Every full 40-char SHA exists in git history.
+// 3. Every full 40-char SHA in the latest verification section exists in git history.
+// Historical stage commits in the documentation table may live on other branches and
+// are intentionally not required to be reachable from the current HEAD.
 const shaPattern = /\b[0-9a-f]{40}\b/g;
-const shas = [...summaryText.matchAll(shaPattern)].map((m) => m[0]);
+const shas = [...latestSection.matchAll(shaPattern)].map((m) => m[0]);
 const seen = new Set();
 for (const sha of shas) {
   if (seen.has(sha)) continue;
