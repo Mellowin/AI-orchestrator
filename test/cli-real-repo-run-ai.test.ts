@@ -302,7 +302,12 @@ function setupCheckFileWithSecrets(repoPath: string): void {
 }
 
 function setupFixFailingCheck(repoPath: string): void {
-  writeFileSync(join(repoPath, 'check-fix.cjs'), `require('fs').existsSync('fix.txt')&&process.exit(1)`, 'utf-8');
+  writeFileSync(
+    join(repoPath, 'check-fix.cjs'),
+    `console.error('CHECK_DEBUG cwd=' + process.cwd() + ' fixExists=' + require('fs').existsSync('fix.txt'));\n` +
+      `process.exit(require('fs').existsSync('fix.txt') ? 1 : 0);\n`,
+    'utf-8'
+  );
   spawnSync('git', ['add', 'check-fix.cjs'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
   spawnSync('git', ['commit', '-m', 'add fix check', '--no-gpg-sign'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
 }
