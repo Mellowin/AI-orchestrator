@@ -16,7 +16,8 @@
     "demo:block-follow-up-drill": "node scripts/run-block-follow-up-drill.mjs",
     "demo:post-push-follow-up-drill": "node scripts/run-post-push-follow-up-drill.mjs",
     "verify:product": "npm run typecheck && npm run build && npx tsx --test test/test-chunks-runner.test.ts && npm run test:chunks:product && npm run demo:block:fake && npm run demo:disposable-pilot",
-    "verify:product:ci": "npm run typecheck && npm run build && npx tsx --test test/test-chunks-runner.test.ts && npm run test:chunks:product:ci && npm run demo:block:fake && npm run demo:disposable-pilot"
+    "verify:product:ci": "npm run typecheck && npm run build && npx tsx --test test/test-chunks-runner.test.ts && npm run test:chunks:product:ci && npm run demo:block:fake && npm run demo:disposable-pilot",
+    "verify:summary": "node scripts/verify-testing-summary.mjs"
   },
   "dependencies": {
     "cross-spawn": "^7.0.6",
