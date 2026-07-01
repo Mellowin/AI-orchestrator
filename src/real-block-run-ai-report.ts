@@ -14,7 +14,7 @@ function isValidStatus(status: unknown): status is 'completed' | 'blocked' | 'fa
 function isValidTaskStatus(status: unknown): status is RealBlockRunTaskResult['status'] {
   return (
     typeof status === 'string' &&
-    ['accepted', 'fixed_and_accepted', 'blocked', 'fix_required', 'failed'].includes(status)
+    ['accepted', 'fixed_and_accepted', 'blocked', 'blocked_skipped', 'fix_required', 'failed'].includes(status)
   );
 }
 
