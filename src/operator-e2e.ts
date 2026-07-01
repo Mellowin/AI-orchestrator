@@ -677,7 +677,8 @@ export async function runOperatorE2E(
 
   const repoPath = resolve(config.sandboxRepoPath);
   if (existsSync(repoPath)) {
-    report.sandboxBaseSha = getGitHead(repoPath);
+    const baseHead = runGit(repoPath, ['rev-parse', config.baseBranch]);
+    report.sandboxBaseSha = baseHead.ok ? baseHead.stdout.trim() : undefined;
     const workHead = runGit(repoPath, ['rev-parse', config.workBranch]);
     report.sandboxWorkSha = workHead.ok ? workHead.stdout.trim() : undefined;
   }
