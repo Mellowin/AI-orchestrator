@@ -18,20 +18,17 @@ function getActualHead(): string {
   return result.stdout.trim();
 }
 
-function getActualHeadParent(): string {
-  const result = spawnSync('git', ['rev-parse', 'HEAD~1'], {
+function isAncestorOfHead(sha: string, head: string): boolean {
+  const result = spawnSync('git', ['merge-base', '--is-ancestor', sha, head], {
     cwd: process.cwd(),
     encoding: 'utf-8',
     shell: false,
   });
-  if (result.status !== 0) {
-    throw new Error('Failed to read HEAD~1');
-  }
-  return result.stdout.trim();
+  return result.status === 0;
 }
 
-function validSummary(headSha: string): string {
-  return `# MVP Test Hardening Summary**Branch:** \`main\`**Last verified:** \`${headSha}\`## Test metrics- **Last verified commit:** \`${headSha}\` (Stage 17.14)- **GitHub CI:** verified successful — Mini-MVP CI run \`421\` completed with \`success\` on \`${headSha}\`- **Product verification:** manual-only (\`workflow_dispatch\`); latest heavy run \`75\` completed with \`success\` and verified \`10d4a9afb6ad3bdcb73f79b24040136baff47a8e\`- **Debug markers:** none (DEBUG_CHUNK2, CHECK_DEBUG absent)## Documentation stages| Stage | Description | Commit ||---|---|---|`;
+function validSummary(verifiedSha: string): string {
+  return `# MVP Test Hardening Summary**Branch:** \`main\`**Last verified:** \`${verifiedSha}\`## Test metrics- **Last verified commit:** \`${verifiedSha}\` (Stage 17.15)- **GitHub CI:** verified successful — Mini-MVP CI run \`421\` completed with \`success\` on \`${verifiedSha}\`- **Product verification:** manual-only (\`workflow_dispatch\`); latest heavy run \`75\` completed with \`success\` and verified \`10d4a9afb6ad3bdcb73f79b24040136baff47a8e\`- **Debug markers:** none (DEBUG_CHUNK2, CHECK_DEBUG absent)## Documentation stages| Stage | Description | Commit ||---|---|---|`;
 }
 
 function runCli(): { status: number | null; stdout: string; stderr: string } {
@@ -54,101 +51,170 @@ describe('verify-testing-summary', () => {
     assert(result.stdout.includes('TESTING_SUMMARY verification passed'));
   });
 
-  test('validateTestingSummary passes when summary matches HEAD', () => {
+  test('validateTestingSummary passes when Last verified equals HEAD and there are no changes after it', () => {
     const head = getActualHead();
     const result = validateTestingSummary({
       summaryText: validSummary(head),
       headSha: head,
       root: process.cwd(),
+      verifiedShaAncestorOfHead: true,
+      changedFilesAfterVerified: [],
     });
     assert.strictEqual(result.ok, true, `Expected validation to pass, got: ${result.errors.join('; ')}`);
-    assert.strictEqual(result.matchedHead, true);
-    assert.strictEqual(result.matchedParent, false);
+    assert.strictEqual(result.verifiedSha, head);
   });
 
-  test('validateTestingSummary passes when Last verified is HEAD~1 and current commit is docs-only', () => {
+  test('validateTestingSummary passes when Last verified is an ancestor and only TESTING_SUMMARY.md changed after it', () => {
     const head = getActualHead();
-    const parent = getActualHeadParent();
+    const verifiedSha = '659363509d633971b6431311abfd31c03b3b39cb';
+    assert(
+      isAncestorOfHead(verifiedSha, head),
+      `Expected ${verifiedSha} to be an ancestor of current HEAD ${head} for this test fixture`
+    );
     const result = validateTestingSummary({
-      summaryText: validSummary(parent),
+      summaryText: validSummary(verifiedSha),
       headSha: head,
       root: process.cwd(),
-      parentSha: parent,
-      changedFilesFromParent: ['TESTING_SUMMARY.md'],
+      verifiedShaAncestorOfHead: true,
+      changedFilesAfterVerified: ['TESTING_SUMMARY.md'],
     });
     assert.strictEqual(result.ok, true, `Expected validation to pass, got: ${result.errors.join('; ')}`);
-    assert.strictEqual(result.matchedHead, false);
-    assert.strictEqual(result.matchedParent, true);
+    assert.strictEqual(result.verifiedSha, verifiedSha);
   });
 
-  test('validateTestingSummary fails when Last verified is HEAD~1 but current commit changes scripts', () => {
+  test('validateTestingSummary passes with multiple summary-only commits after verified SHA', () => {
     const head = getActualHead();
-    const parent = getActualHeadParent();
+    const verifiedSha = '659363509d633971b6431311abfd31c03b3b39cb';
     const result = validateTestingSummary({
-      summaryText: validSummary(parent),
+      summaryText: validSummary(verifiedSha),
       headSha: head,
       root: process.cwd(),
-      parentSha: parent,
-      changedFilesFromParent: ['scripts/verify-testing-summary.mjs', 'TESTING_SUMMARY.md'],
+      verifiedShaAncestorOfHead: true,
+      changedFilesAfterVerified: ['TESTING_SUMMARY.md', 'TESTING_SUMMARY.md', 'TESTING_SUMMARY.md'],
     });
-    assert.strictEqual(result.ok, false, 'Expected validation to fail for non-docs HEAD~1 evidence');
-    assert(
-      result.errors.some(
-        (e) =>
-          e.includes('not a docs-only summary commit') &&
-          e.includes('scripts/verify-testing-summary.mjs')
-      ),
-      `Expected docs-only error, got: ${result.errors.join('; ')}`
-    );
+    assert.strictEqual(result.ok, true, `Expected validation to pass, got: ${result.errors.join('; ')}`);
   });
 
-  test('validateTestingSummary fails when Last verified is HEAD~1 but current commit changes tests', () => {
-    const head = getActualHead();
-    const parent = getActualHeadParent();
-    const result = validateTestingSummary({
-      summaryText: validSummary(parent),
-      headSha: head,
-      root: process.cwd(),
-      parentSha: parent,
-      changedFilesFromParent: ['test/verify-testing-summary.test.ts'],
-    });
-    assert.strictEqual(result.ok, false, 'Expected validation to fail for test-only HEAD~1 evidence');
-    assert(
-      result.errors.some(
-        (e) =>
-          e.includes('not a docs-only summary commit') &&
-          e.includes('test/verify-testing-summary.test.ts')
-      ),
-      `Expected docs-only error, got: ${result.errors.join('; ')}`
-    );
-  });
-
-  test('validateTestingSummary fails when Last verified does not match HEAD or HEAD~1', () => {
+  test('validateTestingSummary fails when Last verified is not an ancestor of HEAD', () => {
     const head = getActualHead();
     const result = validateTestingSummary({
       summaryText: validSummary(STALE_SHA),
       headSha: head,
       root: process.cwd(),
+      verifiedShaAncestorOfHead: false,
+      changedFilesAfterVerified: [],
     });
-    assert.strictEqual(result.ok, false, 'Expected validation to fail for stale Last verified');
+    assert.strictEqual(result.ok, false, 'Expected validation to fail when verified SHA is not an ancestor');
     assert(
-      result.errors.some((e) => e.includes('Last verified') && e.includes('does not match current HEAD')),
-      `Expected HEAD mismatch error, got: ${result.errors.join('; ')}`
+      result.errors.some((e) => e.includes('not an ancestor')),
+      `Expected ancestor error, got: ${result.errors.join('; ')}`
     );
   });
 
-  test('validateTestingSummary fails when Last verified commit does not match HEAD or HEAD~1', () => {
+  test('validateTestingSummary fails when non-summary files changed after verified SHA', () => {
     const head = getActualHead();
-    const summary = `# MVP Test Hardening Summary**Last verified:** \`${head}\`## Test metrics- **Last verified commit:** \`${STALE_SHA}\` (Stage 17.14)## Documentation stages`;
+    const verifiedSha = '659363509d633971b6431311abfd31c03b3b39cb';
+    const result = validateTestingSummary({
+      summaryText: validSummary(verifiedSha),
+      headSha: head,
+      root: process.cwd(),
+      verifiedShaAncestorOfHead: true,
+      changedFilesAfterVerified: ['scripts/run-operator-golden-path.mjs'],
+    });
+    assert.strictEqual(result.ok, false, 'Expected validation to fail for non-summary changes after verified SHA');
+    assert(
+      result.errors.some(
+        (e) =>
+          e.includes('Non-summary files changed') && e.includes('scripts/run-operator-golden-path.mjs')
+      ),
+      `Expected non-summary error, got: ${result.errors.join('; ')}`
+    );
+  });
+
+  test('validateTestingSummary fails when test files changed after verified SHA', () => {
+    const head = getActualHead();
+    const verifiedSha = '659363509d633971b6431311abfd31c03b3b39cb';
+    const result = validateTestingSummary({
+      summaryText: validSummary(verifiedSha),
+      headSha: head,
+      root: process.cwd(),
+      verifiedShaAncestorOfHead: true,
+      changedFilesAfterVerified: ['test/operator-golden-path.test.ts'],
+    });
+    assert.strictEqual(result.ok, false, 'Expected validation to fail for test changes after verified SHA');
+    assert(
+      result.errors.some(
+        (e) =>
+          e.includes('Non-summary files changed') && e.includes('test/operator-golden-path.test.ts')
+      ),
+      `Expected non-summary error, got: ${result.errors.join('; ')}`
+    );
+  });
+
+  test('validateTestingSummary fails when package.json changed after verified SHA', () => {
+    const head = getActualHead();
+    const verifiedSha = '659363509d633971b6431311abfd31c03b3b39cb';
+    const result = validateTestingSummary({
+      summaryText: validSummary(verifiedSha),
+      headSha: head,
+      root: process.cwd(),
+      verifiedShaAncestorOfHead: true,
+      changedFilesAfterVerified: ['package.json', 'TESTING_SUMMARY.md'],
+    });
+    assert.strictEqual(result.ok, false, 'Expected validation to fail for package.json change after verified SHA');
+    assert(
+      result.errors.some(
+        (e) => e.includes('Non-summary files changed') && e.includes('package.json')
+      ),
+      `Expected non-summary error, got: ${result.errors.join('; ')}`
+    );
+  });
+
+  test('validateTestingSummary fails when Last verified and Last verified commit differ', () => {
+    const head = getActualHead();
+    const summary = `# MVP Test Hardening Summary**Last verified:** \`${head}\`## Test metrics- **Last verified commit:** \`${STALE_SHA}\` (Stage 17.15)## Documentation stages`;
+    const result = validateTestingSummary({
+      summaryText: summary,
+      headSha: head,
+      root: process.cwd(),
+      verifiedShaAncestorOfHead: true,
+      changedFilesAfterVerified: [],
+    });
+    assert.strictEqual(result.ok, false, 'Expected validation to fail when Last verified fields differ');
+    assert(
+      result.errors.some((e) => e.includes('must match')),
+      `Expected mismatch error, got: ${result.errors.join('; ')}`
+    );
+  });
+
+  test('validateTestingSummary fails for missing Last verified SHA', () => {
+    const head = getActualHead();
+    const summary = `# MVP Test Hardening Summary## Test metrics- **Last verified commit:** \`${head}\` (Stage 17.15)## Documentation stages`;
     const result = validateTestingSummary({
       summaryText: summary,
       headSha: head,
       root: process.cwd(),
     });
-    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.ok, false, 'Expected validation to fail for missing Last verified');
     assert(
-      result.errors.some((e) => e.includes('Last verified commit') && e.includes('does not match current HEAD')),
-      `Expected Last verified commit mismatch error, got: ${result.errors.join('; ')}`
+      result.errors.some((e) => e.includes('missing "Last verified"')),
+      `Expected missing Last verified error, got: ${result.errors.join('; ')}`
+    );
+  });
+
+  test('validateTestingSummary fails for invalid Last verified SHA', () => {
+    const head = getActualHead();
+    const invalidSha = 'gggggggggggggggggggggggggggggggggggggggg';
+    const summary = `# MVP Test Hardening Summary**Last verified:** \`${invalidSha}\`## Test metrics- **Last verified commit:** \`${invalidSha}\` (Stage 17.15)## Documentation stages`;
+    const result = validateTestingSummary({
+      summaryText: summary,
+      headSha: head,
+      root: process.cwd(),
+    });
+    assert.strictEqual(result.ok, false, 'Expected validation to fail for invalid SHA');
+    assert(
+      result.errors.some((e) => e.includes('not a valid 40-char SHA')),
+      `Expected invalid SHA error, got: ${result.errors.join('; ')}`
     );
   });
 });
