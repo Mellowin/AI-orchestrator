@@ -200,6 +200,85 @@ function checkCiWeakening(path: string, content: string): string[] {
   return reasons;
 }
 
+const CODE_LIKE_EXTENSIONS = new Set(['.js', '.ts', '.mjs', '.cjs', '.sh', '.ps1']);
+
+function isCodeLikeFile(path: string): boolean {
+  const normalized = normalizePath(path).toLowerCase();
+  if (normalized.endsWith('/package.json') || normalized === 'package.json') {
+    return true;
+  }
+  if (isWorkflowFile(path)) {
+    return true;
+  }
+  const ext = extname(normalized);
+  return CODE_LIKE_EXTENSIONS.has(ext);
+}
+
+const DANGEROUS_PATH_FRAGMENT = String.raw`(?:\.\.[\/\\]|\.[\/\\]\.\.[\/\\]|[A-Za-z]:[\/\\]|\/tmp\/|\/etc\/|\/home\/|\/var\/|\/root\/|\/opt\/|\/usr\/|\/bin\/|\/sbin\/|\/lib\/|\/lib64\/|\/proc\/|\/sys\/|\/dev\/)`;
+
+const DANGEROUS_PATH_LITERAL = new RegExp(
+  `['"](?:[^'"]*${DANGEROUS_PATH_FRAGMENT}[^'"]*)['"]`,
+  'i'
+);
+
+function checkPackageJsonScripts(path: string, content: string): string[] {
+  const reasons: string[] = [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return reasons;
+  }
+  if (typeof parsed !== 'object' || parsed === null || !('scripts' in parsed)) {
+    return reasons;
+  }
+  const scripts = (parsed as Record<string, unknown>).scripts;
+  if (typeof scripts !== 'object' || scripts === null) {
+    return reasons;
+  }
+  for (const [name, value] of Object.entries(scripts)) {
+    if (typeof value !== 'string') continue;
+    if (new RegExp(String.raw`(?:>|\$|\`)\s*${DANGEROUS_PATH_FRAGMENT}`, 'i').test(value)) {
+      reasons.push(`package.json script "${name}" targets dangerous path`);
+    }
+  }
+  return reasons;
+}
+
+function checkContentLevelPathOperations(path: string, content: string): string[] {
+  const reasons: string[] = [];
+  if (!isCodeLikeFile(path)) {
+    return reasons;
+  }
+
+  if (normalizePath(path).toLowerCase().endsWith('package.json')) {
+    reasons.push(...checkPackageJsonScripts(path, content));
+  }
+
+  const fsOperationPattern = new RegExp(
+    String.raw`(?:fs\.|fs\.promises\.)?(?:writeFile(?:Sync)?|readFile(?:Sync)?|appendFile(?:Sync)?|open(?:Sync)?|createWriteStream|createReadStream)\s*\(\s*${DANGEROUS_PATH_LITERAL.source}`,
+    'i'
+  );
+  if (fsOperationPattern.test(content)) {
+    reasons.push(`File operation targets dangerous path in ${path}`);
+  }
+
+  const pathJoinPattern = /path\.join\s*\(\s*['"]\.\.['"]/i;
+  if (pathJoinPattern.test(content)) {
+    reasons.push(`path.join with parent directory reference in ${path}`);
+  }
+
+  const childProcessPattern = new RegExp(
+    String.raw`(?:child_process\s*\.\s*(?:exec(?:Sync|File(?:Sync)?)?|spawn(?:Sync)?)|\b(?:exec(?:Sync|File(?:Sync)?)?|spawn(?:Sync)?)\s*\()\s*['"][^'"]*(?:${DANGEROUS_PATH_FRAGMENT}|>\s*${DANGEROUS_PATH_FRAGMENT})[^'"]*['"]`,
+    'i'
+  );
+  if (childProcessPattern.test(content)) {
+    reasons.push(`child_process operation targets outside repository in ${path}`);
+  }
+
+  return reasons;
+}
+
 export function validateAiSafetyPolicy(input: AiSafetyPolicyInput): AiSafetyPolicyResult {
   const reasons: string[] = [];
   for (const file of input.files) {
@@ -207,6 +286,7 @@ export function validateAiSafetyPolicy(input: AiSafetyPolicyInput): AiSafetyPoli
     reasons.push(...checkSecretExfiltration(file.path, file.content));
     reasons.push(...checkTestWeakening(file.path, file.content));
     reasons.push(...checkCiWeakening(file.path, file.content));
+    reasons.push(...checkContentLevelPathOperations(file.path, file.content));
   }
   return { ok: reasons.length === 0, reasons };
 }

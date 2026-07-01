@@ -19,6 +19,8 @@ export function redactSecrets(text: string): string {
     .replace(/\b(sk-[a-zA-Z0-9_-]+)\b/g, '[REDACTED]')
     .replace(/\b(pk-[a-zA-Z0-9_-]+)\b/g, '[REDACTED]')
     .replace(/\b(Bearer\s+[a-zA-Z0-9_-]+)\b/g, '[REDACTED]')
+    .replace(/\b(ghp_[a-zA-Z0-9]{36})\b/g, '[REDACTED]')
+    .replace(/\b(github_pat_[a-zA-Z0-9_]+)\b/g, '[REDACTED]')
     .replace(/\b([a-zA-Z0-9_-]*(?:secret|token|api[_-]?key|password)[a-zA-Z0-9_-]*\s*[:=]\s*)([^\s\n]+)/gi, '$1[REDACTED]');
 }
 

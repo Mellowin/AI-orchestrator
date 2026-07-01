@@ -87,6 +87,7 @@ import { captureCheckpoint, rollbackToCheckpoint, formatRollbackResult, type Rep
 import { runRealProviderSmoke } from './real-provider-smoke.js';
 import { runRealCoderContractSmoke, formatRealCoderContractSmokeReport } from './real-coder-contract-smoke.js';
 import { runRealReviewerContractSmoke, formatRealReviewerContractSmokeReport } from './real-reviewer-contract-smoke.js';
+import { loadOperatorE2EConfig, runOperatorE2E } from './operator-e2e.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import { renderBlockRunReport } from './real-block-run-ai-report.js';
 import { checkRealBlockRunAIChecklist, formatCheckRealBlockRunAIChecklistReport } from './real-block-run-ai-checklist.js';
@@ -1351,6 +1352,30 @@ if (command === 'real-repo-run-ai') {
       if (!safetyPolicyResult.ok) {
         const policyMessage = safetyPolicyResult.reasons.join('; ');
         console.error(`[real-repo-run-ai] Safety policy violation: ${policyMessage}`);
+        console.error('[real-repo-run-ai] Blocked by safety policy before apply');
+
+        const now = new Date().toISOString();
+        const blockedState: RunState = {
+          task_id: taskId,
+          status: 'blocked',
+          current_attempt: 0,
+          branch: currentBranch || task.work_branch,
+          repo_path: task.repo_path,
+          created_at: now,
+          updated_at: now,
+          blocked_by: 'safety_policy',
+          applied: false,
+          committed: false,
+          pushed: false,
+          safety_policy_reasons: safetyPolicyResult.reasons,
+          safety_note: 'Blocked by deterministic safety policy before apply',
+        };
+        try {
+          saveState(taskId, blockedState);
+        } catch (stateErr) {
+          console.error('[real-repo-run-ai] Failed to write blocked state');
+        }
+
         console.error('[real-repo-run-ai] No apply was performed');
         console.error('[real-repo-run-ai] No commit was made');
         console.error('[real-repo-run-ai] No push was performed');
@@ -3828,9 +3853,41 @@ if (command === 'real-block-task-probe') {
   }
 }
 
-if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up')) {
+if (command === 'operator-e2e') {
+  try {
+    const configPath = args[1];
+    const resume = args.includes('--resume');
+    if (!configPath) {
+      console.error('[operator-e2e] Error: config path is required');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+    const config = loadOperatorE2EConfig(configPath);
+    const report = await runOperatorE2E(config, { resume });
+    console.log(JSON.stringify({
+      verdict: report.verdict,
+      resumeUsed: report.resumeUsed,
+      prResult: report.prResult,
+      npmCiOk: report.npmCiOk,
+      npmTestOk: report.npmTestOk,
+      safetyProofMatched: `${report.safetyProof.matched}/${report.safetyProof.total}`,
+      rollbackProofOk: report.rollbackProof.ok,
+      reportJsonPath: report.reportJsonPath,
+      reportMdPath: report.reportMdPath,
+    }, null, 2));
+    process.exitCode = report.verdict === 'FULLY_PASSED' ? 0 : 1;
+    break commandDispatch;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[operator-e2e] Error: ${redactSecrets(message)}`);
+    process.exitCode = 1;
+    break commandDispatch;
+  }
+}
+
+if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e')) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-follow-up [--report-only|--create-follow-up <newTaskId>]|real-block-follow-up [--create-follow-ups]|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|operator-e2e <config.json> [--resume]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-follow-up [--report-only|--create-follow-up <newTaskId>]|real-block-follow-up [--create-follow-ups]|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg4]'
   );
   process.exit(1);
 }

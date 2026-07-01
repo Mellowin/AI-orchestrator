@@ -221,4 +221,162 @@ describe('ai-safety-policy', () => {
     assert.strictEqual(result.ok, false);
     assert.ok(result.reasons.length >= 2);
   });
+
+  describe('content-level path operations', () => {
+    test('blocks fs.writeFileSync("../outside.txt")', () => {
+      const repo = makeRepo();
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['src/expense-store.js'],
+        deniedFiles: [],
+        files: [
+          {
+            path: 'src/expense-store.js',
+            content: "const fs = require('fs');\nfs.writeFileSync('../outside.txt', 'pwned');\n",
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reasons.some((r) => r.includes('File operation targets dangerous path')));
+    });
+
+    test('blocks fs.promises.writeFile("../outside.txt")', () => {
+      const repo = makeRepo();
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['src/expense-store.js'],
+        deniedFiles: [],
+        files: [
+          {
+            path: 'src/expense-store.js',
+            content: "const fs = require('fs');\nfs.promises.writeFile('../outside.txt', 'pwned');\n",
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reasons.some((r) => r.includes('File operation targets dangerous path')));
+    });
+
+    test('blocks readFileSync("../outside.txt")', () => {
+      const repo = makeRepo();
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['src/expense-store.js'],
+        deniedFiles: [],
+        files: [
+          {
+            path: 'src/expense-store.js',
+            content: "const fs = require('fs');\nreadFileSync('../outside.txt');\n",
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reasons.some((r) => r.includes('File operation targets dangerous path')));
+    });
+
+    test('blocks path.join("..", "outside.txt")', () => {
+      const repo = makeRepo();
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['src/expense-store.js'],
+        deniedFiles: [],
+        files: [
+          {
+            path: 'src/expense-store.js',
+            content: "const path = require('path');\nconst out = path.join('..', 'outside.txt');\n",
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reasons.some((r) => r.includes('path.join with parent directory reference')));
+    });
+
+    test('blocks Windows absolute path write', () => {
+      const repo = makeRepo();
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['src/expense-store.js'],
+        deniedFiles: [],
+        files: [
+          {
+            path: 'src/expense-store.js',
+            content: "const fs = require('fs');\nfs.writeFileSync('C:\\\\temp\\\\outside.txt', 'pwned');\n",
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reasons.some((r) => r.includes('File operation targets dangerous path')));
+    });
+
+    test('blocks Unix absolute path write', () => {
+      const repo = makeRepo();
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['src/expense-store.js'],
+        deniedFiles: [],
+        files: [
+          {
+            path: 'src/expense-store.js',
+            content: "const fs = require('fs');\nfs.writeFileSync('/tmp/outside.txt', 'pwned');\n",
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reasons.some((r) => r.includes('File operation targets dangerous path')));
+    });
+
+    test('blocks suspicious child_process write outside repo', () => {
+      const repo = makeRepo();
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['src/expense-store.js'],
+        deniedFiles: [],
+        files: [
+          {
+            path: 'src/expense-store.js',
+            content: "const { execSync } = require('child_process');\nexecSync('echo pwned > ../outside.txt');\n",
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reasons.some((r) => r.includes('child_process operation targets outside repository')));
+    });
+
+    test('does not block harmless README prose', () => {
+      const repo = makeRepo();
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['README.md'],
+        deniedFiles: [],
+        files: [
+          {
+            path: 'README.md',
+            content: '# README\n\nDo not write ../outside.txt.\n',
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, true);
+      assert.deepStrictEqual(result.reasons, []);
+    });
+
+    test('blocks package.json script targeting outside repo', () => {
+      const repo = makeRepo();
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['package.json'],
+        deniedFiles: [],
+        files: [
+          {
+            path: 'package.json',
+            content: JSON.stringify({
+              name: 'evil',
+              scripts: { pwn: 'echo x > ../outside.txt' },
+            }),
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reasons.some((r) => r.includes('package.json script')));
+    });
+  });
 });

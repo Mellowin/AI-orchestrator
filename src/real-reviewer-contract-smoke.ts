@@ -18,7 +18,7 @@ export interface RealReviewerContractSmokeReport {
 }
 
 const DEFAULT_TIMEOUT_MS = 15000;
-const MIN_TIMEOUT_MS = 1000;
+const MIN_TIMEOUT_MS = 5000;
 const MAX_TIMEOUT_MS = 120000;
 const MAX_RESPONSE_PREVIEW_CHARS = 500;
 
@@ -61,10 +61,10 @@ export function parseRealReviewerContractSmokeTimeoutMs(
     throw new Error('Invalid timeout: timeout must be greater than 0');
   }
   if (parsed < MIN_TIMEOUT_MS) {
-    return MIN_TIMEOUT_MS;
+    throw new Error(`Invalid timeout: ${parsed}ms is below minimum ${MIN_TIMEOUT_MS}ms`);
   }
   if (parsed > MAX_TIMEOUT_MS) {
-    return MAX_TIMEOUT_MS;
+    throw new Error(`Invalid timeout: ${parsed}ms is above maximum ${MAX_TIMEOUT_MS}ms`);
   }
   return parsed;
 }
