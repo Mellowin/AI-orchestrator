@@ -23,6 +23,7 @@
     {
       "task_id": "demo_task_1",
       "title": "Update README with a demo note",
+      "goal": "Append a short demo note to the end of README.md in the disposable repo.",
       "status": "pending",
       "allowed_files": [
         "README.md",
@@ -35,13 +36,7 @@
         ".git/**"
       ],
       "checks": [
-        {
-          "command": "node",
-          "args": [
-            "-e",
-            "console.log('demo check ok')"
-          ]
-        }
+        "node -e console.log('demo check ok')"
       ],
       "max_lines_changed": 50
     }
