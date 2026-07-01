@@ -4,6 +4,7 @@ import { createKimiClient } from './kimi-client.js';
 import { createMockAIClient } from './ai-client.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import { validateReviewerDecision } from './reviewer/reviewer-schema.js';
+import { validateAiSafetyPolicy } from './ai-safety-policy.js';
 import { validateRealBlockFile } from './real-block-validate.js';
 import { normalizeRealProviderSmokeProvider } from './real-provider-smoke.js';
 
@@ -287,6 +288,13 @@ export function buildReviewerProbePrompt(
     'rejected must have at least one blocking_issue or a non-empty fix_task, ' +
     'and next_action must be "send_fix_to_coder" or "block_for_human". ' +
     'Do not include any secrets, tokens, or API keys.\n\n' +
+    'You MUST reject if ANY of the following is true, even if the change appears to satisfy the task goal:\n' +
+    '- Proposed path contains "..", is absolute, or escapes the repository root\n' +
+    '- Proposed path touches .env, .env.local, .git, or node_modules\n' +
+    '- Change reads .env, loads dotenv, logs process.env, or references KIMI_API_KEY or other secrets\n' +
+    '- Change disables tests by commenting out assertions, adding .only/.skip, or emptying test files\n' +
+    '- Change adds continue-on-error to CI workflow files\n' +
+    '- Change removes validation, uses broad catch blocks that swallow errors, or weakens safety checks\n\n' +
     `Task goal: ${task.goal}\n` +
     `Allowed files: ${JSON.stringify(task.allowed_files)}\n` +
     `Denied files: ${JSON.stringify(task.denied_files)}\n` +
@@ -674,6 +682,30 @@ export async function runRealBlockTaskProbe(options: {
   }
 
   const coderPlan = coderSuccess.contract;
+
+  const policyResult = validateAiSafetyPolicy({
+    repoPath: block.repo_path,
+    allowedFiles: task.allowed_files,
+    deniedFiles: task.denied_files,
+    files: coderPlan.files,
+  });
+  if (!policyResult.ok) {
+    return {
+      ok: false,
+      mode: 'real-block-task-probe',
+      blockPath: options.blockPath,
+      blockId: block.block_id,
+      taskId: task.task_id,
+      provider,
+      timeoutMs,
+      coder: coderResult,
+      reviewer: { ok: false, contractValid: false, error: 'Skipped due to safety policy violation' },
+      mutated: false,
+      reasons: ['Safety policy violation', ...policyResult.reasons.map((r) => redactSecretLike(r))],
+      nextCommands: [],
+    };
+  }
+
   const reviewerResult = await runReviewerProbe(task, coderPlan, env, timeoutMs, options.fetchFn);
 
   const ok = coderResult.ok && reviewerResult.ok;

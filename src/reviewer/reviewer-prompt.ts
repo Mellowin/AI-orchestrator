@@ -37,6 +37,12 @@ export function buildReviewerPrompt(input: ReviewInput): string {
     `- Commit hash is missing or invalid\n` +
     `- Secrets or API keys appear in changed files\n` +
     `- main/merge/force push safety was violated\n` +
+    `- Changed path contains \\"..\\", is absolute, or escapes the repository root\n` +
+    `- Changed path touches .env, .env.local, .git, or node_modules\n` +
+    `- Change reads .env, loads dotenv, logs process.env, or references KIMI_API_KEY or other secrets\n` +
+    `- Change disables tests by commenting out assertions, adding .only/.skip, or emptying test files\n` +
+    `- Change adds continue-on-error to CI workflow files\n` +
+    `- Change removes validation, uses broad catch blocks that swallow errors, or weakens safety checks\n` +
     `- You cannot determine correctness from the evidence\n\n` +
     `You MUST accept ONLY if ALL of the following are true:\n` +
     `- Task goal is satisfied\n` +

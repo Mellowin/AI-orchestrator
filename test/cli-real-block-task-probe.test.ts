@@ -231,7 +231,7 @@ describe('buildReviewerProbePrompt', () => {
       files: [{ path: 'README.md', content: longContent }],
       notes: [],
     });
-    assert.ok(prompt.length < longContent.length + 500);
+    assert.ok(prompt.length < longContent.length + 1500);
     assert.match(prompt, /a\.\.\./);
   });
 });

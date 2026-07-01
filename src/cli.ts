@@ -7,6 +7,7 @@ import { loadTask } from './task-loader.js';
 import { loadState, saveState, initState, getRunDir } from './state-manager.js';
 import { buildContext } from './context-builder.js';
 import { validateFileList, validateProposedFileLineDeltas } from './guardrails.js';
+import { validateAiSafetyPolicy } from './ai-safety-policy.js';
 import { applyFileUpdates, rollbackFileUpdates } from './patch-engine.js';
 import { runChecks } from './runner.js';
 import {
@@ -1321,6 +1322,25 @@ if (command === 'real-repo-run-ai') {
           process.exitCode = 1;
           break commandDispatch;
         }
+      }
+
+      const safetyPolicyResult = validateAiSafetyPolicy({
+        repoPath: task.repo_path,
+        allowedFiles: task.guardrails.allow_modify,
+        deniedFiles: task.guardrails.deny_modify,
+        files: kimiOutput.files,
+      });
+      if (!safetyPolicyResult.ok) {
+        const policyMessage = safetyPolicyResult.reasons.join('; ');
+        console.error(`[real-repo-run-ai] Safety policy violation: ${policyMessage}`);
+        console.error('[real-repo-run-ai] No apply was performed');
+        console.error('[real-repo-run-ai] No commit was made');
+        console.error('[real-repo-run-ai] No push was performed');
+        console.error('[real-repo-run-ai] No merge was performed');
+        console.error('[real-repo-run-ai] No checkout was performed');
+        console.error('[real-repo-run-ai] No main touch was performed');
+        process.exitCode = 1;
+        break commandDispatch;
       }
 
       // Sandbox preflight gate

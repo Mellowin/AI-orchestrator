@@ -22,6 +22,7 @@ import {
   validateFileList,
   validateProposedFileLineDeltas,
 } from './guardrails.js';
+import { validateAiSafetyPolicy } from './ai-safety-policy.js';
 import { applyFileUpdates } from './patch-engine.js';
 import {
   captureCheckpoint,
@@ -341,6 +342,16 @@ export function createReviewerFixTaskRealExecutor(
         const msg = deltaErr instanceof Error ? deltaErr.message : String(deltaErr);
         return blockResult(`Guardrails failed: ${msg}`);
       }
+    }
+
+    const policyResult = validateAiSafetyPolicy({
+      repoPath,
+      allowedFiles: fixTask.guardrails.allow_modify,
+      deniedFiles: fixTask.guardrails.deny_modify,
+      files: kimiOutput.files,
+    });
+    if (!policyResult.ok) {
+      return blockResult(`Safety policy violation: ${policyResult.reasons.join('; ')}`);
     }
 
     const sandboxRoot = mkdtempSync(join(tmpdir(), 'fix-task-preflight-'));
