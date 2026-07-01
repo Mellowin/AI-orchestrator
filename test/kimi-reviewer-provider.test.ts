@@ -149,17 +149,18 @@ describe('kimi-reviewer-provider', () => {
     }
   });
 
-  test('does not print raw invalid provider output', async () => {
+  test('does not print raw invalid provider output or secrets', async () => {
+    const secret = 'sk-raw-secret-xyz';
     const provider = createKimiReviewerProvider(
       { provider: 'kimi', model: 'kimi-k2.6' },
-      { allowReal: true, apiKey: 'sk-test', baseUrl: 'https://api.example.com', fetchFn: fakeFetch('garbage') }
+      { allowReal: true, apiKey: 'sk-test', baseUrl: 'https://api.example.com', fetchFn: fakeFetch(`not json ${secret}`) }
     );
     try {
       await provider.reviewCommit(buildInput());
       assert.fail('Expected error');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      assert.ok(!message.includes('garbage'), 'Error must not contain raw output');
+      assert.ok(!message.includes(secret), 'Error must not contain secret');
     }
   });
 

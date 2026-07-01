@@ -81,6 +81,7 @@ import { buildBlockStatusReport } from './block/block-report.js';
 import { runOneTaskLoop } from './block/block-one-task-loop.js';
 import { runMultiTaskLoop, runMultiTaskFakeLoop } from './block/block-multi-task-loop.js';
 import { runRealBlockRunAI } from './real-block-run-ai.js';
+import { validateReviewerParseRetries } from './real-block-task-timeout.js';
 import { runGitHealthPreflight, formatGitHealthPreflightError } from './git-health-preflight.js';
 import { captureCheckpoint, rollbackToCheckpoint, formatRollbackResult, type RepoCheckpoint, type RollbackResult } from './real-repo-rollback.js';
 import { runRealProviderSmoke } from './real-provider-smoke.js';
@@ -1095,6 +1096,23 @@ if (command === 'real-repo-run-ai') {
       break commandDispatch;
     }
 
+    let reviewerParseRetries: number;
+    try {
+      reviewerParseRetries = validateReviewerParseRetries(process.env.REAL_REVIEWER_PARSE_RETRIES);
+    } catch (parseRetriesErr) {
+      const parseRetriesMessage = parseRetriesErr instanceof Error ? parseRetriesErr.message : String(parseRetriesErr);
+      console.error(`[real-repo-run-ai] ${parseRetriesMessage}`);
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+
     const apiKey = process.env.KIMI_API_KEY?.trim();
     if (!apiKey) {
       console.error('[real-repo-run-ai] Error: KIMI_API_KEY env var is required');
@@ -1634,6 +1652,7 @@ if (command === 'real-repo-run-ai') {
             taskGoal: task.goal,
             branchName: currentBranch,
             commitSha: headSha,
+            maxParseRetries: reviewerParseRetries,
             checkSummary: {
               test: lastCheckResult?.success ? 'pass' : (lastCheckResult ? 'fail' : undefined),
             },
@@ -1982,6 +2001,7 @@ if (command === 'real-repo-run-ai') {
                   taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
                   branchName: currentBranch,
                   commitSha: postRunPlan.commitSha,
+                  maxParseRetries: reviewerParseRetries,
                   checkSummary: { test: 'pass' },
                   stateStatus: 'fix_review',
                   reviewer: async () => secondReviewerResponse,
@@ -2017,6 +2037,7 @@ if (command === 'real-repo-run-ai') {
                   taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
                   branchName: currentBranch,
                   commitSha: fixCommitSha,
+                  maxParseRetries: reviewerParseRetries,
                   checkSummary: postRunPlan.checkSummary ?? { test: 'not_run' },
                   stateStatus: 'fix_review',
                   reviewer: async (input) => {

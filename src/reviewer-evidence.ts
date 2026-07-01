@@ -17,6 +17,7 @@ export interface ReviewerEvidenceInput {
     };
   };
   stateStatus?: string;
+  previousFailure?: string;
 }
 
 export interface ReviewerEvidence {
@@ -31,6 +32,7 @@ export interface ReviewerEvidence {
   commitExists: boolean;
   stateStatus?: string;
   checkSummary: ReviewerEvidenceInput['checkSummary'];
+  previousFailure?: string;
   safety: {
     commitShaIsFullLength: boolean;
     branchIsNotMain: boolean;
@@ -97,6 +99,7 @@ export function buildReviewerEvidence(
     diffStat,
     commitExists,
     stateStatus: input.stateStatus,
+    previousFailure: input.previousFailure,
     checkSummary: input.checkSummary,
     safety: {
       commitShaIsFullLength: input.commitSha.length === 40,

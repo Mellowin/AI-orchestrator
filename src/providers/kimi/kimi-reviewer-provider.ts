@@ -13,7 +13,7 @@ import {
 } from '../../provider-call.js';
 import type { FetchFn } from '../../provider-call.js';
 import { buildReviewerPrompt } from '../../reviewer/reviewer-prompt.js';
-import { validateReviewerDecision } from '../../reviewer/reviewer-schema.js';
+import { parseReviewerDecisionText } from '../../reviewer/reviewer-output-parser.js';
 
 export interface KimiReviewerProviderOptions {
   allowReal?: boolean;
@@ -43,7 +43,7 @@ export function createKimiReviewerProvider(
 
     async reviewCommit(input: ReviewInput): Promise<ReviewerDecision> {
       if (fakeResponse !== undefined) {
-        return parseReviewerJson(fakeResponse);
+        return parseReviewerDecisionText(fakeResponse).decision;
       }
 
       if (!allowReal) {
@@ -74,7 +74,7 @@ export function createKimiReviewerProvider(
       try {
         const result = await callFn(providerInput);
         const normalized = normalizeProviderCallResult(result);
-        return parseReviewerJson(normalized.text);
+        return parseReviewerDecisionText(normalized.text).decision;
       } catch (err) {
         const info = normalizeProviderCallError(err);
         throw new Error(`Kimi reviewer failed: ${info.message}`);
@@ -83,12 +83,3 @@ export function createKimiReviewerProvider(
   };
 }
 
-function parseReviewerJson(text: string): ReviewerDecision {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.trim());
-  } catch {
-    throw new Error('Reviewer output is not valid JSON');
-  }
-  return validateReviewerDecision(parsed);
-}

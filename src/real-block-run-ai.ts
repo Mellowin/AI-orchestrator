@@ -7,6 +7,11 @@ import type { BlockDefinition, BlockTaskDefinition } from './block/block-types.j
 import { loadState } from './state-manager.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
+import {
+  resolveTaskTimeoutMs,
+  resolveReviewerParseRetries,
+  resolveOnBlockedTask,
+} from './real-block-task-timeout.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type {
   RealBlockRunState,
@@ -18,6 +23,7 @@ import {
   getBlockStatePath,
   getRunsDir,
   isCompletedTaskStatus,
+  isSkippedBlockedTaskStatus,
   loadExistingBlockState,
 } from './real-block-run-ai-state.js';
 import {
@@ -184,7 +190,8 @@ function runSingleTask(
   block: BlockDefinition,
   task: BlockTaskDefinition,
   index: number,
-  arrays: FakeResponseArrays
+  arrays: FakeResponseArrays,
+  timeoutMs: number
 ): { exitCode: number; state: Record<string, unknown> | null } {
   const runsDir = getRunsDir();
   const blockRunDir = getBlockRunDir(block);
@@ -204,6 +211,8 @@ function runSingleTask(
       ? block.review_policy.max_fix_attempts
       : 1;
   env.REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS = String(blockMaxFixAttempts);
+
+  env.REAL_REVIEWER_PARSE_RETRIES = String(resolveReviewerParseRetries(block));
 
   const kimiResponse = getTaskFakeResponse(arrays, 'kimi', index);
   if (kimiResponse !== undefined) {
@@ -235,12 +244,13 @@ function runSingleTask(
       env,
       encoding: 'utf-8',
       shell: false,
-      timeout: 120000,
+      timeout: timeoutMs,
     }
   );
 
   if (result.status !== 0) {
     const output = (result.stderr || result.stdout || '').trim();
+    console.error(`[real-block-run-ai] Task ${task.task_id} runner exited with code ${result.status}`);
     if (output) {
       console.error(`[real-block-run-ai] Task ${task.task_id} runner output:`);
       console.error(redactSecrets(output));
@@ -419,6 +429,9 @@ function deriveTaskResult(
     finalStatus: 'failed',
     nextAction: 'block',
     childStateTaskId: task.task_id,
+    codeApplied: false,
+    pushed: false,
+    checksResult: 'unknown',
   };
 
   if (run.state === null) {
@@ -431,7 +444,10 @@ function deriveTaskResult(
   }
 
   const state = run.state;
-  base.originalCommitSha = getStateString(state, 'commit_sha');
+  const commitSha = getStateString(state, 'commit_sha');
+  base.originalCommitSha = commitSha;
+  base.codeApplied = typeof commitSha === 'string' && commitSha.length === 40;
+  base.pushed = state.status === 'pushed' && run.exitCode === 0;
 
   const rollback = state.rollback as Record<string, unknown> | undefined;
   if (rollback !== undefined) {
@@ -452,6 +468,10 @@ function deriveTaskResult(
   if (reviewerGate !== undefined) {
     base.reviewerGateStatus = getGateStatus(reviewerGate);
     base.reviewerSummary = getGateSummary(reviewerGate);
+    const parseAttempts = reviewerGate.parseAttempts;
+    if (typeof parseAttempts === 'number') {
+      base.parseAttempts = parseAttempts;
+    }
   }
 
   if (controlledRun !== undefined) {
@@ -505,6 +525,7 @@ function deriveTaskResult(
       base.status = 'fixed_and_accepted';
       base.finalStatus = 'accepted';
       base.nextAction = 'continue';
+      base.checksResult = 'pass';
       base.reason = redactSecrets(
         typeof secondReview.reason === 'string'
           ? secondReview.reason
@@ -516,6 +537,7 @@ function deriveTaskResult(
       base.status = 'fix_required';
       base.finalStatus = 'fix_required';
       base.nextAction = 'manual_followup';
+      base.checksResult = 'pass';
       base.reason = redactSecrets(
         typeof secondReview.reason === 'string'
           ? secondReview.reason
@@ -526,6 +548,7 @@ function deriveTaskResult(
     base.status = 'blocked';
     base.finalStatus = 'blocked';
     base.nextAction = 'block';
+    base.checksResult = 'pass';
     base.reason = redactSecrets(
       typeof secondReview.reason === 'string'
         ? secondReview.reason
@@ -540,12 +563,14 @@ function deriveTaskResult(
       base.status = 'accepted';
       base.finalStatus = 'accepted';
       base.nextAction = 'continue';
+      base.checksResult = 'pass';
       base.reason = getGateSummary(reviewerGate) ?? 'Reviewer gate accepted.';
       return base;
     }
 
     if (status === 'fix_required') {
       base.fixAttempted = controlledRun !== undefined;
+      base.checksResult = 'pass';
       if (controlledRun === undefined) {
         base.status = 'fix_required';
         base.finalStatus = 'fix_required';
@@ -586,6 +611,7 @@ function deriveTaskResult(
     base.status = 'blocked';
     base.finalStatus = 'blocked';
     base.nextAction = 'block';
+    base.checksResult = 'pass';
     base.reason = getGateSummary(reviewerGate) ?? 'Reviewer gate blocked.';
     return base;
   }
@@ -595,10 +621,12 @@ function deriveTaskResult(
     base.status = 'accepted';
     base.finalStatus = 'accepted';
     base.nextAction = 'continue';
+    base.checksResult = 'pass';
     base.reason = 'Task pushed without reviewer gate.';
     return base;
   }
 
+  base.checksResult = run.exitCode === 0 ? 'pass' : 'fail';
   base.reason = redactSecrets(
     `Task ended with status ${String(runStatus)} and exit code ${run.exitCode}.`
   );
@@ -624,6 +652,9 @@ function printBlockRunSummary(state: RealBlockRunState): void {
       `  ${task.taskId}: ${task.status}`,
       `final=${task.finalStatus}`,
       `next=${task.nextAction}`,
+      `applied=${task.codeApplied ?? false}`,
+      `pushed=${task.pushed ?? false}`,
+      `checks=${task.checksResult ?? 'unknown'}`,
     ];
     if (task.originalCommitSha) {
       parts.push(`original=${task.originalCommitSha}`);
@@ -631,8 +662,14 @@ function printBlockRunSummary(state: RealBlockRunState): void {
     if (task.fixCommitSha) {
       parts.push(`fix=${task.fixCommitSha}`);
     }
+    if (task.parseAttempts !== undefined) {
+      parts.push(`parseAttempts=${task.parseAttempts}`);
+    }
     if (task.fixAttempted) {
       parts.push(`fixAttempted=true`);
+    }
+    if (task.reviewerGateStatus) {
+      parts.push(`reviewer=${task.reviewerGateStatus}`);
     }
     lines.push(`[real-block-run-ai] ${parts.join(' ')}`);
   }
@@ -771,8 +808,11 @@ export async function runRealBlockRunAI(
       resumeStartedAt: now,
     };
 
+    const onBlockedTask = resolveOnBlockedTask(block);
     for (const result of blockState.taskResults) {
       if (isCompletedTaskStatus(result.status)) {
+        skippedTaskIds.push(result.taskId);
+      } else if (isSkippedBlockedTaskStatus(result.status) && onBlockedTask === 'continue') {
         skippedTaskIds.push(result.taskId);
       }
     }
@@ -819,6 +859,15 @@ export async function runRealBlockRunAI(
       continue;
     }
 
+    const onBlockedTask = resolveOnBlockedTask(block);
+    if (
+      existingResult !== undefined &&
+      isSkippedBlockedTaskStatus(existingResult.status) &&
+      onBlockedTask === 'continue'
+    ) {
+      continue;
+    }
+
     blockState.currentTaskId = task.task_id;
     saveBlockState(block, blockState);
 
@@ -859,7 +908,7 @@ export async function runRealBlockRunAI(
 
       taskResult = derived;
     } else {
-      const run = runSingleTask(block, task, i, arrays);
+      const run = runSingleTask(block, task, i, arrays, resolveTaskTimeoutMs(block));
       taskResult = deriveTaskResult(task, run);
     }
 
@@ -873,6 +922,34 @@ export async function runRealBlockRunAI(
       taskResult.status !== 'accepted' &&
       taskResult.status !== 'fixed_and_accepted'
     ) {
+      const shouldContinue =
+        onBlockedTask === 'continue' &&
+        (taskResult.status === 'blocked' || taskResult.status === 'fix_required');
+
+      if (shouldContinue) {
+        // Mark the task as skipped-blocked so resume does not re-run it,
+        // but keep the original derived status fields for reporting.
+        const skippedResult: RealBlockRunTaskResult = {
+          ...taskResult,
+          status: 'blocked_skipped',
+          finalStatus: taskResult.status,
+          nextAction: 'continue',
+          reason: redactSecrets(
+            taskResult.reason ?? `Task ${task.task_id} blocked; continuing per on_blocked_task policy.`
+          ),
+        };
+        const skipResultIndex = blockState.taskResults.findIndex(
+          (r) => r.taskId === task.task_id
+        );
+        if (skipResultIndex >= 0) {
+          blockState.taskResults[skipResultIndex] = skippedResult;
+        } else {
+          blockState.taskResults.push(skippedResult);
+        }
+        saveBlockState(block, blockState);
+        continue;
+      }
+
       stopped = true;
       if (taskResult.status === 'failed') {
         blockState.status = 'failed';
@@ -894,12 +971,15 @@ export async function runRealBlockRunAI(
       const fixedCount = blockState.taskResults.filter(
         (r) => r.status === 'fixed_and_accepted'
       ).length;
+      const skippedBlockedCount = blockState.taskResults.filter(
+        (r) => r.status === 'blocked_skipped'
+      ).length;
 
       blockState.currentTaskId = null;
       blockState.finishedAt = new Date().toISOString();
       blockState.summary.acceptedTasks = acceptedCount;
       blockState.summary.fixedTasks = fixedCount;
-      blockState.summary.completedTasks = acceptedCount + fixedCount;
+      blockState.summary.completedTasks = acceptedCount + fixedCount + skippedBlockedCount;
       blockState.status = 'paused';
       const resumeCommand = `npx tsx src/cli.ts real-block-run-ai ${blockPath} --resume`;
       blockState.summary.stoppedReason = `Paused after task ${task.task_id}. Resume with: ${resumeCommand}`;
@@ -922,12 +1002,15 @@ export async function runRealBlockRunAI(
   const fixedCount = blockState.taskResults.filter(
     (r) => r.status === 'fixed_and_accepted'
   ).length;
+  const skippedBlockedCount = blockState.taskResults.filter(
+    (r) => r.status === 'blocked_skipped'
+  ).length;
 
   blockState.currentTaskId = null;
   blockState.finishedAt = new Date().toISOString();
   blockState.summary.acceptedTasks = acceptedCount;
   blockState.summary.fixedTasks = fixedCount;
-  blockState.summary.completedTasks = acceptedCount + fixedCount;
+  blockState.summary.completedTasks = acceptedCount + fixedCount + skippedBlockedCount;
 
   if (!stopped && blockState.summary.completedTasks === block.tasks.length) {
     blockState.status = 'completed';
