@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBlockDefinition } from './block/block-loader.js';
@@ -195,6 +195,15 @@ function runSingleTask(
 ): { exitCode: number; state: Record<string, unknown> | null } {
   const runsDir = getRunsDir();
   const blockRunDir = getBlockRunDir(block);
+
+  // Child real-repo-run-ai writes state to runs/<task_id>/state.json. If a
+  // previous block used the same task_id, stale state would be reused. Clean
+  // the per-task run directory before each task so every block run is fresh.
+  const staleTaskRunDir = join(runsDir, task.task_id);
+  if (existsSync(staleTaskRunDir)) {
+    rmSync(staleTaskRunDir, { recursive: true, force: true });
+  }
+
   const tasksFilePath = join(blockRunDir, `${task.task_id}.tasks.yaml`);
   writeFileSync(tasksFilePath, buildSingleTaskYaml(block, task), 'utf-8');
 
