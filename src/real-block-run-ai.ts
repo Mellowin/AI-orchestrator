@@ -4,6 +4,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition, BlockTaskDefinition } from './block/block-types.js';
+import {
+  prepareFreshBlockRun,
+  verifyTaskResultHistory,
+} from './block/block-state-consistency.js';
 import { loadState } from './state-manager.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
@@ -358,8 +362,13 @@ function validateChildState(
 }
 
 function validateCompletedChildResult(
-  result: RealBlockRunTaskResult
+  result: RealBlockRunTaskResult,
+  repoPath: string
 ): string | undefined {
+  const history = verifyTaskResultHistory(result, repoPath);
+  if (!history.ok) {
+    return history.reason;
+  }
   if (result.status === 'accepted') {
     if (
       typeof result.originalCommitSha !== 'string' ||
@@ -688,12 +697,36 @@ function printBlockRunSummary(state: RealBlockRunState): void {
 
 export async function runRealBlockRunAI(
   blockPath: string,
-  options?: { resume?: boolean; pauseAfterTaskId?: string }
+  options?: { resume?: boolean; pauseAfterTaskId?: string; fresh?: boolean }
 ): Promise<{ exitCode: number; blockState: RealBlockRunState | null }> {
   const resume = (options?.resume ?? false) || process.env.REAL_BLOCK_RUN_RESUME === '1';
   const pauseAfterTaskId =
     options?.pauseAfterTaskId ?? process.env.REAL_BLOCK_RUN_PAUSE_AFTER_TASK_ID;
-  const readiness = checkRealBlockRunReadiness(blockPath, { resume });
+  const fresh = options?.fresh ?? false;
+
+  if (fresh && resume) {
+    console.error('[real-block-run-ai] Error: --fresh and --resume cannot be used together');
+    console.error('[real-block-run-ai] No provider call was made');
+    console.error('[real-block-run-ai] No apply was performed');
+    console.error('[real-block-run-ai] No commit was made');
+    console.error('[real-block-run-ai] No push was performed');
+    console.error('[real-block-run-ai] No merge was performed');
+    console.error('[real-block-run-ai] No checkout was performed');
+    console.error('[real-block-run-ai] No main touch was performed');
+    return { exitCode: 1, blockState: null };
+  }
+
+  if (fresh) {
+    const block = loadBlockDefinition(blockPath);
+    const removed = prepareFreshBlockRun(block, getRunsDir());
+    console.error('[real-block-run-ai] Fresh mode: removed stale state');
+    console.error(`[real-block-run-ai]   block state: ${removed.blockStatePath}`);
+    for (const path of removed.taskStatePaths) {
+      console.error(`[real-block-run-ai]   task state: ${path}`);
+    }
+  }
+
+  const readiness = checkRealBlockRunReadiness(blockPath, { resume: resume && !fresh });
 
   if (!readiness.ready) {
     console.log(redactSecrets(JSON.stringify(readiness, null, 2)));
@@ -864,17 +897,19 @@ export async function runRealBlockRunAI(
     const existingResult =
       existingResultIndex >= 0 ? blockState.taskResults[existingResultIndex] : undefined;
 
-    if (existingResult !== undefined && isCompletedTaskStatus(existingResult.status)) {
-      continue;
-    }
-
     const onBlockedTask = resolveOnBlockedTask(block);
-    if (
-      existingResult !== undefined &&
-      isSkippedBlockedTaskStatus(existingResult.status) &&
-      onBlockedTask === 'continue'
-    ) {
-      continue;
+
+    if (existingResult !== undefined) {
+      const canSkip =
+        isCompletedTaskStatus(existingResult.status) ||
+        (isSkippedBlockedTaskStatus(existingResult.status) && onBlockedTask === 'continue');
+      if (canSkip) {
+        const history = verifyTaskResultHistory(existingResult, block.repo_path);
+        if (!history.ok) {
+          return blockResumeFailure(block, blockState, task.task_id, history.reason || 'stale completed task state');
+        }
+        continue;
+      }
     }
 
     blockState.currentTaskId = task.task_id;
@@ -910,7 +945,7 @@ export async function runRealBlockRunAI(
         );
       }
 
-      const shaError = validateCompletedChildResult(derived);
+      const shaError = validateCompletedChildResult(derived, block.repo_path);
       if (shaError) {
         return blockResumeFailure(block, blockState, task.task_id, shaError);
       }

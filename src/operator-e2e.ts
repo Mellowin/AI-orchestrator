@@ -8,7 +8,12 @@ import { createDraftPullRequest } from './github-pr-client.js';
 import { prepareSandboxBase } from './sandbox-base-preparer.js';
 import { validateAiSafetyPolicy } from './ai-safety-policy.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
-import { getBlockStatePath } from './real-block-run-ai-state.js';
+import { getBlockStatePath, loadExistingBlockState, getRunsDir } from './real-block-run-ai-state.js';
+import { loadBlockDefinition } from './block/block-loader.js';
+import {
+  prepareFreshBlockRun,
+  verifyTaskResultHistory,
+} from './block/block-state-consistency.js';
 import type { BlockDefinition } from './block/block-types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +40,16 @@ export interface OperatorE2EPhaseResult {
   ok: boolean;
   message: string;
   details?: Record<string, unknown>;
+}
+
+export interface ArtifactConsistency {
+  ok: boolean;
+  tasksExpected: number;
+  tasksAccepted: number;
+  taskCommitsPresentInBranch: number;
+  missingTaskCommits: string[];
+  workBranchHead?: string;
+  baseBranchHead?: string;
 }
 
 export interface OperatorE2EReport {
@@ -67,6 +82,7 @@ export interface OperatorE2EReport {
     }>;
   };
   rollbackProof: OperatorE2EPhaseResult;
+  artifactConsistency?: ArtifactConsistency;
   phases: OperatorE2EPhaseResult[];
   secretsLeaked: boolean;
   reportJsonPath: string;
@@ -77,6 +93,7 @@ export interface OperatorE2EReport {
 interface OperatorE2EState {
   phasesCompleted: string[];
   resumeUsed: boolean;
+  fresh?: boolean;
   report?: OperatorE2EReport;
 }
 
@@ -259,23 +276,44 @@ async function prepareSandboxPhase(config: OperatorE2EConfig): Promise<OperatorE
   return { name: 'sandbox_setup', ok: true, message: `base ${config.baseBranch} and work ${config.workBranch} ready` };
 }
 
-async function runMainBlockPhase(config: OperatorE2EConfig): Promise<OperatorE2EPhaseResult> {
+async function runMainBlockPhase(
+  config: OperatorE2EConfig,
+  options: { fresh?: boolean } = {}
+): Promise<OperatorE2EPhaseResult> {
   const blockPath = resolve(config.blockPath);
   if (!existsSync(blockPath)) {
     return { name: 'main_block', ok: false, message: `block definition not found: ${blockPath}` };
   }
 
+  const repoPath = resolve(config.sandboxRepoPath);
   const tsxPath = join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const cliPath = join(projectRoot, 'src', 'cli.ts');
-  let resumeArgs: string[] = [];
+  let extraArgs: string[] = [];
+  let resuming = false;
   try {
     const blockDef = loadJson<{ block_id: string }>(blockPath);
     const blockStatePath = getBlockStatePath({ block_id: blockDef.block_id } as BlockDefinition);
-    if (existsSync(blockStatePath)) {
-      resumeArgs = ['--resume'];
+    if (options.fresh) {
+      extraArgs = ['--fresh'];
+    } else if (existsSync(blockStatePath)) {
+      extraArgs = ['--resume'];
+      resuming = true;
     }
   } catch {
     return { name: 'main_block', ok: false, message: `failed to read block definition: ${blockPath}` };
+  }
+
+  if (resuming) {
+    runGit(repoPath, ['fetch', 'origin', config.workBranch]);
+    const localHead = runGit(repoPath, ['rev-parse', config.workBranch]);
+    const remoteHead = runGit(repoPath, ['rev-parse', `origin/${config.workBranch}`]);
+    if (localHead.ok && remoteHead.ok && localHead.stdout.trim() !== remoteHead.stdout.trim()) {
+      runGit(repoPath, ['checkout', config.workBranch]);
+      const ff = runGit(repoPath, ['merge', '--ff-only', `origin/${config.workBranch}`]);
+      if (!ff.ok) {
+        runGit(repoPath, ['reset', '--hard', `origin/${config.workBranch}`]);
+      }
+    }
   }
 
   const env: NodeJS.ProcessEnv = {
@@ -289,7 +327,7 @@ async function runMainBlockPhase(config: OperatorE2EConfig): Promise<OperatorE2E
 
   const result = crossSpawn.sync(
     process.execPath,
-    [tsxPath, cliPath, 'real-block-run-ai', blockPath, ...resumeArgs],
+    [tsxPath, cliPath, 'real-block-run-ai', blockPath, ...extraArgs],
     {
       cwd: projectRoot,
       env,
@@ -308,6 +346,132 @@ async function runMainBlockPhase(config: OperatorE2EConfig): Promise<OperatorE2E
   }
 
   return { name: 'main_block', ok: true, message: 'main block completed' };
+}
+
+function removeFreshOperatorState(config: OperatorE2EConfig): string[] {
+  const removed: string[] = [];
+  const operatorStatePath = getStatePath();
+  if (existsSync(operatorStatePath)) {
+    rmSync(operatorStatePath, { force: true });
+    removed.push(operatorStatePath);
+  }
+
+  const blockPaths = [config.blockPath, config.safetyBlockPath, config.rollbackBlockPath];
+  for (const blockPath of blockPaths) {
+    const absolute = resolve(blockPath);
+    if (!existsSync(absolute)) {
+      continue;
+    }
+    try {
+      const block = loadBlockDefinition(absolute);
+      const result = prepareFreshBlockRun(block, getRunsDir());
+      removed.push(result.blockStatePath, ...result.taskStatePaths);
+    } catch {
+      // ignore blocks that cannot be loaded
+    }
+  }
+
+  return removed;
+}
+
+async function runMainBlockConsistencyPhase(
+  config: OperatorE2EConfig
+): Promise<OperatorE2EPhaseResult & { artifactConsistency?: ArtifactConsistency }> {
+  const blockPath = resolve(config.blockPath);
+  if (!existsSync(blockPath)) {
+    return {
+      name: 'main_block_consistency',
+      ok: false,
+      message: `block definition not found: ${blockPath}`,
+    };
+  }
+
+  let block: BlockDefinition;
+  try {
+    block = loadBlockDefinition(blockPath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      name: 'main_block_consistency',
+      ok: false,
+      message: `failed to load block definition: ${message}`,
+    };
+  }
+
+  const blockState = loadExistingBlockState(block);
+  const repoPath = resolve(config.sandboxRepoPath);
+  const workHead = runGit(repoPath, ['rev-parse', 'HEAD']);
+  const baseHead = runGit(repoPath, ['rev-parse', config.baseBranch]);
+  const workBranchHead = workHead.ok ? workHead.stdout.trim() : undefined;
+  const baseBranchHead = baseHead.ok ? baseHead.stdout.trim() : undefined;
+
+  if (blockState === null) {
+    return {
+      name: 'main_block_consistency',
+      ok: false,
+      message: 'main block state not found after run',
+      artifactConsistency: {
+        ok: false,
+        tasksExpected: block.tasks.length,
+        tasksAccepted: 0,
+        taskCommitsPresentInBranch: 0,
+        missingTaskCommits: ['block state missing'],
+        workBranchHead,
+        baseBranchHead,
+      },
+    };
+  }
+
+  const acceptedResults = blockState.taskResults.filter(
+    (r) => r.status === 'accepted' || r.status === 'fixed_and_accepted'
+  );
+  const missing: string[] = [];
+  let presentCount = 0;
+
+  for (const result of acceptedResults) {
+    const history = verifyTaskResultHistory(result, repoPath, 'HEAD');
+    if (history.ok) {
+      presentCount++;
+    } else {
+      missing.push(history.reason || `task ${result.taskId} commit not in branch history`);
+    }
+  }
+
+  const blockCompleted = blockState.status === 'completed';
+  const allExpectedAccepted = acceptedResults.length === block.tasks.length;
+  const artifactConsistency: ArtifactConsistency = {
+    ok: blockCompleted && allExpectedAccepted && missing.length === 0,
+    tasksExpected: block.tasks.length,
+    tasksAccepted: acceptedResults.length,
+    taskCommitsPresentInBranch: presentCount,
+    missingTaskCommits: missing,
+    workBranchHead,
+    baseBranchHead,
+  };
+
+  if (!artifactConsistency.ok) {
+    const reasons: string[] = [];
+    if (!blockCompleted) reasons.push(`block status is ${blockState.status}`);
+    if (!allExpectedAccepted) {
+      reasons.push(`only ${acceptedResults.length}/${block.tasks.length} tasks accepted`);
+    }
+    if (missing.length > 0) {
+      reasons.push(...missing);
+    }
+    return {
+      name: 'main_block_consistency',
+      ok: false,
+      message: `artifact inconsistent: ${reasons.join('; ')}`,
+      artifactConsistency,
+    };
+  }
+
+  return {
+    name: 'main_block_consistency',
+    ok: true,
+    message: `all ${block.tasks.length} accepted task commits are present in work branch history`,
+    artifactConsistency,
+  };
 }
 
 async function runSafetyProofPhase(config: OperatorE2EConfig): Promise<OperatorE2EPhaseResult> {
@@ -420,7 +584,19 @@ async function runRollbackProofPhase(config: OperatorE2EConfig): Promise<Operato
   return { name: 'rollback_proof', ok: true, message: 'rollback proof task failed and working tree was restored' };
 }
 
-async function createPrPhase(config: OperatorE2EConfig): Promise<OperatorE2EPhaseResult & { prResult?: OperatorE2EReport['prResult'] }> {
+async function createPrPhase(config: OperatorE2EConfig, report: OperatorE2EReport): Promise<OperatorE2EPhaseResult & { prResult?: OperatorE2EReport['prResult'] }> {
+  const mainBlockOk = report.phases.some((p) => p.name === 'main_block' && p.ok);
+  const consistencyOk = report.artifactConsistency?.ok ?? false;
+
+  if (!mainBlockOk || !consistencyOk || !report.npmCiOk || !report.npmTestOk) {
+    return {
+      name: 'pr_creation',
+      ok: false,
+      message: 'PR creation skipped: artifact incomplete or tests failed',
+      prResult: { ok: false, status: 'skipped_incomplete_artifact', message: 'artifact incomplete or tests failed' },
+    };
+  }
+
   const tokenEnv = config.githubTokenEnv || 'GITHUB_TOKEN';
   const token = process.env[tokenEnv];
   const repoUrl = config.sandboxRepoUrl;
@@ -580,10 +756,21 @@ function detectSecretsInText(text: string): boolean {
 
 export async function runOperatorE2E(
   config: OperatorE2EConfig,
-  options: { resume?: boolean } = {}
+  options: { resume?: boolean; fresh?: boolean } = {}
 ): Promise<OperatorE2EReport> {
   ensureDir(join(projectRoot, 'tmp'));
   const state = loadOperatorState();
+  if (options.fresh) {
+    const removed = removeFreshOperatorState(config);
+    state.phasesCompleted = [];
+    state.resumeUsed = false;
+    state.fresh = true;
+    saveOperatorState(state);
+    console.error(`[operator-e2e] Fresh mode: removed ${removed.length} stale state file(s)`);
+    for (const path of removed) {
+      console.error(`[operator-e2e]   removed: ${path}`);
+    }
+  }
   if (options.resume) {
     state.resumeUsed = true;
     saveOperatorState(state);
@@ -608,15 +795,16 @@ export async function runOperatorE2E(
     problems: [],
   };
 
-  const phasesToRun = ['preflight', 'sandbox_setup', 'main_block', 'safety_proof', 'rollback_proof', 'pr_creation', 'clone_tests'];
+  const phasesToRun = ['preflight', 'sandbox_setup', 'main_block', 'main_block_consistency', 'safety_proof', 'rollback_proof', 'clone_tests', 'pr_creation'];
   const phaseFunctions: Record<string, () => Promise<OperatorE2EPhaseResult | { npmCi: OperatorE2EPhaseResult; npmTest: OperatorE2EPhaseResult }>> = {
     preflight: () => runPreflightPhase(),
     sandbox_setup: () => prepareSandboxPhase(config),
-    main_block: () => runMainBlockPhase(config),
+    main_block: () => runMainBlockPhase(config, { fresh: options.fresh }),
+    main_block_consistency: () => runMainBlockConsistencyPhase(config),
     safety_proof: () => runSafetyProofPhase(config),
     rollback_proof: () => runRollbackProofPhase(config),
-    pr_creation: async () => createPrPhase(config),
     clone_tests: () => runIndependentClonePhase(config),
+    pr_creation: async () => createPrPhase(config, report),
   };
 
   for (const phaseName of phasesToRun) {
@@ -656,6 +844,9 @@ export async function runOperatorE2E(
       }
       if (single.name === 'rollback_proof') {
         report.rollbackProof = single;
+      }
+      if (single.name === 'main_block_consistency') {
+        report.artifactConsistency = (single as OperatorE2EPhaseResult & { artifactConsistency?: ArtifactConsistency }).artifactConsistency;
       }
       if (detectSecretsInText(single.message)) {
         report.secretsLeaked = true;

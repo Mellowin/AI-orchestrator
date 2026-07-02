@@ -3440,12 +3440,14 @@ if (command === 'real-block-run-ai') {
     }
 
     const resume = args.slice(2).includes('--resume');
+    const fresh = args.includes('--fresh');
     const pauseAfterTaskIndex = args.indexOf('--pause-after-task');
     const pauseAfterTaskId =
       pauseAfterTaskIndex >= 0 ? args[pauseAfterTaskIndex + 1] : undefined;
     const { exitCode } = await runRealBlockRunAI(taskId, {
       resume,
       pauseAfterTaskId,
+      fresh,
     });
     process.exitCode = exitCode;
     break commandDispatch;
@@ -3857,13 +3859,14 @@ if (command === 'operator-e2e') {
   try {
     const configPath = args[1];
     const resume = args.includes('--resume');
+    const fresh = args.includes('--fresh');
     if (!configPath) {
       console.error('[operator-e2e] Error: config path is required');
       process.exitCode = 1;
       break commandDispatch;
     }
     const config = loadOperatorE2EConfig(configPath);
-    const report = await runOperatorE2E(config, { resume });
+    const report = await runOperatorE2E(config, { resume, fresh });
     console.log(JSON.stringify({
       verdict: report.verdict,
       resumeUsed: report.resumeUsed,
@@ -3872,6 +3875,7 @@ if (command === 'operator-e2e') {
       npmTestOk: report.npmTestOk,
       safetyProofMatched: `${report.safetyProof.matched}/${report.safetyProof.total}`,
       rollbackProofOk: report.rollbackProof.ok,
+      artifactConsistency: report.artifactConsistency,
       reportJsonPath: report.reportJsonPath,
       reportMdPath: report.reportMdPath,
     }, null, 2));
