@@ -26,8 +26,19 @@ import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
 import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-plan.js';
-import { createMockProviderCall, createRealProviderCall, buildProviderCallInput, normalizeProviderCallResult, normalizeProviderCallError } from './provider-call.js';
+import {
+  createMockProviderCall,
+  createRealProviderCall,
+  buildProviderCallInput,
+  normalizeProviderCallResult,
+  normalizeProviderCallError,
+  callProviderWithRetry,
+  buildRecoveryPrompt,
+  resolveProviderRetryConfig,
+  ProviderCallFailedError,
+} from './provider-call.js';
 import type { FetchFn } from './provider-call.js';
+import type { ProviderAttempt } from './types.js';
 import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
 import { runRealRepoSandboxPreflight } from './real-repo-sandbox-preflight.js';
 import { buildSandboxPreflightRepairDecision, redactSecrets } from './sandbox-preflight-repair.js';
@@ -1265,6 +1276,7 @@ if (command === 'real-repo-run-ai') {
 
       let kimiOutput: KimiOutput;
       let rawProviderText: string;
+      let providerAttempts: ProviderAttempt[] = [];
       try {
         const realProviderCall = createRealProviderCall({
           provider: 'kimi',
@@ -1274,15 +1286,57 @@ if (command === 'real-repo-run-ai') {
           model,
           userAgent: process.env.KIMI_USER_AGENT?.trim(),
         });
-        const providerInput = buildProviderCallInput('coder', currentPrompt, 'kimi', model);
-        const result = await realProviderCall(providerInput);
-        const normalizedResult = normalizeProviderCallResult(result);
-        rawProviderText = normalizedResult.text;
-        kimiOutput = parseKimiOutputJson(rawProviderText);
+        const retryConfig = resolveProviderRetryConfig();
+        const retryResult = await callProviderWithRetry<KimiOutput>({
+          providerCall: realProviderCall,
+          provider: 'kimi',
+          model,
+          basePrompt: currentPrompt,
+          buildRecoveryPrompt,
+          parseOutput: parseKimiOutputJson,
+          taskId,
+          config: retryConfig,
+        });
+        rawProviderText = retryResult.text;
+        providerAttempts = retryResult.providerAttempts;
+        kimiOutput = retryResult.output!;
       } catch (providerErr) {
+        // Extract provider attempts from a structured retry failure so they are
+        // preserved even when the wrapper exhausts all retries.
+        if (providerErr instanceof ProviderCallFailedError) {
+          providerAttempts = providerErr.providerAttempts;
+        }
+
         const info = normalizeProviderCallError(providerErr);
         const message = info.message;
-        const isParseError = message.includes('Invalid Kimi JSON') || message.includes('KimiOutput') || message.includes('JSON');
+        const isParseError = message.includes('Invalid Kimi JSON') || message.includes('KimiOutput') || message.includes('JSON') || message.includes('fenced block');
+
+        // Persist a failed state with provider attempt metadata so the block runner
+        // can report the failure reason instead of "no state was persisted".
+        const now = new Date().toISOString();
+        let existingState: RunState | null = null;
+        try {
+          existingState = loadState(taskId);
+        } catch {
+          // ignore
+        }
+        const failedState: RunState = {
+          task_id: taskId,
+          status: 'failed_max_attempts',
+          current_attempt: existingState?.current_attempt ?? 0,
+          branch: currentBranch || task.work_branch,
+          repo_path: task.repo_path,
+          created_at: existingState?.created_at ?? now,
+          updated_at: now,
+          provider_attempts: providerAttempts,
+          safety_note: `Provider failed after retry: ${message}`,
+        };
+        try {
+          saveState(taskId, failedState);
+        } catch (stateErr) {
+          console.error('[real-repo-run-ai] Failed to write provider failure state');
+        }
+
         if (isRepair) {
           if (isParseError) {
             console.error(`[real-repo-run-ai] Provider repair output malformed: ${message}`);
@@ -1636,6 +1690,7 @@ if (command === 'real-repo-run-ai') {
         pushed_remote: 'origin',
         pushed_ref: currentBranch,
         commit_sha: headSha,
+        provider_attempts: providerAttempts,
         safety_note: 'Push completed; merge not performed; human review required before merge',
       };
 

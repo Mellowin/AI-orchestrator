@@ -4,6 +4,7 @@ import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition } from './block/block-types.js';
 import { config } from './config.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
+import type { ProviderAttempt } from './types.js';
 
 export interface RealBlockRunTaskResult {
   taskId: string;
@@ -31,6 +32,7 @@ export interface RealBlockRunTaskResult {
   rollbackPolicy?: string;
   rollbackReason?: string;
   childStateTaskId: string;
+  providerAttempts?: ProviderAttempt[];
 }
 
 export interface RealBlockRunSummary {

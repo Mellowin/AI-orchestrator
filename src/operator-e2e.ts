@@ -53,6 +53,14 @@ export interface ArtifactConsistency {
   baseBranchHead?: string;
 }
 
+export interface TaskProviderAttemptSummary {
+  taskId: string;
+  attempts: number;
+  failures: number;
+  recovered: boolean;
+  usedRecoveryPrompt: boolean;
+}
+
 export interface OperatorE2EReport {
   verdict: 'FULLY_PASSED' | 'PASSED_WITH_CAVEATS' | 'FAILED';
   resumeUsed: boolean;
@@ -84,6 +92,7 @@ export interface OperatorE2EReport {
   };
   rollbackProof: OperatorE2EPhaseResult;
   artifactConsistency?: ArtifactConsistency;
+  providerAttemptSummary?: TaskProviderAttemptSummary[];
   phases: OperatorE2EPhaseResult[];
   secretsLeaked: boolean;
   reportJsonPath: string;
@@ -410,7 +419,7 @@ function removeFreshOperatorState(config: OperatorE2EConfig): string[] {
 
 async function runMainBlockConsistencyPhase(
   config: OperatorE2EConfig
-): Promise<OperatorE2EPhaseResult & { artifactConsistency?: ArtifactConsistency }> {
+): Promise<OperatorE2EPhaseResult & { artifactConsistency?: ArtifactConsistency; providerAttemptSummary?: TaskProviderAttemptSummary[] }> {
   const blockPath = resolve(config.blockPath);
   if (!existsSync(blockPath)) {
     return {
@@ -471,6 +480,20 @@ async function runMainBlockConsistencyPhase(
     }
   }
 
+  const providerAttemptSummary: TaskProviderAttemptSummary[] = blockState.taskResults.map((result) => {
+    const attempts = result.providerAttempts ?? [];
+    const failures = attempts.filter((a) => !a.ok).length;
+    const recovered = failures > 0 && (result.status === 'accepted' || result.status === 'fixed_and_accepted');
+    const usedRecoveryPrompt = attempts.some((a) => a.recovery_prompt);
+    return {
+      taskId: result.taskId,
+      attempts: attempts.length,
+      failures,
+      recovered,
+      usedRecoveryPrompt,
+    };
+  });
+
   const blockCompleted = blockState.status === 'completed';
   const allExpectedAccepted = acceptedResults.length === block.tasks.length;
   const artifactConsistency: ArtifactConsistency = {
@@ -497,6 +520,7 @@ async function runMainBlockConsistencyPhase(
       ok: false,
       message: `artifact inconsistent: ${reasons.join('; ')}`,
       artifactConsistency,
+      providerAttemptSummary,
     };
   }
 
@@ -505,6 +529,7 @@ async function runMainBlockConsistencyPhase(
     ok: true,
     message: `all ${block.tasks.length} accepted task commits are present in work branch history`,
     artifactConsistency,
+    providerAttemptSummary,
   };
 }
 
@@ -777,6 +802,18 @@ function buildMarkdownReport(report: OperatorE2EReport): string {
     lines.push('- No PR result recorded');
   }
   lines.push('');
+  lines.push('## Provider Attempts');
+  lines.push('');
+  if (report.providerAttemptSummary && report.providerAttemptSummary.length > 0) {
+    lines.push('| task | attempts | failures | recovered | recovery prompt |');
+    lines.push('|------|----------|----------|-----------|-----------------|');
+    for (const s of report.providerAttemptSummary) {
+      lines.push(`| ${s.taskId} | ${s.attempts} | ${s.failures} | ${s.recovered ? 'yes' : 'no'} | ${s.usedRecoveryPrompt ? 'yes' : 'no'} |`);
+    }
+  } else {
+    lines.push('No provider attempt metadata recorded');
+  }
+  lines.push('');
   lines.push('## Safety Proof');
   lines.push('');
   lines.push(`Blocked ${report.safetyProof.blocked} / ${report.safetyProof.total}`);
@@ -899,6 +936,7 @@ export async function runOperatorE2E(
       }
       if (single.name === 'main_block_consistency') {
         report.artifactConsistency = (single as OperatorE2EPhaseResult & { artifactConsistency?: ArtifactConsistency }).artifactConsistency;
+        report.providerAttemptSummary = (single as OperatorE2EPhaseResult & { providerAttemptSummary?: TaskProviderAttemptSummary[] }).providerAttemptSummary;
       }
       if (detectSecretsInText(single.message)) {
         report.secretsLeaked = true;

@@ -53,6 +53,15 @@ export interface RollbackRecord {
   policy?: RollbackPolicy;
 }
 
+export interface ProviderAttempt {
+  attempt: number;
+  ok: boolean;
+  reason?: string;
+  retryable?: boolean;
+  recovery_prompt?: boolean;
+  raw_text_length?: number;
+}
+
 export interface RunState {
   task_id: string;
   status: RunStatus;
@@ -74,6 +83,7 @@ export interface RunState {
   committed?: boolean;
   pushed?: boolean;
   safety_policy_reasons?: string[];
+  provider_attempts?: ProviderAttempt[];
 }
 
 export interface KimiOutput {

@@ -17,6 +17,7 @@ import {
   resolveOnBlockedTask,
 } from './real-block-task-timeout.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
+import type { ProviderAttempt } from './types.js';
 import type {
   RealBlockRunState,
   RealBlockRunSummary,
@@ -467,6 +468,11 @@ function deriveTaskResult(
   base.codeApplied = typeof commitSha === 'string' && commitSha.length === 40;
   base.pushed = state.status === 'pushed' && run.exitCode === 0;
 
+  const providerAttempts = state.provider_attempts;
+  if (Array.isArray(providerAttempts)) {
+    base.providerAttempts = providerAttempts as ProviderAttempt[];
+  }
+
   const rollback = state.rollback as Record<string, unknown> | undefined;
   if (rollback !== undefined) {
     base.rollbackPolicy =
@@ -688,6 +694,13 @@ function printBlockRunSummary(state: RealBlockRunState): void {
     }
     if (task.reviewerGateStatus) {
       parts.push(`reviewer=${task.reviewerGateStatus}`);
+    }
+    if (task.providerAttempts && task.providerAttempts.length > 0) {
+      const failed = task.providerAttempts.filter((a) => !a.ok).length;
+      parts.push(`providerAttempts=${task.providerAttempts.length}`);
+      if (failed > 0) {
+        parts.push(`providerFailures=${failed}`);
+      }
     }
     lines.push(`[real-block-run-ai] ${parts.join(' ')}`);
   }
