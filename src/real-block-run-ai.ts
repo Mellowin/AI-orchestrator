@@ -662,8 +662,9 @@ function printBlockRunSummary(state: RealBlockRunState): void {
   lines.push(`[real-block-run-ai] Block: ${state.block_id}`);
   lines.push(`[real-block-run-ai] Status: ${state.status}`);
   lines.push(`[real-block-run-ai] State path: ${state.statePath}`);
+  const skipped = state.summary.skippedBlockedTasks ?? 0;
   lines.push(
-    `[real-block-run-ai] Summary: total=${state.summary.totalTasks} completed=${state.summary.completedTasks} accepted=${state.summary.acceptedTasks} fixed=${state.summary.fixedTasks}`
+    `[real-block-run-ai] Summary: total=${state.summary.totalTasks} completed=${state.summary.completedTasks} accepted=${state.summary.acceptedTasks} fixed=${state.summary.fixedTasks} skippedBlocked=${skipped}`
   );
 
   if (state.summary.stoppedReason) {
@@ -805,7 +806,7 @@ export async function runRealBlockRunAI(
   const existingState = loadExistingBlockState(block);
 
   if (existingState !== null && !resume) {
-    if (existingState.status === 'completed') {
+    if (existingState.status === 'completed' || existingState.status === 'completed_with_caveats') {
       throw new Error(
         `Block run already completed. State: ${existingState.statePath}`
       );
@@ -850,7 +851,7 @@ export async function runRealBlockRunAI(
   const skippedTaskIds: string[] = [];
 
   if (existingState !== null && resume) {
-    if (existingState.status === 'completed') {
+    if (existingState.status === 'completed' || existingState.status === 'completed_with_caveats') {
       console.error('[real-block-run-ai] Resume mode: block already completed.');
       printBlockRunSummary(existingState);
       return { exitCode: 0, blockState: existingState };
@@ -893,6 +894,7 @@ export async function runRealBlockRunAI(
         acceptedTasks: 0,
         fixedTasks: 0,
         completedTasks: 0,
+        skippedBlockedTasks: 0,
       },
       startedAt: now,
       safetyNote:
@@ -1039,6 +1041,7 @@ export async function runRealBlockRunAI(
       blockState.finishedAt = new Date().toISOString();
       blockState.summary.acceptedTasks = acceptedCount;
       blockState.summary.fixedTasks = fixedCount;
+      blockState.summary.skippedBlockedTasks = skippedBlockedCount;
       blockState.summary.completedTasks = acceptedCount + fixedCount + skippedBlockedCount;
       blockState.status = 'paused';
       const resumeCommand = `npx tsx src/cli.ts real-block-run-ai ${blockPath} --resume`;
@@ -1070,11 +1073,14 @@ export async function runRealBlockRunAI(
   blockState.finishedAt = new Date().toISOString();
   blockState.summary.acceptedTasks = acceptedCount;
   blockState.summary.fixedTasks = fixedCount;
+  blockState.summary.skippedBlockedTasks = skippedBlockedCount;
   blockState.summary.completedTasks = acceptedCount + fixedCount + skippedBlockedCount;
 
   if (!stopped && blockState.summary.completedTasks === block.tasks.length) {
-    blockState.status = 'completed';
-    blockState.summary.stoppedReason = 'All tasks completed.';
+    blockState.status = skippedBlockedCount > 0 ? 'completed_with_caveats' : 'completed';
+    blockState.summary.stoppedReason = skippedBlockedCount > 0
+      ? `All tasks finished; ${skippedBlockedCount} task(s) blocked/skipped.`
+      : 'All tasks completed.';
   } else {
     const lastResult = blockState.taskResults[blockState.taskResults.length - 1];
     const stopReason = lastResult?.reason ?? 'Block stopped.';

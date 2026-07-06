@@ -196,7 +196,7 @@ function checkExistingState(
     return;
   }
 
-  if (existing.status === 'completed') {
+  if (existing.status === 'completed' || existing.status === 'completed_with_caveats') {
     report.existingState = 'completed';
     if (resume) {
       report.mode = 'completed_noop';
@@ -266,7 +266,7 @@ export function checkRealBlockRunReadiness(
     addReason(report, msg);
   }
 
-  if (!existingStateError && existingState !== null && existingState.status === 'completed' && resume) {
+  if (!existingStateError && existingState !== null && (existingState.status === 'completed' || existingState.status === 'completed_with_caveats') && resume) {
     report.existingState = 'completed';
     report.mode = 'completed_noop';
     report.ready = true;

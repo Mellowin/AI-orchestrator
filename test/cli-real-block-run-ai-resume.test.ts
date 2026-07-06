@@ -329,11 +329,12 @@ describe('cli real-block-run-ai resume', () => {
           buildAcceptReview('Task two looks good'),
         ]),
       }));
-      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert.notStrictEqual(result.status, 0, `Expected non-zero exit because a task was blocked/skipped: ${result.stderr}`);
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2);
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
-      assert.strictEqual(state.status, 'completed');
+      assert.strictEqual(state.status, 'completed_with_caveats');
+      assert.strictEqual(state.summary.skippedBlockedTasks, 1);
       const taskResults = state.taskResults as Array<Record<string, unknown>>;
       assert.strictEqual(taskResults.length, 2);
       assert.strictEqual(taskResults[0].status, 'blocked_skipped');

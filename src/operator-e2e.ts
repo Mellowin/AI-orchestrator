@@ -843,6 +843,36 @@ function detectSecretsInText(text: string): boolean {
   return /\b(sk-[a-zA-Z0-9_-]+)\b/i.test(text) || /\b(ghp_[a-zA-Z0-9]{36})\b/i.test(text);
 }
 
+function cloneReport(report: OperatorE2EReport): OperatorE2EReport {
+  return JSON.parse(JSON.stringify(report)) as OperatorE2EReport;
+}
+
+function findPhaseInReport(report: OperatorE2EReport | undefined, phaseName: string): OperatorE2EPhaseResult | undefined {
+  return report?.phases.find((p) => p.name === phaseName);
+}
+
+export function isPhaseOkInReport(report: OperatorE2EReport | undefined, phaseName: string): boolean {
+  if (!report) return false;
+  if (phaseName === 'clone_tests') {
+    const npmCi = findPhaseInReport(report, 'npm_ci');
+    const npmTest = findPhaseInReport(report, 'npm_test');
+    return !!npmCi?.ok && !!npmTest?.ok;
+  }
+  const phase = findPhaseInReport(report, phaseName);
+  return !!phase?.ok;
+}
+
+export function shouldSkipPhaseOnResume(
+  phaseName: string,
+  phasesCompleted: string[],
+  report: OperatorE2EReport | undefined
+): boolean {
+  if (!phasesCompleted.includes(phaseName)) return false;
+  // Only skip if the prior report actually proves the phase succeeded.
+  // Missing or invalid phase result means we rerun to avoid relying on stale state.
+  return isPhaseOkInReport(report, phaseName);
+}
+
 export async function runOperatorE2E(
   config: OperatorE2EConfig,
   options: { resume?: boolean; fresh?: boolean } = {}
@@ -865,7 +895,7 @@ export async function runOperatorE2E(
     saveOperatorState(state);
   }
 
-  const report: OperatorE2EReport = {
+  const baseReport: OperatorE2EReport = {
     verdict: 'FAILED',
     resumeUsed: state.resumeUsed,
     aiOrchestratorHead: getGitHead(projectRoot),
@@ -884,6 +914,14 @@ export async function runOperatorE2E(
     problems: [],
   };
 
+  const report: OperatorE2EReport = options.resume && state.report ? cloneReport(state.report) : cloneReport(baseReport);
+  // Refresh dynamic fields even when resuming from a saved report.
+  report.resumeUsed = state.resumeUsed;
+  report.aiOrchestratorHead = baseReport.aiOrchestratorHead;
+  report.aiOrchestratorStatus = baseReport.aiOrchestratorStatus;
+  report.reportJsonPath = baseReport.reportJsonPath;
+  report.reportMdPath = baseReport.reportMdPath;
+
   const phasesToRun = ['preflight', 'sandbox_setup', 'main_block', 'main_block_consistency', 'safety_proof', 'rollback_proof', 'clone_tests', 'pr_creation'];
   const phaseFunctions: Record<string, () => Promise<OperatorE2EPhaseResult | { npmCi: OperatorE2EPhaseResult; npmTest: OperatorE2EPhaseResult }>> = {
     preflight: () => runPreflightPhase(),
@@ -899,6 +937,17 @@ export async function runOperatorE2E(
   for (const phaseName of phasesToRun) {
     if (!options.resume && state.phasesCompleted.includes(phaseName)) {
       continue;
+    }
+    if (options.resume && shouldSkipPhaseOnResume(phaseName, state.phasesCompleted, state.report)) {
+      console.error(`[operator-e2e] Resume: skipping already-completed phase "${phaseName}"`);
+      continue;
+    }
+
+    // Avoid duplicate phase entries when rerunning a previously failed/skipped phase on resume.
+    if (phaseName === 'clone_tests') {
+      report.phases = report.phases.filter((p) => p.name !== 'npm_ci' && p.name !== 'npm_test');
+    } else {
+      report.phases = report.phases.filter((p) => p.name !== phaseName);
     }
 
     const phaseResult = await phaseFunctions[phaseName]();

@@ -40,6 +40,7 @@ export interface RealBlockRunSummary {
   acceptedTasks: number;
   fixedTasks: number;
   completedTasks: number;
+  skippedBlockedTasks?: number;
   blockedTaskId?: string;
   failedTaskId?: string;
   stoppedReason?: string;
@@ -48,7 +49,7 @@ export interface RealBlockRunSummary {
 export interface RealBlockRunState {
   block_id: string;
   title: string;
-  status: 'completed' | 'blocked' | 'failed' | 'paused';
+  status: 'completed' | 'completed_with_caveats' | 'blocked' | 'failed' | 'paused';
   currentTaskId: string | null;
   statePath: string;
   taskResults: RealBlockRunTaskResult[];
