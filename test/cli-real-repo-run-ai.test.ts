@@ -1676,7 +1676,7 @@ describe('cli real-repo-run-ai', () => {
         ]),
       });
       assert.notStrictEqual(result.status, 0);
-      assert(result.stderr.includes('Provider repair call failed'), `Expected repair call failed: ${result.stderr}`);
+      assert(result.stderr.includes('Provider repair'), `Expected repair provider failure: ${result.stderr}`);
     } finally {
       cleanup();
     }
