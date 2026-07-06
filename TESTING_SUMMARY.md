@@ -12,7 +12,7 @@
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** Mini-MVP CI run triggered for PR #5 on `0f187fe8f85191a6d3f96c99f43e6c274277ee60`; awaiting final result
+- **GitHub CI:** Mini-MVP CI run passed for PR #5 on `0f187fe8f85191a6d3f96c99f43e6c274277ee60` (run 28809988004)
 - **Product verification:** manual-only (`workflow_dispatch`); not rerun for this release candidate
 - **Debug markers:** none (`DEBUG_CHUNK2`, `CHECK_DEBUG` absent)
 
