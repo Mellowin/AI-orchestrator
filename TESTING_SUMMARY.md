@@ -2,17 +2,17 @@
 
 **Branch:** `stage-18-10-full-mvp-green-rc`
 
-**Last verified:** `0f187fe8f85191a6d3f96c99f43e6c274277ee60`
+**Last verified:** `88585482a7bf03f4d579c0b1638805cf74700083`
 
 ## Test metrics
 
-- **Total tests:** 3595
-- **Total suites:** 200
-- **Last verified commit:** `0f187fe8f85191a6d3f96c99f43e6c274277ee60` (Stage 18.10 - full MVP green release candidate: test discovery pollution fixed, resume tests hardened, npm test routed through chunk runner, CI temp-repo default branch fixed, heavy PR CLI and drill smoke tests isolated, CI chunk timeout raised)
+- **Total tests:** 3140
+- **Total suites:** 191
+- **Last verified commit:** `88585482a7bf03f4d579c0b1638805cf74700083` (Stage 18.10B — RC caveat fixes: validation runner delegates to chunk runner, completed_with_caveats for skipped blocked tasks, operator-e2e resume skips completed phases)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** Mini-MVP CI run passed for PR #5 on `0f187fe8f85191a6d3f96c99f43e6c274277ee60` (run 28809988004)
+- **GitHub CI:** Mini-MVP CI run for PR #5 — latest run ID will be recorded after CI completes
 - **Product verification:** manual-only (`workflow_dispatch`); not rerun for this release candidate
 - **Debug markers:** none (`DEBUG_CHUNK2`, `CHECK_DEBUG` absent)
 
