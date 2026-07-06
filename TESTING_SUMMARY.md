@@ -2,17 +2,17 @@
 
 **Branch:** `stage-18-10-full-mvp-green-rc`
 
-**Last verified:** `88585482a7bf03f4d579c0b1638805cf74700083`
+**Last verified:** `068443644c3dea98f0c844579746385646400b61`
 
 ## Test metrics
 
-- **Total tests:** 3140
-- **Total suites:** 191
-- **Last verified commit:** `88585482a7bf03f4d579c0b1638805cf74700083` (Stage 18.10B — RC caveat fixes: validation runner delegates to chunk runner, completed_with_caveats for skipped blocked tasks, operator-e2e resume skips completed phases)
+- **Total tests:** 3599
+- **Total suites:** 201
+- **Last verified commit:** `068443644c3dea98f0c844579746385646400b61` (Stage 18.10C — completed_with_caveats persistence gap fix: state validation accepts caveated status, regression tests for reload/resume/readiness)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** Mini-MVP CI run passed for PR #5 on `88585482a7bf03f4d579c0b1638805cf74700083` (run 28821025838)
+- **GitHub CI:** Mini-MVP CI run for PR #5 — latest run ID will be recorded after CI completes
 - **Product verification:** manual-only (`workflow_dispatch`); not rerun for this release candidate
 - **Debug markers:** none (`DEBUG_CHUNK2`, `CHECK_DEBUG` absent)
 
