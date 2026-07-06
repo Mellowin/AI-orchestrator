@@ -6,7 +6,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "dev": "tsx src/cli.ts",
-    "test": "tsx --test",
+    "test": "node scripts/run-test-chunks.mjs",
     "test:chunks": "node scripts/run-test-chunks.mjs",
     "test:chunks:product": "node scripts/run-test-chunks.mjs --exclude test/test-chunks-runner.test.ts",
     "test:chunks:product:ci": "node scripts/run-test-chunks.mjs --exclude test/test-chunks-runner.test.ts --concurrency 1 --chunk-timeout-ms 600000 --output-dir tmp/chunk-outputs",

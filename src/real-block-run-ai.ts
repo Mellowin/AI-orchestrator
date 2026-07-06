@@ -929,9 +929,12 @@ export async function runRealBlockRunAI(
     saveBlockState(block, blockState);
 
     let taskResult: RealBlockRunTaskResult;
-    const childLoad = resume
-      ? loadChildState(task.task_id, getRunsDir())
-      : { kind: 'missing' as const };
+    const hasStaleIncompleteResult =
+      existingResult !== undefined && !isCompletedTaskStatus(existingResult.status);
+    const childLoad =
+      resume && !hasStaleIncompleteResult
+        ? loadChildState(task.task_id, getRunsDir())
+        : { kind: 'missing' as const };
 
     if (childLoad.kind === 'corrupted') {
       return blockResumeFailure(

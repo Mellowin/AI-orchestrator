@@ -208,9 +208,11 @@ describe('real-block-run-ai stale state detection', () => {
       KIMI_BASE_URL: 'https://api.kimi.com/coding/v1',
     });
 
-    // --fresh must delete the stale task state. Block state may be recreated by the run.
-    assert.equal(existsSync(taskStatePath), false);
-    assert.match(result.stderr + result.stdout, /Fresh mode/i);
+    // --fresh must delete the stale state at the start of the run. The run may later
+    // recreate task state if it proceeds (e.g. on provider failure), so we verify the
+    // removal happened via the Fresh mode log rather than requiring the path to stay absent.
+    assert.match(result.stderr + result.stdout, /Fresh mode: removed stale state/i);
+    assert.match(result.stderr + result.stdout, new RegExp(`task state: ${taskStatePath.replace(/\\/g, '\\\\')}`));
     // A new block state should be written (even if the run later fails without API key).
     if (existsSync(blockStatePath)) {
       const newState = JSON.parse(readFileSync(blockStatePath, 'utf-8')) as Record<string, unknown>;
