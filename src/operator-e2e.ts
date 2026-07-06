@@ -8,12 +8,13 @@ import { createDraftPullRequest } from './github-pr-client.js';
 import { prepareSandboxBase } from './sandbox-base-preparer.js';
 import { validateAiSafetyPolicy } from './ai-safety-policy.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
-import { getBlockStatePath, loadExistingBlockState, getRunsDir } from './real-block-run-ai-state.js';
+import { getBlockStatePath, loadExistingBlockState, getRunsDir, getBlockRunDir } from './real-block-run-ai-state.js';
 import { loadBlockDefinition } from './block/block-loader.js';
 import {
   prepareFreshBlockRun,
   verifyTaskResultHistory,
 } from './block/block-state-consistency.js';
+import { getRepoRunLockPath, readRunLockMetadata } from './run-lock.js';
 import type { BlockDefinition } from './block/block-types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -146,6 +147,32 @@ function ensureDir(path: string): void {
   if (!existsSync(path)) {
     mkdirSync(path, { recursive: true });
   }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cleanupStaleRunLock(lockPath: string): string | undefined {
+  if (!existsSync(lockPath)) {
+    return undefined;
+  }
+  const metadata = readRunLockMetadata(lockPath);
+  const pid = metadata?.pid;
+  if (pid !== undefined && !isProcessAlive(pid)) {
+    try {
+      rmSync(lockPath, { force: true });
+      return `removed stale lock for pid ${pid}`;
+    } catch {
+      return `failed to remove stale lock for pid ${pid}`;
+    }
+  }
+  return undefined;
 }
 
 function loadJson<T>(path: string): T {
@@ -288,20 +315,17 @@ async function runMainBlockPhase(
   const repoPath = resolve(config.sandboxRepoPath);
   const tsxPath = join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const cliPath = join(projectRoot, 'src', 'cli.ts');
-  let extraArgs: string[] = [];
-  let resuming = false;
+  let block: BlockDefinition;
   try {
-    const blockDef = loadJson<{ block_id: string }>(blockPath);
-    const blockStatePath = getBlockStatePath({ block_id: blockDef.block_id } as BlockDefinition);
-    if (options.fresh) {
-      extraArgs = ['--fresh'];
-    } else if (existsSync(blockStatePath)) {
-      extraArgs = ['--resume'];
-      resuming = true;
-    }
-  } catch {
-    return { name: 'main_block', ok: false, message: `failed to read block definition: ${blockPath}` };
+    block = loadBlockDefinition(blockPath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { name: 'main_block', ok: false, message: `failed to load block definition: ${message}` };
   }
+
+  const blockStatePath = getBlockStatePath(block);
+  const extraArgs: string[] = options.fresh ? ['--fresh'] : existsSync(blockStatePath) ? ['--resume'] : [];
+  const resuming = extraArgs.includes('--resume');
 
   if (resuming) {
     runGit(repoPath, ['fetch', 'origin', config.workBranch]);
@@ -314,6 +338,16 @@ async function runMainBlockPhase(
         runGit(repoPath, ['reset', '--hard', `origin/${config.workBranch}`]);
       }
     }
+  }
+
+  const blockLockPath = join(getBlockRunDir(block), 'run.lock');
+  const repoLockPath = getRepoRunLockPath(repoPath, block.work_branch, getRunsDir());
+  const cleanedLocks = [
+    cleanupStaleRunLock(blockLockPath),
+    cleanupStaleRunLock(repoLockPath),
+  ].filter((m): m is string => m !== undefined);
+  if (cleanedLocks.length > 0) {
+    console.error(`[operator-e2e] Cleaned stale locks before main_block: ${cleanedLocks.join('; ')}`);
   }
 
   const env: NodeJS.ProcessEnv = {
@@ -333,7 +367,7 @@ async function runMainBlockPhase(
       env,
       encoding: 'utf-8',
       shell: false,
-      timeout: 900000,
+      timeout: 3600000,
     }
   );
 
@@ -546,6 +580,24 @@ async function runRollbackProofPhase(config: OperatorE2EConfig): Promise<Operato
     return { name: 'rollback_proof', ok: false, message: `rollback block not found: ${blockPath}` };
   }
 
+  let rollbackBlock: BlockDefinition;
+  try {
+    rollbackBlock = loadBlockDefinition(blockPath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { name: 'rollback_proof', ok: false, message: `failed to load rollback block: ${message}` };
+  }
+
+  const rollbackBlockLockPath = join(getBlockRunDir(rollbackBlock), 'run.lock');
+  const rollbackRepoLockPath = getRepoRunLockPath(repoPath, rollbackBlock.work_branch, getRunsDir());
+  const rollbackCleanedLocks = [
+    cleanupStaleRunLock(rollbackBlockLockPath),
+    cleanupStaleRunLock(rollbackRepoLockPath),
+  ].filter((m): m is string => m !== undefined);
+  if (rollbackCleanedLocks.length > 0) {
+    console.error(`[operator-e2e] Cleaned stale locks before rollback_proof: ${rollbackCleanedLocks.join('; ')}`);
+  }
+
   const tsxPath = join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const cliPath = join(projectRoot, 'src', 'cli.ts');
   const env: NodeJS.ProcessEnv = {
@@ -565,7 +617,7 @@ async function runRollbackProofPhase(config: OperatorE2EConfig): Promise<Operato
       env,
       encoding: 'utf-8',
       shell: false,
-      timeout: 300000,
+      timeout: 600000,
     }
   );
 
