@@ -34,6 +34,9 @@ const HEAVY_FILE_NAMES = new Set([
   'cli-real-repo-run-ai.test.ts',
   'cli-real-repo-pr-create.test.ts',
   'cli-real-repo-pr-readiness.test.ts',
+  'block-follow-up-drill.test.ts',
+  'post-push-follow-up-drill.test.ts',
+  'rollback-policy-drill.test.ts',
 ]);
 const TEST_DIR = join(__dirname, '..', 'test');
 const RUNNER_BIN = process.execPath;
