@@ -344,6 +344,42 @@ describe('cli real-block-run-ai resume', () => {
     }
   });
 
+  test('resume on completed_with_caveats block is a no-op and does not rerun provider', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv({ onBlockedTask: 'continue' });
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const first = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildBlockReview('Block task one', ['reason']),
+          buildAcceptReview('Task two looks good'),
+        ]),
+      }));
+      assert.notStrictEqual(first.status, 0, `Expected first run to exit non-zero: ${first.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2);
+      let state = getBlockState(runsDir, blockId);
+      assert.strictEqual(state?.status, 'completed_with_caveats');
+
+      // Resume should recognize the block as already finished and return exit 0 without new provider calls.
+      const second = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([]),
+      }));
+      assert.strictEqual(second.status, 0, `Expected resume no-op to exit 0: ${second.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Resume must not create new commits');
+      state = getBlockState(runsDir, blockId);
+      assert.strictEqual(state?.status, 'completed_with_caveats');
+      assert.strictEqual((state?.summary as Record<string, unknown>)?.skippedBlockedTasks, 1);
+    } finally {
+      cleanup();
+    }
+  });
+
   test('resume after blocked child does not corrupt previous task state', () => {
     const env = createTempBlockEnv({ onBlockedTask: 'continue' });
     try {

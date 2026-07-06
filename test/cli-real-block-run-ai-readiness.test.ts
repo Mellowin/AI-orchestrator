@@ -655,6 +655,31 @@ describe('cli real-block-run-ai-readiness', () => {
     }
   });
 
+  test('existing completed_with_caveats state with resume returns ready completed_noop', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const state = buildBaseState(blockId, 'Test', runsDir, 'completed_with_caveats', [
+      acceptedResult('task-one', 'a'.repeat(40)),
+      acceptedResult('task-two', 'b'.repeat(40)),
+    ]);
+    (state.summary as Record<string, unknown>).skippedBlockedTasks = 1;
+    writeBlockState(runsDir, blockId, state);
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(
+        ['real-block-run-ai-readiness', blockPath, '--resume'],
+        baseReadinessEnv(runsDir)
+      );
+      assert.strictEqual(result.status, 0, `Expected ready: ${result.stderr}`);
+      const report = parseReport(result);
+      assert.strictEqual(report.ready, true);
+      assert.strictEqual(report.mode, 'completed_noop');
+      assert.strictEqual(report.existingState, 'completed');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount);
+    } finally {
+      cleanup();
+    }
+  });
+
   test('corrupt state returns ready false', () => {
     const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
     const dir = join(runsDir, 'block', blockId);

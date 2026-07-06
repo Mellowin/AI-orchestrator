@@ -106,7 +106,7 @@ function validateBlockRunState(
     throw new Error('Existing block state file does not match block_id');
   }
 
-  const validStatuses = ['completed', 'blocked', 'failed', 'paused'];
+  const validStatuses = ['completed', 'completed_with_caveats', 'blocked', 'failed', 'paused'];
   if (typeof parsed.status !== 'string' || !validStatuses.includes(parsed.status)) {
     throw new Error('Existing block state file has invalid status');
   }
