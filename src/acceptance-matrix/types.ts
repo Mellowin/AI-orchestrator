@@ -98,6 +98,7 @@ export interface AcceptanceScenarioResult {
     created: boolean;
     number?: number;
     url?: string;
+    draft?: boolean;
     reason?: string;
   };
   /** Resume no-op evidence for scenarios that support resume. */

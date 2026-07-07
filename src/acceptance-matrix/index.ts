@@ -8,6 +8,8 @@ export { buildScenarioBlock } from './block-builder.js';
 export { classifyScenarioResult } from './classifier.js';
 export { buildFakeResponseArrays, buildFakeResponseScenario } from './fake-response-builder.js';
 export { runAcceptanceMatrix } from './runner.js';
+export { createAcceptanceMatrixPr } from './pr-creator.js';
+export { countProviderAttempts } from './provider-attempts-counter.js';
 export { writeAcceptanceMatrixReports } from './report-writer.js';
 export type {
   AcceptanceMatrixConfig,

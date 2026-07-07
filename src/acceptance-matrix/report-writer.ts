@@ -96,6 +96,7 @@ export function writeAcceptanceMatrixReports(result: AcceptanceMatrixResult): vo
     }
     if (r.pr) {
       lines.push(`- PR created: ${r.pr.created ? 'yes' : 'no'}`);
+      if (typeof r.pr.draft === 'boolean') lines.push(`  - Draft: ${r.pr.draft ? 'yes' : 'no'}`);
       if (r.pr.number) lines.push(`  - Number: #${r.pr.number}`);
       if (r.pr.url) lines.push(`  - URL: ${r.pr.url}`);
       if (r.pr.reason) lines.push(`  - Reason: ${redactSecrets(r.pr.reason)}`);

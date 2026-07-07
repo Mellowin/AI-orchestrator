@@ -201,4 +201,56 @@ describe('acceptance-matrix runner integration', () => {
       rmSync(reportBase, { recursive: true, force: true });
     }
   });
+
+  test('supports a configured base branch other than main', async () => {
+    const repo = createTempGitRepo();
+    const reportBase = mkdtempSync(join(process.cwd(), 'tmp', `am-dev-${Date.now()}-`));
+    try {
+      // Create a 'develop' base branch in the sandbox.
+      const git = (args: string[]) => {
+        const result = spawnSync('git', args, { cwd: repo.path, encoding: 'utf-8', shell: false });
+        if (result.status !== 0) {
+          throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+        }
+      };
+      git(['checkout', '-b', 'develop']);
+      writeFileSync(join(repo.path, 'develop.md'), '# Develop\n', 'utf-8');
+      git(['add', 'develop.md']);
+      git(['commit', '-m', 'develop base']);
+      git(['push', '-u', 'origin', 'develop']);
+
+      const config: AcceptanceMatrixConfig = {
+        provider: 'fake',
+        allow_real_provider: false,
+        allow_github_pr_create: false,
+        allow_real_repo_apply: true,
+        allow_real_repo_commit: true,
+        allow_real_repo_push: true,
+        stop_on_orchestrator_bug: true,
+        report_dir: reportBase,
+        sandbox_repo_path: repo.path,
+        scenarios: [
+          {
+            type: 'golden_real_multitask',
+            label: 'Golden on develop',
+            base_branch: 'develop',
+            work_branch: 'am-golden-develop',
+            unsafe_response_mode: 'none',
+          },
+        ],
+      };
+
+      const result = await runAcceptanceMatrix(config);
+      assert.strictEqual(result.summary.total, 1);
+      assert.strictEqual(result.summary.passed, 1);
+      assert.strictEqual(result.summary.failed, 0);
+
+      const golden = result.results[0];
+      assert.strictEqual(golden.status, 'passed');
+      assert.ok((golden.commit_count_ahead ?? 0) > 0, 'scenario on develop base should produce commits ahead');
+    } finally {
+      repo.cleanup();
+      rmSync(reportBase, { recursive: true, force: true });
+    }
+  });
 });

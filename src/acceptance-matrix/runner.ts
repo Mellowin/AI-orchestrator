@@ -7,6 +7,8 @@ import { buildScenarioBlock } from './block-builder.js';
 import { classifyScenarioResult } from './classifier.js';
 import { validateAcceptanceMatrixRuntime } from './env-validator.js';
 import { buildFakeResponseArrays } from './fake-response-builder.js';
+import { createAcceptanceMatrixPr } from './pr-creator.js';
+import { countProviderAttempts } from './provider-attempts-counter.js';
 import {
   prepareSandboxRepo,
   prepareScenarioWorkBranch,
@@ -63,13 +65,6 @@ function loadBlockStateFromPath(statePath: string): Record<string, unknown> | nu
   } catch {
     return null;
   }
-}
-
-function countProviderAttempts(state: Record<string, unknown> | null): number {
-  if (!state) return 0;
-  const attempts = state.provider_attempts;
-  if (!Array.isArray(attempts)) return 0;
-  return attempts.length;
 }
 
 function resumeCompletedNoopMarkerFound(stdout: string, stderr: string): boolean {
@@ -198,45 +193,6 @@ function runBlockReport(statePath: string, env: NodeJS.ProcessEnv): { stdout: st
   };
 }
 
-function runPrCreate(
-  blockPath: string,
-  env: NodeJS.ProcessEnv
-): { created: boolean; number?: number; url?: string; reason: string } {
-  const result = spawnSync(
-    process.execPath,
-    [tsxCliPath, cliPath, 'block-pr-create', blockPath],
-    {
-      cwd: projectRoot,
-      env,
-      encoding: 'utf-8',
-      shell: false,
-      timeout: 120000,
-    }
-  );
-
-  const output = `${result.stdout || ''}\n${result.stderr || ''}`;
-  const dryRun = env.BLOCK_PR_CREATE_DRY_RUN === 'true';
-
-  if (result.status !== 0) {
-    const reason = redactSecrets(output.trim()) || 'block-pr-create exited with non-zero code';
-    return { created: false, reason };
-  }
-
-  if (dryRun) {
-    return { created: true, reason: 'Dry-run: PR would be created' };
-  }
-
-  const created = output.includes('PR created: yes');
-  const numberMatch = output.match(/PR number:\s*(\d+)/);
-  const urlMatch = output.match(/PR URL:\s*(\S+)/);
-  return {
-    created,
-    number: numberMatch ? parseInt(numberMatch[1], 10) : undefined,
-    url: urlMatch ? urlMatch[1] : undefined,
-    reason: created ? 'PR created' : 'PR creation declined or blocked',
-  };
-}
-
 function captureGitLog(repoPath: string): string {
   const result = spawnSync(
     'git',
@@ -307,29 +263,33 @@ export async function runAcceptanceMatrix(
     };
   }
 
-  const sandboxPrep = prepareSandboxRepo(config.sandbox_repo_path, 'main');
-  if (!sandboxPrep.ok) {
-    const err = `Sandbox preparation failed: ${sandboxPrep.issues.join('; ')}`;
-    results.push({
-      type: config.scenarios[0]?.type ?? 'golden_real_multitask',
-      label: config.scenarios[0]?.label ?? 'first scenario',
-      status: 'failed',
-      classification: 'CONFIG_ERROR',
-      reason: err,
-      evidence_dir: config.report_dir,
-      duration_ms: Date.now() - startTime,
-    });
-    const finishedAt = nowIso();
-    return {
-      config,
-      started_at: startedAt,
-      finished_at: finishedAt,
-      duration_ms: Date.now() - startTime,
-      summary: { total: config.scenarios.length, passed: 0, passed_with_caveats: 0, failed: 1, skipped: config.scenarios.length - 1 },
-      results,
-      report_dir: config.report_dir,
-      orchestrator_exit_code: 1,
-    };
+  // Prepare every unique base branch configured by the scenarios.
+  const baseBranches = [...new Set(config.scenarios.map((s) => s.base_branch))];
+  for (const baseBranch of baseBranches) {
+    const sandboxPrep = prepareSandboxRepo(config.sandbox_repo_path, baseBranch);
+    if (!sandboxPrep.ok) {
+      const err = `Sandbox preparation failed for base ${baseBranch}: ${sandboxPrep.issues.join('; ')}`;
+      results.push({
+        type: config.scenarios[0]?.type ?? 'golden_real_multitask',
+        label: config.scenarios[0]?.label ?? 'first scenario',
+        status: 'failed',
+        classification: 'CONFIG_ERROR',
+        reason: err,
+        evidence_dir: config.report_dir,
+        duration_ms: Date.now() - startTime,
+      });
+      const finishedAt = nowIso();
+      return {
+        config,
+        started_at: startedAt,
+        finished_at: finishedAt,
+        duration_ms: Date.now() - startTime,
+        summary: { total: config.scenarios.length, passed: 0, passed_with_caveats: 0, failed: 1, skipped: config.scenarios.length - 1 },
+        results,
+        report_dir: config.report_dir,
+        orchestrator_exit_code: 1,
+      };
+    }
   }
 
   let stopMatrix = false;
@@ -410,25 +370,21 @@ export async function runAcceptanceMatrix(
 
     let prResult: AcceptanceScenarioResult['pr'] | undefined;
     if (config.allow_github_pr_create && classification.status !== 'failed') {
-      const prEnv: NodeJS.ProcessEnv = { ...env };
-      if (config.sandbox_repo_slug) {
-        prEnv.GITHUB_REPOSITORY = config.sandbox_repo_slug;
-      }
-      const pr = runPrCreate(blockPath, prEnv);
+      const githubToken = process.env.GITHUB_TOKEN ?? '';
+      const pr = await createAcceptanceMatrixPr(config, scenario, githubToken);
       prResult = {
         created: pr.created,
         number: pr.number,
         url: pr.url,
+        draft: pr.draft,
         reason: pr.reason,
       };
-      if (!pr.created) {
-        if (classification.status === 'passed') {
-          classification.status = 'passed_with_caveats';
-          classification.classification = 'HUMAN_TOKEN_PERMISSION_ERROR';
-          classification.reason = `${classification.reason}; PR creation failed: ${pr.reason}`;
-        }
+      if (!pr.created && classification.status === 'passed') {
+        classification.status = 'passed_with_caveats';
+        classification.classification = pr.classification ?? 'GITHUB_API_ERROR';
+        classification.reason = `${classification.reason}; PR creation failed: ${pr.reason}`;
       }
-      writeFileSync(join(evidenceDir, 'pr-create-output.txt'), redactSecrets(`${pr.created} ${pr.reason}`), 'utf-8');
+      writeFileSync(join(evidenceDir, 'pr-create-output.txt'), redactSecrets(pr.reason), 'utf-8');
     }
 
     // Collect commits ahead of base (not the entire branch history).
