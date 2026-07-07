@@ -1,4 +1,9 @@
 export { loadAcceptanceMatrixConfig, validateAcceptanceMatrixConfig } from './config-loader.js';
+export {
+  validateAcceptanceMatrixRuntime,
+  type RuntimeValidationReport,
+  type RuntimeValidationResult,
+} from './env-validator.js';
 export { buildScenarioBlock } from './block-builder.js';
 export { classifyScenarioResult } from './classifier.js';
 export { buildFakeResponseArrays, buildFakeResponseScenario } from './fake-response-builder.js';

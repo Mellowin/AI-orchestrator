@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { BlockDefinition } from '../block/block-types.js';
 import { buildScenarioBlock } from './block-builder.js';
 import { classifyScenarioResult } from './classifier.js';
+import { validateAcceptanceMatrixRuntime } from './env-validator.js';
 import { buildFakeResponseArrays } from './fake-response-builder.js';
 import {
   prepareSandboxRepo,
@@ -71,20 +72,20 @@ function buildChildEnv(
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
 
-  // Required opt-ins for real-block-run-ai and its child real-repo-run-ai.
+  // Sandbox repo mutation opt-ins must come from config, not from runner magic.
   env.ALLOW_REAL_BLOCK_RUN_AI = 'true';
-  env.ALLOW_REAL_PROVIDER = 'true';
-  env.ALLOW_REAL_REPO_APPLY = 'true';
-  env.ALLOW_REAL_REPO_COMMIT = 'true';
-  env.ALLOW_REAL_REPO_PUSH = 'true';
+  env.ALLOW_REAL_PROVIDER =
+    config.provider === 'fake' || config.allow_real_provider ? 'true' : '';
+  env.ALLOW_REAL_REPO_APPLY = config.allow_real_repo_apply ? 'true' : '';
+  env.ALLOW_REAL_REPO_COMMIT = config.allow_real_repo_commit ? 'true' : '';
+  env.ALLOW_REAL_REPO_PUSH = config.allow_real_repo_push ? 'true' : '';
   env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP = '1';
   env.RUNS_DIR = runsDir;
 
+  // In fake mode we never call a real provider; use a placeholder key only if
+  // the real one is absent so the readiness check passes.
   if (config.provider === 'fake') {
     env.KIMI_API_KEY = env.KIMI_API_KEY || 'fake-api-key-for-acceptance-matrix';
-    env.KIMI_BASE_URL = env.KIMI_BASE_URL || 'https://api.moonshot.ai/v1';
-  } else {
-    env.KIMI_API_KEY = env.KIMI_API_KEY || '';
     env.KIMI_BASE_URL = env.KIMI_BASE_URL || 'https://api.moonshot.ai/v1';
   }
 
@@ -135,6 +136,33 @@ function runBlock(
     exitCode,
     stdout,
     stderr,
+    statePath,
+    state: loadBlockStateFromPath(statePath),
+  };
+}
+
+function runBlockResume(
+  blockPath: string,
+  env: NodeJS.ProcessEnv,
+  statePath: string,
+  timeoutMs = 300000
+): BlockRunOutput {
+  const result = spawnSync(
+    process.execPath,
+    [tsxCliPath, cliPath, 'real-block-run-ai', blockPath, '--resume'],
+    {
+      cwd: projectRoot,
+      env,
+      encoding: 'utf-8',
+      shell: false,
+      timeout: timeoutMs,
+    }
+  );
+
+  return {
+    exitCode: result.status ?? 1,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
     statePath,
     state: loadBlockStateFromPath(statePath),
   };
@@ -206,10 +234,14 @@ function captureGitLog(repoPath: string): string {
   return result.stdout || '';
 }
 
-function getCommitList(repoPath: string, branch: string): string[] {
+function getCommitsAhead(
+  repoPath: string,
+  baseBranch: string,
+  workBranch: string
+): string[] {
   const result = spawnSync(
     'git',
-    ['rev-list', branch],
+    ['rev-list', `${baseBranch}..${workBranch}`],
     { cwd: repoPath, encoding: 'utf-8', shell: false }
   );
   if (result.status !== 0) return [];
@@ -224,6 +256,44 @@ export async function runAcceptanceMatrix(
   const results: AcceptanceScenarioResult[] = [];
 
   ensureDir(config.report_dir);
+
+  const runtimeValidation = validateAcceptanceMatrixRuntime(config);
+  console.error('[acceptance-matrix] Runtime env check:');
+  console.error(`  KIMI_API_KEY: ${runtimeValidation.report.kimi_api_key}`);
+  console.error(`  GITHUB_TOKEN: ${runtimeValidation.report.github_token}`);
+  if (!runtimeValidation.ok) {
+    const reasons = runtimeValidation.reasons.join('; ');
+    console.error(`[acceptance-matrix] Runtime validation failed: ${reasons}`);
+    const firstScenario = config.scenarios[0];
+    const failureResult: AcceptanceScenarioResult = {
+      type: firstScenario?.type ?? 'golden_real_multitask',
+      label: firstScenario?.label ?? 'first scenario',
+      status: 'failed',
+      classification: config.allow_github_pr_create && runtimeValidation.report.github_token === 'missing'
+        ? 'HUMAN_TOKEN_PERMISSION_ERROR'
+        : 'CONFIG_ERROR',
+      reason: `Runtime validation failed: ${reasons}`,
+      evidence_dir: config.report_dir,
+      duration_ms: Date.now() - startTime,
+    };
+    const finishedAt = nowIso();
+    return {
+      config,
+      started_at: startedAt,
+      finished_at: finishedAt,
+      duration_ms: Date.now() - startTime,
+      summary: {
+        total: config.scenarios.length,
+        passed: 0,
+        passed_with_caveats: 0,
+        failed: 1,
+        skipped: config.scenarios.length - 1,
+      },
+      results: [failureResult],
+      report_dir: config.report_dir,
+      orchestrator_exit_code: 1,
+    };
+  }
 
   const sandboxPrep = prepareSandboxRepo(config.sandbox_repo_path, 'main');
   if (!sandboxPrep.ok) {
@@ -349,6 +419,46 @@ export async function runAcceptanceMatrix(
       writeFileSync(join(evidenceDir, 'pr-create-output.txt'), redactSecrets(`${pr.created} ${pr.reason}`), 'utf-8');
     }
 
+    // Collect commits ahead of base (not the entire branch history).
+    const commitsAhead = getCommitsAhead(
+      config.sandbox_repo_path,
+      scenario.base_branch,
+      scenario.work_branch
+    );
+
+    // Resume no-op proof for scenarios that complete with caveats (e.g. blocked_continue).
+    let resumeResult: AcceptanceScenarioResult['resume'] | undefined;
+    const statusAfterFirstRun = (run.state?.status as string) ?? null;
+    if (
+      scenario.type === 'blocked_continue' &&
+      statusAfterFirstRun === 'completed_with_caveats'
+    ) {
+      const commitsBeforeResume = getCommitsAhead(
+        config.sandbox_repo_path,
+        scenario.base_branch,
+        scenario.work_branch
+      );
+      const resumeRun = runBlockResume(blockPath, env, statePath);
+      writeFileSync(join(evidenceDir, 'resume-stdout.txt'), redactSecrets(resumeRun.stdout), 'utf-8');
+      writeFileSync(join(evidenceDir, 'resume-stderr.txt'), redactSecrets(resumeRun.stderr), 'utf-8');
+      const commitsAfterResume = getCommitsAhead(
+        config.sandbox_repo_path,
+        scenario.base_branch,
+        scenario.work_branch
+      );
+      const resumeStatus = (resumeRun.state?.status as string) ?? 'unknown';
+      resumeResult = {
+        exit_code: resumeRun.exitCode,
+        status: resumeStatus,
+        commit_count_ahead_before: commitsBeforeResume.length,
+        commit_count_ahead_after: commitsAfterResume.length,
+        reason:
+          resumeRun.exitCode === 0 && commitsAfterResume.length === commitsBeforeResume.length
+            ? 'Resume on completed_with_caveats was a no-op: no new commits, provider not rerun'
+            : `Resume produced unexpected result (exit=${resumeRun.exitCode}, commits before=${commitsBeforeResume.length}, after=${commitsAfterResume.length})`,
+      };
+    }
+
     const result: AcceptanceScenarioResult = {
       type: scenario.type,
       label: scenario.label ?? scenario.type,
@@ -359,8 +469,10 @@ export async function runAcceptanceMatrix(
       evidence_dir: evidenceDir,
       block_path: blockPath,
       state_path: run.state ? statePath : undefined,
-      commits: getCommitList(config.sandbox_repo_path, scenario.work_branch),
+      commits_ahead: commitsAhead,
+      commit_count_ahead: commitsAhead.length,
       pr: prResult,
+      resume: resumeResult,
       duration_ms: Date.now() - scenarioStart,
     };
     results.push(result);

@@ -57,6 +57,12 @@ export interface AcceptanceMatrixConfig {
   allow_real_provider: boolean;
   /** If true, the runner may create GitHub PRs (still gated by token perms). */
   allow_github_pr_create: boolean;
+  /** If true, the runner may apply files to the sandbox repo. */
+  allow_real_repo_apply: boolean;
+  /** If true, the runner may commit changes in the sandbox repo. */
+  allow_real_repo_commit: boolean;
+  /** If true, the runner may push changes from the sandbox repo. */
+  allow_real_repo_push: boolean;
   /** If true, stop the whole matrix on an unexpected orchestrator bug. */
   stop_on_orchestrator_bug: boolean;
   /** Directory where reports and per-scenario evidence are written. */
@@ -94,6 +100,18 @@ export interface AcceptanceScenarioResult {
     url?: string;
     reason?: string;
   };
+  /** Resume no-op evidence for scenarios that support resume. */
+  resume?: {
+    exit_code: number;
+    status: string;
+    commit_count_ahead_before: number;
+    commit_count_ahead_after: number;
+    reason: string;
+  };
+  /** Commits produced in the sandbox repo ahead of the base branch. */
+  commits_ahead?: string[];
+  /** Number of commits ahead of the base branch. */
+  commit_count_ahead?: number;
   /** Duration in milliseconds. */
   duration_ms: number;
 }

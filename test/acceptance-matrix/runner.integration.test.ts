@@ -1,6 +1,6 @@
 import { describe, test, before } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { runAcceptanceMatrix } from '../../src/acceptance-matrix/runner.js';
@@ -56,7 +56,7 @@ describe('acceptance-matrix runner integration', () => {
     process.env.ALLOW_REAL_REPO_APPLY = 'true';
     process.env.ALLOW_REAL_REPO_COMMIT = 'true';
     process.env.ALLOW_REAL_REPO_PUSH = 'true';
-    process.env.KIMI_API_KEY = 'fake-key-for-test';
+    process.env.KIMI_API_KEY = 'sk-fake-key-for-test';
     process.env.KIMI_BASE_URL = 'https://api.moonshot.ai/v1';
     process.env.KIMI_MODEL = 'kimi-k2.6';
   });
@@ -69,6 +69,9 @@ describe('acceptance-matrix runner integration', () => {
         provider: 'fake',
         allow_real_provider: false,
         allow_github_pr_create: false,
+        allow_real_repo_apply: true,
+        allow_real_repo_commit: true,
+        allow_real_repo_push: true,
         stop_on_orchestrator_bug: true,
         report_dir: reportBase,
         sandbox_repo_path: repo.path,
@@ -109,6 +112,14 @@ describe('acceptance-matrix runner integration', () => {
       assert.ok(golden);
       assert.strictEqual(golden?.status, 'passed');
       assert.strictEqual(golden?.expected, true);
+      assert.ok((golden?.commit_count_ahead ?? 0) > 0, 'golden scenario should produce commits ahead of base');
+
+      // Verify stdout/stderr were redacted and do not contain the fake key.
+      const goldenDir = golden?.evidence_dir ?? '';
+      const stdout = readFileSync(join(goldenDir, 'stdout.txt'), 'utf-8');
+      const stderr = readFileSync(join(goldenDir, 'stderr.txt'), 'utf-8');
+      assert.ok(!stdout.includes('sk-fake-key-for-test'));
+      assert.ok(!stderr.includes('sk-fake-key-for-test'));
 
       const blockedStop = result.results.find((r) => r.type === 'blocked_stop');
       assert.ok(blockedStop);
@@ -124,6 +135,12 @@ describe('acceptance-matrix runner integration', () => {
       assert.strictEqual(
         blockedContinue?.classification,
         'SAFETY_POLICY_BLOCK_EXPECTED_WITH_FAKE_UNSAFE_RESPONSE'
+      );
+      assert.ok(blockedContinue?.resume, 'blocked_continue should have resume no-op evidence');
+      assert.strictEqual(blockedContinue?.resume?.exit_code, 0);
+      assert.strictEqual(
+        blockedContinue?.resume?.commit_count_ahead_before,
+        blockedContinue?.resume?.commit_count_ahead_after
       );
 
       assert.ok(existsSync(join(reportBase, 'acceptance-matrix-result.json')));
@@ -142,6 +159,9 @@ describe('acceptance-matrix runner integration', () => {
         provider: 'kimi',
         allow_real_provider: false,
         allow_github_pr_create: false,
+        allow_real_repo_apply: true,
+        allow_real_repo_commit: true,
+        allow_real_repo_push: true,
         stop_on_orchestrator_bug: true,
         report_dir: reportBase,
         sandbox_repo_path: repo.path,

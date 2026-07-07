@@ -42,6 +42,15 @@ export function validateAcceptanceMatrixConfig(value: unknown): { ok: boolean; r
   if (typeof config.allow_github_pr_create !== 'boolean') {
     reasons.push('allow_github_pr_create must be a boolean');
   }
+  if (typeof config.allow_real_repo_apply !== 'boolean') {
+    reasons.push('allow_real_repo_apply must be a boolean');
+  }
+  if (typeof config.allow_real_repo_commit !== 'boolean') {
+    reasons.push('allow_real_repo_commit must be a boolean');
+  }
+  if (typeof config.allow_real_repo_push !== 'boolean') {
+    reasons.push('allow_real_repo_push must be a boolean');
+  }
   if (typeof config.stop_on_orchestrator_bug !== 'boolean') {
     reasons.push('stop_on_orchestrator_bug must be a boolean');
   }

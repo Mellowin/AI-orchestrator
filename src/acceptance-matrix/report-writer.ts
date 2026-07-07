@@ -76,11 +76,19 @@ export function writeAcceptanceMatrixReports(result: AcceptanceMatrixResult): vo
     if (r.state_path) {
       lines.push(`- State: \`${r.state_path}\``);
     }
-    if (r.commits && r.commits.length > 0) {
-      lines.push(`- Commits: ${r.commits.length}`);
-      for (const sha of r.commits.slice(0, 5)) {
-        lines.push(`  - \`${sha}\``);
+    if (typeof r.commit_count_ahead === 'number') {
+      lines.push(`- Commits ahead of ${r.block_path ? 'base' : 'base'}: ${r.commit_count_ahead}`);
+      if (r.commits_ahead && r.commits_ahead.length > 0) {
+        for (const sha of r.commits_ahead.slice(0, 5)) {
+          lines.push(`  - \`${sha}\``);
+        }
       }
+    }
+    if (r.resume) {
+      lines.push(`- Resume no-op: exit_code=${r.resume.exit_code}, status=${r.resume.status}`);
+      lines.push(`  - commits ahead before: ${r.resume.commit_count_ahead_before}`);
+      lines.push(`  - commits ahead after: ${r.resume.commit_count_ahead_after}`);
+      lines.push(`  - reason: ${redactSecrets(r.resume.reason)}`);
     }
     if (r.pr) {
       lines.push(`- PR created: ${r.pr.created ? 'yes' : 'no'}`);
