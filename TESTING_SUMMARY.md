@@ -2,17 +2,18 @@
 
 **Branch:** `main`
 
-**Last verified:** `ecb450cfb91d0d99125478683e32984e6fc31071`
+**Last verified:** `193b2a933306ab618b7ee1579050e21a9c012e9e`
 
 ## Test metrics
 
 - **Total tests:** 3457
 - **Total suites:** 204
-- **Last verified commit:** `ecb450cfb91d0d99125478683e32984e6fc31071` (Post-squash-merge evidence-lock refresh for PR #5; product validation from PR CI run 28860717458)
+- **Acceptance-matrix tests:** 49/49 green (local run)
+- **Last verified commit:** `193b2a933306ab618b7ee1579050e21a9c012e9e` (Stage 18.14C acceptance-matrix Codex blocker fixes; PR #7 CI run 28899572000)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** PR CI run 28860717458 success (all checks, drills, and operator golden path green); main CI #451 failure was caused solely by the stale TESTING_SUMMARY evidence lock after squash merge
+- **GitHub CI:** PR #7 CI run 28899572000 — type check and build success; Test step initially failed only on stale TESTING_SUMMARY evidence lock (`verify-testing-summary`), which is refreshed by this commit. First failure was expected because `TESTING_SUMMARY.md` was intentionally held back until code changes stabilized.
 - **Product verification:** manual-only (`workflow_dispatch`); not rerun for this release candidate
 - **Debug markers:** none (`DEBUG_CHUNK2`, `CHECK_DEBUG` absent)
 

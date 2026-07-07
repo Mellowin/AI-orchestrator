@@ -98,6 +98,11 @@ import { captureCheckpoint, rollbackToCheckpoint, formatRollbackResult, type Rep
 import { runRealProviderSmoke } from './real-provider-smoke.js';
 import { runRealCoderContractSmoke, formatRealCoderContractSmokeReport } from './real-coder-contract-smoke.js';
 import { runRealReviewerContractSmoke, formatRealReviewerContractSmokeReport } from './real-reviewer-contract-smoke.js';
+import {
+  loadAcceptanceMatrixConfig,
+  runAcceptanceMatrix,
+  writeAcceptanceMatrixReports,
+} from './acceptance-matrix/index.js';
 import { loadOperatorE2EConfig, runOperatorE2E } from './operator-e2e.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import { renderBlockRunReport } from './real-block-run-ai-report.js';
@@ -6281,6 +6286,42 @@ if (command === 'real-block-follow-up') {
     console.error(`[real-block-follow-up] Error: ${message}`);
     console.error('[real-block-follow-up] No provider call was made');
     console.error('[real-block-follow-up] No repository mutation was performed');
+    process.exitCode = 1;
+    break commandDispatch;
+  }
+}
+
+if (command === 'acceptance-matrix') {
+  try {
+    const configPath = taskId;
+    if (!configPath) {
+      console.error('[acceptance-matrix] Error: config JSON path is required');
+      console.error('[acceptance-matrix] Usage: npx tsx src/cli.ts acceptance-matrix <config.json>');
+      console.error('[acceptance-matrix] No provider call was made');
+      console.error('[acceptance-matrix] No repository mutation was performed');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+
+    const config = loadAcceptanceMatrixConfig(configPath);
+    const result = await runAcceptanceMatrix(config);
+    writeAcceptanceMatrixReports(result);
+
+    console.error(`[acceptance-matrix] Matrix finished: ${result.summary.passed} passed, ${result.summary.passed_with_caveats} with caveats, ${result.summary.failed} failed, ${result.summary.skipped} skipped`);
+    console.error(`[acceptance-matrix] Report dir: ${result.report_dir}`);
+    console.error(`[acceptance-matrix] Orchestrator exit code: ${result.orchestrator_exit_code}`);
+    console.error('[acceptance-matrix] No repository mutation was performed on this repo');
+    console.error('[acceptance-matrix] No merge was performed');
+    console.error('[acceptance-matrix] No main touch was performed');
+    process.exitCode = result.orchestrator_exit_code;
+    break commandDispatch;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[acceptance-matrix] Error: ${message}`);
+    console.error('[acceptance-matrix] No provider call was made');
+    console.error('[acceptance-matrix] No repository mutation was performed');
+    console.error('[acceptance-matrix] No merge was performed');
+    console.error('[acceptance-matrix] No main touch was performed');
     process.exitCode = 1;
     break commandDispatch;
   }
