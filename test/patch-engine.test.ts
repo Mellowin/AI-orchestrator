@@ -43,6 +43,30 @@ describe('patch-engine', () => {
     }
   });
 
+  test('backup files use .backup extension so test runner cannot execute them', () => {
+    const repo = makeTempDir('patch-repo-');
+    const runDir = makeTempDir('patch-run-');
+    try {
+      mkdirSync(join(repo, 'src'), { recursive: true });
+      writeFileSync(join(repo, 'src', 'component.js'), 'old code', 'utf-8');
+
+      const manifest = applyFileUpdates(
+        repo,
+        [{ path: 'src/component.js', content: 'new code' }],
+        runDir
+      );
+
+      assert.strictEqual(manifest.length, 1);
+      assert.ok(manifest[0].backupPath.endsWith('.backup'), `backup path should end with .backup: ${manifest[0].backupPath}`);
+      assert.ok(!manifest[0].backupPath.endsWith('.js'), `backup path should not end with .js: ${manifest[0].backupPath}`);
+      assert.ok(existsSync(manifest[0].backupPath));
+      assert.strictEqual(readFileSync(manifest[0].backupPath, 'utf-8'), 'old code');
+    } finally {
+      rmSync(repo, { recursive: true });
+      rmSync(runDir, { recursive: true });
+    }
+  });
+
   test('applyFileUpdates creates new file', () => {
     const repo = makeTempDir('patch-repo-');
     const runDir = makeTempDir('patch-run-');

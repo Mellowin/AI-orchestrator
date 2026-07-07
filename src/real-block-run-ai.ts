@@ -1,13 +1,23 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition, BlockTaskDefinition } from './block/block-types.js';
-import { loadState } from './state-manager.js';
+import {
+  prepareFreshBlockRun,
+  verifyTaskResultHistory,
+} from './block/block-state-consistency.js';
+
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
+import {
+  resolveTaskTimeoutMs,
+  resolveReviewerParseRetries,
+  resolveOnBlockedTask,
+} from './real-block-task-timeout.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
+import type { ProviderAttempt } from './types.js';
 import type {
   RealBlockRunState,
   RealBlockRunSummary,
@@ -18,6 +28,7 @@ import {
   getBlockStatePath,
   getRunsDir,
   isCompletedTaskStatus,
+  isSkippedBlockedTaskStatus,
   loadExistingBlockState,
 } from './real-block-run-ai-state.js';
 import {
@@ -180,20 +191,36 @@ function buildBaseChildEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+function getChildRunsDir(runsDir: string): string {
+  return join(runsDir, 'tasks');
+}
+
 function runSingleTask(
   block: BlockDefinition,
   task: BlockTaskDefinition,
   index: number,
-  arrays: FakeResponseArrays
+  arrays: FakeResponseArrays,
+  timeoutMs: number
 ): { exitCode: number; state: Record<string, unknown> | null } {
   const runsDir = getRunsDir();
   const blockRunDir = getBlockRunDir(block);
+  const childRunsDir = getChildRunsDir(runsDir);
+
+  // Child real-repo-run-ai writes state to runs/tasks/<task_id>/state.json.
+  // If a previous block used the same task_id, stale state would be reused.
+  // Clean the per-task run directory under the child namespace before each
+  // task so every block run is fresh without touching runs/block/**.
+  const staleTaskRunDir = join(childRunsDir, task.task_id);
+  if (existsSync(staleTaskRunDir)) {
+    rmSync(staleTaskRunDir, { recursive: true, force: true });
+  }
+
   const tasksFilePath = join(blockRunDir, `${task.task_id}.tasks.yaml`);
   writeFileSync(tasksFilePath, buildSingleTaskYaml(block, task), 'utf-8');
 
   const env = buildBaseChildEnv();
   env.TASKS_FILE = tasksFilePath;
-  env.RUNS_DIR = runsDir;
+  env.RUNS_DIR = childRunsDir;
   env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP = '1';
 
   const blockMaxFixAttempts =
@@ -204,6 +231,8 @@ function runSingleTask(
       ? block.review_policy.max_fix_attempts
       : 1;
   env.REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS = String(blockMaxFixAttempts);
+
+  env.REAL_REVIEWER_PARSE_RETRIES = String(resolveReviewerParseRetries(block));
 
   const kimiResponse = getTaskFakeResponse(arrays, 'kimi', index);
   if (kimiResponse !== undefined) {
@@ -235,19 +264,21 @@ function runSingleTask(
       env,
       encoding: 'utf-8',
       shell: false,
-      timeout: 120000,
+      timeout: timeoutMs,
     }
   );
 
   if (result.status !== 0) {
     const output = (result.stderr || result.stdout || '').trim();
+    console.error(`[real-block-run-ai] Task ${task.task_id} runner exited with code ${result.status}`);
     if (output) {
       console.error(`[real-block-run-ai] Task ${task.task_id} runner output:`);
       console.error(redactSecrets(output));
     }
   }
 
-  const state = loadState(task.task_id, runsDir) as Record<string, unknown> | null;
+  const childLoad = loadChildState(task.task_id, runsDir);
+  const state = childLoad.kind === 'loaded' ? childLoad.state : null;
   return { exitCode: result.status ?? 1, state };
 }
 
@@ -272,7 +303,7 @@ function loadChildState(
   taskId: string,
   runsDir: string
 ): ChildStateLoadResult {
-  const statePath = join(runsDir, taskId, 'state.json');
+  const statePath = join(getChildRunsDir(runsDir), taskId, 'state.json');
   if (!existsSync(statePath)) {
     return { kind: 'missing' };
   }
@@ -339,8 +370,13 @@ function validateChildState(
 }
 
 function validateCompletedChildResult(
-  result: RealBlockRunTaskResult
+  result: RealBlockRunTaskResult,
+  repoPath: string
 ): string | undefined {
+  const history = verifyTaskResultHistory(result, repoPath);
+  if (!history.ok) {
+    return history.reason;
+  }
   if (result.status === 'accepted') {
     if (
       typeof result.originalCommitSha !== 'string' ||
@@ -419,6 +455,9 @@ function deriveTaskResult(
     finalStatus: 'failed',
     nextAction: 'block',
     childStateTaskId: task.task_id,
+    codeApplied: false,
+    pushed: false,
+    checksResult: 'unknown',
   };
 
   if (run.state === null) {
@@ -431,7 +470,15 @@ function deriveTaskResult(
   }
 
   const state = run.state;
-  base.originalCommitSha = getStateString(state, 'commit_sha');
+  const commitSha = getStateString(state, 'commit_sha');
+  base.originalCommitSha = commitSha;
+  base.codeApplied = typeof commitSha === 'string' && commitSha.length === 40;
+  base.pushed = state.status === 'pushed' && run.exitCode === 0;
+
+  const providerAttempts = state.provider_attempts;
+  if (Array.isArray(providerAttempts)) {
+    base.providerAttempts = providerAttempts as ProviderAttempt[];
+  }
 
   const rollback = state.rollback as Record<string, unknown> | undefined;
   if (rollback !== undefined) {
@@ -452,6 +499,10 @@ function deriveTaskResult(
   if (reviewerGate !== undefined) {
     base.reviewerGateStatus = getGateStatus(reviewerGate);
     base.reviewerSummary = getGateSummary(reviewerGate);
+    const parseAttempts = reviewerGate.parseAttempts;
+    if (typeof parseAttempts === 'number') {
+      base.parseAttempts = parseAttempts;
+    }
   }
 
   if (controlledRun !== undefined) {
@@ -505,6 +556,7 @@ function deriveTaskResult(
       base.status = 'fixed_and_accepted';
       base.finalStatus = 'accepted';
       base.nextAction = 'continue';
+      base.checksResult = 'pass';
       base.reason = redactSecrets(
         typeof secondReview.reason === 'string'
           ? secondReview.reason
@@ -516,6 +568,7 @@ function deriveTaskResult(
       base.status = 'fix_required';
       base.finalStatus = 'fix_required';
       base.nextAction = 'manual_followup';
+      base.checksResult = 'pass';
       base.reason = redactSecrets(
         typeof secondReview.reason === 'string'
           ? secondReview.reason
@@ -526,6 +579,7 @@ function deriveTaskResult(
     base.status = 'blocked';
     base.finalStatus = 'blocked';
     base.nextAction = 'block';
+    base.checksResult = 'pass';
     base.reason = redactSecrets(
       typeof secondReview.reason === 'string'
         ? secondReview.reason
@@ -540,12 +594,14 @@ function deriveTaskResult(
       base.status = 'accepted';
       base.finalStatus = 'accepted';
       base.nextAction = 'continue';
+      base.checksResult = 'pass';
       base.reason = getGateSummary(reviewerGate) ?? 'Reviewer gate accepted.';
       return base;
     }
 
     if (status === 'fix_required') {
       base.fixAttempted = controlledRun !== undefined;
+      base.checksResult = 'pass';
       if (controlledRun === undefined) {
         base.status = 'fix_required';
         base.finalStatus = 'fix_required';
@@ -586,19 +642,48 @@ function deriveTaskResult(
     base.status = 'blocked';
     base.finalStatus = 'blocked';
     base.nextAction = 'block';
+    base.checksResult = 'pass';
     base.reason = getGateSummary(reviewerGate) ?? 'Reviewer gate blocked.';
     return base;
   }
 
   const runStatus = state.status;
+  if (runStatus === 'blocked') {
+    base.status = 'blocked';
+    base.finalStatus = 'blocked';
+    base.nextAction = 'block';
+    base.codeApplied = typeof commitSha === 'string' && commitSha.length === 40;
+    base.pushed = false;
+    base.checksResult = 'blocked';
+
+    const safetyReasons = state.safety_policy_reasons;
+    const safetyNote =
+      typeof state.safety_note === 'string' ? state.safety_note : undefined;
+    const blockedBy =
+      typeof state.blocked_by === 'string' ? state.blocked_by : 'policy';
+
+    let reason: string;
+    if (Array.isArray(safetyReasons) && safetyReasons.length > 0) {
+      reason = `${blockedBy}: ${safetyReasons.join('; ')}`;
+    } else if (safetyNote) {
+      reason = safetyNote;
+    } else {
+      reason = 'Task was blocked before apply.';
+    }
+    base.reason = redactSecrets(reason);
+    return base;
+  }
+
   if (runStatus === 'pushed' && run.exitCode === 0) {
     base.status = 'accepted';
     base.finalStatus = 'accepted';
     base.nextAction = 'continue';
+    base.checksResult = 'pass';
     base.reason = 'Task pushed without reviewer gate.';
     return base;
   }
 
+  base.checksResult = run.exitCode === 0 ? 'pass' : 'fail';
   base.reason = redactSecrets(
     `Task ended with status ${String(runStatus)} and exit code ${run.exitCode}.`
   );
@@ -610,8 +695,9 @@ function printBlockRunSummary(state: RealBlockRunState): void {
   lines.push(`[real-block-run-ai] Block: ${state.block_id}`);
   lines.push(`[real-block-run-ai] Status: ${state.status}`);
   lines.push(`[real-block-run-ai] State path: ${state.statePath}`);
+  const skipped = state.summary.skippedBlockedTasks ?? 0;
   lines.push(
-    `[real-block-run-ai] Summary: total=${state.summary.totalTasks} completed=${state.summary.completedTasks} accepted=${state.summary.acceptedTasks} fixed=${state.summary.fixedTasks}`
+    `[real-block-run-ai] Summary: total=${state.summary.totalTasks} completed=${state.summary.completedTasks} accepted=${state.summary.acceptedTasks} fixed=${state.summary.fixedTasks} skippedBlocked=${skipped}`
   );
 
   if (state.summary.stoppedReason) {
@@ -624,6 +710,9 @@ function printBlockRunSummary(state: RealBlockRunState): void {
       `  ${task.taskId}: ${task.status}`,
       `final=${task.finalStatus}`,
       `next=${task.nextAction}`,
+      `applied=${task.codeApplied ?? false}`,
+      `pushed=${task.pushed ?? false}`,
+      `checks=${task.checksResult ?? 'unknown'}`,
     ];
     if (task.originalCommitSha) {
       parts.push(`original=${task.originalCommitSha}`);
@@ -631,8 +720,21 @@ function printBlockRunSummary(state: RealBlockRunState): void {
     if (task.fixCommitSha) {
       parts.push(`fix=${task.fixCommitSha}`);
     }
+    if (task.parseAttempts !== undefined) {
+      parts.push(`parseAttempts=${task.parseAttempts}`);
+    }
     if (task.fixAttempted) {
       parts.push(`fixAttempted=true`);
+    }
+    if (task.reviewerGateStatus) {
+      parts.push(`reviewer=${task.reviewerGateStatus}`);
+    }
+    if (task.providerAttempts && task.providerAttempts.length > 0) {
+      const failed = task.providerAttempts.filter((a) => !a.ok).length;
+      parts.push(`providerAttempts=${task.providerAttempts.length}`);
+      if (failed > 0) {
+        parts.push(`providerFailures=${failed}`);
+      }
     }
     lines.push(`[real-block-run-ai] ${parts.join(' ')}`);
   }
@@ -642,12 +744,36 @@ function printBlockRunSummary(state: RealBlockRunState): void {
 
 export async function runRealBlockRunAI(
   blockPath: string,
-  options?: { resume?: boolean; pauseAfterTaskId?: string }
+  options?: { resume?: boolean; pauseAfterTaskId?: string; fresh?: boolean }
 ): Promise<{ exitCode: number; blockState: RealBlockRunState | null }> {
   const resume = (options?.resume ?? false) || process.env.REAL_BLOCK_RUN_RESUME === '1';
   const pauseAfterTaskId =
     options?.pauseAfterTaskId ?? process.env.REAL_BLOCK_RUN_PAUSE_AFTER_TASK_ID;
-  const readiness = checkRealBlockRunReadiness(blockPath, { resume });
+  const fresh = options?.fresh ?? false;
+
+  if (fresh && resume) {
+    console.error('[real-block-run-ai] Error: --fresh and --resume cannot be used together');
+    console.error('[real-block-run-ai] No provider call was made');
+    console.error('[real-block-run-ai] No apply was performed');
+    console.error('[real-block-run-ai] No commit was made');
+    console.error('[real-block-run-ai] No push was performed');
+    console.error('[real-block-run-ai] No merge was performed');
+    console.error('[real-block-run-ai] No checkout was performed');
+    console.error('[real-block-run-ai] No main touch was performed');
+    return { exitCode: 1, blockState: null };
+  }
+
+  if (fresh) {
+    const block = loadBlockDefinition(blockPath);
+    const removed = prepareFreshBlockRun(block, getRunsDir());
+    console.error('[real-block-run-ai] Fresh mode: removed stale state');
+    console.error(`[real-block-run-ai]   block state: ${removed.blockStatePath}`);
+    for (const path of removed.taskStatePaths) {
+      console.error(`[real-block-run-ai]   task state: ${path}`);
+    }
+  }
+
+  const readiness = checkRealBlockRunReadiness(blockPath, { resume: resume && !fresh });
 
   if (!readiness.ready) {
     console.log(redactSecrets(JSON.stringify(readiness, null, 2)));
@@ -713,7 +839,7 @@ export async function runRealBlockRunAI(
   const existingState = loadExistingBlockState(block);
 
   if (existingState !== null && !resume) {
-    if (existingState.status === 'completed') {
+    if (existingState.status === 'completed' || existingState.status === 'completed_with_caveats') {
       throw new Error(
         `Block run already completed. State: ${existingState.statePath}`
       );
@@ -758,7 +884,7 @@ export async function runRealBlockRunAI(
   const skippedTaskIds: string[] = [];
 
   if (existingState !== null && resume) {
-    if (existingState.status === 'completed') {
+    if (existingState.status === 'completed' || existingState.status === 'completed_with_caveats') {
       console.error('[real-block-run-ai] Resume mode: block already completed.');
       printBlockRunSummary(existingState);
       return { exitCode: 0, blockState: existingState };
@@ -771,8 +897,11 @@ export async function runRealBlockRunAI(
       resumeStartedAt: now,
     };
 
+    const onBlockedTask = resolveOnBlockedTask(block);
     for (const result of blockState.taskResults) {
       if (isCompletedTaskStatus(result.status)) {
+        skippedTaskIds.push(result.taskId);
+      } else if (isSkippedBlockedTaskStatus(result.status) && onBlockedTask === 'continue') {
         skippedTaskIds.push(result.taskId);
       }
     }
@@ -798,6 +927,7 @@ export async function runRealBlockRunAI(
         acceptedTasks: 0,
         fixedTasks: 0,
         completedTasks: 0,
+        skippedBlockedTasks: 0,
       },
       startedAt: now,
       safetyNote:
@@ -815,17 +945,31 @@ export async function runRealBlockRunAI(
     const existingResult =
       existingResultIndex >= 0 ? blockState.taskResults[existingResultIndex] : undefined;
 
-    if (existingResult !== undefined && isCompletedTaskStatus(existingResult.status)) {
-      continue;
+    const onBlockedTask = resolveOnBlockedTask(block);
+
+    if (existingResult !== undefined) {
+      const canSkip =
+        isCompletedTaskStatus(existingResult.status) ||
+        (isSkippedBlockedTaskStatus(existingResult.status) && onBlockedTask === 'continue');
+      if (canSkip) {
+        const history = verifyTaskResultHistory(existingResult, block.repo_path);
+        if (!history.ok) {
+          return blockResumeFailure(block, blockState, task.task_id, history.reason || 'stale completed task state');
+        }
+        continue;
+      }
     }
 
     blockState.currentTaskId = task.task_id;
     saveBlockState(block, blockState);
 
     let taskResult: RealBlockRunTaskResult;
-    const childLoad = resume
-      ? loadChildState(task.task_id, getRunsDir())
-      : { kind: 'missing' as const };
+    const hasStaleIncompleteResult =
+      existingResult !== undefined && !isCompletedTaskStatus(existingResult.status);
+    const childLoad =
+      resume && !hasStaleIncompleteResult
+        ? loadChildState(task.task_id, getRunsDir())
+        : { kind: 'missing' as const };
 
     if (childLoad.kind === 'corrupted') {
       return blockResumeFailure(
@@ -852,14 +996,14 @@ export async function runRealBlockRunAI(
         );
       }
 
-      const shaError = validateCompletedChildResult(derived);
+      const shaError = validateCompletedChildResult(derived, block.repo_path);
       if (shaError) {
         return blockResumeFailure(block, blockState, task.task_id, shaError);
       }
 
       taskResult = derived;
     } else {
-      const run = runSingleTask(block, task, i, arrays);
+      const run = runSingleTask(block, task, i, arrays, resolveTaskTimeoutMs(block));
       taskResult = deriveTaskResult(task, run);
     }
 
@@ -873,6 +1017,34 @@ export async function runRealBlockRunAI(
       taskResult.status !== 'accepted' &&
       taskResult.status !== 'fixed_and_accepted'
     ) {
+      const shouldContinue =
+        onBlockedTask === 'continue' &&
+        (taskResult.status === 'blocked' || taskResult.status === 'fix_required');
+
+      if (shouldContinue) {
+        // Mark the task as skipped-blocked so resume does not re-run it,
+        // but keep the original derived status fields for reporting.
+        const skippedResult: RealBlockRunTaskResult = {
+          ...taskResult,
+          status: 'blocked_skipped',
+          finalStatus: taskResult.status,
+          nextAction: 'continue',
+          reason: redactSecrets(
+            taskResult.reason ?? `Task ${task.task_id} blocked; continuing per on_blocked_task policy.`
+          ),
+        };
+        const skipResultIndex = blockState.taskResults.findIndex(
+          (r) => r.taskId === task.task_id
+        );
+        if (skipResultIndex >= 0) {
+          blockState.taskResults[skipResultIndex] = skippedResult;
+        } else {
+          blockState.taskResults.push(skippedResult);
+        }
+        saveBlockState(block, blockState);
+        continue;
+      }
+
       stopped = true;
       if (taskResult.status === 'failed') {
         blockState.status = 'failed';
@@ -894,12 +1066,16 @@ export async function runRealBlockRunAI(
       const fixedCount = blockState.taskResults.filter(
         (r) => r.status === 'fixed_and_accepted'
       ).length;
+      const skippedBlockedCount = blockState.taskResults.filter(
+        (r) => r.status === 'blocked_skipped'
+      ).length;
 
       blockState.currentTaskId = null;
       blockState.finishedAt = new Date().toISOString();
       blockState.summary.acceptedTasks = acceptedCount;
       blockState.summary.fixedTasks = fixedCount;
-      blockState.summary.completedTasks = acceptedCount + fixedCount;
+      blockState.summary.skippedBlockedTasks = skippedBlockedCount;
+      blockState.summary.completedTasks = acceptedCount + fixedCount + skippedBlockedCount;
       blockState.status = 'paused';
       const resumeCommand = `npx tsx src/cli.ts real-block-run-ai ${blockPath} --resume`;
       blockState.summary.stoppedReason = `Paused after task ${task.task_id}. Resume with: ${resumeCommand}`;
@@ -922,16 +1098,22 @@ export async function runRealBlockRunAI(
   const fixedCount = blockState.taskResults.filter(
     (r) => r.status === 'fixed_and_accepted'
   ).length;
+  const skippedBlockedCount = blockState.taskResults.filter(
+    (r) => r.status === 'blocked_skipped'
+  ).length;
 
   blockState.currentTaskId = null;
   blockState.finishedAt = new Date().toISOString();
   blockState.summary.acceptedTasks = acceptedCount;
   blockState.summary.fixedTasks = fixedCount;
-  blockState.summary.completedTasks = acceptedCount + fixedCount;
+  blockState.summary.skippedBlockedTasks = skippedBlockedCount;
+  blockState.summary.completedTasks = acceptedCount + fixedCount + skippedBlockedCount;
 
   if (!stopped && blockState.summary.completedTasks === block.tasks.length) {
-    blockState.status = 'completed';
-    blockState.summary.stoppedReason = 'All tasks completed.';
+    blockState.status = skippedBlockedCount > 0 ? 'completed_with_caveats' : 'completed';
+    blockState.summary.stoppedReason = skippedBlockedCount > 0
+      ? `All tasks finished; ${skippedBlockedCount} task(s) blocked/skipped.`
+      : 'All tasks completed.';
   } else {
     const lastResult = blockState.taskResults[blockState.taskResults.length - 1];
     const stopReason = lastResult?.reason ?? 'Block stopped.';

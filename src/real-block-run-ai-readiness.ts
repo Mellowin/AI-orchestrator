@@ -4,6 +4,11 @@ import { spawnSync } from 'node:child_process';
 import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition } from './block/block-types.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
+import {
+  resolveTaskTimeoutMs,
+  resolveReviewerParseRetries,
+  resolveOnBlockedTask,
+} from './real-block-task-timeout.js';
 import type { RealBlockRunState } from './real-block-run-ai-state.js';
 import {
   getBlockStatePath,
@@ -61,6 +66,17 @@ function checkEnv(report: ReadinessReport): void {
   }
   if (!process.env.KIMI_BASE_URL || process.env.KIMI_BASE_URL.trim() === '') {
     addReason(report, 'KIMI_BASE_URL env var is required');
+  }
+}
+
+function checkReviewPolicy(block: BlockDefinition, report: ReadinessReport): void {
+  try {
+    resolveTaskTimeoutMs(block);
+    resolveReviewerParseRetries(block);
+    resolveOnBlockedTask(block);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    addReason(report, message);
   }
 }
 
@@ -180,7 +196,7 @@ function checkExistingState(
     return;
   }
 
-  if (existing.status === 'completed') {
+  if (existing.status === 'completed' || existing.status === 'completed_with_caveats') {
     report.existingState = 'completed';
     if (resume) {
       report.mode = 'completed_noop';
@@ -250,7 +266,7 @@ export function checkRealBlockRunReadiness(
     addReason(report, msg);
   }
 
-  if (!existingStateError && existingState !== null && existingState.status === 'completed' && resume) {
+  if (!existingStateError && existingState !== null && (existingState.status === 'completed' || existingState.status === 'completed_with_caveats') && resume) {
     report.existingState = 'completed';
     report.mode = 'completed_noop';
     report.ready = true;
@@ -259,6 +275,7 @@ export function checkRealBlockRunReadiness(
   }
 
   checkEnv(report);
+  checkReviewPolicy(block, report);
   checkRepo(block, report);
   if (!existingStateError) {
     checkExistingState(block, report, resume, existingState);

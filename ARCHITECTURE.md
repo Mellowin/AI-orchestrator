@@ -618,6 +618,22 @@ npx tsx src/cli.ts reset contact-phone-validation
 
 ---
 
+## 9.5. Согласованность состояния блока (Stage 18.9A)
+
+Чтобы устаревший `state.json` не использовался повторно после сброса рабочей ветки, перед пропуском завершённой задачи на `resume` проверяется, что её коммит действительно присутствует в истории текущей ветки.
+
+- `src/block/block-state-consistency.ts` предоставляет:
+  - `verifyCommitExists(repoPath, sha)` — `git cat-file -e <sha>^{commit}`.
+  - `verifyCommitIsAncestor(repoPath, sha)` — `git merge-base --is-ancestor <sha> HEAD`.
+  - `verifyTaskResultHistory(result, repoPath)` — проверяет `originalCommitSha` и `fixCommitSha` для статусов `accepted` / `fixed_and_accepted`.
+- `real-block-run-ai --resume` вызывает `verifyTaskResultHistory` для каждой завершённой задачи. При несовпадении запуск прерывается через `blockResumeFailure` с сообщением о stale-коммите.
+- `operator-e2e` выполняет фазу `main_block_consistency`, формируя `artifactConsistency`:
+  - `tasksExpected` vs `tasksAccepted`.
+  - Каждый принятый коммит должен быть предком текущего `HEAD` рабочей ветки.
+  - При нарушении фаза создания PR пропускается со статусом `skipped_incomplete_artifact`.
+
+---
+
 ## 10. Ключевые принципы безопасности
 
 1. **Deny by default.** Если `allow_modify` указан — всё остальное запрещено.

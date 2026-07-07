@@ -136,6 +136,25 @@ export function loadBlockDefinition(path: string): BlockDefinition {
     throw new Error('Block definition review_policy.reviewer_mode must be "single" or "multi_future"');
   }
 
+  const taskTimeoutMs = reviewPolicyObj.task_timeout_ms;
+  if (taskTimeoutMs !== undefined) {
+    if (typeof taskTimeoutMs !== 'number' || !Number.isInteger(taskTimeoutMs) || taskTimeoutMs < 30000 || taskTimeoutMs > 900000) {
+      throw new Error('Block definition review_policy.task_timeout_ms must be an integer between 30000 and 900000');
+    }
+  }
+
+  const reviewerParseRetries = reviewPolicyObj.reviewer_parse_retries;
+  if (reviewerParseRetries !== undefined) {
+    if (typeof reviewerParseRetries !== 'number' || !Number.isInteger(reviewerParseRetries) || reviewerParseRetries < 0 || reviewerParseRetries > 5) {
+      throw new Error('Block definition review_policy.reviewer_parse_retries must be an integer between 0 and 5');
+    }
+  }
+
+  const onBlockedTask = reviewPolicyObj.on_blocked_task;
+  if (onBlockedTask !== undefined && onBlockedTask !== 'stop' && onBlockedTask !== 'continue' && onBlockedTask !== 'skip') {
+    throw new Error('Block definition review_policy.on_blocked_task must be "stop", "continue", or "skip"');
+  }
+
   // Tasks
   const tasks = obj.tasks;
   if (!Array.isArray(tasks) || tasks.length === 0) {

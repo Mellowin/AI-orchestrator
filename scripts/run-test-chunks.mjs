@@ -3,6 +3,16 @@ import { fileURLToPath } from 'node:url';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { cpus } from 'node:os';
 import { mkdirSync, writeFileSync } from 'node:fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Force git init to use 'main' as the default branch in test child processes.
+// This makes temp-repo tests deterministic across environments (Ubuntu default
+// is 'master', Windows/macOS often 'main').
+const TEST_GITCONFIG_PATH = join(__dirname, '..', 'tmp', 'test-gitconfig');
+mkdirSync(dirname(TEST_GITCONFIG_PATH), { recursive: true });
+writeFileSync(TEST_GITCONFIG_PATH, '[init]\n\tdefaultBranch = main\n', 'utf8');
 import {
   aggregateSummaries,
   chunkFiles,
@@ -13,9 +23,6 @@ import {
   redactOutput,
 } from './test-chunks-lib.mjs';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
 const DEFAULT_CHUNK_SIZE = 3;
 const DEFAULT_CONCURRENCY = Math.min(12, Math.max(1, cpus().length));
 const DEFAULT_CHUNK_TIMEOUT_MS = 300_000;
@@ -25,6 +32,11 @@ const DEFAULT_CHUNK_TIMEOUT_MS = 300_000;
 const HEAVY_FILE_NAMES = new Set([
   'cli-real-block-run-ai.test.ts',
   'cli-real-repo-run-ai.test.ts',
+  'cli-real-repo-pr-create.test.ts',
+  'cli-real-repo-pr-readiness.test.ts',
+  'block-follow-up-drill.test.ts',
+  'post-push-follow-up-drill.test.ts',
+  'rollback-policy-drill.test.ts',
 ]);
 const TEST_DIR = join(__dirname, '..', 'test');
 const RUNNER_BIN = process.execPath;
@@ -127,6 +139,9 @@ function buildChunkEnv() {
   env.GIT_AUTHOR_EMAIL = env.GIT_AUTHOR_EMAIL || 'ci@example.com';
   env.GIT_COMMITTER_NAME = env.GIT_COMMITTER_NAME || env.GIT_AUTHOR_NAME;
   env.GIT_COMMITTER_EMAIL = env.GIT_COMMITTER_EMAIL || env.GIT_AUTHOR_EMAIL;
+  // Ensure all test child processes (and their CLI grandchildren) initialize
+  // temp repos with 'main' as the default branch, matching the test assertions.
+  env.GIT_CONFIG_GLOBAL = TEST_GITCONFIG_PATH;
   return env;
 }
 

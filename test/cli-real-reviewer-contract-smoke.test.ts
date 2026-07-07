@@ -132,12 +132,12 @@ describe('real-reviewer-contract-smoke module', () => {
     assert.strictEqual(parseRealReviewerContractSmokeTimeoutMs({}), 15000);
   });
 
-  test('parse timeout clamps below minimum', () => {
-    assert.strictEqual(parseRealReviewerContractSmokeTimeoutMs({}, 500), 1000);
+  test('parse timeout rejects below minimum', () => {
+    assert.throws(() => parseRealReviewerContractSmokeTimeoutMs({}, 500), /below minimum/);
   });
 
-  test('parse timeout clamps above maximum', () => {
-    assert.strictEqual(parseRealReviewerContractSmokeTimeoutMs({}, 120000), 120000);
+  test('parse timeout rejects above maximum', () => {
+    assert.throws(() => parseRealReviewerContractSmokeTimeoutMs({}, 200000), /above maximum/);
   });
 
   test('parse timeout uses override', () => {
@@ -507,7 +507,7 @@ describe('real-reviewer-contract-smoke module', () => {
         ALLOW_REAL_PROVIDER: 'true',
         KIMI_API_KEY: 'sk-test',
         KIMI_BASE_URL: 'http://localhost.invalid',
-        REAL_REVIEWER_CONTRACT_SMOKE_TIMEOUT_MS: '1000',
+        REAL_REVIEWER_CONTRACT_SMOKE_TIMEOUT_MS: '5000',
       },
       fetchFn: makeDelayedFetch(makeAcceptedResponse(), 60000),
     });
@@ -776,7 +776,7 @@ describe('real-reviewer-contract-smoke CLI', () => {
     assert.strictEqual(json.ok, false);
   });
 
-  test('timeout flag clamps below minimum', () => {
+  test('timeout flag rejects below minimum', () => {
     const result = runCli(
       ['real-reviewer-contract-smoke', '--timeout-ms', '500'],
       {
@@ -786,14 +786,15 @@ describe('real-reviewer-contract-smoke CLI', () => {
         REAL_REVIEWER_CONTRACT_SMOKE_FAKE_RESPONSE: makeAcceptedResponse(),
       }
     );
-    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
-    const json = parseOutput(result.stdout);
-    assert.strictEqual(json.timeoutMs, 1000);
+    assert.notStrictEqual(result.status, 0);
+    const json = parseOutput(result.stdout + result.stderr);
+    assert.strictEqual(json.ok, false);
+    assert.match(String(json.error), /below minimum/);
   });
 
-  test('timeout flag clamps above maximum', () => {
+  test('timeout flag accepts valid custom value', () => {
     const result = runCli(
-      ['real-reviewer-contract-smoke', '--timeout-ms', '120000'],
+      ['real-reviewer-contract-smoke', '--timeout-ms', '25000'],
       {
         ALLOW_REAL_PROVIDER: 'true',
         KIMI_API_KEY: 'sk-test',
@@ -803,7 +804,23 @@ describe('real-reviewer-contract-smoke CLI', () => {
     );
     assert.strictEqual(result.status, 0, result.stdout + result.stderr);
     const json = parseOutput(result.stdout);
-    assert.strictEqual(json.timeoutMs, 120000);
+    assert.strictEqual(json.timeoutMs, 25000);
+  });
+
+  test('timeout env overrides default', () => {
+    const result = runCli(
+      ['real-reviewer-contract-smoke'],
+      {
+        ALLOW_REAL_PROVIDER: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'http://localhost.invalid',
+        REAL_REVIEWER_CONTRACT_SMOKE_FAKE_RESPONSE: makeAcceptedResponse(),
+        REAL_REVIEWER_CONTRACT_SMOKE_TIMEOUT_MS: '30000',
+      }
+    );
+    assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+    const json = parseOutput(result.stdout);
+    assert.strictEqual(json.timeoutMs, 30000);
   });
 
   test('command does not write files', () => {
@@ -876,7 +893,7 @@ describe('real-reviewer-contract-smoke CLI', () => {
     const source = readFileSync(CLI_SOURCE_PATH, 'utf-8');
     const branchIndex = source.indexOf("command === 'real-reviewer-contract-smoke'");
     assert.ok(branchIndex >= 0, 'reviewer contract smoke branch must exist in cli.ts');
-    const nextBranchIndex = source.indexOf("if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up'))", branchIndex);
+    const nextBranchIndex = source.indexOf("if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e'))", branchIndex);
     const snippet = source.slice(branchIndex, nextBranchIndex);
     assert.doesNotMatch(snippet, /shell:\s*true/);
   });
@@ -884,7 +901,7 @@ describe('real-reviewer-contract-smoke CLI', () => {
   test('CLI source does not write files or apply patches', () => {
     const source = readFileSync(CLI_SOURCE_PATH, 'utf-8');
     const branchIndex = source.indexOf("command === 'real-reviewer-contract-smoke'");
-    const nextBranchIndex = source.indexOf("if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up'))", branchIndex);
+    const nextBranchIndex = source.indexOf("if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e'))", branchIndex);
     const snippet = source.slice(branchIndex, nextBranchIndex);
     assert.doesNotMatch(snippet, /writeFileSync/);
     assert.doesNotMatch(snippet, /applyFileUpdates/);

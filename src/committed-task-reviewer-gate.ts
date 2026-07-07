@@ -5,6 +5,7 @@ import type { ReviewerProviderCall, ReviewerProviderRunnerResult } from './revie
 
 export interface CommittedTaskReviewerGateInput extends ReviewerEvidenceInput {
   reviewer: ReviewerProviderCall;
+  maxParseRetries?: number;
 }
 
 export interface CommittedTaskReviewerGateResult {
@@ -19,6 +20,7 @@ export async function runCommittedTaskReviewerGate(
   const reviewerRunnerResult = await runReviewerGateWithProvider({
     evidence,
     reviewer: input.reviewer,
+    maxParseRetries: input.maxParseRetries,
   });
   return {
     evidence,

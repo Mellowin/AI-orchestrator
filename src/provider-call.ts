@@ -1,3 +1,5 @@
+import type { ProviderAttempt } from './types.js';
+
 export type ProviderRole = 'coder' | 'reviewer';
 
 export interface ProviderCallInput {
@@ -93,14 +95,44 @@ export function normalizeProviderCallError(error: unknown): ProviderCallErrorInf
   }
 
   const lower = message.toLowerCase();
+
+  // Parse HTTP status codes from messages like "Provider returned status 429"
+  const statusMatch = lower.match(/status\s+(\d{3})/);
+  const httpStatus = statusMatch ? parseInt(statusMatch[1], 10) : undefined;
+
+  const isAuthError =
+    lower.includes('api key') ||
+    lower.includes('unauthorized') ||
+    lower.includes('authentication') ||
+    lower.includes('forbidden') ||
+    lower.includes('access denied');
+
+  const isClientError = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500;
+  const isServerError = httpStatus !== undefined && httpStatus >= 500 && httpStatus < 600;
+  const isRateLimit = httpStatus === 429 || lower.includes('rate limit') || lower.includes('too many requests');
+
   const isRetryable =
+    isRateLimit ||
+    isServerError ||
     lower.includes('timeout') ||
-    lower.includes('rate limit') ||
     lower.includes('temporarily unavailable') ||
     lower.includes('econnreset') ||
-    lower.includes('etimedout');
+    lower.includes('etimedout') ||
+    lower.includes('fetch failed') ||
+    lower.includes('network') ||
+    lower.includes('invalid kimi json output') ||
+    lower.includes('invalid reviewer json output') ||
+    lower.includes('malformed fenced block') ||
+    lower.includes('fenced block not closed') ||
+    lower.includes('empty fenced block');
 
-  return { message, isRetryable };
+  // 4xx errors (except rate limit 429) are not retryable
+  const isNonRetryableClientError = isClientError && !isRateLimit;
+
+  return {
+    message,
+    isRetryable: isRetryable && !isAuthError && !isNonRetryableClientError,
+  };
 }
 
 export interface ProviderRetryDecision {
@@ -110,7 +142,8 @@ export interface ProviderRetryDecision {
 
 export function getProviderRetryDecision(
   errorInfo: ProviderCallErrorInfo,
-  attempt: number
+  attempt: number,
+  maxAttempts = 4
 ): ProviderRetryDecision {
   if (attempt < 1) {
     throw new Error('attempt must be >= 1');
@@ -118,11 +151,216 @@ export function getProviderRetryDecision(
   if (!errorInfo.isRetryable) {
     return { shouldRetry: false, delayMs: 0 };
   }
-  if (attempt >= 4) {
+  if (attempt >= maxAttempts) {
     return { shouldRetry: false, delayMs: 0 };
   }
   const delayMs = 1000 * Math.pow(2, attempt - 1);
   return { shouldRetry: true, delayMs };
+}
+
+export interface ProviderRetryConfig {
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
+const DEFAULT_MAX_ATTEMPTS = 3;
+const DEFAULT_BASE_DELAY_MS = 1000;
+const DEFAULT_MAX_DELAY_MS = 10000;
+const MIN_ATTEMPTS = 1;
+const MAX_ATTEMPTS = 6;
+const MIN_DELAY_MS = 0;
+
+function parseRetryEnvInt(
+  value: string | undefined,
+  defaultValue: number,
+  min: number,
+  max: number,
+  name: string
+): number {
+  if (value === undefined || value.trim() === '') {
+    return defaultValue;
+  }
+  const num = Number(value.trim());
+  if (!Number.isInteger(num)) {
+    throw new Error(`${name} must be an integer, got "${value}"`);
+  }
+  if (num < min || num > max) {
+    throw new Error(`${name} must be between ${min} and ${max}, got ${num}`);
+  }
+  return num;
+}
+
+export function resolveProviderRetryConfig(): ProviderRetryConfig {
+  return {
+    maxAttempts: parseRetryEnvInt(
+      process.env.REAL_PROVIDER_MAX_ATTEMPTS,
+      DEFAULT_MAX_ATTEMPTS,
+      MIN_ATTEMPTS,
+      MAX_ATTEMPTS,
+      'REAL_PROVIDER_MAX_ATTEMPTS'
+    ),
+    baseDelayMs: parseRetryEnvInt(
+      process.env.REAL_PROVIDER_RETRY_BASE_MS,
+      DEFAULT_BASE_DELAY_MS,
+      MIN_DELAY_MS,
+      DEFAULT_MAX_DELAY_MS,
+      'REAL_PROVIDER_RETRY_BASE_MS'
+    ),
+    maxDelayMs: parseRetryEnvInt(
+      process.env.REAL_PROVIDER_RETRY_MAX_MS,
+      DEFAULT_MAX_DELAY_MS,
+      MIN_DELAY_MS,
+      60000,
+      'REAL_PROVIDER_RETRY_MAX_MS'
+    ),
+  };
+}
+
+export type RecoveryPromptBuilder = (basePrompt: string, lastError: string) => string;
+
+export interface CallProviderWithRetryOptions<T = string> {
+  providerCall: ProviderCallFn;
+  provider: string;
+  model: string;
+  basePrompt: string;
+  buildRecoveryPrompt?: RecoveryPromptBuilder;
+  parseOutput?: (text: string) => T;
+  taskId: string;
+  config?: Partial<ProviderRetryConfig>;
+  logPrefix?: string;
+  sleepFn?: (ms: number) => Promise<void>;
+}
+
+export interface CallProviderWithRetryResult<T = string> {
+  text: string;
+  output?: T;
+  providerAttempts: ProviderAttempt[];
+}
+
+export function buildRecoveryPrompt(basePrompt: string, parseError: string): string {
+  const safeError = parseError.replace(/sk-[^\s]*/g, '[REDACTED]').replace(/Bearer\s+[^\s]*/gi, 'Bearer [REDACTED]');
+  return [
+    'The previous response was invalid and could not be parsed.',
+    `Parse error: ${safeError}`,
+    '',
+    'Return ONLY valid JSON.',
+    'Do not use Markdown fences.',
+    'Do not include prose, explanations, or comments.',
+    'Do not truncate the output.',
+    'Use exactly the expected schema.',
+    'Keep changes minimal and precise.',
+    'If the required output would be too large to return safely, return empty files with a note explaining why instead of partial JSON.',
+    '',
+    basePrompt,
+  ].join('\n');
+}
+
+export class ProviderCallFailedError extends Error {
+  constructor(
+    message: string,
+    public readonly providerAttempts: ProviderAttempt[]
+  ) {
+    super(message);
+    this.name = 'ProviderCallFailedError';
+  }
+}
+
+export async function callProviderWithRetry<T = string>(
+  options: CallProviderWithRetryOptions<T>
+): Promise<CallProviderWithRetryResult<T>> {
+  const {
+    providerCall,
+    provider,
+    model,
+    basePrompt,
+    buildRecoveryPrompt: buildRecovery = buildRecoveryPrompt,
+    parseOutput,
+    taskId,
+    config: customConfig,
+    logPrefix = '[real-repo-run-ai]',
+    sleepFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  } = options;
+
+  const resolvedConfig: ProviderRetryConfig = {
+    maxAttempts: customConfig?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+    baseDelayMs: customConfig?.baseDelayMs ?? DEFAULT_BASE_DELAY_MS,
+    maxDelayMs: customConfig?.maxDelayMs ?? DEFAULT_MAX_DELAY_MS,
+  };
+
+  if (resolvedConfig.maxAttempts < MIN_ATTEMPTS || resolvedConfig.maxAttempts > MAX_ATTEMPTS) {
+    throw new Error(`maxAttempts must be between ${MIN_ATTEMPTS} and ${MAX_ATTEMPTS}`);
+  }
+  if (resolvedConfig.baseDelayMs < MIN_DELAY_MS) {
+    throw new Error('baseDelayMs must be non-negative');
+  }
+  if (resolvedConfig.maxDelayMs < MIN_DELAY_MS) {
+    throw new Error('maxDelayMs must be non-negative');
+  }
+
+  const providerAttempts: ProviderAttempt[] = [];
+  let lastError: Error | undefined;
+  let lastErrorMessage = '';
+
+  for (let attempt = 1; attempt <= resolvedConfig.maxAttempts; attempt++) {
+    const useRecoveryPrompt = attempt > 1;
+    const prompt = useRecoveryPrompt ? buildRecovery(basePrompt, lastErrorMessage) : basePrompt;
+
+    try {
+      const result = await providerCall(buildProviderCallInput('coder', prompt, provider, model));
+      const normalized = normalizeProviderCallResult(result);
+      if (parseOutput !== undefined) {
+        const parsed = parseOutput(normalized.text);
+        providerAttempts.push({
+          attempt,
+          ok: true,
+          recovery_prompt: useRecoveryPrompt,
+          raw_text_length: normalized.text.length,
+        });
+        return { text: normalized.text, output: parsed, providerAttempts };
+      }
+      providerAttempts.push({
+        attempt,
+        ok: true,
+        recovery_prompt: useRecoveryPrompt,
+        raw_text_length: normalized.text.length,
+      });
+      return { text: normalized.text, providerAttempts };
+    } catch (err) {
+      const info = normalizeProviderCallError(err);
+      lastError = err instanceof Error ? err : new Error(info.message);
+      lastErrorMessage = info.message;
+      providerAttempts.push({
+        attempt,
+        ok: false,
+        reason: info.message,
+        retryable: info.isRetryable,
+        recovery_prompt: useRecoveryPrompt,
+      });
+
+      const decision = getProviderRetryDecision(info, attempt, resolvedConfig.maxAttempts);
+      if (decision.shouldRetry) {
+        const delayMs = Math.min(decision.delayMs, resolvedConfig.maxDelayMs);
+        console.error(`${logPrefix} Provider attempt ${attempt}/${resolvedConfig.maxAttempts} failed for task ${taskId}: ${info.message}`);
+        console.error(`${logPrefix} Retrying in ${delayMs}ms...`);
+        await sleepFn(delayMs);
+        continue;
+      }
+
+      console.error(`${logPrefix} Provider attempt ${attempt}/${resolvedConfig.maxAttempts} failed for task ${taskId}: ${info.message}`);
+      if (!info.isRetryable) {
+        console.error(`${logPrefix} Error is not retryable; stopping.`);
+      } else {
+        console.error(`${logPrefix} Max attempts reached; stopping.`);
+      }
+      break;
+    }
+  }
+
+  throw new ProviderCallFailedError(
+    lastError?.message ?? 'Provider call failed after retries',
+    providerAttempts
+  );
 }
 
 export function createMockProviderCall(responseText: string): ProviderCallFn {

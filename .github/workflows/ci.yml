@@ -35,7 +35,7 @@ jobs:
         run: npm run build
 
       - name: Test
-        run: npm test
+        run: npm test -- --chunk-timeout-ms 600000
 
       - name: Verify TESTING_SUMMARY evidence
         run: npm run verify:summary

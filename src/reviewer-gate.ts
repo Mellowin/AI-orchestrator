@@ -26,6 +26,7 @@ export interface ReviewerGateResult {
   reviewSummary: string;
   fixTask?: string;
   nextAction: 'continue' | 'fix' | 'block';
+  parseAttempts?: number;
 }
 
 export function evaluateReviewerGate(

@@ -61,7 +61,7 @@ export function applyFileUpdates(
     for (const update of updates) {
       const fullPath = resolve(repoPath, update.path);
       const existedBefore = existsSync(fullPath);
-      const backupPath = join(backupDir, encodeURIComponent(update.path));
+      const backupPath = `${join(backupDir, encodeURIComponent(update.path))}.backup`;
 
       if (existedBefore) {
         const backupParent = dirname(backupPath);

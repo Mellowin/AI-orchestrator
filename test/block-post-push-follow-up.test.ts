@@ -152,7 +152,7 @@ function buildTaskResult(
 }
 
 function saveChildState(runsDir: string, taskId: string, state: RunState): void {
-  const dir = join(runsDir, taskId);
+  const dir = join(runsDir, 'tasks', taskId);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'state.json'), JSON.stringify(state, null, 2), 'utf-8');
 }

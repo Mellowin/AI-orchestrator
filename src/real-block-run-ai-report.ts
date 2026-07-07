@@ -7,14 +7,14 @@ function isObject(val: unknown): val is Record<string, unknown> {
   return typeof val === 'object' && val !== null && !Array.isArray(val);
 }
 
-function isValidStatus(status: unknown): status is 'completed' | 'blocked' | 'failed' | 'paused' {
-  return typeof status === 'string' && ['completed', 'blocked', 'failed', 'paused'].includes(status);
+function isValidStatus(status: unknown): status is 'completed' | 'completed_with_caveats' | 'blocked' | 'failed' | 'paused' {
+  return typeof status === 'string' && ['completed', 'completed_with_caveats', 'blocked', 'failed', 'paused'].includes(status);
 }
 
 function isValidTaskStatus(status: unknown): status is RealBlockRunTaskResult['status'] {
   return (
     typeof status === 'string' &&
-    ['accepted', 'fixed_and_accepted', 'blocked', 'fix_required', 'failed'].includes(status)
+    ['accepted', 'fixed_and_accepted', 'blocked', 'blocked_skipped', 'fix_required', 'failed'].includes(status)
   );
 }
 
@@ -44,6 +44,7 @@ function validateSummary(summary: unknown): RealBlockRunSummary {
     acceptedTasks: assertNumber(summary, 'acceptedTasks', 'summary.acceptedTasks'),
     fixedTasks: assertNumber(summary, 'fixedTasks', 'summary.fixedTasks'),
     completedTasks: assertNumber(summary, 'completedTasks', 'summary.completedTasks'),
+    skippedBlockedTasks: typeof summary.skippedBlockedTasks === 'number' ? summary.skippedBlockedTasks : undefined,
     blockedTaskId: typeof summary.blockedTaskId === 'string' ? summary.blockedTaskId : undefined,
     failedTaskId: typeof summary.failedTaskId === 'string' ? summary.failedTaskId : undefined,
     stoppedReason: typeof summary.stoppedReason === 'string' ? summary.stoppedReason : undefined,
@@ -239,6 +240,9 @@ export function formatRealBlockRunReport(state: RealBlockRunState, statePath: st
   lines.push(`- completedTasks: ${state.summary.completedTasks}`);
   lines.push(`- acceptedTasks: ${state.summary.acceptedTasks}`);
   lines.push(`- fixedTasks: ${state.summary.fixedTasks}`);
+  if (typeof state.summary.skippedBlockedTasks === 'number') {
+    lines.push(`- skippedBlockedTasks: ${state.summary.skippedBlockedTasks}`);
+  }
   if (state.summary.blockedTaskId) {
     lines.push(`- blockedTaskId: ${state.summary.blockedTaskId}`);
   }

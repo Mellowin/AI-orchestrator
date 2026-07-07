@@ -10,7 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 let counter = 0;
 
@@ -152,6 +152,7 @@ interface TempBlockEnv {
   originPath: string;
   runsDir: string;
   tmpDir: string;
+  baseSha: string;
   cleanup: () => void;
 }
 
@@ -256,6 +257,13 @@ function createTempBlockEnv(): TempBlockEnv {
   const blockPath = join(tmpDir, 'block.json');
   writeFileSync(blockPath, JSON.stringify(blockDefinition, null, 2), 'utf-8');
 
+  const baseShaResult = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  const baseSha = baseShaResult.stdout.trim();
+
   return {
     blockId,
     blockPath,
@@ -263,6 +271,7 @@ function createTempBlockEnv(): TempBlockEnv {
     originPath,
     runsDir,
     tmpDir,
+    baseSha,
     cleanup: () => {
       rmSync(tmpDir, { recursive: true, force: true });
     },
@@ -291,6 +300,43 @@ function getGitLogCount(repoPath: string): number {
     shell: false,
   });
   return result.stdout.trim().split('\n').filter((l) => l.length > 0).length;
+}
+
+function createCommit(repoPath: string, message: string, files: Record<string, string>): string {
+  for (const [relativePath, content] of Object.entries(files)) {
+    const fullPath = join(repoPath, relativePath);
+    const parent = dirname(fullPath);
+    if (!existsSync(parent)) {
+      mkdirSync(parent, { recursive: true });
+    }
+    writeFileSync(fullPath, content, 'utf-8');
+  }
+  const paths = Object.keys(files);
+  const addResult = spawnSync('git', ['add', ...paths], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  if (addResult.status !== 0) {
+    throw new Error(`git add failed: ${addResult.stderr}`);
+  }
+  const commitResult = spawnSync('git', ['commit', '-m', message, '--no-gpg-sign'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  if (commitResult.status !== 0) {
+    throw new Error(`git commit failed: ${commitResult.stderr}`);
+  }
+  const revResult = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  if (revResult.status !== 0) {
+    throw new Error(`git rev-parse failed: ${revResult.stderr}`);
+  }
+  return revResult.stdout.trim();
 }
 
 function getBlockState(runsDir: string, blockId: string): Record<string, unknown> | null {
@@ -1588,7 +1634,7 @@ describe('cli real-block-run-ai', () => {
     taskId: string,
     state: Record<string, unknown>
   ): void {
-    const runDir = join(runsDir, taskId);
+    const runDir = join(runsDir, 'tasks', taskId);
     if (!existsSync(runDir)) {
       mkdirSync(runDir, { recursive: true });
     }
@@ -1722,9 +1768,9 @@ describe('cli real-block-run-ai', () => {
   });
 
   test('resume finalizes fixed_and_accepted task from child state without duplicate commits', () => {
-    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
-    const originalSha = 'b'.repeat(40);
-    const fixSha = 'c'.repeat(40);
+    const { blockId, blockPath, repoPath, runsDir, baseSha, cleanup } = createTempBlockEnv();
+    const originalSha = createCommit(repoPath, 'task-two original', { 'task-two.txt': 'original' });
+    const fixSha = createCommit(repoPath, 'task-two fix', { 'task-two.txt': 'fixed' });
     const checkSummary = {
       typecheck: 'pass',
       build: 'pass',
@@ -1736,7 +1782,7 @@ describe('cli real-block-run-ai', () => {
       'Test block',
       runsDir,
       'blocked',
-      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+      [acceptedTaskResult('task-one', baseSha)]
     );
     writeBlockState(runsDir, blockId, partialState);
     writeChildRunState(runsDir, 'task-two', buildChildFixedState('task-two', repoPath, originalSha, fixSha, checkSummary));
@@ -1785,14 +1831,14 @@ describe('cli real-block-run-ai', () => {
   });
 
   test('resume blocks safely on incomplete child state for pending task', () => {
-    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const { blockId, blockPath, repoPath, runsDir, baseSha, cleanup } = createTempBlockEnv();
     const originalSha = 'b'.repeat(40);
     const partialState = buildBaseState(
       blockId,
       'Test block',
       runsDir,
       'blocked',
-      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+      [acceptedTaskResult('task-one', baseSha)]
     );
     writeBlockState(runsDir, blockId, partialState);
     writeChildRunState(runsDir, 'task-two', buildChildFixRequiredState('task-two', repoPath, originalSha));
@@ -1821,7 +1867,7 @@ describe('cli real-block-run-ai', () => {
     taskId: string,
     content: string
   ): void {
-    const runDir = join(runsDir, taskId);
+    const runDir = join(runsDir, 'tasks', taskId);
     if (!existsSync(runDir)) {
       mkdirSync(runDir, { recursive: true });
     }
@@ -1849,13 +1895,13 @@ describe('cli real-block-run-ai', () => {
   }
 
   test('resume blocks safely on corrupted child state JSON', () => {
-    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const { blockId, blockPath, repoPath, runsDir, baseSha, cleanup } = createTempBlockEnv();
     const partialState = buildBaseState(
       blockId,
       'Test block',
       runsDir,
       'blocked',
-      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+      [acceptedTaskResult('task-one', baseSha)]
     );
     writeBlockState(runsDir, blockId, partialState);
     writeCorruptChildRunState(runsDir, 'task-two', '{ not valid json');
@@ -1903,13 +1949,13 @@ describe('cli real-block-run-ai', () => {
   });
 
   test('resume blocks safely when child state task_id mismatches expected task', () => {
-    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const { blockId, blockPath, repoPath, runsDir, baseSha, cleanup } = createTempBlockEnv();
     const partialState = buildBaseState(
       blockId,
       'Test block',
       runsDir,
       'blocked',
-      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+      [acceptedTaskResult('task-one', baseSha)]
     );
     writeBlockState(runsDir, blockId, partialState);
     writeChildRunState(runsDir, 'task-two', buildChildAcceptedState('wrong-task', repoPath, 'b'.repeat(40)));
@@ -1935,13 +1981,13 @@ describe('cli real-block-run-ai', () => {
   });
 
   test('resume blocks safely when child state repo_path mismatches block repo_path', () => {
-    const { blockId, blockPath, repoPath, runsDir, tmpDir, cleanup } = createTempBlockEnv();
+    const { blockId, blockPath, repoPath, runsDir, tmpDir, baseSha, cleanup } = createTempBlockEnv();
     const partialState = buildBaseState(
       blockId,
       'Test block',
       runsDir,
       'blocked',
-      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+      [acceptedTaskResult('task-one', baseSha)]
     );
     writeBlockState(runsDir, blockId, partialState);
     const foreignRepoPath = join(tmpDir, 'foreign-repo');
@@ -1968,13 +2014,13 @@ describe('cli real-block-run-ai', () => {
   });
 
   test('resume blocks safely when completed accepted child state is missing commit_sha', () => {
-    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    const { blockId, blockPath, repoPath, runsDir, baseSha, cleanup } = createTempBlockEnv();
     const partialState = buildBaseState(
       blockId,
       'Test block',
       runsDir,
       'blocked',
-      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+      [acceptedTaskResult('task-one', baseSha)]
     );
     writeBlockState(runsDir, blockId, partialState);
     writeChildRunState(runsDir, 'task-two', buildChildAcceptedStateMissingSha('task-two', repoPath));
@@ -2000,14 +2046,14 @@ describe('cli real-block-run-ai', () => {
   });
 
   test('resume blocks safely when completed fixed child state is missing fixCommitSha', () => {
-    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
-    const originalSha = 'b'.repeat(40);
+    const { blockId, blockPath, repoPath, runsDir, baseSha, cleanup } = createTempBlockEnv();
+    const originalSha = createCommit(repoPath, 'task-two original', { 'task-two.txt': 'original' });
     const partialState = buildBaseState(
       blockId,
       'Test block',
       runsDir,
       'blocked',
-      [acceptedTaskResult('task-one', 'a'.repeat(40))]
+      [acceptedTaskResult('task-one', baseSha)]
     );
     writeBlockState(runsDir, blockId, partialState);
     writeChildRunState(runsDir, 'task-two', buildChildFixedStateMissingFixSha('task-two', repoPath, originalSha));

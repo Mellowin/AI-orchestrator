@@ -2,6 +2,8 @@ import { checkRealBlockRunReadiness, type ReadinessReport } from './real-block-r
 import { normalizeRealProviderSmokeProvider } from './real-provider-smoke.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import { validateRealBlockFile, type RealBlockValidateReport } from './real-block-validate.js';
+import { loadBlockDefinition } from './block/block-loader.js';
+import { getResolvedTimeoutReport } from './real-block-task-timeout.js';
 
 export interface ProviderSmokeCheckResult {
   provider: string;
@@ -29,6 +31,9 @@ export interface RealBlockRunAIChecklistReport {
   blockValidation: BlockValidationSummary;
   blockReadiness: ReadinessReport;
   providerSmoke: ProviderSmokeCheckResult;
+  resolvedTaskTimeoutMs: number;
+  resolvedReviewerParseRetries: number;
+  resolvedOnBlockedTask: string;
   nextCommands: string[];
   warnings: string[];
   reasons: string[];
@@ -102,6 +107,17 @@ export function checkRealBlockRunAIChecklist(
   const providerSmoke = checkProviderSmokeReadiness(env, providerInput);
   const blockReadiness = checkRealBlockRunReadiness(blockPath, { resume });
 
+  let resolvedReport;
+  try {
+    resolvedReport = getResolvedTimeoutReport(loadBlockDefinition(blockPath));
+  } catch {
+    resolvedReport = {
+      resolvedTaskTimeoutMs: 120000,
+      resolvedReviewerParseRetries: 2,
+      resolvedOnBlockedTask: 'stop' as const,
+    };
+  }
+
   const nextCommands: string[] = [];
   const warnings: string[] = [...blockValidationReport.warnings];
   const reasons: string[] = [];
@@ -121,6 +137,9 @@ export function checkRealBlockRunAIChecklist(
       blockValidation,
       blockReadiness,
       providerSmoke,
+      resolvedTaskTimeoutMs: resolvedReport.resolvedTaskTimeoutMs,
+      resolvedReviewerParseRetries: resolvedReport.resolvedReviewerParseRetries,
+      resolvedOnBlockedTask: resolvedReport.resolvedOnBlockedTask,
       nextCommands,
       warnings,
       reasons,
@@ -159,6 +178,9 @@ export function checkRealBlockRunAIChecklist(
     blockValidation,
     blockReadiness,
     providerSmoke,
+    resolvedTaskTimeoutMs: resolvedReport.resolvedTaskTimeoutMs,
+    resolvedReviewerParseRetries: resolvedReport.resolvedReviewerParseRetries,
+    resolvedOnBlockedTask: resolvedReport.resolvedOnBlockedTask,
     nextCommands,
     warnings,
     reasons,

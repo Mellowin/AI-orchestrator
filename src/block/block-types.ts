@@ -38,6 +38,9 @@ export interface BlockReviewPolicy {
   require_deterministic_checks: boolean;
   max_fix_attempts: number;
   reviewer_mode: 'single' | 'multi_future';
+  task_timeout_ms?: number;
+  reviewer_parse_retries?: number;
+  on_blocked_task?: 'stop' | 'continue' | 'skip';
 }
 
 export interface BlockTaskDefinition {

@@ -4,15 +4,21 @@ import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition } from './block/block-types.js';
 import { config } from './config.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
+import type { ProviderAttempt } from './types.js';
 
 export interface RealBlockRunTaskResult {
   taskId: string;
   title: string;
-  status: 'accepted' | 'fixed_and_accepted' | 'blocked' | 'fix_required' | 'failed';
+  status: 'accepted' | 'fixed_and_accepted' | 'blocked' | 'fix_required' | 'failed' | 'blocked_skipped';
   originalCommitSha?: string;
   fixCommitSha?: string;
   reviewerGateStatus?: string;
   reviewerSummary?: string;
+  parseAttempts?: number;
+  fixAttempts?: number;
+  codeApplied?: boolean;
+  pushed?: boolean;
+  checksResult?: string;
   fixAttempted: boolean;
   fixTaskId?: string;
   fixRunnerStatus?: string;
@@ -26,6 +32,7 @@ export interface RealBlockRunTaskResult {
   rollbackPolicy?: string;
   rollbackReason?: string;
   childStateTaskId: string;
+  providerAttempts?: ProviderAttempt[];
 }
 
 export interface RealBlockRunSummary {
@@ -33,6 +40,7 @@ export interface RealBlockRunSummary {
   acceptedTasks: number;
   fixedTasks: number;
   completedTasks: number;
+  skippedBlockedTasks?: number;
   blockedTaskId?: string;
   failedTaskId?: string;
   stoppedReason?: string;
@@ -41,7 +49,7 @@ export interface RealBlockRunSummary {
 export interface RealBlockRunState {
   block_id: string;
   title: string;
-  status: 'completed' | 'blocked' | 'failed' | 'paused';
+  status: 'completed' | 'completed_with_caveats' | 'blocked' | 'failed' | 'paused';
   currentTaskId: string | null;
   statePath: string;
   taskResults: RealBlockRunTaskResult[];
@@ -80,6 +88,12 @@ export function isCompletedTaskStatus(
   return status === 'accepted' || status === 'fixed_and_accepted';
 }
 
+export function isSkippedBlockedTaskStatus(
+  status: string | undefined
+): status is 'blocked_skipped' {
+  return status === 'blocked_skipped';
+}
+
 function validateBlockRunState(
   parsed: unknown,
   block: BlockDefinition
@@ -92,7 +106,7 @@ function validateBlockRunState(
     throw new Error('Existing block state file does not match block_id');
   }
 
-  const validStatuses = ['completed', 'blocked', 'failed', 'paused'];
+  const validStatuses = ['completed', 'completed_with_caveats', 'blocked', 'failed', 'paused'];
   if (typeof parsed.status !== 'string' || !validStatuses.includes(parsed.status)) {
     throw new Error('Existing block state file has invalid status');
   }
@@ -116,6 +130,11 @@ function validateBlockRunState(
     if (typeof result.status !== 'string') {
       throw new Error(`Existing block state task result ${i} is missing status`);
     }
+    const validTaskStatuses = ['accepted', 'fixed_and_accepted', 'blocked', 'fix_required', 'failed', 'blocked_skipped'];
+    if (!validTaskStatuses.includes(result.status)) {
+      throw new Error(`Existing block state task result ${i} has invalid status`);
+    }
+
     if (isCompletedTaskStatus(result.status)) {
       if (typeof result.originalCommitSha !== 'string' || result.originalCommitSha.length !== 40) {
         throw new Error('Existing block state has completed task without valid commit SHA');

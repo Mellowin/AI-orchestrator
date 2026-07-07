@@ -26,8 +26,19 @@ import { config } from './config.js';
 import { createAIClientFromConfig } from './ai-client-factory.js';
 import { resolveBackupPath } from './backup-path.js';
 import { buildAgentPlan, parseAgentOnceArgs, type AgentPlanMode } from './agent-plan.js';
-import { createMockProviderCall, createRealProviderCall, buildProviderCallInput, normalizeProviderCallResult, normalizeProviderCallError } from './provider-call.js';
+import {
+  createMockProviderCall,
+  createRealProviderCall,
+  buildProviderCallInput,
+  normalizeProviderCallResult,
+  normalizeProviderCallError,
+  callProviderWithRetry,
+  buildRecoveryPrompt,
+  resolveProviderRetryConfig,
+  ProviderCallFailedError,
+} from './provider-call.js';
 import type { FetchFn } from './provider-call.js';
+import type { ProviderAttempt } from './types.js';
 import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
 import { runRealRepoSandboxPreflight } from './real-repo-sandbox-preflight.js';
 import { buildSandboxPreflightRepairDecision, redactSecrets } from './sandbox-preflight-repair.js';
@@ -81,11 +92,13 @@ import { buildBlockStatusReport } from './block/block-report.js';
 import { runOneTaskLoop } from './block/block-one-task-loop.js';
 import { runMultiTaskLoop, runMultiTaskFakeLoop } from './block/block-multi-task-loop.js';
 import { runRealBlockRunAI } from './real-block-run-ai.js';
+import { validateReviewerParseRetries } from './real-block-task-timeout.js';
 import { runGitHealthPreflight, formatGitHealthPreflightError } from './git-health-preflight.js';
 import { captureCheckpoint, rollbackToCheckpoint, formatRollbackResult, type RepoCheckpoint, type RollbackResult } from './real-repo-rollback.js';
 import { runRealProviderSmoke } from './real-provider-smoke.js';
 import { runRealCoderContractSmoke, formatRealCoderContractSmokeReport } from './real-coder-contract-smoke.js';
 import { runRealReviewerContractSmoke, formatRealReviewerContractSmokeReport } from './real-reviewer-contract-smoke.js';
+import { loadOperatorE2EConfig, runOperatorE2E } from './operator-e2e.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import { renderBlockRunReport } from './real-block-run-ai-report.js';
 import { checkRealBlockRunAIChecklist, formatCheckRealBlockRunAIChecklistReport } from './real-block-run-ai-checklist.js';
@@ -1095,6 +1108,23 @@ if (command === 'real-repo-run-ai') {
       break commandDispatch;
     }
 
+    let reviewerParseRetries: number;
+    try {
+      reviewerParseRetries = validateReviewerParseRetries(process.env.REAL_REVIEWER_PARSE_RETRIES);
+    } catch (parseRetriesErr) {
+      const parseRetriesMessage = parseRetriesErr instanceof Error ? parseRetriesErr.message : String(parseRetriesErr);
+      console.error(`[real-repo-run-ai] ${parseRetriesMessage}`);
+      console.error('[real-repo-run-ai] No provider call was made');
+      console.error('[real-repo-run-ai] No apply was performed');
+      console.error('[real-repo-run-ai] No commit was made');
+      console.error('[real-repo-run-ai] No push was performed');
+      console.error('[real-repo-run-ai] No merge was performed');
+      console.error('[real-repo-run-ai] No checkout was performed');
+      console.error('[real-repo-run-ai] No main touch was performed');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+
     const apiKey = process.env.KIMI_API_KEY?.trim();
     if (!apiKey) {
       console.error('[real-repo-run-ai] Error: KIMI_API_KEY env var is required');
@@ -1246,6 +1276,7 @@ if (command === 'real-repo-run-ai') {
 
       let kimiOutput: KimiOutput;
       let rawProviderText: string;
+      let providerAttempts: ProviderAttempt[] = [];
       try {
         const realProviderCall = createRealProviderCall({
           provider: 'kimi',
@@ -1255,15 +1286,57 @@ if (command === 'real-repo-run-ai') {
           model,
           userAgent: process.env.KIMI_USER_AGENT?.trim(),
         });
-        const providerInput = buildProviderCallInput('coder', currentPrompt, 'kimi', model);
-        const result = await realProviderCall(providerInput);
-        const normalizedResult = normalizeProviderCallResult(result);
-        rawProviderText = normalizedResult.text;
-        kimiOutput = parseKimiOutputJson(rawProviderText);
+        const retryConfig = resolveProviderRetryConfig();
+        const retryResult = await callProviderWithRetry<KimiOutput>({
+          providerCall: realProviderCall,
+          provider: 'kimi',
+          model,
+          basePrompt: currentPrompt,
+          buildRecoveryPrompt,
+          parseOutput: parseKimiOutputJson,
+          taskId,
+          config: retryConfig,
+        });
+        rawProviderText = retryResult.text;
+        providerAttempts = retryResult.providerAttempts;
+        kimiOutput = retryResult.output!;
       } catch (providerErr) {
+        // Extract provider attempts from a structured retry failure so they are
+        // preserved even when the wrapper exhausts all retries.
+        if (providerErr instanceof ProviderCallFailedError) {
+          providerAttempts = providerErr.providerAttempts;
+        }
+
         const info = normalizeProviderCallError(providerErr);
         const message = info.message;
-        const isParseError = message.includes('Invalid Kimi JSON') || message.includes('KimiOutput') || message.includes('JSON');
+        const isParseError = message.includes('Invalid Kimi JSON') || message.includes('KimiOutput') || message.includes('JSON') || message.includes('fenced block');
+
+        // Persist a failed state with provider attempt metadata so the block runner
+        // can report the failure reason instead of "no state was persisted".
+        const now = new Date().toISOString();
+        let existingState: RunState | null = null;
+        try {
+          existingState = loadState(taskId);
+        } catch {
+          // ignore
+        }
+        const failedState: RunState = {
+          task_id: taskId,
+          status: 'failed_max_attempts',
+          current_attempt: existingState?.current_attempt ?? 0,
+          branch: currentBranch || task.work_branch,
+          repo_path: task.repo_path,
+          created_at: existingState?.created_at ?? now,
+          updated_at: now,
+          provider_attempts: providerAttempts,
+          safety_note: `Provider failed after retry: ${message}`,
+        };
+        try {
+          saveState(taskId, failedState);
+        } catch (stateErr) {
+          console.error('[real-repo-run-ai] Failed to write provider failure state');
+        }
+
         if (isRepair) {
           if (isParseError) {
             console.error(`[real-repo-run-ai] Provider repair output malformed: ${message}`);
@@ -1333,6 +1406,30 @@ if (command === 'real-repo-run-ai') {
       if (!safetyPolicyResult.ok) {
         const policyMessage = safetyPolicyResult.reasons.join('; ');
         console.error(`[real-repo-run-ai] Safety policy violation: ${policyMessage}`);
+        console.error('[real-repo-run-ai] Blocked by safety policy before apply');
+
+        const now = new Date().toISOString();
+        const blockedState: RunState = {
+          task_id: taskId,
+          status: 'blocked',
+          current_attempt: 0,
+          branch: currentBranch || task.work_branch,
+          repo_path: task.repo_path,
+          created_at: now,
+          updated_at: now,
+          blocked_by: 'safety_policy',
+          applied: false,
+          committed: false,
+          pushed: false,
+          safety_policy_reasons: safetyPolicyResult.reasons,
+          safety_note: 'Blocked by deterministic safety policy before apply',
+        };
+        try {
+          saveState(taskId, blockedState);
+        } catch (stateErr) {
+          console.error('[real-repo-run-ai] Failed to write blocked state');
+        }
+
         console.error('[real-repo-run-ai] No apply was performed');
         console.error('[real-repo-run-ai] No commit was made');
         console.error('[real-repo-run-ai] No push was performed');
@@ -1593,6 +1690,7 @@ if (command === 'real-repo-run-ai') {
         pushed_remote: 'origin',
         pushed_ref: currentBranch,
         commit_sha: headSha,
+        provider_attempts: providerAttempts,
         safety_note: 'Push completed; merge not performed; human review required before merge',
       };
 
@@ -1634,6 +1732,7 @@ if (command === 'real-repo-run-ai') {
             taskGoal: task.goal,
             branchName: currentBranch,
             commitSha: headSha,
+            maxParseRetries: reviewerParseRetries,
             checkSummary: {
               test: lastCheckResult?.success ? 'pass' : (lastCheckResult ? 'fail' : undefined),
             },
@@ -1982,6 +2081,7 @@ if (command === 'real-repo-run-ai') {
                   taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
                   branchName: currentBranch,
                   commitSha: postRunPlan.commitSha,
+                  maxParseRetries: reviewerParseRetries,
                   checkSummary: { test: 'pass' },
                   stateStatus: 'fix_review',
                   reviewer: async () => secondReviewerResponse,
@@ -2017,6 +2117,7 @@ if (command === 'real-repo-run-ai') {
                   taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
                   branchName: currentBranch,
                   commitSha: fixCommitSha,
+                  maxParseRetries: reviewerParseRetries,
                   checkSummary: postRunPlan.checkSummary ?? { test: 'not_run' },
                   stateStatus: 'fix_review',
                   reviewer: async (input) => {
@@ -3394,12 +3495,14 @@ if (command === 'real-block-run-ai') {
     }
 
     const resume = args.slice(2).includes('--resume');
+    const fresh = args.includes('--fresh');
     const pauseAfterTaskIndex = args.indexOf('--pause-after-task');
     const pauseAfterTaskId =
       pauseAfterTaskIndex >= 0 ? args[pauseAfterTaskIndex + 1] : undefined;
     const { exitCode } = await runRealBlockRunAI(taskId, {
       resume,
       pauseAfterTaskId,
+      fresh,
     });
     process.exitCode = exitCode;
     break commandDispatch;
@@ -3807,9 +3910,43 @@ if (command === 'real-block-task-probe') {
   }
 }
 
-if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up')) {
+if (command === 'operator-e2e') {
+  try {
+    const configPath = args[1];
+    const resume = args.includes('--resume');
+    const fresh = args.includes('--fresh');
+    if (!configPath) {
+      console.error('[operator-e2e] Error: config path is required');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+    const config = loadOperatorE2EConfig(configPath);
+    const report = await runOperatorE2E(config, { resume, fresh });
+    console.log(JSON.stringify({
+      verdict: report.verdict,
+      resumeUsed: report.resumeUsed,
+      prResult: report.prResult,
+      npmCiOk: report.npmCiOk,
+      npmTestOk: report.npmTestOk,
+      safetyProofMatched: `${report.safetyProof.matched}/${report.safetyProof.total}`,
+      rollbackProofOk: report.rollbackProof.ok,
+      artifactConsistency: report.artifactConsistency,
+      reportJsonPath: report.reportJsonPath,
+      reportMdPath: report.reportMdPath,
+    }, null, 2));
+    process.exitCode = report.verdict === 'FULLY_PASSED' ? 0 : 1;
+    break commandDispatch;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[operator-e2e] Error: ${redactSecrets(message)}`);
+    process.exitCode = 1;
+    break commandDispatch;
+  }
+}
+
+if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e')) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-follow-up [--report-only|--create-follow-up <newTaskId>]|real-block-follow-up [--create-follow-ups]|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|operator-e2e <config.json> [--resume]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-follow-up [--report-only|--create-follow-up <newTaskId>]|real-block-follow-up [--create-follow-ups]|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg4]'
   );
   process.exit(1);
 }

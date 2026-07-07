@@ -11,6 +11,7 @@ export interface ReviewerInput {
   diffStat: string;
   checkSummary: ReviewerEvidence['checkSummary'];
   stateStatus?: string;
+  previousFailure?: string;
   safety: ReviewerEvidence['safety'];
   instructions: string[];
   requiredOutputFormat: {
@@ -36,6 +37,7 @@ export function buildReviewerInput(evidence: ReviewerEvidence): ReviewerInput {
     diffStat: evidence.diffStat,
     checkSummary: evidence.checkSummary,
     stateStatus: evidence.stateStatus,
+    previousFailure: evidence.previousFailure,
     safety: evidence.safety,
     instructions: [
       'Review only the provided factual evidence. Do not assume knowledge outside the evidence.',

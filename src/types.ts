@@ -35,7 +35,8 @@ export type RunStatus =
   | 'rejected'
   | 'failed_guardrails'
   | 'failed_max_attempts'
-  | 'pushed';
+  | 'pushed'
+  | 'blocked';
 
 export type RollbackPolicy =
   | 'pre_push_failure'
@@ -50,6 +51,15 @@ export interface RollbackRecord {
   finalHead?: string;
   reason?: string;
   policy?: RollbackPolicy;
+}
+
+export interface ProviderAttempt {
+  attempt: number;
+  ok: boolean;
+  reason?: string;
+  retryable?: boolean;
+  recovery_prompt?: boolean;
+  raw_text_length?: number;
 }
 
 export interface RunState {
@@ -68,6 +78,12 @@ export interface RunState {
   commit_sha?: string;
   safety_note?: string;
   rollback?: RollbackRecord;
+  blocked_by?: 'safety_policy';
+  applied?: boolean;
+  committed?: boolean;
+  pushed?: boolean;
+  safety_policy_reasons?: string[];
+  provider_attempts?: ProviderAttempt[];
 }
 
 export interface KimiOutput {
