@@ -996,7 +996,7 @@ export async function runOperatorE2E(
       ? phaseResult.npmCi.ok && phaseResult.npmTest.ok
       : phaseResult.ok;
 
-    if (!options.resume || phaseOk) {
+    if (phaseOk) {
       markPhaseCompleted(state, phaseName);
     }
 

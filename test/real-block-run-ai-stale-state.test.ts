@@ -104,8 +104,8 @@ function setupBlockRun(options: SetupOptions = {}): { repo: string; runsDir: str
 
   const taskCommit = options.staleCommit === 'missing' ? '0'.repeat(40) : staleSha;
 
-  // Child task state
-  const taskStateDir = join(runsDir, taskId);
+  // Child task state (isolated under runs/tasks/<task_id>)
+  const taskStateDir = join(runsDir, 'tasks', taskId);
   mkdirSync(taskStateDir, { recursive: true });
   writeFileSync(
     join(taskStateDir, 'state.json'),
@@ -193,7 +193,7 @@ describe('real-block-run-ai stale state detection', () => {
   it('--fresh removes stale state and starts from scratch', () => {
     const { blockPath, runsDir } = setupBlockRun();
     const blockStatePath = join(runsDir, 'block', 'stale_test_block', 'state.json');
-    const taskStatePath = join(runsDir, 'task_stale', 'state.json');
+    const taskStatePath = join(runsDir, 'tasks', 'task_stale', 'state.json');
     assert.equal(existsSync(blockStatePath), true);
     assert.equal(existsSync(taskStatePath), true);
 

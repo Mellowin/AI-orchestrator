@@ -114,7 +114,7 @@ export function prepareFreshBlockRun(
   }
 
   for (const task of block.tasks) {
-    const taskStatePath = join(runsDir, task.task_id, 'state.json');
+    const taskStatePath = join(runsDir, 'tasks', task.task_id, 'state.json');
     if (existsSync(taskStatePath)) {
       rmSync(taskStatePath, { force: true });
       removed.taskStatePaths.push(taskStatePath);

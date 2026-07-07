@@ -1634,7 +1634,7 @@ describe('cli real-block-run-ai', () => {
     taskId: string,
     state: Record<string, unknown>
   ): void {
-    const runDir = join(runsDir, taskId);
+    const runDir = join(runsDir, 'tasks', taskId);
     if (!existsSync(runDir)) {
       mkdirSync(runDir, { recursive: true });
     }
@@ -1867,7 +1867,7 @@ describe('cli real-block-run-ai', () => {
     taskId: string,
     content: string
   ): void {
-    const runDir = join(runsDir, taskId);
+    const runDir = join(runsDir, 'tasks', taskId);
     if (!existsSync(runDir)) {
       mkdirSync(runDir, { recursive: true });
     }

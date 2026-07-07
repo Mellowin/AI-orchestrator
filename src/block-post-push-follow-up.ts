@@ -231,7 +231,8 @@ function gatherFollowUpItems(
       throw new Error(`Invalid childStateTaskId for task "${result.taskId}"`);
     }
 
-    const state = loadState(childStateTaskId, runsDir);
+    // Child real-repo-run-ai state lives under runs/tasks/<task_id>.
+    const state = loadState(childStateTaskId, join(runsDir, 'tasks'));
     if (!state) {
       throw new Error(
         `State file does not exist for task "${childStateTaskId}"`

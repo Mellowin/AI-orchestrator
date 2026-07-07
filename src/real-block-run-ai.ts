@@ -8,7 +8,7 @@ import {
   prepareFreshBlockRun,
   verifyTaskResultHistory,
 } from './block/block-state-consistency.js';
-import { loadState } from './state-manager.js';
+
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import {
@@ -191,6 +191,10 @@ function buildBaseChildEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+function getChildRunsDir(runsDir: string): string {
+  return join(runsDir, 'tasks');
+}
+
 function runSingleTask(
   block: BlockDefinition,
   task: BlockTaskDefinition,
@@ -200,11 +204,13 @@ function runSingleTask(
 ): { exitCode: number; state: Record<string, unknown> | null } {
   const runsDir = getRunsDir();
   const blockRunDir = getBlockRunDir(block);
+  const childRunsDir = getChildRunsDir(runsDir);
 
-  // Child real-repo-run-ai writes state to runs/<task_id>/state.json. If a
-  // previous block used the same task_id, stale state would be reused. Clean
-  // the per-task run directory before each task so every block run is fresh.
-  const staleTaskRunDir = join(runsDir, task.task_id);
+  // Child real-repo-run-ai writes state to runs/tasks/<task_id>/state.json.
+  // If a previous block used the same task_id, stale state would be reused.
+  // Clean the per-task run directory under the child namespace before each
+  // task so every block run is fresh without touching runs/block/**.
+  const staleTaskRunDir = join(childRunsDir, task.task_id);
   if (existsSync(staleTaskRunDir)) {
     rmSync(staleTaskRunDir, { recursive: true, force: true });
   }
@@ -214,7 +220,7 @@ function runSingleTask(
 
   const env = buildBaseChildEnv();
   env.TASKS_FILE = tasksFilePath;
-  env.RUNS_DIR = runsDir;
+  env.RUNS_DIR = childRunsDir;
   env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP = '1';
 
   const blockMaxFixAttempts =
@@ -271,7 +277,8 @@ function runSingleTask(
     }
   }
 
-  const state = loadState(task.task_id, runsDir) as Record<string, unknown> | null;
+  const childLoad = loadChildState(task.task_id, runsDir);
+  const state = childLoad.kind === 'loaded' ? childLoad.state : null;
   return { exitCode: result.status ?? 1, state };
 }
 
@@ -296,7 +303,7 @@ function loadChildState(
   taskId: string,
   runsDir: string
 ): ChildStateLoadResult {
-  const statePath = join(runsDir, taskId, 'state.json');
+  const statePath = join(getChildRunsDir(runsDir), taskId, 'state.json');
   if (!existsSync(statePath)) {
     return { kind: 'missing' };
   }
@@ -641,6 +648,32 @@ function deriveTaskResult(
   }
 
   const runStatus = state.status;
+  if (runStatus === 'blocked') {
+    base.status = 'blocked';
+    base.finalStatus = 'blocked';
+    base.nextAction = 'block';
+    base.codeApplied = typeof commitSha === 'string' && commitSha.length === 40;
+    base.pushed = false;
+    base.checksResult = 'blocked';
+
+    const safetyReasons = state.safety_policy_reasons;
+    const safetyNote =
+      typeof state.safety_note === 'string' ? state.safety_note : undefined;
+    const blockedBy =
+      typeof state.blocked_by === 'string' ? state.blocked_by : 'policy';
+
+    let reason: string;
+    if (Array.isArray(safetyReasons) && safetyReasons.length > 0) {
+      reason = `${blockedBy}: ${safetyReasons.join('; ')}`;
+    } else if (safetyNote) {
+      reason = safetyNote;
+    } else {
+      reason = 'Task was blocked before apply.';
+    }
+    base.reason = redactSecrets(reason);
+    return base;
+  }
+
   if (runStatus === 'pushed' && run.exitCode === 0) {
     base.status = 'accepted';
     base.finalStatus = 'accepted';

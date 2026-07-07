@@ -163,13 +163,13 @@ describe('prepareFreshBlockRun', () => {
     } as unknown as import('../src/block/block-types.js').BlockDefinition;
 
     const blockStatePath = join(runsDir, 'block', 'test_block', 'state.json');
-    const taskAStatePath = join(runsDir, 'task_a', 'state.json');
-    const taskBStatePath = join(runsDir, 'task_b', 'state.json');
+    const taskAStatePath = join(runsDir, 'tasks', 'task_a', 'state.json');
+    const taskBStatePath = join(runsDir, 'tasks', 'task_b', 'state.json');
     const unrelatedStatePath = join(runsDir, 'other_task', 'state.json');
 
     mkdirSync(join(runsDir, 'block', 'test_block'), { recursive: true });
-    mkdirSync(join(runsDir, 'task_a'), { recursive: true });
-    mkdirSync(join(runsDir, 'task_b'), { recursive: true });
+    mkdirSync(join(runsDir, 'tasks', 'task_a'), { recursive: true });
+    mkdirSync(join(runsDir, 'tasks', 'task_b'), { recursive: true });
     mkdirSync(join(runsDir, 'other_task'), { recursive: true });
     writeFileSync(blockStatePath, '{}');
     writeFileSync(taskAStatePath, '{}');
