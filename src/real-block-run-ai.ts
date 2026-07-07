@@ -73,11 +73,11 @@ function parseOptionalStringArray(
   if (!Array.isArray(parsed)) {
     throw new Error(`${name} must be a JSON array`);
   }
-  return parsed.map((item) =>
-    item === undefined || item === null
-      ? undefined
-      : String(item)
-  );
+  return parsed.map((item) => {
+    if (item === undefined || item === null) return undefined;
+    if (Array.isArray(item)) return JSON.stringify(item);
+    return String(item);
+  });
 }
 
 function loadFakeResponseArrays(block: BlockDefinition): FakeResponseArrays {
@@ -122,7 +122,7 @@ function getTaskFakeResponse(
   arrays: FakeResponseArrays,
   name: keyof FakeResponseArrays,
   index: number
-): string | undefined {
+): string | string[] | undefined {
   const arr = arrays[name];
   if (arr === undefined) {
     return undefined;
@@ -236,21 +236,30 @@ function runSingleTask(
 
   const kimiResponse = getTaskFakeResponse(arrays, 'kimi', index);
   if (kimiResponse !== undefined) {
-    env.KIMI_FAKE_RESPONSE = kimiResponse;
+    if (Array.isArray(kimiResponse)) {
+      env.KIMI_FAKE_RESPONSES = JSON.stringify(kimiResponse);
+    } else if (
+      typeof kimiResponse === 'string' &&
+      kimiResponse.trim().startsWith('[')
+    ) {
+      env.KIMI_FAKE_RESPONSES = kimiResponse;
+    } else {
+      env.KIMI_FAKE_RESPONSE = kimiResponse;
+    }
   }
 
   const reviewerResponse = getTaskFakeResponse(arrays, 'reviewer', index);
-  if (reviewerResponse !== undefined) {
+  if (typeof reviewerResponse === 'string') {
     env.REAL_REPO_REVIEWER_FAKE_RESPONSE = reviewerResponse;
   }
 
   const fixKimiResponse = getTaskFakeResponse(arrays, 'fixKimi', index);
-  if (fixKimiResponse !== undefined) {
+  if (typeof fixKimiResponse === 'string') {
     env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE = fixKimiResponse;
   }
 
   const secondReviewerResponse = getTaskFakeResponse(arrays, 'secondReviewer', index);
-  if (secondReviewerResponse !== undefined) {
+  if (typeof secondReviewerResponse === 'string') {
     env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE = secondReviewerResponse;
   }
 
@@ -648,6 +657,16 @@ function deriveTaskResult(
   }
 
   const runStatus = state.status;
+  if (runStatus === 'failed_guardrails') {
+    base.status = 'failed';
+    base.finalStatus = 'failed';
+    base.nextAction = 'block';
+    base.checksResult = 'fail';
+    const safetyNote = typeof state.safety_note === 'string' ? state.safety_note : undefined;
+    base.reason = redactSecrets(safetyNote ?? 'Guardrails rejected provider output');
+    return base;
+  }
+
   if (runStatus === 'blocked') {
     base.status = 'blocked';
     base.finalStatus = 'blocked';

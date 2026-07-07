@@ -174,6 +174,33 @@ function buildRepairPrompt(
   );
 }
 
+function buildGuardrailsRecoveryPrompt(
+  task: import('./types.js').Task,
+  guardrailsReason: string,
+  previousFiles: Array<{ path: string; content: string }>
+): string {
+  const allowedFiles = task.guardrails.allow_modify?.join(', ') ?? 'none';
+  const previousPaths = previousFiles.map((f) => f.path).join(', ');
+
+  return (
+    `# Task (Guardrails Recovery Attempt)\n\n` +
+    `Task ID: ${task.id}\n` +
+    `Title: ${task.title}\n` +
+    `Goal: ${task.goal}\n\n` +
+    `# Guardrails Rejection\n\n` +
+    `Reason: ${guardrailsReason}\n\n` +
+    `Previously proposed files: ${previousPaths}\n\n` +
+    `# Allowed Files\n\n` +
+    `You are ONLY allowed to create or modify these files: ${allowedFiles}\n\n` +
+    `# Instructions\n\n` +
+    `Return ONLY valid JSON using the file_update schema. ` +
+    `Return full file content, not diffs. ` +
+    `Do not include markdown outside JSON. ` +
+    `Do not create or modify any file outside the allowed list above. ` +
+    `Do not rename files to similar names (for example, do not use feature_note.md when only feature.txt is allowed).`
+  );
+}
+
 function getTasksFilePath(): string {
   return process.env.TASKS_FILE?.trim() || 'tasks.yaml';
 }
@@ -1370,7 +1397,41 @@ if (command === 'real-repo-run-ai') {
 
       const guardrailsResult = validateFileList(updatePaths, task.guardrails);
       if (!guardrailsResult.ok) {
-        console.error(`[real-repo-run-ai] Guardrails failed: ${guardrailsResult.reason}`);
+        const guardrailsFailureReason = guardrailsResult.reason ?? 'unknown guardrails violation';
+        console.error(`[real-repo-run-ai] Guardrails failed: ${guardrailsFailureReason}`);
+
+        if (attempt < maxAttempts) {
+          console.error(`[real-repo-run-ai] Guardrails recovery attempt ${attempt + 1}/${maxAttempts}`);
+          repairPrompt = buildGuardrailsRecoveryPrompt(task, guardrailsFailureReason, kimiOutput.files);
+          continue;
+        }
+
+        const guardrailsFailedNow = new Date().toISOString();
+        let existingGuardrailsState: RunState | null = null;
+        try {
+          existingGuardrailsState = loadState(taskId);
+        } catch {
+          // ignore
+        }
+        const guardrailsFailedState: RunState = {
+          task_id: taskId,
+          status: 'failed_guardrails',
+          current_attempt: existingGuardrailsState?.current_attempt ?? 0,
+          branch: currentBranch || task.work_branch,
+          repo_path: task.repo_path,
+          created_at: existingGuardrailsState?.created_at ?? guardrailsFailedNow,
+          updated_at: guardrailsFailedNow,
+          provider_attempts: providerAttempts,
+          safety_note: `Guardrails failed: ${guardrailsFailureReason}`,
+          safety_policy_reasons: [guardrailsFailureReason],
+        };
+        try {
+          saveState(taskId, guardrailsFailedState);
+        } catch {
+          console.error('[real-repo-run-ai] Failed to write guardrails failure state');
+        }
+
+        console.error('[real-repo-run-ai] Manual inspection required');
         console.error('[real-repo-run-ai] No apply was performed');
         console.error('[real-repo-run-ai] No commit was made');
         console.error('[real-repo-run-ai] No push was performed');
@@ -1391,6 +1452,39 @@ if (command === 'real-repo-run-ai') {
         } catch (deltaErr) {
           const deltaMessage = deltaErr instanceof Error ? deltaErr.message : String(deltaErr);
           console.error(`[real-repo-run-ai] Guardrails failed: ${deltaMessage}`);
+
+          if (attempt < maxAttempts) {
+            console.error(`[real-repo-run-ai] Guardrails recovery attempt ${attempt + 1}/${maxAttempts}`);
+            repairPrompt = buildGuardrailsRecoveryPrompt(task, deltaMessage, kimiOutput.files);
+            continue;
+          }
+
+          const guardrailsFailedNow = new Date().toISOString();
+          let existingGuardrailsState: RunState | null = null;
+          try {
+            existingGuardrailsState = loadState(taskId);
+          } catch {
+            // ignore
+          }
+          const guardrailsFailedState: RunState = {
+            task_id: taskId,
+            status: 'failed_guardrails',
+            current_attempt: existingGuardrailsState?.current_attempt ?? 0,
+            branch: currentBranch || task.work_branch,
+            repo_path: task.repo_path,
+            created_at: existingGuardrailsState?.created_at ?? guardrailsFailedNow,
+            updated_at: guardrailsFailedNow,
+            provider_attempts: providerAttempts,
+            safety_note: `Guardrails failed: ${deltaMessage}`,
+            safety_policy_reasons: [deltaMessage],
+          };
+          try {
+            saveState(taskId, guardrailsFailedState);
+          } catch {
+            console.error('[real-repo-run-ai] Failed to write guardrails failure state');
+          }
+
+          console.error('[real-repo-run-ai] Manual inspection required');
           console.error('[real-repo-run-ai] No apply was performed');
           console.error('[real-repo-run-ai] No commit was made');
           console.error('[real-repo-run-ai] No push was performed');

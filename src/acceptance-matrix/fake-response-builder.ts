@@ -4,7 +4,8 @@ import type {
 } from './types.js';
 
 export interface FakeResponseArrays {
-  kimi: (string | undefined)[];
+  /** Coder responses per task. A task entry may be a single response or a sequence for retries. */
+  kimi: (string | string[] | undefined)[];
   reviewer: (string | undefined)[];
   fixKimi: (string | undefined)[];
   secondReviewer: (string | undefined)[];
