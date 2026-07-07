@@ -142,6 +142,23 @@ describe('acceptance-matrix runner integration', () => {
         blockedContinue?.resume?.commit_count_ahead_before,
         blockedContinue?.resume?.commit_count_ahead_after
       );
+      assert.strictEqual(blockedContinue?.resume?.provider_rerun, false);
+      assert.strictEqual(blockedContinue?.resume?.completed_noop_marker_found, true);
+      assert.strictEqual(
+        blockedContinue?.resume?.provider_attempts_before,
+        blockedContinue?.resume?.provider_attempts_after,
+        'provider attempts should not increase after resume no-op'
+      );
+
+      // Verify resume stdout contains the completed-noop marker.
+      const blockedContinueDir = blockedContinue?.evidence_dir ?? '';
+      const resumeStdout = readFileSync(join(blockedContinueDir, 'resume-stdout.txt'), 'utf-8');
+      const resumeStderr = readFileSync(join(blockedContinueDir, 'resume-stderr.txt'), 'utf-8');
+      assert.ok(
+        resumeStdout.includes('Resume mode: block already completed.') ||
+          resumeStderr.includes('Resume mode: block already completed.'),
+        'resume output should contain the completed-noop marker'
+      );
 
       assert.ok(existsSync(join(reportBase, 'acceptance-matrix-result.json')));
       assert.ok(existsSync(join(reportBase, 'acceptance-matrix-report.md')));

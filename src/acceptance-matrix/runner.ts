@@ -65,6 +65,18 @@ function loadBlockStateFromPath(statePath: string): Record<string, unknown> | nu
   }
 }
 
+function countProviderAttempts(state: Record<string, unknown> | null): number {
+  if (!state) return 0;
+  const attempts = state.provider_attempts;
+  if (!Array.isArray(attempts)) return 0;
+  return attempts.length;
+}
+
+function resumeCompletedNoopMarkerFound(stdout: string, stderr: string): boolean {
+  const marker = 'Resume mode: block already completed.';
+  return stdout.includes(marker) || stderr.includes(marker);
+}
+
 function buildChildEnv(
   config: AcceptanceMatrixConfig,
   scenario: AcceptanceScenarioConfig,
@@ -433,6 +445,7 @@ export async function runAcceptanceMatrix(
       scenario.type === 'blocked_continue' &&
       statusAfterFirstRun === 'completed_with_caveats'
     ) {
+      const providerAttemptsBefore = countProviderAttempts(run.state);
       const commitsBeforeResume = getCommitsAhead(
         config.sandbox_repo_path,
         scenario.base_branch,
@@ -447,15 +460,24 @@ export async function runAcceptanceMatrix(
         scenario.work_branch
       );
       const resumeStatus = (resumeRun.state?.status as string) ?? 'unknown';
+      const providerAttemptsAfter = countProviderAttempts(resumeRun.state);
+      const providerRerun = providerAttemptsAfter > providerAttemptsBefore;
+      const noopMarkerFound = resumeCompletedNoopMarkerFound(resumeRun.stdout, resumeRun.stderr);
+      const noNewCommits = commitsAfterResume.length === commitsBeforeResume.length;
+      const resumeOk =
+        resumeRun.exitCode === 0 && noNewCommits && !providerRerun && noopMarkerFound;
       resumeResult = {
         exit_code: resumeRun.exitCode,
         status: resumeStatus,
         commit_count_ahead_before: commitsBeforeResume.length,
         commit_count_ahead_after: commitsAfterResume.length,
-        reason:
-          resumeRun.exitCode === 0 && commitsAfterResume.length === commitsBeforeResume.length
-            ? 'Resume on completed_with_caveats was a no-op: no new commits, provider not rerun'
-            : `Resume produced unexpected result (exit=${resumeRun.exitCode}, commits before=${commitsBeforeResume.length}, after=${commitsAfterResume.length})`,
+        provider_attempts_before: providerAttemptsBefore,
+        provider_attempts_after: providerAttemptsAfter,
+        provider_rerun: providerRerun,
+        completed_noop_marker_found: noopMarkerFound,
+        reason: resumeOk
+          ? 'Resume on completed_with_caveats was a no-op: no new commits, provider not rerun, marker found'
+          : `Resume produced unexpected result (exit=${resumeRun.exitCode}, commits before=${commitsBeforeResume.length}, after=${commitsAfterResume.length}, provider_attempts before=${providerAttemptsBefore}, after=${providerAttemptsAfter}, provider_rerun=${providerRerun}, noop_marker=${noopMarkerFound})`,
       };
     }
 

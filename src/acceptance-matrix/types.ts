@@ -106,6 +106,10 @@ export interface AcceptanceScenarioResult {
     status: string;
     commit_count_ahead_before: number;
     commit_count_ahead_after: number;
+    provider_attempts_before: number;
+    provider_attempts_after: number;
+    provider_rerun: boolean;
+    completed_noop_marker_found: boolean;
     reason: string;
   };
   /** Commits produced in the sandbox repo ahead of the base branch. */

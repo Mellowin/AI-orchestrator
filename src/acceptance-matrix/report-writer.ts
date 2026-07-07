@@ -88,6 +88,10 @@ export function writeAcceptanceMatrixReports(result: AcceptanceMatrixResult): vo
       lines.push(`- Resume no-op: exit_code=${r.resume.exit_code}, status=${r.resume.status}`);
       lines.push(`  - commits ahead before: ${r.resume.commit_count_ahead_before}`);
       lines.push(`  - commits ahead after: ${r.resume.commit_count_ahead_after}`);
+      lines.push(`  - provider attempts before: ${r.resume.provider_attempts_before}`);
+      lines.push(`  - provider attempts after: ${r.resume.provider_attempts_after}`);
+      lines.push(`  - provider rerun: ${r.resume.provider_rerun ? 'yes' : 'no'}`);
+      lines.push(`  - completed-noop marker found: ${r.resume.completed_noop_marker_found ? 'yes' : 'no'}`);
       lines.push(`  - reason: ${redactSecrets(r.resume.reason)}`);
     }
     if (r.pr) {
