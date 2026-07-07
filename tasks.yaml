@@ -22,3 +22,57 @@ tasks:
       auto_commit: false
       auto_push: false
       auto_merge: false
+
+  - id: stage-18-13
+    title: "Stage 18.13 — Real MVP Scenario Matrix / Multi-Task Battle Test"
+    repo_path: "."
+    base_branch: "main"
+    work_branch: "stage-18-13-acceptance-report"
+    goal: |
+      Execute the real MVP acceptance matrix defined in prompts/stage-18-13-battle-test.md.
+
+      This is a validation stage, not a coding stage. Do not modify product source code,
+      tests, configuration, or documentation outside the report directory. If you discover
+      a real product bug, stop and report it in the final report before attempting any fix.
+
+      Produce a final evidence report at reports/stage-18-13-report.md that follows the
+      final report format in the prompt file, including the scenario matrix, SHAs, branches,
+      PR URLs, state summaries, provider attempts, failure classifications, and a verdict.
+    context_files:
+      - "prompts/stage-18-13-battle-test.md"
+      - "AGENTS.md"
+      - "ARCHITECTURE.md"
+      - "src/cli.ts"
+      - "src/real-block-run-ai.ts"
+      - "src/real-repo-run-ai.ts"
+      - "src/operator-e2e.ts"
+      - "src/block-post-push-follow-up.ts"
+      - "src/state-manager.ts"
+      - "src/ai-safety-policy.ts"
+    checks:
+      - command: "npm"
+        args: ["run", "verify:summary"]
+    guardrails:
+      allow_modify:
+        - "reports/**"
+      deny_modify:
+        - "src/**"
+        - "test/**"
+        - "scripts/**"
+        - "checks/**"
+        - "package.json"
+        - "package-lock.json"
+        - "tsconfig.json"
+        - "TESTING_SUMMARY.md"
+        - "AGENTS.md"
+        - "ARCHITECTURE.md"
+        - ".github/**"
+        - ".env"
+        - ".env.*"
+        - "node_modules/**"
+        - ".git/**"
+      max_lines_changed: 5000
+      require_tests: false
+      auto_commit: false
+      auto_push: false
+      auto_merge: false
