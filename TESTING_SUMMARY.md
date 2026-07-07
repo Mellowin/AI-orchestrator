@@ -2,17 +2,17 @@
 
 **Branch:** `stage-18-10-full-mvp-green-rc`
 
-**Last verified:** `a6914dc9f59e524112806c38e1662b82289f619d`
+**Last verified:** `703bbf13bc86da5211f17b0fdb56e7cb34614351`
 
 ## Test metrics
 
 - **Total tests:** 3457
 - **Total suites:** 204
-- **Last verified commit:** `a6914dc9f59e524112806c38e1662b82289f619d` (Stage 18.12A — Fix CI Test failure: align block-follow-up-drill manual child state with `runs/tasks/<task_id>` namespace)
+- **Last verified commit:** `703bbf13bc86da5211f17b0fdb56e7cb34614351` (Stage 18.12A — Fix CI Test failure and record green CI run 28859404467)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** awaiting next Mini-MVP CI run for PR #5 after Stage 18.12A commit
+- **GitHub CI:** Mini-MVP CI run 28859404467 success (all checks, drills, and operator golden path green)
 - **Product verification:** manual-only (`workflow_dispatch`); not rerun for this release candidate
 - **Debug markers:** none (`DEBUG_CHUNK2`, `CHECK_DEBUG` absent)
 
