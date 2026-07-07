@@ -224,14 +224,22 @@ function saveBlockState(runsDir, blockId, state) {
   writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf8');
 }
 
+function getChildRunDir(runsDir, taskId) {
+  return join(runsDir, 'tasks', taskId);
+}
+
 function loadChildState(runsDir, taskId) {
-  const statePath = join(runsDir, taskId, 'state.json');
+  const statePath = join(getChildRunDir(runsDir, taskId), 'state.json');
   if (!existsSync(statePath)) return null;
   return JSON.parse(readFileSync(statePath, 'utf8'));
 }
 
 function saveChildState(runsDir, taskId, state) {
-  const statePath = join(runsDir, taskId, 'state.json');
+  const dir = getChildRunDir(runsDir, taskId);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  const statePath = join(dir, 'state.json');
   writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf8');
 }
 
@@ -270,7 +278,7 @@ function runRepoTask({ taskId, tasksFilePath, runsDir, kimiResponse, reviewerRes
   const env = {
     ...getCleanEnv(),
     TASKS_FILE: tasksFilePath,
-    RUNS_DIR: runsDir,
+    RUNS_DIR: join(runsDir, 'tasks'),
     ALLOW_REAL_PROVIDER: 'true',
     ALLOW_REAL_REPO_APPLY: 'true',
     ALLOW_REAL_REPO_COMMIT: 'true',
