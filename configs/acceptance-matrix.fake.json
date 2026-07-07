@@ -1,0 +1,32 @@
+{
+  "provider": "fake",
+  "allow_real_provider": false,
+  "allow_github_pr_create": false,
+  "stop_on_orchestrator_bug": true,
+  "report_dir": "tmp/acceptance-matrix-reports",
+  "sandbox_repo_path": "tmp/ai-orchestrator-sandbox",
+  "sandbox_repo_slug": "Mellowin/ai-orchestrator-sandbox",
+  "scenarios": [
+    {
+      "type": "golden_real_multitask",
+      "label": "Golden multi-task PR",
+      "base_branch": "main",
+      "work_branch": "am-golden-real-multitask",
+      "unsafe_response_mode": "none"
+    },
+    {
+      "type": "blocked_stop",
+      "label": "Blocked stop",
+      "base_branch": "main",
+      "work_branch": "am-blocked-stop",
+      "unsafe_response_mode": "fake_deterministic"
+    },
+    {
+      "type": "blocked_continue",
+      "label": "Blocked continue",
+      "base_branch": "main",
+      "work_branch": "am-blocked-continue",
+      "unsafe_response_mode": "fake_deterministic"
+    }
+  ]
+}
