@@ -1,18 +1,18 @@
 # MVP Test Hardening Summary
 
-**Branch:** `stage-18-10-full-mvp-green-rc`
+**Branch:** `main`
 
-**Last verified:** `093dc1d1c8bc9c163432e6279f8cab0636460b54`
+**Last verified:** `ecb450cfb91d0d99125478683e32984e6fc31071`
 
 ## Test metrics
 
 - **Total tests:** 3457
 - **Total suites:** 204
-- **Last verified commit:** `093dc1d1c8bc9c163432e6279f8cab0636460b54` (Stage 18.12A — Fix CI Test failure and record green CI run 28859404467)
+- **Last verified commit:** `ecb450cfb91d0d99125478683e32984e6fc31071` (Post-squash-merge evidence-lock refresh for PR #5; product validation from PR CI run 28860717458)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** Mini-MVP CI run 28859404467 success (all checks, drills, and operator golden path green)
+- **GitHub CI:** PR CI run 28860717458 success (all checks, drills, and operator golden path green); main CI #451 failure was caused solely by the stale TESTING_SUMMARY evidence lock after squash merge
 - **Product verification:** manual-only (`workflow_dispatch`); not rerun for this release candidate
 - **Debug markers:** none (`DEBUG_CHUNK2`, `CHECK_DEBUG` absent)
 
