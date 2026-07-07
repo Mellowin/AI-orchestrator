@@ -2,13 +2,13 @@
 
 **Branch:** `stage-18-10-full-mvp-green-rc`
 
-**Last verified:** `703bbf13bc86da5211f17b0fdb56e7cb34614351`
+**Last verified:** `093dc1d1c8bc9c163432e6279f8cab0636460b54`
 
 ## Test metrics
 
 - **Total tests:** 3457
 - **Total suites:** 204
-- **Last verified commit:** `703bbf13bc86da5211f17b0fdb56e7cb34614351` (Stage 18.12A — Fix CI Test failure and record green CI run 28859404467)
+- **Last verified commit:** `093dc1d1c8bc9c163432e6279f8cab0636460b54` (Stage 18.12A — Fix CI Test failure and record green CI run 28859404467)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
