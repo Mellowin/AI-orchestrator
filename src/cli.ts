@@ -109,6 +109,7 @@ import {
 } from './mvp-run/index.js';
 import { loadDiagnoseCiConfig, runDiagnoseCi } from './diagnose-ci/index.js';
 import { loadAutopilotRunConfig, runAutopilotRun } from './autopilot-run/index.js';
+import { main as runAutopilotOneClickMain } from './autopilot-one-click/index.js';
 import { loadMissionConfig, runAutopilotPlan } from './autopilot-plan/index.js';
 import { loadOperatorE2EConfig, runOperatorE2E } from './operator-e2e.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
@@ -4052,7 +4053,7 @@ if (command === 'operator-e2e') {
 
 if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e' && command !== 'diagnose-ci' && command !== 'autopilot-run' && command !== 'autopilot-plan' && command !== 'autopilot-one-click')) {
   console.error(
-    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|operator-e2e <config.json> [--resume]|autopilot-plan <mission.json|"goal text">|autopilot-one-click <mission.json>|autopilot-run <config.json>|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-follow-up [--report-only|--create-follow-up <newTaskId>]|real-block-follow-up [--create-follow-ups]|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg4]'
+    'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|operator-e2e <config.json> [--resume]|autopilot-plan <mission.json|"goal text">|autopilot-one-click <mission.json|"goal text"> [--preset safe|read-ci|real-pr|real-repair] [--mode fake|github] [--run-id id] [--repo-slug owner/repo] [--repo-path path] [--base-branch branch] [--output-dir path] [--yes]|autopilot-run <config.json>|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-follow-up [--report-only|--create-follow-up <newTaskId>]|real-block-follow-up [--create-follow-ups]|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg4]'
   );
   process.exit(1);
 }
@@ -6630,46 +6631,7 @@ if (command === 'autopilot-plan') {
 
 if (command === 'autopilot-one-click') {
   try {
-    const configPath = taskId;
-    if (!configPath) {
-      console.error('[autopilot-one-click] Error: mission config path is required');
-      console.error('[autopilot-one-click] Usage: npx tsx src/cli.ts autopilot-one-click <mission.json>');
-      process.exitCode = 1;
-      break commandDispatch;
-    }
-
-    const mission = loadMissionConfig(resolve(configPath));
-    const planResult = await runAutopilotPlan(mission, {
-      command: `npx tsx src/cli.ts autopilot-one-click ${configPath}`,
-    });
-
-    console.error('[autopilot-one-click] AUTOPILOT ONE-CLICK');
-    console.error(`[autopilot-one-click] Plan verdict: ${planResult.verdict}`);
-
-    if (planResult.exit_code !== 0 || !planResult.generated_files.length) {
-      console.error('[autopilot-one-click] Plan failed; not running autopilot.');
-      process.exitCode = planResult.exit_code || 1;
-      break commandDispatch;
-    }
-
-    const autopilotConfigPath = planResult.generated_files.find((p) =>
-      p.endsWith('autopilot.config.json')
-    );
-    if (!autopilotConfigPath) {
-      console.error('[autopilot-one-click] Generated autopilot config not found');
-      process.exitCode = 1;
-      break commandDispatch;
-    }
-
-    console.error(`[autopilot-one-click] Running autopilot config: ${autopilotConfigPath}`);
-    const autopilotConfig = loadAutopilotRunConfig(autopilotConfigPath);
-    const autopilotResult = await runAutopilotRun(autopilotConfig, autopilotConfigPath, {
-      command: `npx tsx src/cli.ts autopilot-run ${autopilotConfigPath}`,
-    });
-
-    console.error(`[autopilot-one-click] Autopilot verdict: ${autopilotResult.verdict}`);
-    console.error(`[autopilot-one-click] Report: ${autopilotResult.report_dir}`);
-    process.exitCode = autopilotResult.exit_code;
+    await runAutopilotOneClickMain(args.slice(1));
     break commandDispatch;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

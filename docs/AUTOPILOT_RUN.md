@@ -127,6 +127,19 @@ npx tsx src/cli.ts autopilot-plan configs/mission.example.json
 npx tsx src/cli.ts autopilot-run reports/autopilot-plans/mission-demo/autopilot.config.json
 ```
 
+For the fastest operator UX, use the one-click wrapper with a raw goal:
+
+```bash
+npx tsx src/cli.ts autopilot-one-click "Add a health endpoint and tests"
+```
+
+See `docs/ONE_CLICK.md` for presets and safety rules.
+
+```bash
+npx tsx src/cli.ts autopilot-plan configs/mission.example.json
+npx tsx src/cli.ts autopilot-run reports/autopilot-plans/mission-demo/autopilot.config.json
+```
+
 See `docs/AUTOPILOT_PLAN.md` for details.
 
 ## Example usage

@@ -79,6 +79,10 @@ npm run autopilot:plan -- configs/mission.example.json
 }
 ```
 
+## One-click wrapper
+
+For a single command that turns a raw goal into a plan and immediately runs autopilot, see `docs/ONE_CLICK.md`.
+
 ## Следующий шаг
 
 После генерации запустите:
