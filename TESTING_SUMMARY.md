@@ -15,7 +15,7 @@
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #465 had two failures in contract-smoke CLI source-boundary tests because the new `diagnose-ci` guard changed the exact guard string they scanned; the boundary tests were updated and the next CI run is awaited.
+- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #466 completed successfully (3698 tests / 0 failures).
 - **Product verification:**
   - Real one-command acceptance matrix proof passed locally:
     - Command: `npx tsx src/cli.ts acceptance-matrix tmp/stage-18-15-real.acceptance-matrix.json`
