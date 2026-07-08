@@ -1,0 +1,14 @@
+{
+  "mode": "fake",
+  "run_id": "diagnose-ci-demo",
+  "repo_slug": "Mellowin/AI-orchestrator",
+  "target": {
+    "workflow_run_id": 123456789
+  },
+  "token_env": "GITHUB_TOKEN",
+  "report_dir": "reports/diagnostics",
+  "include_raw_logs": false,
+  "max_log_excerpt_chars": 4000,
+  "allow_github_write": false,
+  "fake_scenario": "green"
+}
