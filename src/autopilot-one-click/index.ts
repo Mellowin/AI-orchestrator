@@ -50,6 +50,13 @@ function parseArgs(rawArgs: string[]): { input: string; options: AutopilotOneCli
       if (!next) throw new Error('--output-dir requires a value');
       options.output_dir = next;
       i += 1;
+    } else if (arg === '--allowed-files') {
+      if (!next) throw new Error('--allowed-files requires a value');
+      if (!options.allowed_files) {
+        options.allowed_files = [];
+      }
+      options.allowed_files.push(next);
+      i += 1;
     } else if (arg === '--yes') {
       options.yes = true;
     } else if (arg.startsWith('--')) {
