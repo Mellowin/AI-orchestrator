@@ -75,3 +75,7 @@ npx tsx src/cli.ts diagnose-ci my-config.json
   `include_raw_logs` is enabled.
 - Classification is heuristic; manual review is recommended for
   `UNKNOWN_FAILURE` or `WORKFLOW_INFRA_FAILURE`.
+
+## Autopilot
+
+`diagnose-ci` is used by the `autopilot-run` command to turn CI observations into repair tasks. See `docs/AUTOPILOT_RUN.md`.

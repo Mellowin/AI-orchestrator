@@ -37,8 +37,8 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.ALLOW_REAL_REPO_APPROVAL_REPORT;
   delete env.ALLOW_REAL_REPO_PR_READINESS;
   delete env.ALLOW_GITHUB_PR_CREATE;
-  delete env.GITHUB_TOKEN;
-  delete env.GITHUB_REPOSITORY;
+  env.GITHUB_TOKEN = '';
+  env.GITHUB_REPOSITORY = '';
   delete env.GITHUB_API_BASE_URL;
   delete env.GITHUB_FAKE_PR_RESPONSE;
   delete env.GITHUB_FAKE_PR_STATUS;

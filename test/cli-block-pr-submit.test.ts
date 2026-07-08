@@ -42,8 +42,8 @@ function getCleanEnv(): NodeJS.ProcessEnv {
   delete env.BLOCK_PR_DRAFT_INCLUDE_DIFF_STAT;
   delete env.ALLOW_BLOCK_PR_CREATE;
   delete env.ALLOW_GITHUB_PR_CREATE;
-  delete env.GITHUB_TOKEN;
-  delete env.GITHUB_REPOSITORY;
+  env.GITHUB_TOKEN = '';
+  env.GITHUB_REPOSITORY = '';
   delete env.ALLOW_PR_CREATE_WITHOUT_APPROVAL_REPORT;
   delete env.ALLOW_BLOCK_PR_CREATE_DUPLICATE;
   delete env.BLOCK_PR_CREATE_DRY_RUN;

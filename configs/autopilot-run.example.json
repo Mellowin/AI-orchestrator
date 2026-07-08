@@ -1,0 +1,37 @@
+{
+  "mode": "fake",
+  "run_id": "autopilot-demo",
+  "repo_slug": "Mellowin/ai-orchestrator-sandbox",
+  "base_branch": "main",
+  "work_branch": "autopilot-demo",
+  "mvp_config_path": "configs/mvp-run.example.json",
+  "diagnose_config": {
+    "token_env": "GITHUB_TOKEN",
+    "include_raw_logs": false,
+    "max_log_excerpt_chars": 4000
+  },
+  "ci": {
+    "enabled": false,
+    "wait_for_ci": false,
+    "poll_interval_seconds": 15,
+    "timeout_seconds": 900
+  },
+  "repair": {
+    "enabled": false,
+    "max_attempts": 2,
+    "provider": "mock",
+    "allow_real_provider": false,
+    "allow_apply": false,
+    "allow_commit": false,
+    "allow_push": false,
+    "allowed_files": ["src/**/*.ts"],
+    "denied_files": [".env*"]
+  },
+  "github": {
+    "allow_pr_create": false,
+    "allow_pr_update": false,
+    "allow_actions_read": false,
+    "allow_write": false
+  },
+  "report_dir": "reports/autopilot"
+}

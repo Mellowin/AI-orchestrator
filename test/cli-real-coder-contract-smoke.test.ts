@@ -860,7 +860,7 @@ describe('real-coder-contract-smoke CLI', () => {
     const source = readFileSync(CLI_SOURCE_PATH, 'utf-8');
     const branchIndex = source.indexOf("command === 'real-coder-contract-smoke'");
     assert.ok(branchIndex >= 0, 'coder contract smoke branch must exist in cli.ts');
-    const nextBranchIndex = source.indexOf("if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e' && command !== 'diagnose-ci'))", branchIndex);
+    const nextBranchIndex = source.indexOf("if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e' && command !== 'diagnose-ci' && command !== 'autopilot-run'))", branchIndex);
     const snippet = source.slice(branchIndex, nextBranchIndex);
     assert.doesNotMatch(snippet, /shell:\s*true/);
   });
@@ -868,7 +868,7 @@ describe('real-coder-contract-smoke CLI', () => {
   test('CLI source does not write files or apply patches', () => {
     const source = readFileSync(CLI_SOURCE_PATH, 'utf-8');
     const branchIndex = source.indexOf("command === 'real-coder-contract-smoke'");
-    const nextBranchIndex = source.indexOf("if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e' && command !== 'diagnose-ci'))", branchIndex);
+    const nextBranchIndex = source.indexOf("if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e' && command !== 'diagnose-ci' && command !== 'autopilot-run'))", branchIndex);
     const snippet = source.slice(branchIndex, nextBranchIndex);
     assert.doesNotMatch(snippet, /writeFileSync/);
     assert.doesNotMatch(snippet, /applyFileUpdates/);
