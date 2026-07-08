@@ -83,4 +83,29 @@ describe('acceptance-matrix classifier', () => {
     assert.strictEqual(result.status, 'failed');
     assert.strictEqual(result.classification, 'ORCHESTRATOR_BUG');
   });
+
+  test('golden scenario guardrails failure is provider bad output', () => {
+    const result = classifyScenarioResult(scenario('golden_real_multitask'), 1, {
+      status: 'failed',
+      summary: {
+        totalTasks: 2,
+        stoppedReason: 'Task golden_2 failed: Guardrails failed: File is outside allow_modify: feature_note.md',
+      },
+    });
+    assert.strictEqual(result.status, 'failed');
+    assert.strictEqual(result.classification, 'PROVIDER_BAD_OUTPUT');
+    assert.ok(result.reason.includes('feature_note.md'));
+  });
+
+  test('golden scenario max lines guardrails failure is provider bad output', () => {
+    const result = classifyScenarioResult(scenario('golden_real_multitask'), 1, {
+      status: 'failed',
+      summary: {
+        totalTasks: 2,
+        stoppedReason: 'Task golden_2 failed: Guardrails failed: exceeds max_lines_changed',
+      },
+    });
+    assert.strictEqual(result.status, 'failed');
+    assert.strictEqual(result.classification, 'PROVIDER_BAD_OUTPUT');
+  });
 });

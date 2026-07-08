@@ -119,7 +119,10 @@ function buildFakeKimiOutput(
   return JSON.stringify({ mode: 'file_update', files, notes });
 }
 
-function createTempEnv(checks: string[] = []): {
+function createTempEnv(
+  checks: string[] = [],
+  allowModify: string[] = ['README.md']
+): {
   taskId: string;
   tasksFilePath: string;
   repoPath: string;
@@ -140,6 +143,7 @@ function createTempEnv(checks: string[] = []): {
   mkdirSync(repoPath);
 
   writeFileSync(join(repoPath, 'README.md'), '# hello\n', 'utf-8');
+  writeFileSync(join(repoPath, 'feature.txt'), 'feature\n', 'utf-8');
 
   spawnSync('git', ['init'], {
     cwd: repoPath,
@@ -208,7 +212,7 @@ function createTempEnv(checks: string[] = []): {
 ${checkLines}
     guardrails:
       allow_modify:
-        - "README.md"
+${allowModify.map((f) => `        - "${f}"`).join('\n')}
       deny_modify:
         - ".env"
         - ".env.*"
@@ -396,10 +400,10 @@ describe('cli real-repo-run-ai retry', () => {
     }
   });
 
-  test('forbidden path / denied manifest is not retried', () => {
-    const { taskId, tasksFilePath, runsDir, cleanup } = createTempEnv();
+  test('guardrails retry is exhausted when provider keeps proposing forbidden paths', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv();
     try {
-      // Provider returns a valid JSON output that writes outside allowed scope.
+      // Provider returns valid JSON outputs that write outside allowed scope on every attempt.
       const env: Record<string, string> = {
         TASKS_FILE: tasksFilePath,
         RUNS_DIR: runsDir,
@@ -411,9 +415,10 @@ describe('cli real-repo-run-ai retry', () => {
         KIMI_BASE_URL: 'https://api.invalid',
         KIMI_MODEL: 'kimi-k2.6',
         KIMI_FAKE_RESPONSES: JSON.stringify([
-          buildFakeKimiOutput([{ path: 'outside.txt', content: 'not allowed' }]),
+          buildFakeKimiOutput([{ path: 'outside.txt', content: 'not allowed 1' }]),
+          buildFakeKimiOutput([{ path: 'outside.txt', content: 'not allowed 2' }]),
         ]),
-        REAL_PROVIDER_MAX_ATTEMPTS: '3',
+        REAL_PROVIDER_MAX_ATTEMPTS: '2',
         REAL_PROVIDER_RETRY_BASE_MS: '0',
         REAL_PROVIDER_RETRY_MAX_MS: '0',
       };
@@ -421,11 +426,14 @@ describe('cli real-repo-run-ai retry', () => {
       const result = runCli(['real-repo-run-ai', taskId], env);
       assert.notStrictEqual(result.status, 0, 'expected failure');
       assert(result.stderr.includes('Guardrails failed'), 'should fail on guardrails');
-      // Guardrails are deterministic; provider should not retry.
+      assert(result.stderr.includes('Guardrails recovery attempt'), 'should retry guardrail failure');
+      assert(!existsSync(join(repoPath, 'outside.txt')), 'disallowed file must not be created');
+
       const statePath = join(runsDir, taskId, 'state.json');
-      // Guardrail failure currently does not write state; verify no provider retry via stderr.
-      assert(!result.stderr.includes('Retrying'), 'should not retry guardrail failure');
-      assert(!result.stderr.includes('Provider attempt 2'), 'should only make one provider attempt');
+      assert(existsSync(statePath), 'failed guardrails state should be persisted');
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      assert.strictEqual(state.status, 'failed_guardrails');
+      assert.ok(state.safety_note.includes('outside.txt'), 'state should record rejected path');
     } finally {
       cleanup();
     }
@@ -582,6 +590,82 @@ describe('cli real-repo-run-ai retry', () => {
       assert.notStrictEqual(result.status, 0, 'expected failure');
       assert(!result.stderr.includes('sk-test'), 'should not leak api key');
       assert(!result.stderr.includes('Bearer'), 'should not leak bearer token');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('retries guardrails rejected path and succeeds on corrected path', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], ['feature.txt']);
+    try {
+      const env: Record<string, string> = {
+        TASKS_FILE: tasksFilePath,
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.invalid',
+        KIMI_MODEL: 'kimi-k2.6',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'feature_note.md', content: 'bad file\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature note content\n' }]),
+        ]),
+        REAL_PROVIDER_MAX_ATTEMPTS: '2',
+        REAL_PROVIDER_RETRY_BASE_MS: '0',
+        REAL_PROVIDER_RETRY_MAX_MS: '0',
+      };
+
+      const result = runCli(['real-repo-run-ai', taskId], env);
+      assert.strictEqual(result.status, 0, `expected success, got stderr:\n${result.stderr}`);
+      assert(result.stderr.includes('Guardrails recovery attempt'), 'should log guardrails recovery');
+      assert(!existsSync(join(repoPath, 'feature_note.md')), 'disallowed file must not be created');
+      assert.strictEqual(
+        readFileSync(join(repoPath, 'feature.txt'), 'utf-8'),
+        'feature note content\n',
+        'allowed file should contain corrected content'
+      );
+
+      const statePath = join(runsDir, taskId, 'state.json');
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      assert.strictEqual(state.status, 'pushed');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('fails as failed_guardrails after exhausting guardrails retries', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv([], ['feature.txt']);
+    try {
+      const env: Record<string, string> = {
+        TASKS_FILE: tasksFilePath,
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.invalid',
+        KIMI_MODEL: 'kimi-k2.6',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'feature_note.md', content: 'bad file 1\n' }]),
+          buildFakeKimiOutput([{ path: 'feature_note.md', content: 'bad file 2\n' }]),
+        ]),
+        REAL_PROVIDER_MAX_ATTEMPTS: '2',
+        REAL_PROVIDER_RETRY_BASE_MS: '0',
+        REAL_PROVIDER_RETRY_MAX_MS: '0',
+      };
+
+      const result = runCli(['real-repo-run-ai', taskId], env);
+      assert.notStrictEqual(result.status, 0, 'expected failure');
+      assert(!existsSync(join(repoPath, 'feature_note.md')), 'disallowed file must not be created');
+
+      const statePath = join(runsDir, taskId, 'state.json');
+      assert(existsSync(statePath), 'failed guardrails state should be persisted');
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      assert.strictEqual(state.status, 'failed_guardrails');
+      assert.ok(state.safety_note.includes('feature_note.md'), 'state should record rejected path');
     } finally {
       cleanup();
     }

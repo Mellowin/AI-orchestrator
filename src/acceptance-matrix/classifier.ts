@@ -22,6 +22,15 @@ interface BlockSummary {
   blockedTaskId?: string | null;
 }
 
+function isProviderBadOutput(stoppedReason: string | null): boolean {
+  if (!stoppedReason) return false;
+  return (
+    stoppedReason.includes('Guardrails failed') ||
+    stoppedReason.includes('outside allow_modify') ||
+    stoppedReason.includes('exceeds max_lines_changed')
+  );
+}
+
 function getBlockSummary(state: Record<string, unknown> | null): BlockSummary {
   const summary = (state?.summary as Record<string, unknown>) ?? {};
   return {
@@ -119,6 +128,14 @@ export function classifyScenarioResult(
         status: 'failed',
         classification: 'SAFETY_POLICY_BLOCK_EXPECTED',
         reason: `Golden multi-task scenario was unexpectedly blocked: ${summary.stoppedReason ?? 'unknown'}`,
+        expected: false,
+      };
+    }
+    if (isProviderBadOutput(summary.stoppedReason)) {
+      return {
+        status: 'failed',
+        classification: 'PROVIDER_BAD_OUTPUT',
+        reason: summary.stoppedReason ?? 'Provider output violated guardrails',
         expected: false,
       };
     }

@@ -57,7 +57,7 @@ export function buildScenarioBlock(
         {
           task_id: 'golden_2',
           title: 'Add feature note',
-          goal: 'Add a feature note file',
+          goal: 'Add a feature note file. You must create and modify only feature.txt. Do not create feature_note.md or any other file.',
           allowed_files: ['feature.txt'],
           denied_files: ['.env'],
           max_lines_changed: MAX_LINES_CHANGED,

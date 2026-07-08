@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { runAcceptanceMatrix } from '../../src/acceptance-matrix/runner.js';
 import { writeAcceptanceMatrixReports } from '../../src/acceptance-matrix/report-writer.js';
+import { buildFakeResponseArrays } from '../../src/acceptance-matrix/fake-response-builder.js';
 import type { AcceptanceMatrixConfig } from '../../src/acceptance-matrix/types.js';
 
 let counter = 0;
@@ -196,6 +197,71 @@ describe('acceptance-matrix runner integration', () => {
       const result = await runAcceptanceMatrix(config);
       assert.strictEqual(result.results[0].status, 'skipped');
       assert.ok(result.results[0].reason.includes('Real provider not allowed'));
+    } finally {
+      repo.cleanup();
+      rmSync(reportBase, { recursive: true, force: true });
+    }
+  });
+
+  test('golden_real_multitask recovers from one guardrails rejected provider output', async () => {
+    const repo = createTempGitRepo();
+    const reportBase = mkdtempSync(join(process.cwd(), 'tmp', `am-recovery-${Date.now()}-`));
+    try {
+      const baseArrays = buildFakeResponseArrays('golden_real_multitask');
+      const badGolden2 = JSON.stringify({
+        mode: 'file_update',
+        files: [{ path: 'feature_note.md', content: 'bad file\n' }],
+        notes: 'bad path',
+      });
+      const goodGolden2 = JSON.stringify({
+        mode: 'file_update',
+        files: [{ path: 'feature.txt', content: 'feature v1\n' }],
+        notes: 'good path',
+      });
+      const customKimi = [baseArrays.kimi[0], [badGolden2, goodGolden2]];
+
+      const config: AcceptanceMatrixConfig = {
+        provider: 'fake',
+        allow_real_provider: false,
+        allow_github_pr_create: false,
+        allow_real_repo_apply: true,
+        allow_real_repo_commit: true,
+        allow_real_repo_push: true,
+        stop_on_orchestrator_bug: true,
+        report_dir: reportBase,
+        sandbox_repo_path: repo.path,
+        scenarios: [
+          {
+            type: 'golden_real_multitask',
+            label: 'Golden with provider bad output recovery',
+            base_branch: 'main',
+            work_branch: 'am-golden-recovery',
+            unsafe_response_mode: 'none',
+            env: {
+              REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify(customKimi),
+              REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify(baseArrays.reviewer),
+              REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify(baseArrays.fixKimi),
+              REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify(baseArrays.secondReviewer),
+            },
+          },
+        ],
+      };
+
+      const result = await runAcceptanceMatrix(config);
+      writeAcceptanceMatrixReports(result);
+
+      assert.strictEqual(result.summary.total, 1);
+      assert.strictEqual(result.summary.passed, 1);
+      assert.strictEqual(result.summary.failed, 0);
+      assert.strictEqual(result.results[0].status, 'passed');
+      assert.ok(
+        !existsSync(join(repo.path, 'feature_note.md')),
+        'disallowed file must not be created'
+      );
+      assert.ok(
+        existsSync(join(repo.path, 'feature.txt')),
+        'allowed file should be created'
+      );
     } finally {
       repo.cleanup();
       rmSync(reportBase, { recursive: true, force: true });
