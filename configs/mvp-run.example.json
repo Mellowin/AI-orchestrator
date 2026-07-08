@@ -1,0 +1,32 @@
+{
+  "provider": "fake",
+  "repo_path": "tmp/ai-orchestrator-sandbox",
+  "repo_slug": "Mellowin/ai-orchestrator-sandbox",
+  "base_branch": "main",
+  "work_branch": "mvp-run-demo",
+  "run_id": "mvp-demo",
+  "allow_real_provider": false,
+  "allow_real_repo_apply": false,
+  "allow_real_repo_commit": false,
+  "allow_real_repo_push": false,
+  "allow_github_pr_create": false,
+  "tasks": [
+    {
+      "id": "task_1",
+      "title": "Update README",
+      "goal": "Update README.md with a short MVP run note.",
+      "allowed_files": ["README.md"],
+      "denied_files": [".env"],
+      "tests": []
+    },
+    {
+      "id": "task_2",
+      "title": "Add feature note",
+      "goal": "Create feature.txt with a short feature note. Modify only feature.txt.",
+      "allowed_files": ["feature.txt"],
+      "denied_files": [".env"],
+      "tests": []
+    }
+  ],
+  "report_dir": "reports/mvp-run"
+}

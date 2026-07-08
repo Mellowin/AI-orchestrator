@@ -25,6 +25,17 @@ function runDrill(envOverrides: Record<string, string> = {}, extraArgs: string[]
   };
 }
 
+const drillCache = new Map<string, ReturnType<typeof runDrill>>();
+
+function runDrillCached(envOverrides: Record<string, string> = {}, extraArgs: string[] = []): ReturnType<typeof runDrill> {
+  const cacheKey = JSON.stringify({ env: envOverrides, args: extraArgs });
+  const cached = drillCache.get(cacheKey);
+  if (cached) return cached;
+  const result = runDrill(envOverrides, extraArgs);
+  drillCache.set(cacheKey, result);
+  return result;
+}
+
 function parseScenarioTable(output: string): Array<{
   name: string;
   manual: string;
@@ -72,7 +83,7 @@ describe('block follow-up drill', () => {
   });
 
   it('drill uses local bare remotes only', () => {
-    const result = runDrill({ BLOCK_FOLLOW_UP_DRILL_KEEP_TEMP: '1' });
+    const result = runDrillCached({ BLOCK_FOLLOW_UP_DRILL_KEEP_TEMP: '1' });
     const output = `${result.stdout}\n${result.stderr}`;
     assert.ok(output.includes('Using local bare remotes only'), output);
     assert.ok(!output.includes('github.com'), output);
@@ -87,7 +98,7 @@ describe('block follow-up drill', () => {
   });
 
   it('drill uses fake provider and reviewer only', () => {
-    const result = runDrill({ BLOCK_FOLLOW_UP_DRILL_KEEP_TEMP: '1' });
+    const result = runDrillCached({ BLOCK_FOLLOW_UP_DRILL_KEEP_TEMP: '1' });
     const output = `${result.stdout}\n${result.stderr}`;
     assert.ok(output.includes('No live provider calls'), output);
     assert.ok(!output.includes('sk-block-follow-up-drill-fake-key'), 'fake API key should be redacted from output');
@@ -95,7 +106,7 @@ describe('block follow-up drill', () => {
 
   for (const letter of ['A', 'B', 'C', 'D', 'E', 'F']) {
     it(`scenario ${letter} passes`, () => {
-      const result = runDrill({ BLOCK_FOLLOW_UP_DRILL_KEEP_TEMP: '1' });
+      const result = runDrillCached({ BLOCK_FOLLOW_UP_DRILL_KEEP_TEMP: '1' });
       const output = `${result.stdout}\n${result.stderr}`;
       assert.equal(result.status, 0, `drill should pass: ${output}`);
       const rows = parseScenarioTable(output);
@@ -123,7 +134,7 @@ describe('block follow-up drill', () => {
   });
 
   it('follow-up task file redacts token-like strings', () => {
-    const result = runDrill({ BLOCK_FOLLOW_UP_DRILL_KEEP_TEMP: '1' });
+    const result = runDrillCached({ BLOCK_FOLLOW_UP_DRILL_KEEP_TEMP: '1' });
     const output = `${result.stdout}\n${result.stderr}`;
     assert.equal(result.status, 0, `drill should pass: ${output}`);
     const workspaceMatch = output.match(/Block follow-up drill workspace: (.+)/);
