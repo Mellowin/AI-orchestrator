@@ -158,6 +158,10 @@ export async function generateProviderPlan(
     '  "risk_level": "low" | "medium" | "high",',
     '  "caveats": ["string"]',
     '}',
+    '',
+    'Rules for tests: each entry must be a valid shell command string that can be executed.',
+    'For documentation-only changes with no automated verification, use an empty tests array.',
+    'Do not put human-readable instructions or sentences into tests.',
   ]
     .filter(Boolean)
     .join('\n');
