@@ -118,6 +118,17 @@ When `repair.enabled` is true and CI is red:
 - `KIMI_API_KEY`, `KIMI_BASE_URL`, `KIMI_MODEL` — Required for real Kimi repair.
 - `AUTOPILOT_REPAIR_MOCK_RESPONSE` — Override deterministic mock repair JSON in tests.
 
+## Mission intake
+
+Normally you should not write `autopilot-run` config by hand. Generate it with `autopilot-plan`:
+
+```bash
+npx tsx src/cli.ts autopilot-plan configs/mission.example.json
+npx tsx src/cli.ts autopilot-run reports/autopilot-plans/mission-demo/autopilot.config.json
+```
+
+See `docs/AUTOPILOT_PLAN.md` for details.
+
 ## Example usage
 
 Safe fake dry-run:
@@ -147,8 +158,6 @@ All reports are redacted with `redactSecrets` before persistence.
 
 ## Limitations
 
-- The command is intentionally not wired into `src/cli.ts` in this stage; invoke
-  it directly via `src/autopilot-run/index.ts`.
 - It does not create or merge PRs on its own; PR creation is delegated to
   `mvp-run` based on its own config.
 - Real repair uses Kimi only; other providers are not supported yet.
