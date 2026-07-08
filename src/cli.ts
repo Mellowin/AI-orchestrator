@@ -103,6 +103,10 @@ import {
   runAcceptanceMatrix,
   writeAcceptanceMatrixReports,
 } from './acceptance-matrix/index.js';
+import {
+  loadMvpRunConfig,
+  runMvpRun,
+} from './mvp-run/index.js';
 import { loadOperatorE2EConfig, runOperatorE2E } from './operator-e2e.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import { renderBlockRunReport } from './real-block-run-ai-report.js';
@@ -6416,6 +6420,53 @@ if (command === 'acceptance-matrix') {
     console.error('[acceptance-matrix] No repository mutation was performed');
     console.error('[acceptance-matrix] No merge was performed');
     console.error('[acceptance-matrix] No main touch was performed');
+    process.exitCode = 1;
+    break commandDispatch;
+  }
+}
+
+if (command === 'mvp-run') {
+  try {
+    const configPath = taskId;
+    if (!configPath) {
+      console.error('[mvp-run] Error: config JSON path is required');
+      console.error('[mvp-run] Usage: npx tsx src/cli.ts mvp-run <config.json>');
+      console.error('[mvp-run] No provider call was made');
+      console.error('[mvp-run] No repository mutation was performed');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+
+    const resume = args.slice(2).includes('--resume');
+    const config = loadMvpRunConfig(configPath);
+    const result = await runMvpRun(config, configPath, { resume });
+
+    console.error(`[mvp-run] ${result.verdict}`);
+    console.error(`[mvp-run] Tasks: ${result.tasks_passed}/${result.tasks_total} passed`);
+    console.error(`[mvp-run] Branch: ${result.branch}`);
+    console.error(`[mvp-run] Commits: ${result.commits.length}`);
+    console.error(`[mvp-run] Report: ${result.report_dir}`);
+    if (result.pr?.created) {
+      console.error(`[mvp-run] PR: ${result.pr.url ?? `#${result.pr.number}`}`);
+    } else {
+      console.error(`[mvp-run] PR: ${result.pr?.reason ?? 'not created'}`);
+    }
+    if (result.next_human_action) {
+      console.error(`[mvp-run] Next: ${result.next_human_action}`);
+    }
+
+    process.exitCode =
+      result.verdict === 'MVP_RUN_PASSED' || result.verdict === 'MVP_RUN_PASSED_WITH_CAVEATS'
+        ? 0
+        : 1;
+    break commandDispatch;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[mvp-run] Error: ${message}`);
+    console.error('[mvp-run] No provider call was made');
+    console.error('[mvp-run] No repository mutation was performed');
+    console.error('[mvp-run] No merge was performed');
+    console.error('[mvp-run] No main touch was performed');
     process.exitCode = 1;
     break commandDispatch;
   }
