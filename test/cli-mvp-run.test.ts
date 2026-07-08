@@ -1,4 +1,4 @@
-import { describe, test, before } from 'node:test';
+import { describe, test, before, after } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -165,13 +165,53 @@ describe('mvp-run config validation', () => {
   });
 });
 
+const originalEnvSnapshot: Record<string, string | undefined> = {};
+
+function snapshotEnvKey(key: string): void {
+  originalEnvSnapshot[key] = process.env[key];
+}
+
+function restoreEnvSnapshot(): void {
+  for (const [key, value] of Object.entries(originalEnvSnapshot)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
 describe('mvp-run product flow', () => {
   before(() => {
+    const envKeys = [
+      'ALLOW_REAL_BLOCK_RUN_AI',
+      'ALLOW_REAL_PROVIDER',
+      'ALLOW_REAL_REPO_APPLY',
+      'ALLOW_REAL_REPO_COMMIT',
+      'ALLOW_REAL_REPO_PUSH',
+      'KIMI_API_KEY',
+      'KIMI_BASE_URL',
+      'KIMI_MODEL',
+    ];
+    for (const key of envKeys) {
+      snapshotEnvKey(key);
+    }
+
     process.env.ALLOW_REAL_BLOCK_RUN_AI = 'true';
     process.env.ALLOW_REAL_PROVIDER = 'true';
     process.env.ALLOW_REAL_REPO_APPLY = 'true';
     process.env.ALLOW_REAL_REPO_COMMIT = 'true';
     process.env.ALLOW_REAL_REPO_PUSH = 'true';
+    // Fake MVP runs use KIMI_FAKE_RESPONSES with a mocked fetch, but the
+    // underlying real-repo-run-ai path still validates that these vars exist.
+    // Set dummy values so tests are isolated from the local .env file.
+    process.env.KIMI_API_KEY = 'fake-key';
+    process.env.KIMI_BASE_URL = 'https://api.moonshot.cn/v1';
+    process.env.KIMI_MODEL = 'kimi-k2.6';
+  });
+
+  after(() => {
+    restoreEnvSnapshot();
   });
 
   test('fake mvp-run with 2 tasks passes', async () => {
