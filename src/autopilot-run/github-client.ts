@@ -26,6 +26,7 @@ function githubHeaders(token: string): Record<string, string> {
   return {
     Authorization: `token ${token}`,
     Accept: 'application/vnd.github+json',
+    'User-Agent': 'ai-orchestrator',
   };
 }
 
