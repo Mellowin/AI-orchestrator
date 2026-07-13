@@ -66,6 +66,10 @@ export function loadReliabilityConfig(path: string, options: LoadReliabilityConf
     throw new Error('Reliability config ci_poll_interval_seconds must be a positive integer');
   }
 
+  const scenarioFilter = Array.isArray(obj.scenario_filter)
+    ? obj.scenario_filter.filter((item): item is string => typeof item === 'string')
+    : undefined;
+
   return {
     run_id: runId,
     mode,
@@ -82,5 +86,6 @@ export function loadReliabilityConfig(path: string, options: LoadReliabilityConf
     temp_root: tempRoot,
     ci_timeout_seconds: ciTimeoutSeconds,
     ci_poll_interval_seconds: ciPollIntervalSeconds,
+    scenario_filter: scenarioFilter,
   };
 }

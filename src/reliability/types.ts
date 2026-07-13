@@ -122,6 +122,8 @@ export interface ReliabilityConfig {
   ci_timeout_seconds?: number;
   /** CI polling interval in seconds for real GitHub mode. */
   ci_poll_interval_seconds?: number;
+  /** Optional list of scenario IDs to run. If omitted, all scenarios in scenario_dir are run. */
+  scenario_filter?: string[];
 }
 
 export interface ReliabilityScenarioResult {

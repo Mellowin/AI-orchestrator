@@ -5,6 +5,7 @@
   "repo_path": "D:\\AI orchestrator",
   "base_branch": "main",
   "scenario_dir": "test/fixtures/reliability-scenarios",
+  "scenario_filter": ["broken-import"],
   "max_repair_attempts": 2,
   "real_github": true,
   "real_provider": false,

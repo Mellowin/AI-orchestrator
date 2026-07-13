@@ -226,7 +226,11 @@ export async function runReliabilityCampaign(
     saveCampaignState(reportDir, campaignState);
   }
 
-  const scenarios = loadReliabilityScenarios(config.scenario_dir);
+  let scenarios = loadReliabilityScenarios(config.scenario_dir);
+  if (config.scenario_filter && config.scenario_filter.length > 0) {
+    const allowed = new Set(config.scenario_filter);
+    scenarios = scenarios.filter((s) => allowed.has(s.id));
+  }
   const results: ReliabilityScenarioResult[] = [];
 
   for (const scenario of scenarios) {

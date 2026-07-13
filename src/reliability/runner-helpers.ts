@@ -738,6 +738,7 @@ export async function runGitHubScenario(
         setup_sha: setupSha,
       };
       saveScenarioState();
+      console.error(`[reliability] ${scenario.id}: pushed setup ${setupSha}, PR #${prNumber}`);
     } else {
       branch = scenarioState.branch ?? `reliability-${scenario.id}-${Date.now()}`;
       prNumber = scenarioState.pr_number;
@@ -753,6 +754,7 @@ export async function runGitHubScenario(
     }
 
     if (scenarioState.original_ci_run_id === undefined) {
+      console.error(`[reliability] ${scenario.id}: polling original CI for ${setupSha}`);
       const originalRun = await pollGitHubActionsRun(owner, repo, setupSha, token, config, fetchFn, nowFn);
       if (!originalRun) {
         failureReason = 'Timed out waiting for original CI run for setup SHA';
@@ -938,6 +940,7 @@ export async function runGitHubScenario(
     });
   } finally {
     if (prNumber && token) {
+      console.error(`[reliability] ${scenario.id}: closing PR #${prNumber}`);
       await closePullRequest(owner, repo, prNumber, token, fetchFn).catch(() => {});
     }
     if (repoPath && repoPath.startsWith(tempRoot)) {
