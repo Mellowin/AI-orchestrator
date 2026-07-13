@@ -1,6 +1,6 @@
 # Documentation contract
 
-## Required Section
+## Missing Section
 
-- item 1
+- item missing
 - item 2
