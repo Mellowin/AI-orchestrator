@@ -1,4 +1,4 @@
 {
-  "timeout": 30,
+  "timeout": "not-a-number",
   "retries": 2
 }
