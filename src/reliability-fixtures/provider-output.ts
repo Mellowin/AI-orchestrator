@@ -1,3 +1,3 @@
 export function suggestFile(): string {
-  return 'docs/proofs/ALLOWED.md';
+  return 'tmp/secret.md';
 }
