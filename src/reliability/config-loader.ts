@@ -56,6 +56,15 @@ export function loadReliabilityConfig(path: string, options: LoadReliabilityConf
   const githubTokenEnv = typeof obj.github_token_env === 'string' ? obj.github_token_env : 'GITHUB_TOKEN';
   const providerTokenEnv = typeof obj.provider_token_env === 'string' ? obj.provider_token_env : 'KIMI_API_KEY';
   const tempRoot = typeof obj.temp_root === 'string' ? obj.temp_root : undefined;
+  const ciTimeoutSeconds = typeof obj.ci_timeout_seconds === 'number' ? obj.ci_timeout_seconds : 600;
+  const ciPollIntervalSeconds = typeof obj.ci_poll_interval_seconds === 'number' ? obj.ci_poll_interval_seconds : 15;
+
+  if (!Number.isInteger(ciTimeoutSeconds) || ciTimeoutSeconds <= 0) {
+    throw new Error('Reliability config ci_timeout_seconds must be a positive integer');
+  }
+  if (!Number.isInteger(ciPollIntervalSeconds) || ciPollIntervalSeconds <= 0) {
+    throw new Error('Reliability config ci_poll_interval_seconds must be a positive integer');
+  }
 
   return {
     run_id: runId,
@@ -71,5 +80,7 @@ export function loadReliabilityConfig(path: string, options: LoadReliabilityConf
     github_token_env: githubTokenEnv,
     provider_token_env: providerTokenEnv,
     temp_root: tempRoot,
+    ci_timeout_seconds: ciTimeoutSeconds,
+    ci_poll_interval_seconds: ciPollIntervalSeconds,
   };
 }

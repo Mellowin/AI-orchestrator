@@ -1,0 +1,14 @@
+{
+  "mode": "github",
+  "run_id": "github-20260713-001",
+  "repo_slug": "Mellowin/AI-orchestrator",
+  "repo_path": "D:\\AI orchestrator",
+  "base_branch": "main",
+  "scenario_dir": "test/fixtures/reliability-scenarios",
+  "max_repair_attempts": 2,
+  "real_github": true,
+  "real_provider": false,
+  "report_dir": "tmp/reliability-reports",
+  "github_token_env": "GITHUB_TOKEN",
+  "provider_token_env": "KIMI_API_KEY"
+}

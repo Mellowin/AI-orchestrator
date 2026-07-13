@@ -118,6 +118,10 @@ export interface ReliabilityConfig {
   provider_token_env?: string;
   /** Optional isolation root for temp clones. */
   temp_root?: string;
+  /** CI observation timeout in seconds for real GitHub mode. */
+  ci_timeout_seconds?: number;
+  /** CI polling interval in seconds for real GitHub mode. */
+  ci_poll_interval_seconds?: number;
 }
 
 export interface ReliabilityScenarioResult {
@@ -144,6 +148,36 @@ export interface ReliabilityScenarioResult {
   started_at: string;
   finished_at: string;
   duration_ms: number;
+}
+
+export interface ReliabilityRunResult {
+  scorecard: ReliabilityScorecard;
+  reportDir: string;
+}
+
+export type ReliabilityScenarioStateStatus = 'pending' | 'setup_pushed' | 'repair_pushed' | 'done';
+
+export interface ReliabilityCampaignScenarioState {
+  scenario_id: string;
+  status: ReliabilityScenarioStateStatus;
+  branch?: string;
+  pr_number?: number;
+  pr_url?: string;
+  setup_sha?: string;
+  repair_shas?: string[];
+  original_ci_run_id?: number;
+  original_ci_conclusion?: string | null;
+  final_ci_run_id?: number;
+  final_ci_conclusion?: string | null;
+  result?: ReliabilityScenarioResult;
+}
+
+export interface ReliabilityCampaignState {
+  run_id: string;
+  mode: ReliabilityMode;
+  started_at: string;
+  updated_at: string;
+  scenarios: ReliabilityCampaignScenarioState[];
 }
 
 export interface ReliabilityScorecard {
@@ -175,6 +209,8 @@ export interface ReliabilityRunOptions {
   fetchFn?: typeof globalThis.fetch;
   spawnFn?: typeof import('node:child_process').spawnSync;
   nowFn?: () => number;
+  /** Resume an existing campaign from saved state instead of creating new PRs. */
+  resume?: boolean;
 }
 
 /** Maps from existing diagnose-ci classifications to reliability taxonomy. */

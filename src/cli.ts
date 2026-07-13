@@ -6686,7 +6686,8 @@ if (command === 'reliability-run') {
       break commandDispatch;
     }
     const config = loadReliabilityConfig(configPath);
-    const result = await runReliabilityCampaign(config);
+    const resume = args.includes('--resume');
+    const result = await runReliabilityCampaign(config, { resume });
     console.error(`[reliability-run] Scorecard: ${result.scorecard.verdict}`);
     console.error(`[reliability-run] Report: ${result.reportDir}`);
     console.error(`[reliability-run] Correctly classified: ${result.scorecard.correctly_classified}/${result.scorecard.total_scenarios}`);
