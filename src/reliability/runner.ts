@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type {
@@ -29,13 +29,26 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function normalizeCommand(
+  cwd: string,
+  command: string,
+  args: string[]
+): { command: string; args: string[] } {
+  // Avoid npx/.cmd wrapper issues on Windows by invoking the tsx CLI directly.
+  if (command === 'npx' && args[0] === 'tsx') {
+    return { command: 'node', args: [join(cwd, 'node_modules/tsx/dist/cli.mjs'), ...args.slice(1)] };
+  }
+  return { command, args };
+}
+
 function runCommand(
   cwd: string,
   command: string,
   args: string[],
   spawnFn: ReliabilityRunOptions['spawnFn']
 ): { ok: boolean; stdout: string; stderr: string } {
-  const result = spawnFn!(command, args, { cwd, encoding: 'utf-8', shell: false });
+  const normalized = normalizeCommand(cwd, command, args);
+  const result = spawnFn!(normalized.command, normalized.args, { cwd, encoding: 'utf-8', shell: false });
   return {
     ok: result.status === 0,
     stdout: result.stdout ?? '',
@@ -55,6 +68,10 @@ function createTempClone(
   });
   if (cloneResult.status !== 0) {
     throw new Error(`Failed to clone repo for reliability run: ${cloneResult.stderr}`);
+  }
+  const sourceNodeModules = join(repoPath, 'node_modules');
+  if (existsSync(sourceNodeModules)) {
+    cpSync(sourceNodeModules, join(dir, 'node_modules'), { recursive: true, dereference: true });
   }
   return dir;
 }

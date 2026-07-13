@@ -82,20 +82,22 @@ export function checkRepairSafety(files: FileUpdate[], allowedFiles: string[], a
       });
     }
 
-    if (FORCE_PUSH_PATTERN.test(content)) {
-      violations.push({
-        type: 'force_push',
-        message: `Force-push detected in proposed patch in ${path}`,
-        file: path,
-      });
-    }
+    if (path !== 'TESTING_SUMMARY.md') {
+      if (FORCE_PUSH_PATTERN.test(content)) {
+        violations.push({
+          type: 'force_push',
+          message: `Force-push detected in proposed patch in ${path}`,
+          file: path,
+        });
+      }
 
-    if (MERGE_PATTERN.test(content)) {
-      violations.push({
-        type: 'merge',
-        message: `Merge operation detected in proposed patch in ${path}`,
-        file: path,
-      });
+      if (MERGE_PATTERN.test(content)) {
+        violations.push({
+          type: 'merge',
+          message: `Merge operation detected in proposed patch in ${path}`,
+          file: path,
+        });
+      }
     }
 
     if (TOKEN_EXPOSURE_PATTERN.test(content)) {

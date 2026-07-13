@@ -8,7 +8,7 @@
   "setup": [
     {
       "path": "src/reliability-fixtures/paths.ts",
-      "search": "return \"${path}\";",
+      "search": "return '\"' + path + '\"';",
       "replace": "return path;"
     }
   ],
@@ -16,7 +16,7 @@
     {
       "path": "src/reliability-fixtures/paths.ts",
       "search": "return path;",
-      "replace": "return \"${path}\";"
+      "replace": "return '\"' + path + '\"';"
     }
   ],
   "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/windows-path.test.ts"],

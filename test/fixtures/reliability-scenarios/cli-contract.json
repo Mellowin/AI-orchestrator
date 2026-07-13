@@ -8,7 +8,7 @@
   "setup": [
     {
       "path": "src/reliability-fixtures/cli-commands.ts",
-      "search": "'reliability-run',",
+      "search": "  'reliability-run',\n",
       "replace": ""
     }
   ],

@@ -13,12 +13,18 @@ export function applyScenarioPatch(repoPath: string, patch: ReliabilityScenarioP
     return;
   }
 
-  const original = readFileSync(targetPath, 'utf-8');
+  let original = readFileSync(targetPath, 'utf-8');
+  // Normalize line endings so patch strings with \n work on Windows clones.
+  const hadCrLf = original.includes('\r\n');
+  original = original.replace(/\r\n/g, '\n');
   const search = patch.search ?? '';
   if (!original.includes(search)) {
     throw new Error(`Patch search string not found in ${patch.path}`);
   }
-  const updated = original.split(search).join(patch.replace);
+  let updated = original.split(search).join(patch.replace);
+  if (hadCrLf) {
+    updated = updated.replace(/\n/g, '\r\n');
+  }
   writeFileSync(targetPath, updated, 'utf-8');
 }
 
