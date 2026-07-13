@@ -1,41 +1,41 @@
 # AI Orchestrator
 
-![CI](https://github.com/Mellowin/AI-orchestrator/actions/workflows/ci.yml/badge.svg?branch=feature/mvp-skeleton)
+![CI](https://github.com/Mellowin/AI-orchestrator/actions/workflows/ci.yml/badge.svg?branch=main)
 
-Autonomous Node.js CLI tool (TypeScript, ES Modules) that takes tasks from `tasks.yaml`, prepares context for AI models, validates outputs, applies safe patches, runs checks, and persists state in `runs/`.
+Autonomous Node.js CLI tool (TypeScript, ES Modules) that turns a plain-language goal into a mission, generates an AI plan, runs local checks, and can open a pull request — without manual JSON config.
 
-> **Status:** MVP proof completed. The pipeline from provider call through PR status read-only is implemented and tested.
-> **Not production-ready automation.** Merge remains a manual human decision.
->
-> Supported workflows:
-> - Manual Kimi JSON workflow (copy prompt to Kimi, save response, validate and apply).
-> - Mock AI workflow via `AI_PROVIDER=mock` (`ai-generate` → `ai-validate` → `ai-preview` → `ai-apply`).
-> - Real Kimi workflow via `AI_PROVIDER=kimi` + `--allow-real-ai` (full pipeline through PR creation and status read-only).
+## One-command usage
 
-Use ai-preview before ai-apply to inspect proposed changes.
+Safe mode (no tokens, no GitHub writes):
 
-## Verified real Kimi E2E smoke
+```bash
+npm ci
+npm run one-click -- "Add a documentation note"
+```
 
-The real Kimi path has been verified through a full local E2E smoke:
+Real PR mode (requires `KIMI_API_KEY` and `GITHUB_TOKEN`):
 
-- `ai-generate`
-- `ai-validate`
-- `ai-preview`
-- `ai-apply`
-- `typecheck`
-- `build`
-- `test`
+```bash
+npm run one-click -- \
+  "Add a small safe documentation change" \
+  --preset real-pr \
+  --yes
+```
 
-The verified smoke used a small README-only change, applied it on a work branch, passed checks, committed it, opened a PR, and merged it back into `feature/mvp-skeleton`.
+Check the environment first:
 
-Verified safety behavior:
+```bash
+npm run doctor
+```
 
-- `files: []` is accepted as a valid no-op for unclear or unsafe tasks.
-- Destructive file shrink is blocked by line-delta guardrails.
-- Failed checks trigger rollback.
-- Post-apply changed files are checked against guardrails.
+See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for real-repair mode, token scopes, and limitations.
 
-This remains an MVP skeleton, not production-ready automation.
+## Current MVP limitations
+
+- The tool never merges, force-pushes, reruns workflows, or deletes branches.
+- Real modes require explicit opt-in (`--preset real-pr` / `--preset real-repair`) and valid API tokens.
+- Repair mode diagnoses red CI and attempts bounded fixes; it stops for human review when the root cause is outside the generated plan.
+- Merge remains a manual human decision.
 
 ---
 

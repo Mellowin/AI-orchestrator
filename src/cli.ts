@@ -111,6 +111,7 @@ import { loadDiagnoseCiConfig, runDiagnoseCi } from './diagnose-ci/index.js';
 import { loadAutopilotRunConfig, runAutopilotRun } from './autopilot-run/index.js';
 import { main as runAutopilotOneClickMain } from './autopilot-one-click/index.js';
 import { loadMissionConfig, runAutopilotPlan } from './autopilot-plan/index.js';
+import { runDoctor, formatDoctorReport } from './doctor.js';
 import { loadOperatorE2EConfig, runOperatorE2E } from './operator-e2e.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import { renderBlockRunReport } from './real-block-run-ai-report.js';
@@ -4051,7 +4052,7 @@ if (command === 'operator-e2e') {
   }
 }
 
-if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e' && command !== 'diagnose-ci' && command !== 'autopilot-run' && command !== 'autopilot-plan' && command !== 'autopilot-one-click')) {
+if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e' && command !== 'diagnose-ci' && command !== 'doctor' && command !== 'autopilot-run' && command !== 'autopilot-plan' && command !== 'autopilot-one-click')) {
   console.error(
     'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|operator-e2e <config.json> [--resume]|autopilot-plan <mission.json|"goal text">|autopilot-one-click <mission.json|"goal text"> [--preset safe|read-ci|real-pr|real-repair] [--mode fake|github] [--run-id id] [--repo-slug owner/repo] [--repo-path path] [--base-branch branch] [--output-dir path] [--yes]|autopilot-run <config.json>|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-follow-up [--report-only|--create-follow-up <newTaskId>]|real-block-follow-up [--create-follow-ups]|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg4]'
   );
@@ -6512,6 +6513,20 @@ if (command === 'diagnose-ci') {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[diagnose-ci] Error: ${message}`);
     console.error('[diagnose-ci] No GitHub API call was made');
+    process.exitCode = 1;
+    break commandDispatch;
+  }
+}
+
+if (command === 'doctor') {
+  try {
+    const report = runDoctor(process.cwd());
+    console.log(formatDoctorReport(report));
+    process.exitCode = report.verdict === 'DOCTOR_FAILED' ? 1 : 0;
+    break commandDispatch;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[doctor] Error: ${message}`);
     process.exitCode = 1;
     break commandDispatch;
   }
