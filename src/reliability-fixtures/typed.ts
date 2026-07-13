@@ -1,3 +1,3 @@
 export function double(x: number): number {
-  return x * 2;
+  return String(x * 2) as unknown as number;
 }
