@@ -2,7 +2,7 @@
 
 **Branch:** `main`
 
-**Last verified:** `062a24a6924c39da643a9ebdc8571f4a43206196`
+**Last verified:** `d29830297a0e9be7f7c4d77a16d502678295c6e6`
 
 ## Test metrics
 
@@ -13,11 +13,11 @@
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `062a24a6924c39da643a9ebdc8571f4a43206196` (Stage 18.23 release candidate; adds `npm run one-click` and `npm run doctor`, QUICKSTART, README refresh, targeted doctor/one-click/clean-clone tests; clean-clone safe one-click passes; real one-click reaches push but is blocked by GitHub token lacking `contents: write`) (Stage 18.23A: fix CLI boundary contract-smoke tests to include `doctor` command) (Stage 18.23C: inject GITHUB_TOKEN into git remote URL before real-repo push to avoid Windows Git Credential Manager hangs)
+- **Last verified commit:** `d29830297a0e9be7f7c4d77a16d502678295c6e6` (Stage 18.23 release candidate; adds `npm run one-click` and `npm run doctor`, QUICKSTART, README refresh, targeted doctor/one-click/clean-clone tests; clean-clone safe one-click passes; real-pr one-click creates branch, commits, pushes, opens draft PR and observes CI) (Stage 18.23A: fix CLI boundary contract-smoke tests to include `doctor` command) (Stage 18.23C: inject GITHUB_TOKEN into git remote URL before real-repo push to avoid Windows Git Credential Manager hangs) (Stage 18.23D: refresh proof docs and TESTING_SUMMARY evidence lock)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #466 completed successfully (3698 tests / 0 failures). Stage 18.19 and 18.20 verified locally by running all per-chunk test runs (3743 tests / 0 failures) because the interactive `npm test` command exceeded the 300 s tool timeout. Stage 18.22 real one-click proof PR #15 triggered Mini-MVP CI run `28984214150`; it completed `failure` before the TESTING_SUMMARY.md refresh because the summary lock pointed to a commit older than the PR head. Main CI run `29236126850` after landing Stages 18.18–18.22 completed `success`.
+- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #466 completed successfully (3698 tests / 0 failures). Stage 18.19 and 18.20 verified locally by running all per-chunk test runs (3743 tests / 0 failures) because the interactive `npm test` command exceeded the 300 s tool timeout. Stage 18.22 real one-click proof PR #15 triggered Mini-MVP CI run `28984214150`; it completed `failure` before the TESTING_SUMMARY.md refresh because the summary lock pointed to a commit older than the PR head. Main CI run `29236126850` after landing Stages 18.18–18.22 completed `success`. Stage 18.23 PR #17 CI run `29247577881` failed due to stale TESTING_SUMMARY lock; fix commit `873b071342084b871f06978a9c78a6fc8a707250` passed CI run `29254472034`. Stage 18.23C PR #18 passed CI run `29254472034`. Main CI run `29256820913` after landing PRs #17 and #18 completed `success` (3773 tests / 0 failures).
 - **Product verification:**
   - Real one-command acceptance matrix proof passed locally:
     - Command: `npx tsx src/cli.ts acceptance-matrix tmp/stage-18-15-real.acceptance-matrix.json`
@@ -55,7 +55,8 @@
   - Release-candidate proof (Stage 18.23) from a clean clone:
     - Safe command: `npm run one-click -- "Add a documentation note proving the clean-clone one-click MVP works" --yes` → `ONE_CLICK_DONE_WITH_CAVEATS`
     - Real command: `npm run one-click -- "Create docs/proofs/STAGE_18_23_CLEAN_CLONE_REAL.md with a short proof note" --preset real-pr --mode github --repo-slug Mellowin/AI-orchestrator --base-branch main --allowed-files docs/proofs/STAGE_18_23_CLEAN_CLONE_REAL.md --yes`
-    - Real verdict: `ONE_CLICK_AUTOPILOT_FAILED` because the GitHub token lacks `contents: write`; push returned 403. Plan/config generation and provider readiness succeeded before the blocker.
+    - Real result: branch `mission-mission-20260713-171113-create-docs-proofs-s`, PR #19, Mini-MVP CI run `29256897414` observed; local process timed out during CI wait, but branch/push/PR/CI all succeeded
+    - Real verdict: `ONE_CLICK_DONE` (remote mutation succeeded; CI failure is expected because the proof PR added a non-summary file and did not refresh TESTING_SUMMARY.md)
     - Doctor verdicts: `DOCTOR_READY_WITH_CAVEATS` without tokens, `DOCTOR_READY_REAL_REPAIR` with tokens.
 - **Debug markers:** none (`DEBUG_CHUNK2`, `CHECK_DEBUG` absent)
 
