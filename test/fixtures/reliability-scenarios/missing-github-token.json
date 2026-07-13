@@ -1,0 +1,10 @@
+{
+  "id": "missing-github-token",
+  "category": "external",
+  "classification": "GITHUB_ACCESS_FAILURE",
+  "fixable": false,
+  "allowed_files": [],
+  "setup": [],
+  "fix": [],
+  "expected_verdict": "EXTERNAL_BLOCKER"
+}

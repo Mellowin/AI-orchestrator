@@ -1,0 +1,27 @@
+{
+  "id": "package-script",
+  "category": "fixable",
+  "classification": "CLI_CONTRACT_FAILURE",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": ["package.json"],
+  "setup": [
+    {
+      "path": "package.json",
+      "search": "    \"reliability\": \"tsx src/cli.ts reliability-run\",\n",
+      "replace": ""
+    }
+  ],
+  "fix": [
+    {
+      "path": "package.json",
+      "search": "    \"doctor\": \"tsx src/cli.ts doctor\",\n",
+      "replace": "    \"doctor\": \"tsx src/cli.ts doctor\",\n    \"reliability\": \"tsx src/cli.ts reliability-run\",\n"
+    }
+  ],
+  "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/package-script.test.ts"],
+  "verification_commands": [
+    ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/package-script.test.ts"]
+  ],
+  "expected_verdict": "REPAIRED"
+}

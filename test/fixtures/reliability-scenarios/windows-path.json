@@ -1,0 +1,27 @@
+{
+  "id": "windows-path",
+  "category": "fixable",
+  "classification": "WINDOWS_PATH_OR_ENV_ISOLATION_FAILURE",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": ["src/reliability-fixtures/paths.ts"],
+  "setup": [
+    {
+      "path": "src/reliability-fixtures/paths.ts",
+      "search": "return \"${path}\";",
+      "replace": "return path;"
+    }
+  ],
+  "fix": [
+    {
+      "path": "src/reliability-fixtures/paths.ts",
+      "search": "return path;",
+      "replace": "return \"${path}\";"
+    }
+  ],
+  "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/windows-path.test.ts"],
+  "verification_commands": [
+    ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/windows-path.test.ts"]
+  ],
+  "expected_verdict": "REPAIRED"
+}

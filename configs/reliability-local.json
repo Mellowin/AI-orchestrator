@@ -1,0 +1,12 @@
+{
+  "mode": "fake",
+  "run_id": "local-20260713-001",
+  "repo_slug": "MellonScholarlyCommunication/ai-orchestrator",
+  "repo_path": "D:\\AI orchestrator",
+  "base_branch": "main",
+  "scenario_dir": "test/fixtures/reliability-scenarios",
+  "max_repair_attempts": 2,
+  "real_github": false,
+  "real_provider": false,
+  "report_dir": "tmp/reliability-reports"
+}

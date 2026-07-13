@@ -1,0 +1,10 @@
+{
+  "id": "missing-provider-token",
+  "category": "external",
+  "classification": "PROVIDER_AUTH_FAILURE",
+  "fixable": false,
+  "allowed_files": [],
+  "setup": [],
+  "fix": [],
+  "expected_verdict": "EXTERNAL_BLOCKER"
+}

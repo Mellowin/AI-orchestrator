@@ -1,0 +1,27 @@
+{
+  "id": "report-field",
+  "category": "fixable",
+  "classification": "WRONG_FUNCTION_BEHAVIOR",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": ["src/reliability-fixtures/report.ts"],
+  "setup": [
+    {
+      "path": "src/reliability-fixtures/report.ts",
+      "search": "return { status, durationMs };",
+      "replace": "return { status };"
+    }
+  ],
+  "fix": [
+    {
+      "path": "src/reliability-fixtures/report.ts",
+      "search": "return { status };",
+      "replace": "return { status, durationMs };"
+    }
+  ],
+  "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/report-field.test.ts"],
+  "verification_commands": [
+    ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/report-field.test.ts"]
+  ],
+  "expected_verdict": "REPAIRED"
+}

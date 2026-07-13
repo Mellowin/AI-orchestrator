@@ -1,0 +1,27 @@
+{
+  "id": "doc-contract",
+  "category": "fixable",
+  "classification": "DOCUMENTATION_CONTRACT_FAILURE",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": ["test/fixtures/reliability-scenarios/doc-contract.md"],
+  "setup": [
+    {
+      "path": "test/fixtures/reliability-scenarios/doc-contract.md",
+      "search": "## Required Section\n\n- item 1",
+      "replace": "## Missing Section\n\n- item missing"
+    }
+  ],
+  "fix": [
+    {
+      "path": "test/fixtures/reliability-scenarios/doc-contract.md",
+      "search": "## Missing Section\n\n- item missing",
+      "replace": "## Required Section\n\n- item 1"
+    }
+  ],
+  "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/doc-contract.test.ts"],
+  "verification_commands": [
+    ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/doc-contract.test.ts"]
+  ],
+  "expected_verdict": "REPAIRED"
+}

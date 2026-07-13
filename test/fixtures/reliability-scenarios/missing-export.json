@@ -1,0 +1,27 @@
+{
+  "id": "missing-export",
+  "category": "fixable",
+  "classification": "MISSING_EXPORT",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": ["src/reliability-fixtures/greet.ts"],
+  "setup": [
+    {
+      "path": "src/reliability-fixtures/greet.ts",
+      "search": "export function hello",
+      "replace": "function hello"
+    }
+  ],
+  "fix": [
+    {
+      "path": "src/reliability-fixtures/greet.ts",
+      "search": "function hello",
+      "replace": "export function hello"
+    }
+  ],
+  "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/missing-export.test.ts"],
+  "verification_commands": [
+    ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/missing-export.test.ts"]
+  ],
+  "expected_verdict": "REPAIRED"
+}
