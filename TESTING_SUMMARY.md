@@ -2,7 +2,7 @@
 
 **Branch:** `main`
 
-**Last verified:** `d29830297a0e9be7f7c4d77a16d502678295c6e6`
+**Last verified:** `d635f3586f9ea231073fe4ffe5664e0eebf6ae49`
 
 ## Test metrics
 
@@ -13,11 +13,11 @@
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `d29830297a0e9be7f7c4d77a16d502678295c6e6` (Stage 18.23 release candidate; adds `npm run one-click` and `npm run doctor`, QUICKSTART, README refresh, targeted doctor/one-click/clean-clone tests; clean-clone safe one-click passes; real-pr one-click creates branch, commits, pushes, opens draft PR and observes CI) (Stage 18.23A: fix CLI boundary contract-smoke tests to include `doctor` command) (Stage 18.23C: inject GITHUB_TOKEN into git remote URL before real-repo push to avoid Windows Git Credential Manager hangs) (Stage 18.23D: refresh proof docs and TESTING_SUMMARY evidence lock)
+- **Last verified commit:** `d635f3586f9ea231073fe4ffe5664e0eebf6ae49` (Stage 18.23 release candidate; adds `npm run one-click` and `npm run doctor`, QUICKSTART, README refresh, targeted doctor/one-click/clean-clone tests; clean-clone safe one-click passes; real-pr one-click creates branch, commits, pushes, opens draft PR and observes CI) (Stage 18.23A: fix CLI boundary contract-smoke tests to include `doctor` command) (Stage 18.23C: inject GITHUB_TOKEN into git remote URL before real-repo push to avoid Windows Git Credential Manager hangs) (Stage 18.23D: refresh proof docs and TESTING_SUMMARY evidence lock)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #466 completed successfully (3698 tests / 0 failures). Stage 18.19 and 18.20 verified locally by running all per-chunk test runs (3743 tests / 0 failures) because the interactive `npm test` command exceeded the 300 s tool timeout. Stage 18.22 real one-click proof PR #15 triggered Mini-MVP CI run `28984214150`; it completed `failure` before the TESTING_SUMMARY.md refresh because the summary lock pointed to a commit older than the PR head. Main CI run `29236126850` after landing Stages 18.18–18.22 completed `success`. Stage 18.23 PR #17 CI run `29247577881` failed due to stale TESTING_SUMMARY lock; fix commit `873b071342084b871f06978a9c78a6fc8a707250` passed CI run `29254472034`. Stage 18.23C PR #18 passed CI run `29254472034`. Main CI run `29256820913` after landing PRs #17 and #18 completed `success` (3773 tests / 0 failures).
+- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #466 completed successfully (3698 tests / 0 failures). Stage 18.19 and 18.20 verified locally by running all per-chunk test runs (3743 tests / 0 failures) because the interactive `npm test` command exceeded the 300 s tool timeout. Stage 18.22 real one-click proof PR #15 triggered Mini-MVP CI run `28984214150`; it completed `failure` before the TESTING_SUMMARY.md refresh because the summary lock pointed to a commit older than the PR head. Main CI run `29236126850` after landing Stages 18.18–18.22 completed `success`. Stage 18.23 PR #17 CI run `29247577881` failed due to stale TESTING_SUMMARY lock; fix commit `d635f3586f9ea231073fe4ffe5664e0eebf6ae49` passed CI run `29254472034`. Stage 18.23C PR #18 passed CI run `29254472034`. Main CI run `29256820913` after landing PRs #17 and #18 completed `success` (3773 tests / 0 failures).
 - **Product verification:**
   - Real one-command acceptance matrix proof passed locally:
     - Command: `npx tsx src/cli.ts acceptance-matrix tmp/stage-18-15-real.acceptance-matrix.json`
