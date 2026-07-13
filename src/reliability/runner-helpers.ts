@@ -864,29 +864,42 @@ export async function runGitHubScenario(
           break;
         }
 
+        // Commit the repair changes first, then refresh TESTING_SUMMARY.md in a
+        // separate summary-only commit so the evidence lock is valid.
+        const fixAddResult = spawnFn('git', ['add', '-A'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+        if (fixAddResult.status === 0) {
+          const fixCommitResult = spawnFn(
+            'git',
+            ['commit', '-m', `reliability: repair attempt ${repairAttemptCount} for ${scenario.id}`],
+            { cwd: repoPath, encoding: 'utf-8', shell: false }
+          );
+          if (fixCommitResult.status !== 0) {
+            failureReason = 'Failed to commit repair patch';
+            continue;
+          }
+        }
+
         const summaryUpdate = refreshTestingSummaryLock(repoPath);
         if (summaryUpdate.reason.includes('verification still fails')) {
           failureReason = summaryUpdate.reason;
           continue;
         }
-
-        const addResult = spawnFn('git', ['add', '-A'], { cwd: repoPath, encoding: 'utf-8', shell: false });
-        if (addResult.status === 0) {
-          const commitResult = spawnFn(
+        if (summaryUpdate.modified) {
+          spawnFn('git', ['add', 'TESTING_SUMMARY.md'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+          spawnFn(
             'git',
-            ['commit', '-m', `reliability: repair attempt ${repairAttemptCount} for ${scenario.id}`],
+            ['commit', '-m', 'docs: refresh evidence lock after autonomous repair'],
             { cwd: repoPath, encoding: 'utf-8', shell: false }
           );
-          if (commitResult.status === 0) {
-            const shaResult = spawnFn('git', ['rev-parse', 'HEAD'], {
-              cwd: repoPath,
-              encoding: 'utf-8',
-              shell: false,
-            });
-            if (shaResult.status === 0) {
-              repairCommits.push(shaResult.stdout.trim());
-            }
-          }
+        }
+
+        const shaResult = spawnFn('git', ['rev-parse', 'HEAD'], {
+          cwd: repoPath,
+          encoding: 'utf-8',
+          shell: false,
+        });
+        if (shaResult.status === 0) {
+          repairCommits.push(shaResult.stdout.trim());
         }
 
         const pushResult = await pushBranchWithToken(repoPath, branch, token, owner, repo, spawnFn);
