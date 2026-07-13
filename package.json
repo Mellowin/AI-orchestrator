@@ -15,6 +15,7 @@
     "demo:acceptance-matrix:fake": "tsx src/cli.ts acceptance-matrix configs/acceptance-matrix.fake.json",
     "mvp:run": "tsx src/cli.ts mvp-run",
     "diagnose:ci": "tsx src/cli.ts diagnose-ci",
+    "autopilot:run": "tsx src/cli.ts autopilot-run",
     "demo:operator-golden-path": "node scripts/run-operator-golden-path.mjs",
     "demo:rollback-policy-drill": "node scripts/run-rollback-policy-drill.mjs",
     "demo:block-follow-up-drill": "node scripts/run-block-follow-up-drill.mjs",

@@ -118,3 +118,7 @@ npm run diagnose:ci -- configs/diagnose-ci.example.json
 ```
 
 See `docs/AGENT_ACCESS.md` for token permissions and verdicts.
+
+## Autopilot
+
+For a one-click loop that runs `mvp-run`, watches CI, diagnoses failures, and attempts bounded repairs, see `docs/AUTOPILOT_RUN.md`.

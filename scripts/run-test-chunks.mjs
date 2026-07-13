@@ -142,6 +142,17 @@ function buildChunkEnv() {
   // Ensure all test child processes (and their CLI grandchildren) initialize
   // temp repos with 'main' as the default branch, matching the test assertions.
   env.GIT_CONFIG_GLOBAL = TEST_GITCONFIG_PATH;
+  // Sanitize GitHub credentials so tests that assert "missing token" behavior
+  // are not affected by case-insensitive environment variables on Windows.
+  // Tests that need a token set it explicitly via envOverrides.
+  const sanitizeNames = new Set(['GITHUB_TOKEN', 'GITHUB_REPOSITORY']);
+  for (const key of Object.keys(env)) {
+    if (sanitizeNames.has(key.toUpperCase())) {
+      delete env[key];
+    }
+  }
+  env.GITHUB_TOKEN = '';
+  env.GITHUB_REPOSITORY = '';
   return env;
 }
 

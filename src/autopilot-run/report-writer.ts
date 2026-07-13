@@ -1,0 +1,163 @@
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { redactSecrets } from '../diagnose-ci/redaction.js';
+import type { AutopilotCapabilitySummary, AutopilotRunResult, AutopilotRunTimelineEvent } from './types.js';
+
+export function getAutopilotReportDir(configReportDir: string, runId: string): string {
+  return join(configReportDir, runId);
+}
+
+function ensureDir(dir: string): void {
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+}
+
+export function writeAutopilotReports(
+  result: AutopilotRunResult,
+  capabilities: AutopilotCapabilitySummary,
+  timeline: AutopilotRunTimelineEvent[]
+): void {
+  const reportDir = result.report_dir;
+  ensureDir(reportDir);
+
+  writeReportJson(result, capabilities, timeline, reportDir);
+  writeReportMd(result, capabilities, timeline, reportDir);
+}
+
+function writeReportJson(
+  result: AutopilotRunResult,
+  capabilities: AutopilotCapabilitySummary,
+  timeline: AutopilotRunTimelineEvent[],
+  reportDir: string
+): void {
+  const sanitized = {
+    ...result,
+    config: {
+      ...result.config,
+      mvp_config_path: '[REDACTED]',
+      report_dir: '[REDACTED]',
+    },
+  };
+
+  const json = {
+    command: result.command,
+    config_path: result.config_path,
+    run_id: result.config.run_id,
+    repo_slug: result.config.repo_slug,
+    mode: result.config.mode,
+    verdict: result.verdict,
+    reason: result.reason,
+    duration_ms: result.duration_ms,
+    started_at: result.started_at,
+    finished_at: result.finished_at,
+    capabilities,
+    mvp_verdict: result.mvp_result?.verdict ?? null,
+    ci_run_id: result.ci_run_id ?? null,
+    ci_conclusion: result.ci_conclusion ?? null,
+    diagnosis_verdict: result.diagnosis?.verdict ?? null,
+    diagnosis_classification: result.diagnosis?.classification ?? null,
+    repair_attempts: result.repair_attempts,
+    timeline,
+    result: sanitized,
+  };
+
+  writeFileSync(join(reportDir, 'report.json'), redactSecrets(JSON.stringify(json, null, 2)), 'utf-8');
+}
+
+function writeReportMd(
+  result: AutopilotRunResult,
+  capabilities: AutopilotCapabilitySummary,
+  timeline: AutopilotRunTimelineEvent[],
+  reportDir: string
+): void {
+  const lines: string[] = [];
+  lines.push('# Autopilot Run Report');
+  lines.push('');
+  lines.push(`- **Command:** \`${result.command}\``);
+  lines.push(`- **Run ID:** ${result.config.run_id}`);
+  lines.push(`- **Repository:** ${result.config.repo_slug}`);
+  lines.push(`- **Mode:** ${result.config.mode}`);
+  lines.push(`- **Started:** ${result.started_at}`);
+  lines.push(`- **Finished:** ${result.finished_at}`);
+  lines.push(`- **Duration:** ${result.duration_ms}ms`);
+  lines.push(`- **Verdict:** **${result.verdict}**`);
+  lines.push(`- **Reason:** ${redactSecrets(result.reason)}`);
+  lines.push('');
+
+  lines.push('## Capabilities');
+  lines.push('');
+  lines.push('Requested:');
+  for (const cap of capabilities.requested) {
+    lines.push(`- ${cap}`);
+  }
+  lines.push('');
+  lines.push('Allowed write:');
+  if (capabilities.allowed_write.length === 0) {
+    lines.push('- none');
+  } else {
+    for (const cap of capabilities.allowed_write) {
+      lines.push(`- ${cap}`);
+    }
+  }
+  lines.push('');
+  lines.push('Forbidden:');
+  for (const cap of capabilities.forbidden) {
+    lines.push(`- ${cap}`);
+  }
+  lines.push('');
+
+  lines.push('## MVP Run');
+  lines.push('');
+  if (result.mvp_result) {
+    lines.push(`- Verdict: **${result.mvp_result.verdict}**`);
+    lines.push(`- Reason: ${redactSecrets(result.mvp_result.reason)}`);
+    lines.push(`- Tasks: ${result.mvp_result.tasks_passed}/${result.mvp_result.tasks_total} passed`);
+    if (result.mvp_result.pr?.created) {
+      lines.push(`- PR: ${result.mvp_result.pr.url ?? `#${result.mvp_result.pr.number}`}`);
+    }
+  } else {
+    lines.push('- No MVP result recorded.');
+  }
+  lines.push('');
+
+  lines.push('## CI Observation');
+  lines.push('');
+  if (result.ci_run_id !== undefined) {
+    lines.push(`- Run ID: ${result.ci_run_id}`);
+    lines.push(`- Conclusion: ${result.ci_conclusion ?? 'unknown'}`);
+  } else {
+    lines.push('- CI was not observed.');
+  }
+  lines.push('');
+
+  lines.push('## Diagnosis');
+  lines.push('');
+  if (result.diagnosis) {
+    lines.push(`- Verdict: **${result.diagnosis.verdict}**`);
+    lines.push(`- Classification: ${result.diagnosis.classification ?? 'n/a'} (${result.diagnosis.confidence ?? 'unknown'})`);
+    lines.push(`- Reason: ${redactSecrets(result.diagnosis.reason)}`);
+  } else {
+    lines.push('- No diagnosis performed.');
+  }
+  lines.push('');
+
+  lines.push('## Repair');
+  lines.push('');
+  lines.push(`- Attempts: ${result.repair_attempts}`);
+  lines.push('');
+
+  lines.push('## Timeline');
+  lines.push('');
+  for (const event of timeline) {
+    lines.push(`- ${event.timestamp} — ${event.event}`);
+  }
+  lines.push('');
+
+  lines.push('---');
+  lines.push('');
+  lines.push('This report was generated by `npx tsx src/autopilot-run/index.ts <config.json>`.');
+  lines.push('No token values are included in this report.');
+
+  writeFileSync(join(reportDir, 'report.md'), lines.join('\n'), 'utf-8');
+}
