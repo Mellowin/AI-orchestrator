@@ -4,5 +4,4 @@ export const SUPPORTED_COMMANDS = [
   'autopilot-run',
   'autopilot-plan',
   'autopilot-one-click',
-  'reliability-run',
 ];
