@@ -1,0 +1,39 @@
+name: Reliability Fast CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - 'reliability-*'
+
+jobs:
+  reliability-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Run isolated reliability scenario test
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          ID=$(echo "$BRANCH" | sed -n 's/^reliability-\(.*\)-[0-9]*$/\1/p')
+          if [ -n "$ID" ] && [ -f "test/fixtures/reliability-scenarios/$ID.test.ts" ]; then
+            npx tsx --test "test/fixtures/reliability-scenarios/$ID.test.ts"
+          else
+            npx tsx --test test/fixtures/reliability-scenarios/*.test.ts
+          fi
