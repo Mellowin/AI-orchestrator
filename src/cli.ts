@@ -58,6 +58,7 @@ import { createFakeReviewerProvider } from './providers/fake/fake-reviewer-provi
 import { createKimiCoderProvider } from './providers/kimi/kimi-coder-provider.js';
 import { createKimiReviewerProvider } from './providers/kimi/kimi-reviewer-provider.js';
 import { validateReviewerDecision } from './reviewer/reviewer-schema.js';
+import { getGitRemoteUrl, injectGitHubTokenIntoRemoteUrl } from './git-push-auth.js';
 import { buildCommitEvidence, validateCommitSha } from './reviewer/commit-verifier.js';
 import { runDeterministicReviewChecks } from './reviewer/deterministic-review-checks.js';
 import { buildReviewInput } from './reviewer/review-input-builder.js';
@@ -1747,11 +1748,40 @@ if (command === 'real-repo-run-ai') {
         break commandDispatch;
       }
 
+      const githubToken = process.env.GITHUB_TOKEN?.trim();
+      let originalRemoteUrl: string | null = null;
+      let tokenRemoteUrl: string | null = null;
+      if (githubToken) {
+        originalRemoteUrl = getGitRemoteUrl(task.repo_path, 'origin');
+        tokenRemoteUrl = originalRemoteUrl ? injectGitHubTokenIntoRemoteUrl(originalRemoteUrl, githubToken) : null;
+        if (tokenRemoteUrl && tokenRemoteUrl !== originalRemoteUrl) {
+          const setUrlResult = spawnSync('git', ['remote', 'set-url', 'origin', tokenRemoteUrl], {
+            cwd: task.repo_path,
+            shell: false,
+            encoding: 'utf-8',
+          });
+          if (setUrlResult.status !== 0) {
+            console.error('[real-repo-run-ai] Failed to configure authenticated remote; falling back to existing remote');
+            tokenRemoteUrl = null;
+          }
+        }
+      }
+
       const pushResult = spawnSync('git', ['push', 'origin', currentBranch], {
         cwd: task.repo_path,
         shell: false,
         encoding: 'utf-8',
+        timeout: 60000,
       });
+
+      if (tokenRemoteUrl && originalRemoteUrl && tokenRemoteUrl !== originalRemoteUrl) {
+        spawnSync('git', ['remote', 'set-url', 'origin', originalRemoteUrl], {
+          cwd: task.repo_path,
+          shell: false,
+          encoding: 'utf-8',
+        });
+      }
+
       if (pushResult.status !== 0) {
         console.error('[real-repo-run-ai] Git push failed');
         performRollback('Git push failed', 'pre_push_failure');
