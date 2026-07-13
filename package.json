@@ -18,6 +18,8 @@
     "autopilot:run": "tsx src/cli.ts autopilot-run",
     "autopilot:plan": "tsx src/cli.ts autopilot-plan",
     "autopilot:one-click": "tsx src/cli.ts autopilot-one-click",
+    "one-click": "tsx src/cli.ts autopilot-one-click",
+    "doctor": "tsx src/cli.ts doctor",
     "demo:operator-golden-path": "node scripts/run-operator-golden-path.mjs",
     "demo:rollback-policy-drill": "node scripts/run-rollback-policy-drill.mjs",
     "demo:block-follow-up-drill": "node scripts/run-block-follow-up-drill.mjs",
