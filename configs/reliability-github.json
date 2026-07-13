@@ -1,6 +1,6 @@
 {
   "mode": "github",
-  "run_id": "github-20260713-002",
+  "run_id": "github-20260713-003",
   "repo_slug": "Mellowin/AI-orchestrator",
   "repo_path": "D:\\AI orchestrator",
   "base_branch": "main",
@@ -12,6 +12,6 @@
   "report_dir": "tmp/reliability-reports",
   "github_token_env": "GITHUB_TOKEN",
   "provider_token_env": "KIMI_API_KEY",
-  "ci_timeout_seconds": 180,
-  "ci_poll_interval_seconds": 15
+  "ci_timeout_seconds": 1200,
+  "ci_poll_interval_seconds": 20
 }
