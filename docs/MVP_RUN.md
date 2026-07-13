@@ -107,3 +107,14 @@ Reports are written to:
 | Repo commit | `ALLOW_REAL_REPO_COMMIT=true` |
 | Repo push | `ALLOW_REAL_REPO_PUSH=true` |
 | PR create | `ALLOW_GITHUB_PR_CREATE=true`, `GITHUB_TOKEN` |
+
+## Observability
+
+`mvp-run` is the execution layer. For diagnosing CI failures after a run, use the read-only `diagnose-ci` command instead of sending screenshots:
+
+```bash
+npx tsx src/cli.ts diagnose-ci configs/diagnose-ci.example.json
+npm run diagnose:ci -- configs/diagnose-ci.example.json
+```
+
+See `docs/AGENT_ACCESS.md` for token permissions and verdicts.

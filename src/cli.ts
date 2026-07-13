@@ -107,6 +107,7 @@ import {
   loadMvpRunConfig,
   runMvpRun,
 } from './mvp-run/index.js';
+import { loadDiagnoseCiConfig, runDiagnoseCi } from './diagnose-ci/index.js';
 import { loadOperatorE2EConfig, runOperatorE2E } from './operator-e2e.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import { renderBlockRunReport } from './real-block-run-ai-report.js';
@@ -4047,7 +4048,7 @@ if (command === 'operator-e2e') {
   }
 }
 
-if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e')) {
+if (!command || (!taskId && command !== 'real-repo-follow-up' && command !== 'real-block-follow-up' && command !== 'operator-e2e' && command !== 'diagnose-ci')) {
   console.error(
     'Usage: npx tsx src/cli.ts <run|status|git-check|git-diff|mock-apply|attempt|context|prompt|validate-output|ai-generate|ai-validate|ai-preview|ai-apply|ai-run|ai-output-status|agent-once|pipeline-loop|real-provider-plan|real-provider-run|real-provider-preview|real-provider-smoke|real-coder-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-reviewer-contract-smoke [--provider kimi] [--timeout-ms <ms>]|real-block-preflight [--resume] [--provider kimi] [--timeout-ms <ms>]|real-block-task-probe [--provider kimi] [--task-id <id>] [--timeout-ms <ms>]|real-block-init|real-block-validate [--strict]|real-block-run-ai-checklist [--resume] [--strict]|real-block-run-ai-dry-run [--resume] [--provider kimi]|operator-e2e <config.json> [--resume]|provider-preview|sandbox-apply-preview|real-repo-apply-dry-run|real-repo-apply|real-repo-commit|real-repo-push|real-repo-run|real-repo-run-ai|real-repo-run-ai-readiness|real-repo-follow-up [--report-only|--create-follow-up <newTaskId>]|real-block-follow-up [--create-follow-ups]|real-block-run-ai [--resume]|real-block-run-ai-readiness [--resume]|real-block-run-ai-report|real-repo-approval-report|real-repo-pr-readiness|real-repo-pr-create|real-repo-pr-status|reviewer-gate-dry-run|reviewer-gate-evidence-dry-run|block-init|block-status|block-transition|block-run-one|block-run|block-approval-report|block-pr-draft|block-pr-create|block-pr-status|block-pr-readiness|block-pr-cleanup|block-pr-submit|block-sandbox> <taskId> [arg4]'
   );
@@ -6467,6 +6468,47 @@ if (command === 'mvp-run') {
     console.error('[mvp-run] No repository mutation was performed');
     console.error('[mvp-run] No merge was performed');
     console.error('[mvp-run] No main touch was performed');
+    process.exitCode = 1;
+    break commandDispatch;
+  }
+}
+
+if (command === 'diagnose-ci') {
+  try {
+    const configPath = taskId;
+    if (!configPath) {
+      console.error('[diagnose-ci] Error: config JSON path is required');
+      console.error('[diagnose-ci] Usage: npx tsx src/cli.ts diagnose-ci <config.json>');
+      console.error('[diagnose-ci] No GitHub API call was made');
+      process.exitCode = 1;
+      break commandDispatch;
+    }
+
+    const config = loadDiagnoseCiConfig(configPath);
+    const result = await runDiagnoseCi(config, {
+      command: `npx tsx src/cli.ts diagnose-ci ${configPath}`,
+    });
+
+    console.error(`[diagnose-ci] ${result.verdict}`);
+    if (result.run_id !== null) {
+      console.error(`[diagnose-ci] Run: ${result.run_id}`);
+    }
+    if (result.classification) {
+      console.error(`[diagnose-ci] Classification: ${result.classification} (${result.confidence ?? 'unknown'})`);
+    }
+    console.error(`[diagnose-ci] Reason: ${result.reason}`);
+    if (result.report_paths) {
+      console.error(`[diagnose-ci] Report: ${result.report_paths.report_md}`);
+      console.error(`[diagnose-ci] Fix task: ${result.report_paths.fix_task_md}`);
+    }
+
+    process.exitCode =
+      result.verdict === 'DIAGNOSE_CI_GREEN' || result.verdict === 'DIAGNOSE_CI_RED' ? 0 : 1;
+    break commandDispatch;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[diagnose-ci] Error: ${message}`);
+    console.error('[diagnose-ci] No GitHub API call was made');
     process.exitCode = 1;
     break commandDispatch;
   }
