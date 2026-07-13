@@ -2,18 +2,18 @@
 
 **Branch:** `main`
 
-**Last verified:** `c782cdf83eabcaad9b9343eb8cc32406720b6431`
+**Last verified:** `873b071342084b871f06978a9c78a6fc8a707250`
 
 ## Test metrics
 
-- **Total tests:** 3743
-- **Total suites:** 230
+- **Total tests:** 3767
+- **Total suites:** 235
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `c782cdf83eabcaad9b9343eb8cc32406720b6431` (Stage 18.23 release candidate; adds `npm run one-click` and `npm run doctor`, QUICKSTART, README refresh, targeted doctor/one-click/clean-clone tests; clean-clone safe one-click passes; real one-click reaches push but is blocked by GitHub token lacking `contents: write`)
+- **Last verified commit:** `873b071342084b871f06978a9c78a6fc8a707250` (Stage 18.23 release candidate; adds `npm run one-click` and `npm run doctor`, QUICKSTART, README refresh, targeted doctor/one-click/clean-clone tests; clean-clone safe one-click passes; real one-click reaches push but is blocked by GitHub token lacking `contents: write`) (Stage 18.23A: fix CLI boundary contract-smoke tests to include `doctor` command)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
