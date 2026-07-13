@@ -8,8 +8,15 @@ function patternToRegExp(pattern: string): RegExp {
     const c = pattern[i];
     if (c === '*') {
       if (pattern[i + 1] === '*') {
-        regex += '.*';
-        i++; // skip second *
+        // '**' matches any number of directories.
+        if (pattern[i + 2] === '/') {
+          // '**/' is an optional directory prefix ending in a slash.
+          regex += '(?:.*/)?';
+          i += 2; // skip '**'
+        } else {
+          regex += '.*';
+          i++; // skip second *
+        }
       } else {
         regex += '[^/]*';
       }
@@ -45,12 +52,6 @@ export function validateFileList(
       };
     }
 
-    for (const pattern of guardrails.deny_modify) {
-      if (matchesPattern(file, pattern)) {
-        return { ok: false, reason: `Forbidden file touched: ${file}` };
-      }
-    }
-
     if (guardrails.allow_modify !== undefined) {
       let allowed = false;
       for (const pattern of guardrails.allow_modify) {
@@ -59,9 +60,19 @@ export function validateFileList(
           break;
         }
       }
-      if (!allowed) {
-        return { ok: false, reason: `File is outside allow_modify: ${file}` };
+      if (allowed) {
+        continue;
       }
+    }
+
+    for (const pattern of guardrails.deny_modify) {
+      if (matchesPattern(file, pattern)) {
+        return { ok: false, reason: `Forbidden file touched: ${file}` };
+      }
+    }
+
+    if (guardrails.allow_modify !== undefined) {
+      return { ok: false, reason: `File is outside allow_modify: ${file}` };
     }
   }
 

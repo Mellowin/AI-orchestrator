@@ -24,6 +24,7 @@ export interface AutopilotOneClickOptions {
   repo_path?: string;
   base_branch?: string;
   output_dir?: string;
+  allowed_files?: string[];
   yes?: boolean;
 }
 

@@ -26,6 +26,7 @@ function githubHeaders(token: string): Record<string, string> {
   return {
     Authorization: `token ${token}`,
     Accept: 'application/vnd.github+json',
+    'User-Agent': 'ai-orchestrator',
   };
 }
 
@@ -83,17 +84,24 @@ export async function resolveAutopilotWorkflowRunId(
   const token = getToken(config);
   const [owner, repo] = config.repo_slug.split('/');
   const baseUrl = `https://api.github.com/repos/${owner}/${repo}`;
-
   const url = `${baseUrl}/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=1`;
-  const data = await githubJsonRequest(url, token, fetchFn);
-  const runs = Array.isArray(data.workflow_runs) ? data.workflow_runs : [];
-  if (runs.length === 0) {
-    throw new AutopilotGithubError(
-      'AUTOPILOT_FAILED',
-      `No workflow runs found for head SHA ${headSha}`
-    );
+
+  const deadline = Date.now() + config.ci.timeout_seconds * 1000;
+  const pollIntervalMs = config.ci.poll_interval_seconds * 1000;
+
+  while (Date.now() < deadline) {
+    const data = await githubJsonRequest(url, token, fetchFn);
+    const runs = Array.isArray(data.workflow_runs) ? data.workflow_runs : [];
+    if (runs.length > 0) {
+      return Number((runs[0] as Record<string, unknown>).id);
+    }
+    await sleep(pollIntervalMs);
   }
-  return Number((runs[0] as Record<string, unknown>).id);
+
+  throw new AutopilotGithubError(
+    'AUTOPILOT_FAILED',
+    `No workflow runs found for head SHA ${headSha} after ${config.ci.timeout_seconds}s`
+  );
 }
 
 export interface PollWorkflowRunResult {

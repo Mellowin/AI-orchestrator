@@ -85,6 +85,15 @@ export function buildMissionFromGoal(
     throw new MissionBuilderError('base_branch contains unsafe characters');
   }
 
+  const allowedFiles = options.allowed_files?.length
+    ? options.allowed_files.filter((f) => {
+        if (isPathTraversal(f)) {
+          throw new MissionBuilderError(`allowed_files contains path traversal: ${f}`);
+        }
+        return true;
+      })
+    : undefined;
+
   const repoSlug = options.repo_slug ?? 'local/raw-goal';
   if (isPathTraversal(repoSlug)) {
     throw new MissionBuilderError('repo_slug contains path traversal');
@@ -114,6 +123,7 @@ export function buildMissionFromGoal(
     capabilities,
     output_dir: outputDir,
     constraints: [`Preset: ${preset}`, `Mode: ${mode}`],
+    allowed_files: allowedFiles,
   };
 
   if (mode === 'github') {

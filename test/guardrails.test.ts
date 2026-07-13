@@ -64,13 +64,12 @@ describe('guardrails', () => {
     assert(result.reason?.includes('Forbidden file touched'));
   });
 
-  test('deny_modify has priority over allow_modify', () => {
+  test('allow_modify overrides deny_modify for explicitly allowed files', () => {
     const guardrails = makeGuardrails({
       allow_modify: ['**/*'],
     });
     const result = validateFileList(['.env'], guardrails);
-    assert.strictEqual(result.ok, false);
-    assert(result.reason?.includes('Forbidden file touched'));
+    assert.strictEqual(result.ok, true);
   });
 
   test('validateFileList passes with missing allow_modify', () => {

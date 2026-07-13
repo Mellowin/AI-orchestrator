@@ -72,9 +72,11 @@ export function generateFakePlan(mission: AutopilotPlanMission): AutopilotPlanGe
   const goalLower = mission.goal.toLowerCase();
   const isDocMission = goalLower.includes('doc') || goalLower.includes('readme');
 
-  const allowedFiles = isDocMission
-    ? ['docs/AUTOPILOT_PLAN.md']
-    : ['docs/AUTOPILOT_PLAN.md', 'README.md'];
+  const allowedFiles = mission.allowed_files?.length
+    ? mission.allowed_files
+    : isDocMission
+      ? ['docs/AUTOPILOT_PLAN.md']
+      : ['docs/AUTOPILOT_PLAN.md', 'README.md'];
 
   const task: AutopilotPlanTask = {
     id: 'mission-task-1',
@@ -134,6 +136,9 @@ export async function generateProviderPlan(
     mission.constraints && mission.constraints.length > 0
       ? `Constraints:\n${mission.constraints.map((c) => `- ${c}`).join('\n')}`
       : '',
+    mission.allowed_files && mission.allowed_files.length > 0
+      ? `Allowed files (the AI may only modify these files):\n${mission.allowed_files.map((f) => `- ${f}`).join('\n')}\nReturn tasks with allowed_files exactly equal to this list.`
+      : '',
     '',
     'Return JSON matching this schema exactly:',
     '{',
@@ -153,6 +158,13 @@ export async function generateProviderPlan(
     '  "risk_level": "low" | "medium" | "high",',
     '  "caveats": ["string"]',
     '}',
+    '',
+    'Rules for tests: each entry must be a valid shell command string that can be executed.',
+    'For documentation-only changes with no automated verification, use an empty tests array.',
+    'Do not put human-readable instructions or sentences into tests.',
+    'Generate the smallest number of tasks that achieves the goal.',
+    'Do not create separate tasks for commit, push, PR creation, or CI observation; the autopilot runner handles those automatically.',
+    'Each task should describe a concrete file or code change, not a git or GitHub operation.',
   ]
     .filter(Boolean)
     .join('\n');

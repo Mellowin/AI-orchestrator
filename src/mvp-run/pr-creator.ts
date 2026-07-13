@@ -77,6 +77,8 @@ export async function createMvpRunPr(
   reportSummary: string,
   deps?: MvpRunPrCreatorDeps
 ): Promise<MvpRunPrResult> {
+  githubToken = githubToken.trim();
+
   if (!config.allow_github_pr_create) {
     return {
       created: false,
@@ -112,11 +114,16 @@ export async function createMvpRunPr(
     Authorization: `Bearer ${githubToken}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'ai-orchestrator',
   };
 
   try {
     const post = deps?.postJson ?? realPostJson;
     const response = await post(url, headers, body);
+
+    if (response.status !== 201) {
+      console.error(`[mvp-run-pr-create] GitHub API status ${response.status}: ${JSON.stringify(response.body)}`);
+    }
 
     if (response.status === 201) {
       const pr = response.body as Record<string, unknown>;

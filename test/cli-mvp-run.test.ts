@@ -274,9 +274,9 @@ describe('mvp-run product flow', () => {
     }
   });
 
-  test('missing real provider env fails before execution', async () => {
+  test('real provider with apply disabled returns passed with caveats', async () => {
     const repo = createTempGitRepo();
-    const runId = `missing-env-${Date.now()}`;
+    const runId = `real-safe-${Date.now()}`;
     const config: MvpRunConfig = {
       ...baseConfig(repo.path, runId),
       provider: 'kimi',
@@ -287,9 +287,8 @@ describe('mvp-run product flow', () => {
     };
     try {
       const result = await runMvpRun(config, join(config.report_dir, 'config.json'));
-      assert.strictEqual(result.verdict, 'MVP_RUN_FAILED');
-      assert.strictEqual(result.classification, 'CONFIG_ERROR');
-      assert.ok(result.reason.includes('ALLOW_REAL_PROVIDER_RUN'));
+      assert.strictEqual(result.verdict, 'MVP_RUN_PASSED_WITH_CAVEATS');
+      assert.ok(result.reason.includes('apply is disabled'));
       assert.strictEqual(result.commits.length, 0);
     } finally {
       repo.cleanup();

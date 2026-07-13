@@ -114,9 +114,12 @@ function setupProcessEnv(config: MvpRunConfig, runsDir: string): void {
   process.env.ALLOW_REAL_BLOCK_RUN_AI = 'true';
   process.env.ALLOW_REAL_PROVIDER =
     config.provider === 'fake' ? 'true' : config.allow_real_provider ? 'true' : '';
+  process.env.ALLOW_REAL_PROVIDER_RUN =
+    config.provider === 'fake' ? '' : config.allow_real_provider ? 'true' : '';
   process.env.ALLOW_REAL_REPO_APPLY = config.allow_real_repo_apply ? 'true' : '';
   process.env.ALLOW_REAL_REPO_COMMIT = config.allow_real_repo_commit ? 'true' : '';
   process.env.ALLOW_REAL_REPO_PUSH = config.allow_real_repo_push ? 'true' : '';
+  process.env.ALLOW_GITHUB_PR_CREATE = config.allow_github_pr_create ? 'true' : '';
   process.env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP = '1';
   process.env.RUNS_DIR = runsDir;
 
@@ -250,12 +253,16 @@ export async function runMvpRun(
   const startTime = Date.now();
   const command = `npx tsx src/cli.ts mvp-run ${configPath}${options.resume ? ' --resume' : ''}`;
 
+  const reportDir = getMvpRunReportDir(config.report_dir, config.run_id);
+  ensureDir(reportDir);
+
+  const runsDir = join(reportDir, 'runs');
+  ensureDir(runsDir);
+  setupProcessEnv(config, runsDir);
+
   const runtimeValidation = validateMvpRunRuntime(config);
   const preflight = buildPreflight(config, runtimeValidation);
   printPreflight(preflight);
-
-  const reportDir = getMvpRunReportDir(config.report_dir, config.run_id);
-  ensureDir(reportDir);
 
   if (!runtimeValidation.ok) {
     const reason = `Runtime validation failed: ${runtimeValidation.reasons.join('; ')}`;
@@ -459,14 +466,9 @@ export async function runMvpRun(
     }
   }
 
-  const runsDir = join(reportDir, 'runs');
-  ensureDir(runsDir);
-
   const block = buildMvpRunBlock(config);
   const blockPath = join(reportDir, 'block.json');
   writeFileSync(blockPath, JSON.stringify(block, null, 2), 'utf-8');
-
-  setupProcessEnv(config, runsDir);
 
   console.error(`[mvp-run] Starting block run: ${config.run_id}`);
   const { exitCode, blockState } = await runRealBlockRunAI(blockPath, {

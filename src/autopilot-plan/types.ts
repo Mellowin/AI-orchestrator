@@ -49,6 +49,7 @@ export interface AutopilotPlanMission {
   base_branch: string;
   goal: string;
   constraints?: string[];
+  allowed_files?: string[];
   mode: AutopilotPlanMode;
   capabilities: AutopilotPlanCapabilities;
   provider?: AutopilotPlanProviderConfig;

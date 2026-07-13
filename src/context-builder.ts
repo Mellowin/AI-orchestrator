@@ -17,10 +17,18 @@ export function buildContext(task: Task): ContextPackage {
     return { path: file, content };
   });
 
+  const allowedFiles = task.guardrails.allow_modify ?? [];
+  const allowedFilesConstraint =
+    allowedFiles.length > 0
+      ? `Allowed files (you may create or modify): ${allowedFiles.join(', ')}`
+      : 'No allowed files specified';
+
   return {
     task_summary: `${task.id}: ${task.title}`,
     goal: task.goal,
     constraints: [
+      allowedFilesConstraint,
+      'If an allowed file does not exist yet, create it with full content.',
       'Do not modify files outside guardrails.allow_modify',
       'Do not modify files matching guardrails.deny_modify',
       'Do not push, merge, or touch main',
