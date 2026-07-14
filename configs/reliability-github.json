@@ -1,11 +1,11 @@
 {
   "mode": "github",
-  "run_id": "github-20260713-004",
+  "run_id": "github-20260713-010",
   "repo_slug": "Mellowin/AI-orchestrator",
   "repo_path": "D:\\AI orchestrator",
   "base_branch": "main",
   "scenario_dir": "test/fixtures/reliability-scenarios",
-  "scenario_filter": ["broken-import"],
+  "scenario_filter": ["broken-import", "type-mismatch", "missing-export", "wrong-return-value", "report-field"],
   "max_repair_attempts": 2,
   "real_github": true,
   "real_provider": false,
