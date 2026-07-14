@@ -1287,6 +1287,96 @@ describe('pollGitHubActionsRun HTTP errors and pagination', () => {
     assert.strictEqual(run.kind, 'ci_timeout');
     assert.ok(calls >= 1);
   });
+
+  test('transient error then successful in_progress polling returns ci_timeout', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return { ok: false, status: 503, json: async () => ({ message: 'unavailable' }) } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ workflow_runs: [{ id: 1, status: 'in_progress', conclusion: null }] }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(2), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'ci_timeout');
+    assert.ok(calls >= 2, 'should retry after transient and then poll until timeout');
+  });
+
+  test('transient error then successful completed run returns completed success', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return { ok: false, status: 503, json: async () => ({ message: 'unavailable' }) } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ workflow_runs: [{ id: 1, status: 'completed', conclusion: 'success' }] }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(2), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    if (run.kind === 'completed') {
+      assert.strictEqual(run.conclusion, 'success');
+    }
+    assert.strictEqual(calls, 2);
+  });
+
+  test('repeated transient failures until deadline return network_transient', async () => {
+    const fakeFetch = async () =>
+      ({ ok: false, status: 503, json: async () => ({ message: 'unavailable' }) } as Response);
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'network_transient');
+  });
+
+  test('transient pagination failure then full successful pagination clears transient state', async () => {
+    const page1Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100';
+    const page2Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100&page=2';
+    let page1Polls = 0;
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url === page1Url) {
+        page1Polls += 1;
+        if (page1Polls === 1) {
+          return { ok: false, status: 503, json: async () => ({ message: 'unavailable' }) } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          headers: { Link: `<${page2Url}>; rel="next"` },
+          json: async () => ({
+            workflow_runs: Array.from({ length: 100 }, (_, i) => ({
+              id: i + 1,
+              status: 'completed',
+              conclusion: 'success',
+            })),
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: [{ id: 101, status: 'completed', conclusion: 'success' }],
+        }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(2), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    if (run.kind === 'completed') {
+      assert.strictEqual(run.conclusion, 'success');
+    }
+    assert.strictEqual(page1Polls, 2, 'should retry page 1 after transient and then complete pagination');
+  });
 });
 
 
@@ -1636,6 +1726,76 @@ describe('runGitHubScenario pre-repair external blockers and CI timeouts', () =>
     assert.strictEqual(result.repair_attempts, 0);
     assert.strictEqual(pushCount, 1, 'only setup push');
     assert.ok(result.failure_reason!.includes('1s'));
+  });
+
+  test('initial CI timeout does not repair or call a provider', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_INITIAL_TIMEOUT_NO_REPAIR';
+    process.env[envName] = 'ghp_initial_timeout_no_repair';
+
+    let pushCount = 0;
+    let commitCount = 0;
+    const fetchUrls: string[] = [];
+
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'commit') {
+        commitCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-timeout-no-repair\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'diff' && args[1] === '--cached') {
+        return { status: 1, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      fetchUrls.push(url);
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: true, status: 201, json: async () => ({ html_url: 'https://github.com/owner/repo/pull/30', number: 30, draft: true }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 1, status: 'in_progress', conclusion: null }] }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('initial-ci-timeout-no-repair'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'CI_TIMEOUT');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+    assert.strictEqual(pushCount, 1, 'only setup push');
+    assert.strictEqual(commitCount, 1, 'only setup commit');
+    assert.ok(!fetchUrls.some((u) => u.includes('/chat/completions') || u.includes('/completions')), 'no provider API call');
   });
 
   test('repair CI timeout returns CI_TIMEOUT and EXTERNAL_BLOCKER', async () => {
