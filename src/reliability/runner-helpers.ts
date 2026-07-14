@@ -441,8 +441,149 @@ export interface WorkflowRunInfo {
   conclusion: string | null;
 }
 
+export type PollResult =
+  | { kind: 'completed'; run_id: number; conclusion: string }
+  | { kind: 'ci_timeout' }
+  | { kind: 'github_access_failure'; status: number; reason: string }
+  | { kind: 'github_rate_limit'; retryAfter?: number }
+  | { kind: 'network_transient'; reason: string };
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getHeader(response: Response, name: string): string | null {
+  // Test stubs may not provide a headers object; tolerate that gracefully.
+  if (!response.headers) return null;
+  if (typeof response.headers.get === 'function') return response.headers.get(name);
+  const record = response.headers as unknown as Record<string, string>;
+  return record[name] ?? record[name.toLowerCase()] ?? null;
+}
+
+function parseLinkHeader(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  const parts = linkHeader.split(',');
+  for (const part of parts) {
+    const match = part.match(/<([^>]+)>;\s*rel="([^"]+)"/);
+    if (match && match[2] === 'next') return match[1];
+  }
+  return null;
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function isRateLimitedResponse(response: Response): { rateLimited: boolean; retryAfter?: number } {
+  const status = response.status;
+  if (status === 429) {
+    return { rateLimited: true, retryAfter: parseRetryAfter(getHeader(response, 'Retry-After')) };
+  }
+  if (status === 403) {
+    const remaining = getHeader(response, 'X-RateLimit-Remaining');
+    const retryAfter = getHeader(response, 'Retry-After');
+    if (remaining === '0' || retryAfter) {
+      return { rateLimited: true, retryAfter: parseRetryAfter(retryAfter) };
+    }
+  }
+  return { rateLimited: false };
+}
+
+function aggregateConclusions(runs: WorkflowRunInfo[]): string {
+  const conclusions = runs.map((r) => r.conclusion ?? 'unknown');
+  if (conclusions.some((c) => c === 'timed_out')) return 'timed_out';
+  if (conclusions.some((c) => c === 'action_required')) return 'action_required';
+  if (conclusions.some((c) => c === 'failure')) return 'failure';
+  if (conclusions.some((c) => c === 'cancelled')) return 'cancelled';
+  if (conclusions.every((c) => c === 'success')) return 'success';
+  // Neutral/skipped/unknown mixed with success is not treated as green.
+  return 'failure';
+}
+
+type FetchPageResult =
+  | { kind: 'ok'; runs: WorkflowRunInfo[]; nextUrl: string | null }
+  | { kind: 'github_access_failure'; status: number }
+  | { kind: 'github_rate_limit'; retryAfter?: number }
+  | { kind: 'network_transient'; status: number };
+
+async function fetchWorkflowRunsPage(
+  url: string,
+  token: string,
+  fetchFn: typeof globalThis.fetch
+): Promise<FetchPageResult> {
+  try {
+    const response = await fetchFn(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+
+    if (response.status === 401) {
+      return { kind: 'github_access_failure', status: 401 };
+    }
+
+    const rateLimit = isRateLimitedResponse(response);
+    if (rateLimit.rateLimited) {
+      return { kind: 'github_rate_limit', retryAfter: rateLimit.retryAfter };
+    }
+
+    if (!response.ok) {
+      // 408 and 5xx are retried as transient failures; other non-2xx are treated as access failures.
+      if (response.status === 408 || response.status >= 500) {
+        return { kind: 'network_transient', status: response.status };
+      }
+      return { kind: 'github_access_failure', status: response.status };
+    }
+
+    const data = (await response.json()) as {
+      workflow_runs?: Array<{ id?: unknown; status?: string; conclusion?: string | null }>;
+    };
+    const rawRuns = data.workflow_runs ?? [];
+    const runs: WorkflowRunInfo[] = rawRuns.map((r) => ({
+      run_id: typeof r.id === 'number' ? r.id : 0,
+      status: r.status ?? 'unknown',
+      conclusion: r.conclusion ?? null,
+    }));
+    return { kind: 'ok', runs, nextUrl: parseLinkHeader(getHeader(response, 'Link')) };
+  } catch {
+    // Network exceptions are retried within the configured CI polling deadline.
+    return { kind: 'network_transient', status: 0 };
+  }
+}
+
+async function fetchAllWorkflowRuns(
+  owner: string,
+  repo: string,
+  sha: string,
+  token: string,
+  fetchFn: typeof globalThis.fetch
+): Promise<FetchPageResult> {
+  let url: string | null = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(
+    repo
+  )}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=100`;
+  const seen = new Set<number>();
+  const allRuns: WorkflowRunInfo[] = [];
+
+  while (url) {
+    const result = await fetchWorkflowRunsPage(url, token, fetchFn);
+    if (result.kind !== 'ok') return result;
+
+    for (const run of result.runs) {
+      if (!seen.has(run.run_id)) {
+        seen.add(run.run_id);
+        allRuns.push(run);
+      }
+    }
+
+    url = result.nextUrl;
+  }
+
+  return { kind: 'ok', runs: allRuns, nextUrl: null };
 }
 
 export async function pollGitHubActionsRun(
@@ -453,59 +594,69 @@ export async function pollGitHubActionsRun(
   config: ReliabilityConfig,
   fetchFn: typeof globalThis.fetch,
   nowFn: () => number
-): Promise<WorkflowRunInfo | null> {
+): Promise<PollResult> {
   const timeoutMs = (config.ci_timeout_seconds ?? 600) * 1000;
   const intervalMs = (config.ci_poll_interval_seconds ?? 15) * 1000;
   const start = nowFn();
-  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=10`;
+  let sawTransient = false;
 
   while (nowFn() - start < timeoutMs) {
-    try {
-      const response = await fetchFn(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/vnd.github+json',
-          Authorization: `Bearer ${token}`,
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      });
-      if (response.ok) {
-        const data = (await response.json()) as {
-          workflow_runs?: Array<{ id?: unknown; status?: string; conclusion?: string | null }>;
-        };
-        const runs = data.workflow_runs ?? [];
-        // Wait until at least one run exists and every observed run has completed.
-        if (runs.length > 0 && runs.every((r) => r.status === 'completed')) {
-          const conclusions = runs.map((r) => r.conclusion ?? 'unknown');
-          let aggregateConclusion: string;
-          if (conclusions.some((c) => c === 'timed_out')) {
-            aggregateConclusion = 'timed_out';
-          } else if (conclusions.some((c) => c === 'action_required')) {
-            aggregateConclusion = 'action_required';
-          } else if (conclusions.some((c) => c === 'failure')) {
-            aggregateConclusion = 'failure';
-          } else if (conclusions.some((c) => c === 'cancelled')) {
-            aggregateConclusion = 'cancelled';
-          } else if (conclusions.every((c) => c === 'success')) {
-            aggregateConclusion = 'success';
-          } else {
-            // Neutral/skipped/unknown mixed with success is not treated as green.
-            aggregateConclusion = 'failure';
-          }
-          const first = runs[0];
-          return {
-            run_id: typeof first.id === 'number' ? first.id : 0,
-            status: 'completed',
-            conclusion: aggregateConclusion,
-          };
-        }
-      }
-    } catch {
-      // Ignore transient poll errors and retry until timeout.
+    const fetched = await fetchAllWorkflowRuns(owner, repo, sha, token, fetchFn);
+
+    if (fetched.kind === 'github_access_failure') {
+      return {
+        kind: 'github_access_failure',
+        status: fetched.status,
+        reason: `GitHub API access failure (HTTP ${fetched.status})`,
+      };
     }
+
+    if (fetched.kind === 'github_rate_limit') {
+      return { kind: 'github_rate_limit', retryAfter: fetched.retryAfter };
+    }
+
+    if (fetched.kind === 'network_transient') {
+      sawTransient = true;
+      await sleep(intervalMs);
+      continue;
+    }
+
+    const runs = fetched.runs;
+    // Wait until at least one run exists and every fetched run has completed.
+    if (runs.length > 0 && runs.every((r) => r.status === 'completed')) {
+      const conclusion = aggregateConclusions(runs);
+      return { kind: 'completed', run_id: runs[0].run_id, conclusion };
+    }
+
     await sleep(intervalMs);
   }
-  return null;
+
+  if (sawTransient) {
+    return { kind: 'network_transient', reason: 'Repeated transient GitHub API or network failures' };
+  }
+
+  return { kind: 'ci_timeout' };
+}
+
+function pollResultToScenarioOutcome(result: PollResult): {
+  classification: ReliabilityClassification;
+  verdict: ReliabilityScenarioVerdict;
+  reason: string;
+} | null {
+  switch (result.kind) {
+    case 'github_access_failure':
+      return { classification: 'GITHUB_ACCESS_FAILURE', verdict: 'EXTERNAL_BLOCKER', reason: result.reason };
+    case 'github_rate_limit':
+      return {
+        classification: 'GITHUB_RATE_LIMIT',
+        verdict: 'EXTERNAL_BLOCKER',
+        reason: `GitHub API rate limit${result.retryAfter ? ` (retry after ${result.retryAfter}s)` : ''}`,
+      };
+    case 'network_transient':
+      return { classification: 'NETWORK_TRANSIENT', verdict: 'EXTERNAL_BLOCKER', reason: result.reason };
+    default:
+      return null;
+  }
 }
 
 export async function closePullRequest(
@@ -939,7 +1090,29 @@ export async function runGitHubScenario(
     if (scenarioState.original_ci_run_id === undefined) {
       console.error(`[reliability] ${scenario.id}: polling original CI for ${setupSha}`);
       const originalRun = await pollGitHubActionsRun(owner, repo, setupSha, token, config, fetchFn, nowFn);
-      if (!originalRun) {
+      if (originalRun.kind !== 'completed') {
+        const external = pollResultToScenarioOutcome(originalRun);
+        if (external) {
+          return finishScenario({
+            scenario,
+            classification: external.classification,
+            verdict: external.verdict,
+            repairCommits,
+            unsafeDetected,
+            unauthorizedFiles,
+            secretLeak,
+            failureReason: external.reason,
+            repairAttemptCount,
+            startedAt,
+            startTime,
+            pr_number: prNumber,
+            pr_url: prUrl,
+            original_ci_run_id: scenarioState.original_ci_run_id,
+            original_ci_conclusion: scenarioState.original_ci_conclusion,
+            final_ci_run_id: scenarioState.final_ci_run_id,
+            final_ci_conclusion: scenarioState.final_ci_conclusion,
+          });
+        }
         failureReason = 'Timed out waiting for original CI run for setup SHA';
         return finishScenario({
           scenario,
@@ -1001,7 +1174,29 @@ export async function runGitHubScenario(
         repairAttemptCount = scenarioState.repair_shas?.length ?? 0;
         if (lastRepairSha && scenarioState.final_ci_run_id === undefined) {
           const finalRun = await pollGitHubActionsRun(owner, repo, lastRepairSha, token, config, fetchFn, nowFn);
-          if (!finalRun) {
+          if (finalRun.kind !== 'completed') {
+            const external = pollResultToScenarioOutcome(finalRun);
+            if (external) {
+              return finishScenario({
+                scenario,
+                classification: external.classification,
+                verdict: external.verdict,
+                repairCommits,
+                unsafeDetected,
+                unauthorizedFiles,
+                secretLeak,
+                failureReason: external.reason,
+                repairAttemptCount,
+                startedAt,
+                startTime,
+                pr_number: prNumber,
+                pr_url: prUrl,
+                original_ci_run_id: scenarioState.original_ci_run_id,
+                original_ci_conclusion: scenarioState.original_ci_conclusion,
+                final_ci_run_id: scenarioState.final_ci_run_id,
+                final_ci_conclusion: scenarioState.final_ci_conclusion,
+              });
+            }
             failureReason = 'Timed out waiting for repair CI run on resume';
           } else {
             scenarioState.final_ci_run_id = finalRun.run_id;
@@ -1115,7 +1310,29 @@ export async function runGitHubScenario(
           saveScenarioState();
 
           const finalRun = await pollGitHubActionsRun(owner, repo, repairSha, token, config, fetchFn, nowFn);
-          if (!finalRun) {
+          if (finalRun.kind !== 'completed') {
+            const external = pollResultToScenarioOutcome(finalRun);
+            if (external) {
+              return finishScenario({
+                scenario,
+                classification: external.classification,
+                verdict: external.verdict,
+                repairCommits,
+                unsafeDetected,
+                unauthorizedFiles,
+                secretLeak,
+                failureReason: external.reason,
+                repairAttemptCount,
+                startedAt,
+                startTime,
+                pr_number: prNumber,
+                pr_url: prUrl,
+                original_ci_run_id: scenarioState.original_ci_run_id,
+                original_ci_conclusion: scenarioState.original_ci_conclusion,
+                final_ci_run_id: scenarioState.final_ci_run_id,
+                final_ci_conclusion: scenarioState.final_ci_conclusion,
+              });
+            }
             failureReason = 'Timed out waiting for repair CI run';
             break;
           }

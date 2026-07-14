@@ -2,18 +2,18 @@
 
 **Branch:** `main`
 
-**Last verified:** `5307fb14a83a6b543bc6478b85b1cf9881650f09`
+**Last verified:** `pending final commit hash`
 
 ## Test metrics
 
-- **Total tests:** 3688
-- **Total suites:** 245
+- **Total tests:** 3701
+- **Total suites:** 247
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `5307fb14a83a6b543bc6478b85b1cf9881650f09` (Stage 18.24 autonomous reliability campaign + last Codex review fixes; adds `reliability-run` command, mode-aware scorecard with verdict-correctness gate (`correctly_verdicted`/`incorrectly_verdicted`), initial-green false-green rejection, final changed-file scope validation, trusted_maintenance_files for scoped evidence-lock refresh, aggregate CI polling, base-branch isolation, stateless safety regexes, preserved non-repairable CI conclusions (`timed_out`/`action_required`/`cancelled`), rejection of green local reproductions in fake mode, resume of remaining repair attempts in real mode, and strict scenario patch path containment in `src/reliability/patch-scenario.ts` with `RELIABILITY_PATCH_PATH_OUTSIDE_REPO` rejection for traversal, absolute, drive, UNC, and symlink-escape paths; local fake campaign 20/20 classified and 16/16 fixable repaired with TARGET_MET; 5 real GitHub Actions red-to-green proofs validated under corrected rules; proof doc `docs/proofs/STAGE_18_24_AUTONOMOUS_RELIABILITY.md`; TESTING_SUMMARY lock refreshed)
+- **Last verified commit:** `pending final commit hash` (Stage 18.24 autonomous reliability campaign + final CI-observation fixes; adds `reliability-run` command, mode-aware scorecard with verdict-correctness gate, initial-green false-green rejection, final changed-file scope validation, trusted_maintenance_files for scoped evidence-lock refresh, aggregate CI polling with `per_page=100` Link-header pagination and deduplication, explicit handling of GitHub API 401/403/429 errors (`GITHUB_ACCESS_FAILURE`/`GITHUB_RATE_LIMIT`), bounded retry of 5xx/network transient failures, base-branch isolation, stateless safety regexes, preserved non-repairable CI conclusions (`timed_out`/`action_required`/`cancelled`), rejection of green local reproductions in fake mode, resume of remaining repair attempts in real mode, and strict scenario patch path containment in `src/reliability/patch-scenario.ts` with `RELIABILITY_PATCH_PATH_OUTSIDE_REPO` rejection for traversal, absolute, drive, UNC, and symlink-escape paths; local fake campaign 20/20 classified and 16/16 fixable repaired with TARGET_MET; 5 real GitHub Actions red-to-green proofs validated under corrected rules; proof doc `docs/proofs/STAGE_18_24_AUTONOMOUS_RELIABILITY.md`; TESTING_SUMMARY lock refreshed)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)

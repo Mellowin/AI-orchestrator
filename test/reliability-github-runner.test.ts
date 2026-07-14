@@ -158,11 +158,12 @@ describe('reliability github runner helpers', () => {
 
     const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
     assert.ok(run);
-    assert.strictEqual(run!.run_id, 42);
-    assert.strictEqual(run!.conclusion, 'failure');
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.run_id, 42);
+    assert.strictEqual(run.conclusion, 'failure');
   });
 
-  test('pollGitHubActionsRun returns null on timeout', async () => {
+  test('pollGitHubActionsRun returns ci_timeout on timeout', async () => {
     let calls = 0;
     const fakeFetch = async () => {
       calls += 1;
@@ -189,7 +190,8 @@ describe('reliability github runner helpers', () => {
     };
 
     const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
-    assert.strictEqual(run, null);
+    assert.ok(run);
+    assert.strictEqual(run.kind, 'ci_timeout');
     assert.ok(calls >= 1, 'should have polled at least once');
   });
 
@@ -880,7 +882,8 @@ describe('reliability final repair scope validation', () => {
 
     const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
     assert.ok(run);
-    assert.strictEqual(run!.conclusion, 'failure');
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.conclusion, 'failure');
     assert.ok(calls >= 2, 'should poll until all runs complete');
   });
 
@@ -913,7 +916,8 @@ describe('reliability final repair scope validation', () => {
 
     const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
     assert.ok(run);
-    assert.strictEqual(run!.conclusion, 'success');
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.conclusion, 'success');
   });
 
 describe('reliability setup scenario repo', () => {
@@ -988,7 +992,8 @@ describe('reliability setup scenario repo', () => {
 
     const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
     assert.ok(run);
-    assert.strictEqual(run!.conclusion, 'timed_out');
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.conclusion, 'timed_out');
   });
 
   test('pollGitHubActionsRun preserves action_required conclusion', async () => {
@@ -1019,5 +1024,361 @@ describe('reliability setup scenario repo', () => {
 
     const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
     assert.ok(run);
-    assert.strictEqual(run!.conclusion, 'action_required');
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.conclusion, 'action_required');
   });
+
+
+describe('pollGitHubActionsRun HTTP errors and pagination', () => {
+  function makePollConfig(ciTimeoutSeconds = 1): ReliabilityConfig {
+    return {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: ciTimeoutSeconds,
+      ci_poll_interval_seconds: 1,
+    };
+  }
+
+  test('401 returns GITHUB_ACCESS_FAILURE and redacts token', async () => {
+    const fakeFetch = async () =>
+      ({
+        ok: false,
+        status: 401,
+        json: async () => ({ message: 'Bad credentials' }),
+      } as Response);
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'ghp_secret', makePollConfig(), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'github_access_failure');
+    if (run.kind === 'github_access_failure') {
+      assert.strictEqual(run.status, 401);
+      assert.ok(!run.reason.includes('ghp_secret'));
+      assert.ok(!run.reason.includes('Authorization'));
+    }
+  });
+
+  test('403 missing permission returns GITHUB_ACCESS_FAILURE', async () => {
+    const fakeFetch = async () =>
+      ({
+        ok: false,
+        status: 403,
+        headers: { 'X-RateLimit-Remaining': '10' },
+        json: async () => ({ message: 'Resource not accessible by integration' }),
+      } as Response);
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'github_access_failure');
+  });
+
+  test('403 with rate-limit remaining 0 returns GITHUB_RATE_LIMIT', async () => {
+    const fakeFetch = async () =>
+      ({
+        ok: false,
+        status: 403,
+        headers: { 'X-RateLimit-Remaining': '0', 'Retry-After': '42' },
+        json: async () => ({ message: 'API rate limit exceeded' }),
+      } as Response);
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'github_rate_limit');
+    if (run.kind === 'github_rate_limit') {
+      assert.strictEqual(run.retryAfter, 42);
+    }
+  });
+
+  test('429 returns GITHUB_RATE_LIMIT and captures Retry-After', async () => {
+    const fakeFetch = async () =>
+      ({
+        ok: false,
+        status: 429,
+        headers: { 'Retry-After': '60' },
+        json: async () => ({ message: 'Too many requests' }),
+      } as Response);
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'github_rate_limit');
+    if (run.kind === 'github_rate_limit') {
+      assert.strictEqual(run.retryAfter, 60);
+    }
+  });
+
+  test('500 retries and can later recover', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return { ok: false, status: 500, json: async () => ({ message: 'boom' }) } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ workflow_runs: [{ id: 1, status: 'completed', conclusion: 'success' }] }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(2), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    assert.ok(calls >= 2);
+  });
+
+  test('repeated 500/network failures return NETWORK_TRANSIENT before ci_timeout', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      return { ok: false, status: 503, json: async () => ({ message: 'unavailable' }) } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'network_transient');
+    assert.ok(calls >= 1);
+  });
+
+  test('network exception returns NETWORK_TRANSIENT', async () => {
+    const fakeFetch = async () => {
+      throw new Error('connect ECONNREFUSED');
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'network_transient');
+  });
+
+  test('paginates through Link header and detects failure on page 2', async () => {
+    const page1Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100';
+    const page2Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100&page=2';
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url === page1Url) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { Link: `<${page2Url}>; rel="next"` },
+          json: async () => ({
+            workflow_runs: Array.from({ length: 100 }, (_, i) => ({
+              id: i + 1,
+              status: 'completed',
+              conclusion: 'success',
+            })),
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: [{ id: 101, status: 'completed', conclusion: 'failure' }],
+        }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    if (run.kind === 'completed') {
+      assert.strictEqual(run.conclusion, 'failure');
+    }
+  });
+
+  test('12 successful runs over two pages returns success', async () => {
+    const page1Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100';
+    const page2Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100&page=2';
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url === page1Url) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { Link: `<${page2Url}>; rel="next"` },
+          json: async () => ({
+            workflow_runs: Array.from({ length: 6 }, (_, i) => ({
+              id: i + 1,
+              status: 'completed',
+              conclusion: 'success',
+            })),
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: Array.from({ length: 6 }, (_, i) => ({
+            id: i + 7,
+            status: 'completed',
+            conclusion: 'success',
+          })),
+        }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    if (run.kind === 'completed') {
+      assert.strictEqual(run.conclusion, 'success');
+    }
+  });
+
+  test('page 1 complete but page 2 in_progress continues polling', async () => {
+    const page1Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100';
+    const page2Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100&page=2';
+    let calls = 0;
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      calls += 1;
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url === page1Url) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { Link: `<${page2Url}>; rel="next"` },
+          json: async () => ({
+            workflow_runs: [{ id: 1, status: 'completed', conclusion: 'success' }],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: [{ id: 2, status: calls < 2 ? 'in_progress' : 'completed', conclusion: 'success' }],
+        }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(2), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    assert.ok(calls >= 2);
+  });
+
+  test('duplicate run id across pages is counted once', async () => {
+    const page1Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100';
+    const page2Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100&page=2';
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      return {
+        ok: true,
+        status: 200,
+        headers: { Link: url === page1Url ? `<${page2Url}>; rel="next"` : undefined },
+        json: async () => ({
+          workflow_runs: [{ id: 1, status: 'completed', conclusion: 'success' }],
+        }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    if (run.kind === 'completed') {
+      assert.strictEqual(run.conclusion, 'success');
+    }
+  });
+
+  test('zero runs continues polling until actual CI timeout', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'ci_timeout');
+    assert.ok(calls >= 1);
+  });
+});
+
+
+describe('runGitHubScenario external blocker handling', () => {
+  test('401 original CI returns EXTERNAL_BLOCKER and does not repair or push', async () => {
+    const sourceRepo = makeTempDir('rel-src-');
+    writeFileSync(join(sourceRepo, 'src.txt'), 'good content\n', 'utf-8');
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_EXTERNAL';
+    process.env[envName] = 'ghp_test_token_external';
+
+    const scenario: ReliabilityScenarioConfig = {
+      id: 'external-ci',
+      category: 'fixable',
+      classification: 'TEST_ASSERTION_FAILURE',
+      fixable: true,
+      repair_strategy: 'apply_fix_patch',
+      allowed_files: ['src.txt'],
+      setup: [{ path: 'src.txt', search: 'good', replace: 'bad' }],
+      fix: [{ path: 'src.txt', search: 'bad', replace: 'good' }],
+      expected_verdict: 'REPAIRED',
+    };
+
+    const config: ReliabilityConfig = {
+      run_id: 'github-external-run',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: sourceRepo,
+      base_branch: 'main',
+      scenario_dir: join(sourceRepo, 'scenarios'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: reportDir,
+      github_token_env: envName,
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    let pushCount = 0;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: true, status: 201, json: async () => ({ number: 11, draft: true }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return { ok: false, status: 401, json: async () => ({ message: 'Bad credentials' }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-external', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-external-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [],
+    };
+
+    const result = await runGitHubScenario(
+      scenario,
+      config,
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'GITHUB_ACCESS_FAILURE');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(pushCount, 1, 'only the setup push should occur; no repair push');
+    assert.ok(!result.failure_reason!.includes('ghp_test_token_external'));
+    assert.ok(!result.failure_reason!.includes('Authorization'));
+  });
+});
