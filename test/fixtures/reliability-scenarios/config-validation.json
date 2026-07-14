@@ -1,0 +1,27 @@
+{
+  "id": "config-validation",
+  "category": "fixable",
+  "classification": "CONFIG_VALIDATION_FAILURE",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": ["test/fixtures/reliability-scenarios/config.json"],
+  "setup": [
+    {
+      "path": "test/fixtures/reliability-scenarios/config.json",
+      "search": "\"timeout\": 30",
+      "replace": "\"timeout\": \"not-a-number\""
+    }
+  ],
+  "fix": [
+    {
+      "path": "test/fixtures/reliability-scenarios/config.json",
+      "search": "\"timeout\": \"not-a-number\"",
+      "replace": "\"timeout\": 30"
+    }
+  ],
+  "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/config-validation.test.ts"],
+  "verification_commands": [
+    ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/config-validation.test.ts"]
+  ],
+  "expected_verdict": "REPAIRED"
+}

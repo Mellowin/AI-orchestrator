@@ -1,0 +1,10 @@
+{
+  "id": "token-read-only",
+  "category": "external",
+  "classification": "PUSH_PERMISSION_FAILURE",
+  "fixable": false,
+  "allowed_files": [],
+  "setup": [],
+  "fix": [],
+  "expected_verdict": "EXTERNAL_BLOCKER"
+}

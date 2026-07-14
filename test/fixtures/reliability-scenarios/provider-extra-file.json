@@ -1,0 +1,27 @@
+{
+  "id": "provider-extra-file",
+  "category": "fixable",
+  "classification": "ALLOWED_FILE_SCOPE_VIOLATION",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": ["src/reliability-fixtures/provider-files.ts"],
+  "setup": [
+    {
+      "path": "src/reliability-fixtures/provider-files.ts",
+      "search": "return ['docs/proofs/ALLOWED.md'];",
+      "replace": "return ['docs/proofs/ALLOWED.md', '.env'];"
+    }
+  ],
+  "fix": [
+    {
+      "path": "src/reliability-fixtures/provider-files.ts",
+      "search": "return ['docs/proofs/ALLOWED.md', '.env'];",
+      "replace": "return ['docs/proofs/ALLOWED.md'];"
+    }
+  ],
+  "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/provider-extra-file.test.ts"],
+  "verification_commands": [
+    ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/provider-extra-file.test.ts"]
+  ],
+  "expected_verdict": "REPAIRED"
+}

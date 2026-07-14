@@ -2,18 +2,18 @@
 
 **Branch:** `main`
 
-**Last verified:** `d29830297a0e9be7f7c4d77a16d502678295c6e6`
+**Last verified:** `25782aa6246050801f616b21c7c6ae778d19f027`
 
 ## Test metrics
 
-- **Total tests:** 3773
-- **Total suites:** 236
+- **Total tests:** 3862
+- **Total suites:** 249
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `d29830297a0e9be7f7c4d77a16d502678295c6e6` (Stage 18.23 release candidate; adds `npm run one-click` and `npm run doctor`, QUICKSTART, README refresh, targeted doctor/one-click/clean-clone tests; clean-clone safe one-click passes; real-pr one-click creates branch, commits, pushes, opens draft PR and observes CI) (Stage 18.23A: fix CLI boundary contract-smoke tests to include `doctor` command) (Stage 18.23C: inject GITHUB_TOKEN into git remote URL before real-repo push to avoid Windows Git Credential Manager hangs) (Stage 18.23D: refresh proof docs and TESTING_SUMMARY evidence lock)
+- **Last verified commit:** `25782aa6246050801f616b21c7c6ae778d19f027` (Stage 18.24 final external-blocker fix and landing: setup push failures classify as `PUSH_PERMISSION_FAILURE`/`NETWORK_TRANSIENT`, PR creation failures classify as `GITHUB_ACCESS_FAILURE`, CI observation timeout classifies as `CI_TIMEOUT`/`EXTERNAL_BLOCKER`, resume from `repair_pushed` skips original CI polling, `createDraftPullRequest` tolerates Response-like fakes without `text()`, and regression tests assert remote URL restoration and `repair_attempts` accounting; local full suite 3862 tests / 249 suites / 0 failures)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)

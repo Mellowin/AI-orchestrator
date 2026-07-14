@@ -1,0 +1,10 @@
+{
+  "id": "provider-rate-limit",
+  "category": "external",
+  "classification": "PROVIDER_RATE_LIMIT",
+  "fixable": false,
+  "allowed_files": [],
+  "setup": [],
+  "fix": [],
+  "expected_verdict": "EXTERNAL_BLOCKER"
+}

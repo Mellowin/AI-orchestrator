@@ -1,0 +1,42 @@
+{
+  "id": "type-mismatch",
+  "category": "fixable",
+  "classification": "TYPECHECK_FAILURE",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": [
+    "src/reliability-fixtures/typed.ts"
+  ],
+  "setup": [
+    {
+      "path": "src/reliability-fixtures/typed.ts",
+      "search": "return x * 2;",
+      "replace": "return String(x * 2) as unknown as number;"
+    }
+  ],
+  "fix": [
+    {
+      "path": "src/reliability-fixtures/typed.ts",
+      "search": "return String(x * 2) as unknown as number;",
+      "replace": "return x * 2;"
+    }
+  ],
+  "reproduction_command": [
+    "npx",
+    "tsx",
+    "--test",
+    "test/fixtures/reliability-scenarios/type-mismatch.test.ts"
+  ],
+  "verification_commands": [
+    [
+      "npx",
+      "tsx",
+      "--test",
+      "test/fixtures/reliability-scenarios/type-mismatch.test.ts"
+    ]
+  ],
+  "expected_verdict": "REPAIRED",
+  "trusted_maintenance_files": [
+    "TESTING_SUMMARY.md"
+  ]
+}

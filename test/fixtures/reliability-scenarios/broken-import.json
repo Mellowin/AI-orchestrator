@@ -1,0 +1,42 @@
+{
+  "id": "broken-import",
+  "category": "fixable",
+  "classification": "IMPORT_OR_MODULE_FAILURE",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": [
+    "test/fixtures/reliability-scenarios/broken-import.test.ts"
+  ],
+  "setup": [
+    {
+      "path": "test/fixtures/reliability-scenarios/broken-import.test.ts",
+      "search": "from '../../../src/reliability-fixtures/helper.js'",
+      "replace": "from '../../../src/reliability-fixtures/missing-helper.js'"
+    }
+  ],
+  "fix": [
+    {
+      "path": "test/fixtures/reliability-scenarios/broken-import.test.ts",
+      "search": "from '../../../src/reliability-fixtures/missing-helper.js'",
+      "replace": "from '../../../src/reliability-fixtures/helper.js'"
+    }
+  ],
+  "reproduction_command": [
+    "npx",
+    "tsx",
+    "--test",
+    "test/fixtures/reliability-scenarios/broken-import.test.ts"
+  ],
+  "verification_commands": [
+    [
+      "npx",
+      "tsx",
+      "--test",
+      "test/fixtures/reliability-scenarios/broken-import.test.ts"
+    ]
+  ],
+  "expected_verdict": "REPAIRED",
+  "trusted_maintenance_files": [
+    "TESTING_SUMMARY.md"
+  ]
+}

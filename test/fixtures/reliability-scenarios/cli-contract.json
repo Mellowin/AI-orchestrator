@@ -1,0 +1,27 @@
+{
+  "id": "cli-contract",
+  "category": "fixable",
+  "classification": "CLI_CONTRACT_FAILURE",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": ["src/reliability-fixtures/cli-commands.ts"],
+  "setup": [
+    {
+      "path": "src/reliability-fixtures/cli-commands.ts",
+      "search": "  'reliability-run',\n",
+      "replace": ""
+    }
+  ],
+  "fix": [
+    {
+      "path": "src/reliability-fixtures/cli-commands.ts",
+      "search": "  'autopilot-one-click',\n];",
+      "replace": "  'autopilot-one-click',\n  'reliability-run',\n];"
+    }
+  ],
+  "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/cli-contract.test.ts"],
+  "verification_commands": [
+    ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/cli-contract.test.ts"]
+  ],
+  "expected_verdict": "REPAIRED"
+}

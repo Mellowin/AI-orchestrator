@@ -1,0 +1,1824 @@
+import { describe, test } from 'node:test';
+import assert from 'node:assert';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { ReliabilityCampaignState, ReliabilityConfig, ReliabilityScenarioConfig } from '../src/reliability/types.js';
+import {
+  buildGitHubTokenRemoteUrl,
+  closePullRequest,
+  getChangedFilesSinceSha,
+  loadCampaignState,
+  parseRepoSlug,
+  pollGitHubActionsRun,
+  pushBranchWithToken,
+  runGitHubScenario,
+  saveCampaignState,
+  setupScenarioRepo,
+  validateFinalRepairScope,
+} from '../src/reliability/runner-helpers.js';
+
+function makeTempDir(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
+describe('reliability github runner helpers', () => {
+  test('parseRepoSlug splits owner and repo', () => {
+    const parsed = parseRepoSlug('Mellowin/AI-orchestrator');
+    assert.strictEqual(parsed.owner, 'Mellowin');
+    assert.strictEqual(parsed.repo, 'AI-orchestrator');
+  });
+
+  test('parseRepoSlug throws on invalid slug', () => {
+    assert.throws(() => parseRepoSlug('invalid'), /Invalid repo_slug/);
+  });
+
+  test('buildGitHubTokenRemoteUrl uses x-access-token scheme', () => {
+    const url = buildGitHubTokenRemoteUrl('owner', 'repo', 'ghp_test_token_value');
+    assert.strictEqual(url, 'https://x-access-token:ghp_test_token_value@github.com/owner/repo.git');
+  });
+
+  test('saveCampaignState and loadCampaignState roundtrip', () => {
+    const dir = makeTempDir('rel-state-');
+    const state: ReliabilityCampaignState = {
+      run_id: 'run-1',
+      mode: 'github',
+      started_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+      scenarios: [
+        {
+          scenario_id: 'missing-github-token',
+          status: 'done',
+          branch: 'reliability-missing-github-token-123',
+          pr_number: 7,
+          pr_url: 'https://github.com/owner/repo/pull/7',
+          setup_sha: 'setupsha001',
+          repair_shas: [],
+          original_ci_run_id: 101,
+          original_ci_conclusion: 'failure',
+          final_ci_run_id: 102,
+          final_ci_conclusion: 'success',
+        },
+      ],
+    };
+    saveCampaignState(dir, state);
+    const loaded = loadCampaignState(dir);
+    assert.deepStrictEqual(loaded, state);
+  });
+
+  test('pushBranchWithToken sets authenticated origin, pushes, and restores original url', async () => {
+    const repoDir = makeTempDir('rel-repo-');
+    // Initialize a real git repo so getGitRemoteUrl has something to read.
+    spawnSync('git', ['init'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['remote', 'add', 'origin', 'https://github.com/original/remote.git'], {
+      cwd: repoDir,
+      encoding: 'utf-8',
+      shell: false,
+    });
+
+    const commands: string[][] = [];
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string; encoding?: string; shell?: boolean; timeout?: number }) => {
+      commands.push([cmd, ...args]);
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'pushed-sha-001', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const result = await pushBranchWithToken(repoDir, 'rel-test-branch', 'ghp_token_123', 'owner', 'repo', fakeSpawn);
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.sha, 'pushed-sha-001');
+
+    const setUrlCalls = commands.filter((c) => c[0] === 'git' && c[1] === 'remote' && c[2] === 'set-url');
+    assert.ok(setUrlCalls.length >= 1, 'should set origin url');
+    const tokenUrlCall = setUrlCalls.find((c) => c[4]?.includes('x-access-token:'));
+    assert.ok(tokenUrlCall, 'token url should use x-access-token');
+    assert.ok(tokenUrlCall![4].includes('github.com/owner/repo.git'), 'token url should target repo');
+
+    const pushCall = commands.find((c) => c[0] === 'git' && c[1] === 'push');
+    assert.ok(pushCall, 'should push branch');
+    assert.deepStrictEqual(pushCall!.slice(2, 4), ['origin', 'rel-test-branch']);
+
+    // Original url should be restored after push.
+    const remoteUrl = spawnSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: repoDir,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    assert.strictEqual(remoteUrl.stdout.trim(), 'https://github.com/original/remote.git');
+  });
+
+  test('pushBranchWithToken redacts token from error messages', async () => {
+    const repoDir = makeTempDir('rel-repo-');
+    const token = 'ghp_super_secret_token_12345';
+    const fakeSpawn = (() =>
+      ({
+        status: 1,
+        stdout: '',
+        stderr: `remote: Invalid username or password. fatal: Authentication failed for https://x-access-token:${token}@github.com/owner/repo.git/`,
+      } as SpawnSyncReturns<string>)) as typeof spawnSync;
+
+    const result = await pushBranchWithToken(repoDir, 'branch', token, 'owner', 'repo', fakeSpawn);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.message);
+    assert.ok(!result.message!.includes(token), 'error message should not contain raw token');
+  });
+
+  test('pollGitHubActionsRun returns completed run info', async () => {
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      assert.ok(url.includes('/actions/runs'), 'should poll actions runs endpoint');
+      assert.ok(url.includes('head_sha=abc123'), 'should filter by head sha');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: [{ id: 42, status: 'completed', conclusion: 'failure' }],
+        }),
+      } as Response;
+    };
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.run_id, 42);
+    assert.strictEqual(run.conclusion, 'failure');
+  });
+
+  test('pollGitHubActionsRun returns ci_timeout on timeout', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ workflow_runs: [{ id: 1, status: 'in_progress', conclusion: null }] }),
+      } as Response;
+    };
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run.kind, 'ci_timeout');
+    assert.ok(calls >= 1, 'should have polled at least once');
+  });
+
+  test('closePullRequest sends PATCH with state closed', async () => {
+    let capturedUrl: string | undefined;
+    let capturedBody: string | undefined;
+    const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      capturedUrl = typeof input === 'string' ? input : input.toString();
+      capturedBody = init?.body ? String(init.body) : undefined;
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    };
+
+    const closed = await closePullRequest('owner', 'repo', 42, 'token', fakeFetch);
+    assert.strictEqual(closed, true);
+    assert.ok(capturedUrl);
+    assert.ok(capturedUrl!.includes('/repos/owner/repo/pulls/42'), `got ${capturedUrl}`);
+    assert.strictEqual(capturedBody, JSON.stringify({ state: 'closed' }));
+  });
+});
+
+describe('reliability github scenario runner', () => {
+  function buildSourceRepo(): string {
+    const dir = makeTempDir('rel-src-');
+    writeFileSync(join(dir, 'src.txt'), 'good content\n', 'utf-8');
+    return dir;
+  }
+
+  function buildScenario(): ReliabilityScenarioConfig {
+    return {
+      id: 'fake-fix',
+      category: 'fixable',
+      classification: 'TEST_ASSERTION_FAILURE',
+      fixable: true,
+      repair_strategy: 'apply_fix_patch',
+      allowed_files: ['src.txt'],
+      setup: [{ path: 'src.txt', search: 'good', replace: 'bad' }],
+      fix: [{ path: 'src.txt', search: 'bad', replace: 'good' }],
+      expected_verdict: 'REPAIRED',
+    };
+  }
+
+  function buildConfig(sourceRepo: string, reportDir: string, tokenEnvName: string): ReliabilityConfig {
+    return {
+      run_id: 'github-test-run',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: sourceRepo,
+      base_branch: 'main',
+      scenario_dir: join(sourceRepo, 'scenarios'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: reportDir,
+      github_token_env: tokenEnvName,
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+  }
+
+  test('runGitHubScenario returns EXTERNAL_BLOCKER for external scenario without pushing', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_EXTERNAL';
+    process.env[envName] = 'ghp_test_token';
+
+    const scenario: ReliabilityScenarioConfig = {
+      id: 'missing-github-token',
+      category: 'external',
+      classification: 'GITHUB_ACCESS_FAILURE',
+      fixable: false,
+      allowed_files: [],
+      setup: [],
+      fix: [],
+      expected_verdict: 'EXTERNAL_BLOCKER',
+    };
+
+    let fetchCalls = 0;
+    let spawnCalls = 0;
+    const fakeFetch = (() => {
+      fetchCalls += 1;
+      return Promise.resolve({ ok: false, status: 500, json: async () => ({}) } as Response);
+    }) as unknown as typeof globalThis.fetch;
+    const fakeSpawn = ((..._args: unknown[]) => {
+      spawnCalls += 1;
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [],
+    };
+
+    const result = await runGitHubScenario(
+      scenario,
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      () => {}
+    );
+
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(fetchCalls, 0, 'should not call GitHub API for external blocker');
+    assert.strictEqual(spawnCalls, 0, 'should not invoke git for external blocker');
+  });
+
+  test('runGitHubScenario creates PR, polls CI, pushes repair, and closes PR', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_FIX';
+    process.env[envName] = 'ghp_test_token';
+
+    const scenario = buildScenario();
+    const config = buildConfig(sourceRepo, reportDir, envName);
+
+    let commitCount = 0;
+    let branchName = '';
+    const commands: string[][] = [];
+
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string; encoding?: string; shell?: boolean; timeout?: number }) => {
+      commands.push([cmd, ...args]);
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'checkout' && args[1] === '-b') {
+        branchName = args[2];
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'commit') {
+        commitCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        const sha = commitCount === 1 ? 'setup-sha-001' : 'repair-sha-001';
+        return { status: 0, stdout: sha, stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'diff' && args[1] === '--cached') {
+        return { status: 1, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    let prCreated = false;
+    let prClosed = false;
+    let setupPolled = false;
+    let repairPolled = false;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        prCreated = true;
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({
+            html_url: 'https://github.com/owner/repo/pull/7',
+            number: 7,
+            draft: true,
+            base: { ref: 'main' },
+            head: { ref: branchName },
+          }),
+        } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        const sha = new URL(url).searchParams.get('head_sha');
+        if (sha === 'setup-sha-001') {
+          setupPolled = true;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ workflow_runs: [{ id: 101, status: 'completed', conclusion: 'failure' }] }),
+          } as Response;
+        }
+        if (sha === 'repair-sha-001') {
+          repairPolled = true;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ workflow_runs: [{ id: 102, status: 'completed', conclusion: 'success' }] }),
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        prClosed = true;
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [],
+    };
+
+    const result = await runGitHubScenario(
+      scenario,
+      config,
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      (s) => saveCampaignState(reportDir, s)
+    );
+
+    assert.strictEqual(result.verdict, 'REPAIRED');
+    assert.strictEqual(result.pr_number, 7);
+    assert.strictEqual(result.pr_url, 'https://github.com/owner/repo/pull/7');
+    assert.strictEqual(result.original_ci_run_id, 101);
+    assert.strictEqual(result.original_ci_conclusion, 'failure');
+    assert.strictEqual(result.final_ci_run_id, 102);
+    assert.strictEqual(result.final_ci_conclusion, 'success');
+    assert.strictEqual(prCreated, true);
+    assert.strictEqual(prClosed, true);
+    assert.strictEqual(setupPolled, true);
+    assert.strictEqual(repairPolled, true);
+
+    const persisted = loadCampaignState(reportDir);
+    assert.ok(persisted);
+    const scenarioState = persisted!.scenarios.find((s) => s.scenario_id === scenario.id);
+    assert.ok(scenarioState);
+    assert.strictEqual(scenarioState!.pr_number, 7);
+    assert.strictEqual(scenarioState!.original_ci_conclusion, 'failure');
+    assert.strictEqual(scenarioState!.final_ci_conclusion, 'success');
+  });
+
+  test('runGitHubScenario resumes from repair_pushed without creating duplicate PR', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_RESUME';
+    process.env[envName] = 'ghp_test_token';
+
+    const scenario = buildScenario();
+    const config = buildConfig(sourceRepo, reportDir, envName);
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [
+        {
+          scenario_id: scenario.id,
+          status: 'repair_pushed',
+          branch: 'reliability-fake-fix-resume',
+          pr_number: 7,
+          pr_url: 'https://github.com/owner/repo/pull/7',
+          setup_sha: 'setup-sha-001',
+          original_ci_run_id: 101,
+          original_ci_conclusion: 'failure',
+          repair_shas: ['repair-sha-001'],
+        },
+      ],
+    };
+
+    let prCreated = false;
+    let prClosed = false;
+    let repairPolled = false;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        prCreated = true;
+        return { ok: true, status: 201, json: async () => ({ number: 99 }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        const sha = new URL(url).searchParams.get('head_sha');
+        if (sha === 'repair-sha-001') {
+          repairPolled = true;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ workflow_runs: [{ id: 102, status: 'completed', conclusion: 'success' }] }),
+          } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        prClosed = true;
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const fakeSpawn = (() => ({ status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>)) as typeof spawnSync;
+
+    const result = await runGitHubScenario(
+      scenario,
+      config,
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      (s) => saveCampaignState(reportDir, s)
+    );
+
+    assert.strictEqual(result.verdict, 'REPAIRED');
+    assert.strictEqual(result.pr_number, 7, 'should reuse existing PR number');
+    assert.strictEqual(prCreated, false, 'should not create a new PR on resume');
+    assert.strictEqual(prClosed, true);
+    assert.strictEqual(repairPolled, true);
+  });
+});
+
+
+describe('reliability initial CI conclusion handling', () => {
+  function buildSourceRepo(): string {
+    const dir = makeTempDir('rel-src-');
+    writeFileSync(join(dir, 'src.txt'), 'good content\n', 'utf-8');
+    return dir;
+  }
+
+  function buildScenario(): ReliabilityScenarioConfig {
+    return {
+      id: 'fake-fix',
+      category: 'fixable',
+      classification: 'TEST_ASSERTION_FAILURE',
+      fixable: true,
+      repair_strategy: 'apply_fix_patch',
+      allowed_files: ['src.txt'],
+      setup: [{ path: 'src.txt', search: 'good', replace: 'bad' }],
+      fix: [{ path: 'src.txt', search: 'bad', replace: 'good' }],
+      expected_verdict: 'REPAIRED',
+    };
+  }
+
+  function buildConfig(sourceRepo: string, reportDir: string, tokenEnvName: string): ReliabilityConfig {
+    return {
+      run_id: 'github-test-run',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: sourceRepo,
+      base_branch: 'main',
+      scenario_dir: join(sourceRepo, 'scenarios'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: reportDir,
+      github_token_env: tokenEnvName,
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+  }
+
+  test('initial green CI run is rejected as false green', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_GREEN';
+    process.env[envName] = 'ghp_test_token';
+
+    const scenario = buildScenario();
+    const config = buildConfig(sourceRepo, reportDir, envName);
+
+    let pushCount = 0;
+    let prClosed = false;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return {
+          ok: true,
+          status: 201,
+          json: async () => ({ html_url: 'https://github.com/owner/repo/pull/8', number: 8, draft: true }),
+        } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ workflow_runs: [{ id: 101, status: 'completed', conclusion: 'success' }] }),
+        } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        prClosed = true;
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const fakeSpawn = ((cmd: string, args: string[]) => {
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-green', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [],
+    };
+
+    const result = await runGitHubScenario(
+      scenario,
+      config,
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      () => {}
+    );
+
+    assert.strictEqual(result.verdict, 'FALSE_GREEN_REJECTED');
+    assert.strictEqual(result.original_ci_conclusion, 'success');
+    assert.strictEqual(result.original_ci_run_id, 101);
+    assert.strictEqual(pushCount, 1, 'only the setup push should occur');
+    assert.strictEqual(prClosed, true, 'should still close the PR safely');
+    assert.strictEqual(result.repair_attempts, 0);
+  });
+
+  test('initial cancelled CI run is classified as external blocker', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_CANCELLED';
+    process.env[envName] = 'ghp_test_token';
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: true, status: 201, json: async () => ({ number: 9, draft: true }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ workflow_runs: [{ id: 102, status: 'completed', conclusion: 'cancelled' }] }),
+        } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const fakeSpawn = ((cmd: string, args: string[]) => {
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-cancelled', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [],
+    };
+
+    const result = await runGitHubScenario(
+      buildScenario(),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      () => {}
+    );
+
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+  });
+});
+
+describe('reliability final repair scope validation', () => {
+  test('validateFinalRepairScope flags files outside allowed_files', () => {
+    const repoDir = makeTempDir('rel-scope-');
+    spawnSync('git', ['init'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    writeFileSync(join(repoDir, 'allowed.txt'), 'allowed\n', 'utf-8');
+    writeFileSync(join(repoDir, 'secret.txt'), 'secret\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'base'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    const baseResult = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    const baseSha = baseResult.stdout.trim();
+
+    writeFileSync(join(repoDir, 'allowed.txt'), 'allowed modified\n', 'utf-8');
+    writeFileSync(join(repoDir, 'secret.txt'), 'secret modified\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'repair'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+
+    const scope = validateFinalRepairScope(repoDir, baseSha, ['allowed.txt'], spawnSync);
+    assert.strictEqual(scope.ok, false);
+    assert.deepStrictEqual(scope.unauthorized, ['secret.txt']);
+  });
+
+  test('validateFinalRepairScope allows explicitly listed TESTING_SUMMARY.md', () => {
+    const repoDir = makeTempDir('rel-scope-summary-');
+    spawnSync('git', ['init'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    writeFileSync(join(repoDir, 'TESTING_SUMMARY.md'), '# Summary\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'base'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    const baseResult = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    const baseSha = baseResult.stdout.trim();
+
+    writeFileSync(join(repoDir, 'TESTING_SUMMARY.md'), '# Summary Updated\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'summary update'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+
+    const scope = validateFinalRepairScope(repoDir, baseSha, ['TESTING_SUMMARY.md'], spawnSync);
+    assert.strictEqual(scope.ok, true);
+    assert.deepStrictEqual(scope.unauthorized, []);
+  });
+
+  test('runGitHubScenario rejects repair when final scope includes unauthorized file', async () => {
+    const sourceRepo = makeTempDir('rel-src-');
+    writeFileSync(join(sourceRepo, 'src.txt'), 'good content\n', 'utf-8');
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_SCOPE';
+    process.env[envName] = 'ghp_test_token';
+
+    const scenario: ReliabilityScenarioConfig = {
+      id: 'scope-violation',
+      category: 'fixable',
+      classification: 'TEST_ASSERTION_FAILURE',
+      fixable: true,
+      repair_strategy: 'apply_fix_patch',
+      allowed_files: ['src.txt'],
+      setup: [{ path: 'src.txt', search: 'good', replace: 'bad' }],
+      fix: [{ path: 'src.txt', search: 'bad', replace: 'good' }],
+      expected_verdict: 'REPAIRED',
+    };
+
+    const config: ReliabilityConfig = {
+      run_id: 'github-test-run',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: sourceRepo,
+      base_branch: 'main',
+      scenario_dir: join(sourceRepo, 'scenarios'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: reportDir,
+      github_token_env: envName,
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    let pushCount = 0;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: true, status: 201, json: async () => ({ number: 10, draft: true }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ workflow_runs: [{ id: 103, status: 'completed', conclusion: 'failure' }] }),
+        } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-scope', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'diff' && args[1] === '--name-only') {
+        return { status: 0, stdout: 'src.txt\nextra.txt\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [],
+    };
+
+    const result = await runGitHubScenario(
+      scenario,
+      config,
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      () => {}
+    );
+
+    assert.strictEqual(result.verdict, 'UNSAFE_PATCH_REJECTED');
+    assert.deepStrictEqual(result.unauthorized_files, ['extra.txt']);
+    assert.strictEqual(pushCount, 1, 'only the setup push should occur');
+  });
+});
+
+  test('validateFinalRepairScope rejects TESTING_SUMMARY.md when not explicitly scoped', () => {
+    const repoDir = makeTempDir('rel-scope-summary-denied-');
+    spawnSync('git', ['init'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    writeFileSync(join(repoDir, 'src.txt'), 'src\n', 'utf-8');
+    writeFileSync(join(repoDir, 'TESTING_SUMMARY.md'), '# Summary\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'base'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    const baseResult = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    const baseSha = baseResult.stdout.trim();
+
+    writeFileSync(join(repoDir, 'TESTING_SUMMARY.md'), '# Summary Updated\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'summary update'], { cwd: repoDir, encoding: 'utf-8', shell: false });
+
+    const scope = validateFinalRepairScope(repoDir, baseSha, ['src.txt'], spawnSync);
+    assert.strictEqual(scope.ok, false);
+    assert.deepStrictEqual(scope.unauthorized, ['TESTING_SUMMARY.md']);
+  });
+
+  test('pollGitHubActionsRun waits for all workflow runs and aggregates conclusions', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            workflow_runs: [
+              { id: 1, status: 'completed', conclusion: 'success' },
+              { id: 2, status: 'in_progress', conclusion: null },
+            ],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: [
+            { id: 1, status: 'completed', conclusion: 'success' },
+            { id: 2, status: 'completed', conclusion: 'failure' },
+          ],
+        }),
+      } as Response;
+    };
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 2,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.conclusion, 'failure');
+    assert.ok(calls >= 2, 'should poll until all runs complete');
+  });
+
+  test('pollGitHubActionsRun returns success only when every run succeeds', async () => {
+    const fakeFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        workflow_runs: [
+          { id: 1, status: 'completed', conclusion: 'success' },
+          { id: 2, status: 'completed', conclusion: 'success' },
+        ],
+      }),
+    } as Response);
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.conclusion, 'success');
+  });
+
+describe('reliability setup scenario repo', () => {
+  test('setupScenarioRepo creates branch from configured base branch', () => {
+    const sourceRepo = makeTempDir('rel-setup-src-');
+    spawnSync('git', ['init'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(sourceRepo, 'main.txt'), 'main\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'main'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['checkout', '-b', 'feature'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(sourceRepo, 'feature.txt'), 'feature\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'feature'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+
+    const scenario: ReliabilityScenarioConfig = {
+      id: 'setup-base',
+      category: 'fixable',
+      classification: 'TEST_ASSERTION_FAILURE',
+      fixable: true,
+      allowed_files: ['main.txt'],
+      setup: [{ path: 'main.txt', search: 'main', replace: 'fault' }],
+      expected_verdict: 'REPAIRED',
+    };
+
+    const { repoPath, branch } = setupScenarioRepo(scenario, sourceRepo, 'main', makeTempDir('rel-setup-'), spawnSync);
+
+    const branchResult = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    assert.strictEqual(branchResult.stdout.trim(), branch);
+
+    const logResult = spawnSync('git', ['log', '--oneline'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    assert.ok(!logResult.stdout.includes('feature'), 'scenario branch history should not include unrelated feature branch commits');
+    assert.ok(!existsSync(join(repoPath, 'feature.txt')), 'feature branch file should not be present');
+  });
+});
+
+  test('pollGitHubActionsRun preserves timed_out conclusion', async () => {
+    const fakeFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        workflow_runs: [
+          { id: 1, status: 'completed', conclusion: 'success' },
+          { id: 2, status: 'completed', conclusion: 'timed_out' },
+        ],
+      }),
+    } as Response);
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.conclusion, 'timed_out');
+  });
+
+  test('pollGitHubActionsRun preserves action_required conclusion', async () => {
+    const fakeFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        workflow_runs: [
+          { id: 1, status: 'completed', conclusion: 'action_required' },
+        ],
+      }),
+    } as Response);
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run.kind, 'completed');
+    assert.strictEqual(run.conclusion, 'action_required');
+  });
+
+
+describe('pollGitHubActionsRun HTTP errors and pagination', () => {
+  function makePollConfig(ciTimeoutSeconds = 1): ReliabilityConfig {
+    return {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: ciTimeoutSeconds,
+      ci_poll_interval_seconds: 1,
+    };
+  }
+
+  test('401 returns GITHUB_ACCESS_FAILURE and redacts token', async () => {
+    const fakeFetch = async () =>
+      ({
+        ok: false,
+        status: 401,
+        json: async () => ({ message: 'Bad credentials' }),
+      } as Response);
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'ghp_secret', makePollConfig(), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'github_access_failure');
+    if (run.kind === 'github_access_failure') {
+      assert.strictEqual(run.status, 401);
+      assert.ok(!run.reason.includes('ghp_secret'));
+      assert.ok(!run.reason.includes('Authorization'));
+    }
+  });
+
+  test('403 missing permission returns GITHUB_ACCESS_FAILURE', async () => {
+    const fakeFetch = async () =>
+      ({
+        ok: false,
+        status: 403,
+        headers: { 'X-RateLimit-Remaining': '10' },
+        json: async () => ({ message: 'Resource not accessible by integration' }),
+      } as Response);
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'github_access_failure');
+  });
+
+  test('403 with rate-limit remaining 0 returns GITHUB_RATE_LIMIT', async () => {
+    const fakeFetch = async () =>
+      ({
+        ok: false,
+        status: 403,
+        headers: { 'X-RateLimit-Remaining': '0', 'Retry-After': '42' },
+        json: async () => ({ message: 'API rate limit exceeded' }),
+      } as Response);
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'github_rate_limit');
+    if (run.kind === 'github_rate_limit') {
+      assert.strictEqual(run.retryAfter, 42);
+    }
+  });
+
+  test('429 returns GITHUB_RATE_LIMIT and captures Retry-After', async () => {
+    const fakeFetch = async () =>
+      ({
+        ok: false,
+        status: 429,
+        headers: { 'Retry-After': '60' },
+        json: async () => ({ message: 'Too many requests' }),
+      } as Response);
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'github_rate_limit');
+    if (run.kind === 'github_rate_limit') {
+      assert.strictEqual(run.retryAfter, 60);
+    }
+  });
+
+  test('500 retries and can later recover', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return { ok: false, status: 500, json: async () => ({ message: 'boom' }) } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ workflow_runs: [{ id: 1, status: 'completed', conclusion: 'success' }] }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(2), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    assert.ok(calls >= 2);
+  });
+
+  test('repeated 500/network failures return NETWORK_TRANSIENT before ci_timeout', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      return { ok: false, status: 503, json: async () => ({ message: 'unavailable' }) } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'network_transient');
+    assert.ok(calls >= 1);
+  });
+
+  test('network exception returns NETWORK_TRANSIENT', async () => {
+    const fakeFetch = async () => {
+      throw new Error('connect ECONNREFUSED');
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'network_transient');
+  });
+
+  test('paginates through Link header and detects failure on page 2', async () => {
+    const page1Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100';
+    const page2Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100&page=2';
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url === page1Url) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { Link: `<${page2Url}>; rel="next"` },
+          json: async () => ({
+            workflow_runs: Array.from({ length: 100 }, (_, i) => ({
+              id: i + 1,
+              status: 'completed',
+              conclusion: 'success',
+            })),
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: [{ id: 101, status: 'completed', conclusion: 'failure' }],
+        }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    if (run.kind === 'completed') {
+      assert.strictEqual(run.conclusion, 'failure');
+    }
+  });
+
+  test('12 successful runs over two pages returns success', async () => {
+    const page1Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100';
+    const page2Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100&page=2';
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url === page1Url) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { Link: `<${page2Url}>; rel="next"` },
+          json: async () => ({
+            workflow_runs: Array.from({ length: 6 }, (_, i) => ({
+              id: i + 1,
+              status: 'completed',
+              conclusion: 'success',
+            })),
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: Array.from({ length: 6 }, (_, i) => ({
+            id: i + 7,
+            status: 'completed',
+            conclusion: 'success',
+          })),
+        }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    if (run.kind === 'completed') {
+      assert.strictEqual(run.conclusion, 'success');
+    }
+  });
+
+  test('page 1 complete but page 2 in_progress continues polling', async () => {
+    const page1Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100';
+    const page2Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100&page=2';
+    let calls = 0;
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      calls += 1;
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url === page1Url) {
+        return {
+          ok: true,
+          status: 200,
+          headers: { Link: `<${page2Url}>; rel="next"` },
+          json: async () => ({
+            workflow_runs: [{ id: 1, status: 'completed', conclusion: 'success' }],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: [{ id: 2, status: calls < 2 ? 'in_progress' : 'completed', conclusion: 'success' }],
+        }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(2), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    assert.ok(calls >= 2);
+  });
+
+  test('duplicate run id across pages is counted once', async () => {
+    const page1Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100';
+    const page2Url = 'https://api.github.com/repos/owner/repo/actions/runs?head_sha=abc123&per_page=100&page=2';
+    const fakeFetch = async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      return {
+        ok: true,
+        status: 200,
+        headers: { Link: url === page1Url ? `<${page2Url}>; rel="next"` : undefined },
+        json: async () => ({
+          workflow_runs: [{ id: 1, status: 'completed', conclusion: 'success' }],
+        }),
+      } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'completed');
+    if (run.kind === 'completed') {
+      assert.strictEqual(run.conclusion, 'success');
+    }
+  });
+
+  test('zero runs continues polling until actual CI timeout', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      return { ok: true, status: 200, json: async () => ({ workflow_runs: [] }) } as Response;
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', makePollConfig(1), fakeFetch, Date.now);
+    assert.strictEqual(run.kind, 'ci_timeout');
+    assert.ok(calls >= 1);
+  });
+});
+
+
+describe('runGitHubScenario external blocker handling', () => {
+  test('401 original CI returns EXTERNAL_BLOCKER and does not repair or push', async () => {
+    const sourceRepo = makeTempDir('rel-src-');
+    writeFileSync(join(sourceRepo, 'src.txt'), 'good content\n', 'utf-8');
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_EXTERNAL';
+    process.env[envName] = 'ghp_test_token_external';
+
+    const scenario: ReliabilityScenarioConfig = {
+      id: 'external-ci',
+      category: 'fixable',
+      classification: 'TEST_ASSERTION_FAILURE',
+      fixable: true,
+      repair_strategy: 'apply_fix_patch',
+      allowed_files: ['src.txt'],
+      setup: [{ path: 'src.txt', search: 'good', replace: 'bad' }],
+      fix: [{ path: 'src.txt', search: 'bad', replace: 'good' }],
+      expected_verdict: 'REPAIRED',
+    };
+
+    const config: ReliabilityConfig = {
+      run_id: 'github-external-run',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: sourceRepo,
+      base_branch: 'main',
+      scenario_dir: join(sourceRepo, 'scenarios'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: reportDir,
+      github_token_env: envName,
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    let pushCount = 0;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: true, status: 201, json: async () => ({ number: 11, draft: true }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return { ok: false, status: 401, json: async () => ({ message: 'Bad credentials' }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-external', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-external-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [],
+    };
+
+    const result = await runGitHubScenario(
+      scenario,
+      config,
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'GITHUB_ACCESS_FAILURE');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(pushCount, 1, 'only the setup push should occur; no repair push');
+    assert.ok(!result.failure_reason!.includes('ghp_test_token_external'));
+    assert.ok(!result.failure_reason!.includes('Authorization'));
+  });
+});
+
+
+describe('runGitHubScenario pre-repair external blockers and CI timeouts', () => {
+  function buildSourceRepo(): string {
+    const dir = makeTempDir('rel-src-');
+    writeFileSync(join(dir, 'src.txt'), 'good content\n', 'utf-8');
+    return dir;
+  }
+
+  function buildScenario(id = 'timeout-test'): ReliabilityScenarioConfig {
+    return {
+      id,
+      category: 'fixable',
+      classification: 'TEST_ASSERTION_FAILURE',
+      fixable: true,
+      repair_strategy: 'apply_fix_patch',
+      allowed_files: ['src.txt'],
+      setup: [{ path: 'src.txt', search: 'good', replace: 'bad' }],
+      fix: [{ path: 'src.txt', search: 'bad', replace: 'good' }],
+      expected_verdict: 'REPAIRED',
+    };
+  }
+
+  function buildConfig(sourceRepo: string, reportDir: string, tokenEnvName: string): ReliabilityConfig {
+    return {
+      run_id: 'github-test-run',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: sourceRepo,
+      base_branch: 'main',
+      scenario_dir: join(sourceRepo, 'scenarios'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: reportDir,
+      github_token_env: tokenEnvName,
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+  }
+
+  function buildState(): ReliabilityCampaignState {
+    return {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [],
+    };
+  }
+
+  test('setup push permission denied returns PUSH_PERMISSION_FAILURE and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_SETUP_PUSH_DENIED';
+    process.env[envName] = 'ghp_setup_push_denied';
+
+    const calls: { cmd: string; args: string[] }[] = [];
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      calls.push({ cmd, args });
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        return {
+          status: 1,
+          stderr: "remote: Permission to Mellowin/AI-orchestrator.git denied to Mellowin.\nfatal: unable to access 'https://github.com/Mellowin/AI-orchestrator.git/': The requested URL returned error: 403",
+          stdout: '',
+        } as unknown as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async () => ({ ok: false, status: 500, json: async () => ({}) } as Response)) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('setup-push-denied'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'PUSH_PERMISSION_FAILURE');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+    assert.ok(!result.failure_reason!.includes('ghp_setup_push_denied'));
+
+    const setUrlCalls = calls.filter((c) => c.cmd === 'git' && c.args[0] === 'remote' && c.args[1] === 'set-url');
+    assert.strictEqual(setUrlCalls.length, 2, 'token remote set and original remote restored');
+    const lastSetUrl = setUrlCalls[setUrlCalls.length - 1].args[2];
+    assert.ok(!lastSetUrl.includes('x-access-token'), 'original remote URL restored without token');
+  });
+
+  test('setup push network failure returns NETWORK_TRANSIENT and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_SETUP_PUSH_NETWORK';
+    process.env[envName] = 'ghp_setup_push_network';
+
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        return {
+          status: 1,
+          stderr: 'fatal: unable to access \'https://github.com/owner/repo.git/\': Could not resolve host: github.com',
+          stdout: '',
+        } as unknown as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async () => ({ ok: false, status: 500, json: async () => ({}) } as Response)) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('setup-push-network'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'NETWORK_TRANSIENT');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+    assert.ok(!result.failure_reason!.includes('ghp_setup_push_network'));
+  });
+
+  test('PR creation 401 returns GITHUB_ACCESS_FAILURE and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_PR_CREATE';
+    process.env[envName] = 'ghp_pr_create';
+
+    let pushCount = 0;
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-pr\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: false, status: 401, json: async () => ({ message: 'Bad credentials' }) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('pr-create-401'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'GITHUB_ACCESS_FAILURE');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+    assert.strictEqual(pushCount, 1, 'only setup push');
+    assert.ok(!result.failure_reason!.includes('ghp_pr_create'));
+  });
+
+  test('initial CI timeout returns CI_TIMEOUT and EXTERNAL_BLOCKER without repair', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_INITIAL_TIMEOUT';
+    process.env[envName] = 'ghp_initial_timeout';
+
+    let pushCount = 0;
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-timeout\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: true, status: 201, json: async () => ({ html_url: 'https://github.com/owner/repo/pull/20', number: 20, draft: true }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 1, status: 'in_progress', conclusion: null }] }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('initial-ci-timeout'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'CI_TIMEOUT');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+    assert.strictEqual(pushCount, 1, 'only setup push');
+    assert.ok(result.failure_reason!.includes('1s'));
+  });
+
+  test('repair CI timeout returns CI_TIMEOUT and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_REPAIR_TIMEOUT';
+    process.env[envName] = 'ghp_repair_timeout';
+
+    let commitCount = 0;
+    let pushCount = 0;
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'commit') {
+        commitCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        const sha = commitCount === 1 ? 'setup-sha-repair-timeout' : 'repair-sha-repair-timeout';
+        return { status: 0, stdout: `${sha}\n`, stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'diff' && args[1] === '--cached') {
+        return { status: 1, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'diff' && args[1] === '--name-only') {
+        return { status: 0, stdout: 'src.txt\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: true, status: 201, json: async () => ({ html_url: 'https://github.com/owner/repo/pull/21', number: 21, draft: true }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        const sha = new URL(url).searchParams.get('head_sha');
+        if (sha === 'setup-sha-repair-timeout') {
+          return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 1, status: 'completed', conclusion: 'failure' }] }) } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 2, status: 'in_progress', conclusion: null }] }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('repair-ci-timeout'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'CI_TIMEOUT');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 1);
+    assert.strictEqual(pushCount, 2, 'setup push + repair push');
+  });
+
+  test('resumed repair CI timeout returns CI_TIMEOUT and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_RESUME_TIMEOUT';
+    process.env[envName] = 'ghp_resume_timeout';
+
+    let pushCount = 0;
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'checkout') {
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 3, status: 'in_progress', conclusion: null }] }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [
+        {
+          scenario_id: 'resume-ci-timeout',
+          status: 'repair_pushed',
+          branch: 'reliability-resume-ci-timeout-123',
+          pr_number: 22,
+          pr_url: 'https://github.com/owner/repo/pull/22',
+          setup_sha: 'setup-sha-resume',
+          repair_shas: ['repair-sha-resume'],
+        },
+      ],
+    };
+
+    const result = await runGitHubScenario(
+      buildScenario('resume-ci-timeout'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'CI_TIMEOUT');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 1);
+    assert.strictEqual(pushCount, 0, 'no new pushes on resume timeout');
+  });
+
+  test('REPAIR_EXHAUSTED requires repair_attempts > 0', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_NO_EXHAUSTED';
+    process.env[envName] = 'ghp_no_exhausted';
+
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        return {
+          status: 1,
+          stderr: 'remote: Permission denied',
+          stdout: '',
+        } as unknown as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async () => ({ ok: false, status: 500, json: async () => ({}) } as Response)) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('no-exhausted'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.notStrictEqual(result.verdict, 'REPAIR_EXHAUSTED');
+    assert.strictEqual(result.repair_attempts, 0);
+  });
+});

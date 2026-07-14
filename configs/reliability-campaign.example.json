@@ -1,0 +1,12 @@
+{
+  "run_id": "reliability-demo",
+  "mode": "fake",
+  "repo_slug": "Mellowin/AI-orchestrator",
+  "repo_path": ".",
+  "base_branch": "main",
+  "scenario_dir": "test/fixtures/reliability-scenarios",
+  "max_repair_attempts": 2,
+  "real_github": false,
+  "real_provider": false,
+  "report_dir": "reports/reliability"
+}

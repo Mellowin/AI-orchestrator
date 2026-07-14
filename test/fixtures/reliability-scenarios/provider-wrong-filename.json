@@ -1,0 +1,27 @@
+{
+  "id": "provider-wrong-filename",
+  "category": "fixable",
+  "classification": "PROVIDER_BAD_OUTPUT",
+  "fixable": true,
+  "repair_strategy": "apply_fix_patch",
+  "allowed_files": ["src/reliability-fixtures/provider-output.ts"],
+  "setup": [
+    {
+      "path": "src/reliability-fixtures/provider-output.ts",
+      "search": "return 'docs/proofs/ALLOWED.md';",
+      "replace": "return 'tmp/secret.md';"
+    }
+  ],
+  "fix": [
+    {
+      "path": "src/reliability-fixtures/provider-output.ts",
+      "search": "return 'tmp/secret.md';",
+      "replace": "return 'docs/proofs/ALLOWED.md';"
+    }
+  ],
+  "reproduction_command": ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/provider-wrong-filename.test.ts"],
+  "verification_commands": [
+    ["npx", "tsx", "--test", "test/fixtures/reliability-scenarios/provider-wrong-filename.test.ts"]
+  ],
+  "expected_verdict": "REPAIRED"
+}

@@ -1,0 +1,21 @@
+{
+  "id": "stale-testing-summary",
+  "category": "fixable",
+  "classification": "TESTING_SUMMARY_STALE",
+  "fixable": true,
+  "repair_strategy": "testing_summary_lock",
+  "allowed_files": ["TESTING_SUMMARY.md", "src/reliability-fixtures/math.ts"],
+  "setup": [
+    {
+      "path": "src/reliability-fixtures/math.ts",
+      "search": "export function add(a: number, b: number): number {",
+      "replace": "// Reliability fault seed\nexport function add(a: number, b: number): number {"
+    }
+  ],
+  "fix": [],
+  "reproduction_command": ["node", "scripts/verify-testing-summary.mjs"],
+  "verification_commands": [
+    ["node", "scripts/verify-testing-summary.mjs"]
+  ],
+  "expected_verdict": "REPAIRED"
+}
