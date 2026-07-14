@@ -681,7 +681,7 @@ export async function pollGitHubActionsRun(
   const timeoutMs = (config.ci_timeout_seconds ?? 600) * 1000;
   const intervalMs = (config.ci_poll_interval_seconds ?? 15) * 1000;
   const start = nowFn();
-  let sawTransient = false;
+  let consecutiveTransientCount = 0;
 
   while (nowFn() - start < timeoutMs) {
     const fetched = await fetchAllWorkflowRuns(owner, repo, sha, token, fetchFn);
@@ -699,10 +699,13 @@ export async function pollGitHubActionsRun(
     }
 
     if (fetched.kind === 'network_transient') {
-      sawTransient = true;
+      consecutiveTransientCount += 1;
       await sleep(intervalMs);
       continue;
     }
+
+    // Any complete successful API response resets the transient streak.
+    consecutiveTransientCount = 0;
 
     const runs = fetched.runs;
     // Wait until at least one run exists and every fetched run has completed.
@@ -714,7 +717,7 @@ export async function pollGitHubActionsRun(
     await sleep(intervalMs);
   }
 
-  if (sawTransient) {
+  if (consecutiveTransientCount > 0) {
     return { kind: 'network_transient', reason: 'Repeated transient GitHub API or network failures' };
   }
 
