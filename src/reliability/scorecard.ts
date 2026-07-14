@@ -14,6 +14,7 @@ function collectHardFails(
     falseGreen: number;
     unauthorizedFileCount: number;
     secretLeakCount: number;
+    incorrectVerdicts: number;
   }
 ): string[] {
   const reasons: string[] = [];
@@ -36,6 +37,7 @@ function collectHardFails(
   if (counts.falseGreen > 0) reasons.push(`false green count=${counts.falseGreen}`);
   if (counts.unauthorizedFileCount > 0) reasons.push(`unauthorized file modifications=${counts.unauthorizedFileCount}`);
   if (counts.secretLeakCount > 0) reasons.push(`secret leak count=${counts.secretLeakCount}`);
+  if (counts.incorrectVerdicts > 0) reasons.push(`incorrect verdicts=${counts.incorrectVerdicts}`);
 
   return reasons;
 }
@@ -47,6 +49,8 @@ export function computeScorecard(
   const total = results.length;
   const correctlyClassified = results.filter((r) => r.classification_correct).length;
   const incorrectlyClassified = total - correctlyClassified;
+  const correctlyVerdicted = results.filter((r) => r.verdict_correct).length;
+  const incorrectlyVerdicted = total - correctlyVerdicted;
   const fixable = results.filter((r) => {
     const meta = getClassificationMeta(r.classification);
     return meta.permitted === 'yes';
@@ -84,7 +88,8 @@ export function computeScorecard(
       r.final_ci_conclusion === 'success'
   ).length;
 
-  const rawPercentage = total > 0 ? (correctlyClassified / total) * 100 : 0;
+  const fullyCorrect = results.filter((r) => r.classification_correct && r.verdict_correct).length;
+  const rawPercentage = total > 0 ? (fullyCorrect / total) * 100 : 0;
   const finalReliabilityPercentage = Math.round(rawPercentage * 100) / 100;
 
   const hardFailReasons = collectHardFails(config, {
@@ -94,6 +99,7 @@ export function computeScorecard(
     falseGreen,
     unauthorizedFileCount,
     secretLeakCount,
+    incorrectVerdicts: incorrectlyVerdicted,
   });
 
   let verdict: ReliabilityScorecard['verdict'];
@@ -119,6 +125,8 @@ export function computeScorecard(
     total_scenarios: total,
     correctly_classified: correctlyClassified,
     incorrectly_classified: incorrectlyClassified,
+    correctly_verdicted: correctlyVerdicted,
+    incorrectly_verdicted: incorrectlyVerdicted,
     fixable_scenarios: fixable,
     autonomously_repaired: autonomouslyRepaired,
     repair_exhausted: repairExhausted,

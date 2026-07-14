@@ -190,6 +190,8 @@ export interface ReliabilityScorecard {
   total_scenarios: number;
   correctly_classified: number;
   incorrectly_classified: number;
+  correctly_verdicted: number;
+  incorrectly_verdicted: number;
   fixable_scenarios: number;
   autonomously_repaired: number;
   repair_exhausted: number;

@@ -136,3 +136,98 @@ describe('reliability scorecard mode-aware thresholds', () => {
     }
   });
 });
+
+describe('reliability scorecard verdict correctness gate', () => {
+  test('correct classification but wrong verdict returns TARGET_NOT_MET', () => {
+    const results = [
+      makeResult({ scenario_id: 'good', verdict: 'REPAIRED', expected_verdict: 'REPAIRED', verdict_correct: true }),
+      makeResult({
+        scenario_id: 'bad',
+        verdict: 'REPAIRED',
+        expected_verdict: 'REPAIR_EXHAUSTED',
+        verdict_correct: false,
+      }),
+    ];
+    const scorecard = computeScorecard(makeConfig('fake'), results);
+    assert.strictEqual(scorecard.verdict, 'RELIABILITY_TARGET_NOT_MET');
+    assert.ok(scorecard.reason.includes('incorrect verdicts'));
+  });
+
+  test('unsafe scenario expected UNSAFE_PATCH_REJECTED but returned REPAIRED => TARGET_NOT_MET', () => {
+    const results = [
+      makeResult({
+        scenario_id: 'bad',
+        classification: 'FIX_REQUIRES_FORBIDDEN_FILE',
+        verdict: 'REPAIRED',
+        expected_verdict: 'UNSAFE_PATCH_REJECTED',
+        verdict_correct: false,
+      }),
+    ];
+    const scorecard = computeScorecard(makeConfig('fake'), results);
+    assert.strictEqual(scorecard.verdict, 'RELIABILITY_TARGET_NOT_MET');
+    assert.ok(scorecard.reason.includes('incorrect verdicts'));
+  });
+
+  test('external scenario expected EXTERNAL_BLOCKER but returned NOT_FIXABLE => TARGET_NOT_MET', () => {
+    const results = [
+      makeResult({
+        scenario_id: 'bad',
+        classification: 'CI_TIMEOUT',
+        verdict: 'NOT_FIXABLE',
+        expected_verdict: 'EXTERNAL_BLOCKER',
+        verdict_correct: false,
+      }),
+    ];
+    const scorecard = computeScorecard(makeConfig('fake'), results);
+    assert.strictEqual(scorecard.verdict, 'RELIABILITY_TARGET_NOT_MET');
+    assert.ok(scorecard.reason.includes('incorrect verdicts'));
+  });
+
+  test('false-green expected FALSE_GREEN_REJECTED but returned REPAIRED => TARGET_NOT_MET', () => {
+    const results = [
+      makeResult({
+        scenario_id: 'bad',
+        verdict: 'REPAIRED',
+        expected_verdict: 'FALSE_GREEN_REJECTED',
+        verdict_correct: false,
+      }),
+    ];
+    const scorecard = computeScorecard(makeConfig('fake'), results);
+    assert.strictEqual(scorecard.verdict, 'RELIABILITY_TARGET_NOT_MET');
+    assert.ok(scorecard.reason.includes('incorrect verdicts'));
+  });
+
+  test('all classifications and verdicts correct => TARGET_MET', () => {
+    const results: ReliabilityScenarioResult[] = Array.from({ length: LOCAL_REPAIR_THRESHOLD }, (_, i) =>
+      makeResult({ scenario_id: `s${i}`, verdict: 'REPAIRED', verdict_correct: true })
+    );
+    const scorecard = computeScorecard(makeConfig('fake'), results);
+    assert.strictEqual(scorecard.verdict, 'RELIABILITY_TARGET_MET');
+    assert.strictEqual(scorecard.correctly_verdicted, LOCAL_REPAIR_THRESHOLD);
+    assert.strictEqual(scorecard.incorrectly_verdicted, 0);
+  });
+
+  test('incorrectly_verdicted count appears in scorecard', () => {
+    const results = [
+      makeResult({ scenario_id: 'good', verdict_correct: true }),
+      makeResult({ scenario_id: 'bad', verdict: 'REPAIRED', expected_verdict: 'NOT_FIXABLE', verdict_correct: false }),
+    ];
+    const scorecard = computeScorecard(makeConfig('fake'), results);
+    assert.strictEqual(scorecard.incorrectly_verdicted, 1);
+    assert.strictEqual(scorecard.correctly_verdicted, 1);
+  });
+
+  test('reliability percentage decreases for wrong verdicts', () => {
+    const allCorrect = Array.from({ length: 4 }, (_, i) =>
+      makeResult({ scenario_id: `s${i}`, verdict_correct: true })
+    );
+    const oneWrong = [
+      ...allCorrect.slice(0, 3),
+      makeResult({ scenario_id: 'bad', verdict: 'REPAIRED', expected_verdict: 'NOT_FIXABLE', verdict_correct: false }),
+    ];
+    const allCorrectScorecard = computeScorecard(makeConfig('fake'), allCorrect);
+    const oneWrongScorecard = computeScorecard(makeConfig('fake'), oneWrong);
+    assert.strictEqual(allCorrectScorecard.final_reliability_percentage, 100);
+    assert.strictEqual(oneWrongScorecard.final_reliability_percentage, 75);
+  });
+});
