@@ -56,7 +56,7 @@ async function runFakeScenario(
   let repairAttemptCount = 0;
 
   try {
-    const setup = setupScenarioRepo(scenario, config.repo_path, tempRoot, spawnFn);
+    const setup = setupScenarioRepo(scenario, config.repo_path, config.base_branch, tempRoot, spawnFn);
     repoPath = setup.repoPath;
 
     const reproduction = scenario.reproduction_command;

@@ -7,8 +7,8 @@ export interface RepairSafetyViolation {
   line?: string;
 }
 
-const SECRET_LIKE_PATTERN = /(password|secret|token|api[_-]?key|private[_-]?key)\s*[:=]\s*['"`][a-zA-Z0-9_\-+/=]{16,}/gi;
-const SKIP_ONLY_TODO_PATTERN = /\.(skip|only|todo)\s*\(/gi;
+const SECRET_LIKE_PATTERN = /(password|secret|token|api[_-]?key|private[_-]?key)\s*[:=]\s*['"`][a-zA-Z0-9_\-+/=]{16,}/i;
+const SKIP_ONLY_TODO_PATTERN = /\.(skip|only|todo)\s*\(/i;
 const CI_SUPPRESSION_PATTERN = /(?:\|\|\s*true|continue-on-error:\s*true|fail-fast:\s*false|if:\s*always\(\)\s*#.*ignore|set\s+\+e)/i;
 const VERIFICATION_DISABLED_PATTERN = /(?:verify-testing-summary|tsc --noEmit|npm test)\s*(?:#.*disable|#.*skip|#.*ignore)/i;
 const FORCE_PUSH_PATTERN = /git\s+push\s+--force|git\s+push\s+origin\s+\+\w+/i;

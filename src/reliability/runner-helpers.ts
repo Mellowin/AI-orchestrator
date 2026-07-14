@@ -88,11 +88,23 @@ export function configureGitIdentity(repoPath: string, spawnFn: ReliabilityRunOp
 export function setupScenarioRepo(
   scenario: ReliabilityScenarioConfig,
   sourceRepo: string,
+  baseBranch: string,
   tempRoot: string,
   spawnFn: ReliabilityRunOptions['spawnFn']
 ): { repoPath: string; branch: string } {
   const repoPath = createTempClone(sourceRepo, tempRoot, spawnFn);
   configureGitIdentity(repoPath, spawnFn);
+
+  // Always create the scenario branch from the configured base branch so the
+  // campaign tests only the seeded fault, not unrelated local commits.
+  const baseCheckoutResult = spawnFn!('git', ['checkout', baseBranch], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  if (baseCheckoutResult.status !== 0) {
+    throw new Error(`Failed to checkout base branch ${baseBranch}: ${baseCheckoutResult.stderr}`);
+  }
 
   const branch = `reliability-${scenario.id}-${Date.now()}`;
   const checkoutResult = spawnFn!('git', ['checkout', '-b', branch], {
@@ -462,12 +474,25 @@ export async function pollGitHubActionsRun(
           workflow_runs?: Array<{ id?: unknown; status?: string; conclusion?: string | null }>;
         };
         const runs = data.workflow_runs ?? [];
-        const completed = runs.find((r) => r.status === 'completed');
-        if (completed) {
+        // Wait until at least one run exists and every observed run has completed.
+        if (runs.length > 0 && runs.every((r) => r.status === 'completed')) {
+          const conclusions = runs.map((r) => r.conclusion ?? 'unknown');
+          let aggregateConclusion: string;
+          if (conclusions.some((c) => c === 'failure' || c === 'timed_out' || c === 'action_required')) {
+            aggregateConclusion = 'failure';
+          } else if (conclusions.some((c) => c === 'cancelled')) {
+            aggregateConclusion = 'cancelled';
+          } else if (conclusions.every((c) => c === 'success')) {
+            aggregateConclusion = 'success';
+          } else {
+            // Neutral/skipped/unknown mixed with success is not treated as green.
+            aggregateConclusion = 'failure';
+          }
+          const first = runs[0];
           return {
-            run_id: typeof completed.id === 'number' ? completed.id : 0,
-            status: completed.status ?? 'completed',
-            conclusion: completed.conclusion ?? null,
+            run_id: typeof first.id === 'number' ? first.id : 0,
+            status: 'completed',
+            conclusion: aggregateConclusion,
           };
         }
       }
@@ -841,7 +866,7 @@ export async function runGitHubScenario(
     }
 
     if (scenarioState.status === 'pending' || !scenarioState.status) {
-      const setup = setupScenarioRepo(scenario, config.repo_path, tempRoot, spawnFn);
+      const setup = setupScenarioRepo(scenario, config.repo_path, config.base_branch, tempRoot, spawnFn);
       repoPath = setup.repoPath;
       branch = setup.branch;
 

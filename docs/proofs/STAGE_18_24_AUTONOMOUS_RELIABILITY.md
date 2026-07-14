@@ -19,6 +19,9 @@ Safety guardrails:
 - **Initial CI conclusion check**: if the seeded fault does not produce a failing CI run, the scenario is classified as `FALSE_GREEN_REJECTED` (or the appropriate external/ambiguous blocker) and no repair is attempted.
 - **Final repair scope validation**: after repair and optional maintenance commits, the complete changed-file set is re-checked against `allowed_files` and `trusted_maintenance_files`. Out-of-scope files increment `unauthorized_file_count` and prevent push.
 - **TESTING_SUMMARY.md maintenance**: deterministic evidence-lock refresh is permitted only when `TESTING_SUMMARY.md` is listed in `allowed_files` or `trusted_maintenance_files`.
+- **Aggregate CI polling**: `pollGitHubActionsRun` waits until every workflow run for the head SHA has completed and aggregates the conclusion; a repair is only green when all workflows succeed.
+- **Base-branch isolation**: scenario branches are created from the configured `base_branch` so the campaign tests only the seeded fault, not unrelated local commits.
+- **Stateless safety regexes**: shared safety patterns no longer carry the `/g` flag, so repeated `.test()` calls cannot skip unsafe patterns due to `lastIndex`.
 
 ## Local fake campaign results
 

@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ReliabilityCampaignState, ReliabilityConfig, ReliabilityScenarioConfig } from '../src/reliability/types.js';
@@ -15,6 +15,7 @@ import {
   pushBranchWithToken,
   runGitHubScenario,
   saveCampaignState,
+  setupScenarioRepo,
   validateFinalRepairScope,
 } from '../src/reliability/runner-helpers.js';
 
@@ -833,3 +834,127 @@ describe('reliability final repair scope validation', () => {
     assert.strictEqual(scope.ok, false);
     assert.deepStrictEqual(scope.unauthorized, ['TESTING_SUMMARY.md']);
   });
+
+  test('pollGitHubActionsRun waits for all workflow runs and aggregates conclusions', async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            workflow_runs: [
+              { id: 1, status: 'completed', conclusion: 'success' },
+              { id: 2, status: 'in_progress', conclusion: null },
+            ],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          workflow_runs: [
+            { id: 1, status: 'completed', conclusion: 'success' },
+            { id: 2, status: 'completed', conclusion: 'failure' },
+          ],
+        }),
+      } as Response;
+    };
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 2,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run!.conclusion, 'failure');
+    assert.ok(calls >= 2, 'should poll until all runs complete');
+  });
+
+  test('pollGitHubActionsRun returns success only when every run succeeds', async () => {
+    const fakeFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        workflow_runs: [
+          { id: 1, status: 'completed', conclusion: 'success' },
+          { id: 2, status: 'completed', conclusion: 'success' },
+        ],
+      }),
+    } as Response);
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run!.conclusion, 'success');
+  });
+
+describe('reliability setup scenario repo', () => {
+  test('setupScenarioRepo creates branch from configured base branch', () => {
+    const sourceRepo = makeTempDir('rel-setup-src-');
+    spawnSync('git', ['init'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(sourceRepo, 'main.txt'), 'main\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'main'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['checkout', '-b', 'feature'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(sourceRepo, 'feature.txt'), 'feature\n', 'utf-8');
+    spawnSync('git', ['add', '-A'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'feature'], { cwd: sourceRepo, encoding: 'utf-8', shell: false });
+
+    const scenario: ReliabilityScenarioConfig = {
+      id: 'setup-base',
+      category: 'fixable',
+      classification: 'TEST_ASSERTION_FAILURE',
+      fixable: true,
+      allowed_files: ['main.txt'],
+      setup: [{ path: 'main.txt', search: 'main', replace: 'fault' }],
+      expected_verdict: 'REPAIRED',
+    };
+
+    const { repoPath, branch } = setupScenarioRepo(scenario, sourceRepo, 'main', makeTempDir('rel-setup-'), spawnSync);
+
+    const branchResult = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    assert.strictEqual(branchResult.stdout.trim(), branch);
+
+    const logResult = spawnSync('git', ['log', '--oneline'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    assert.ok(!logResult.stdout.includes('feature'), 'scenario branch history should not include unrelated feature branch commits');
+    assert.ok(!existsSync(join(repoPath, 'feature.txt')), 'feature branch file should not be present');
+  });
+});
