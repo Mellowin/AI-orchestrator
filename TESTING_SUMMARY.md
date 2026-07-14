@@ -2,7 +2,7 @@
 
 **Branch:** `main`
 
-**Last verified:** `d29830297a0e9be7f7c4d77a16d502678295c6e6`
+**Last verified:** `df211dca94806c47aa7e7c68071c89a89c7f0070`
 
 ## Test metrics
 
@@ -13,7 +13,7 @@
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `d29830297a0e9be7f7c4d77a16d502678295c6e6` (Stage 18.23 release candidate; adds `npm run one-click` and `npm run doctor`, QUICKSTART, README refresh, targeted doctor/one-click/clean-clone tests; clean-clone safe one-click passes; real-pr one-click creates branch, commits, pushes, opens draft PR and observes CI) (Stage 18.23A: fix CLI boundary contract-smoke tests to include `doctor` command) (Stage 18.23C: inject GITHUB_TOKEN into git remote URL before real-repo push to avoid Windows Git Credential Manager hangs) (Stage 18.23D: refresh proof docs and TESTING_SUMMARY evidence lock)
+- **Last verified commit:** `df211dca94806c47aa7e7c68071c89a89c7f0070` (Stage 18.24 autonomous reliability campaign; adds `reliability-run` command, local fake campaign with 20 scenarios, real GitHub campaign with autonomous red-to-green CI recovery; 16/16 local fixable scenarios repaired, 5 real GitHub Actions failures recovered from failure to success with bounded retries, no false-green/unauthorized-file/secret-leak; proof doc `docs/proofs/STAGE_18_24_AUTONOMOUS_RELIABILITY.md`; TESTING_SUMMARY lock refreshed)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
