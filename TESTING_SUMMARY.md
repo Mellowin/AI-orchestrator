@@ -2,18 +2,18 @@
 
 **Branch:** `main`
 
-**Last verified:** `25782aa6246050801f616b21c7c6ae778d19f027`
+**Last verified:** `dcc910e6f8bc9956172f5825026378b9df447627`
 
 ## Test metrics
 
-- **Total tests:** 3862
+- **Total tests:** 3867
 - **Total suites:** 249
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `25782aa6246050801f616b21c7c6ae778d19f027` (Stage 18.24 final external-blocker fix and landing: setup push failures classify as `PUSH_PERMISSION_FAILURE`/`NETWORK_TRANSIENT`, PR creation failures classify as `GITHUB_ACCESS_FAILURE`, CI observation timeout classifies as `CI_TIMEOUT`/`EXTERNAL_BLOCKER`, resume from `repair_pushed` skips original CI polling, `createDraftPullRequest` tolerates Response-like fakes without `text()`, and regression tests assert remote URL restoration and `repair_attempts` accounting; local full suite 3862 tests / 249 suites / 0 failures)
+- **Last verified commit:** `dcc910e6f8bc9956172f5825026378b9df447627` (Stage 18.24 follow-up: reset recovered polling transient state in `pollGitHubActionsRun` so a transient GitHub API/network error followed by successful in-progress polling returns `CI_TIMEOUT`/`EXTERNAL_BLOCKER` instead of `NETWORK_TRANSIENT`; repeated transient failures through the deadline still return `NETWORK_TRANSIENT`; 401/403/429 behavior unchanged; added regression tests for transient -> in_progress -> CI_TIMEOUT, transient -> completed success, repeated transient -> NETWORK_TRANSIENT, transient pagination failure -> full successful pagination, and CI_TIMEOUT not triggering repair/provider calls; local full suite 3867 tests / 249 suites / 0 failures)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
