@@ -27,6 +27,9 @@ export interface MvpRunTaskConfig {
   allowed_files: string[];
   denied_files?: string[];
   tests?: string[];
+  /** Shell commands to run as deterministic checks. Takes precedence over `tests`. */
+  checks?: string[];
+  max_lines_changed?: number;
 }
 
 export interface MvpRunConfig {

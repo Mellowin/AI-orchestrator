@@ -5,7 +5,13 @@
 import type { AutopilotPlanMission, AutopilotPlanResult } from '../autopilot-plan/types.js';
 import type { AutopilotRunResult } from '../autopilot-run/types.js';
 
-export type AutopilotOneClickPreset = 'safe' | 'read-ci' | 'real-pr' | 'real-repair';
+export type AutopilotOneClickPreset =
+  | 'safe'
+  | 'read-ci'
+  | 'real-pr'
+  | 'real-repair'
+  | 'real-multitask'
+  | 'multitask-safe';
 
 export type AutopilotOneClickVerdict =
   | 'ONE_CLICK_DONE'
@@ -14,7 +20,13 @@ export type AutopilotOneClickVerdict =
   | 'ONE_CLICK_AUTOPILOT_FAILED'
   | 'ONE_CLICK_NEEDS_TOKEN'
   | 'ONE_CLICK_CONFIG_ERROR'
-  | 'ONE_CLICK_FAILED';
+  | 'ONE_CLICK_FAILED'
+  | 'MULTITASK_MISSION_DONE'
+  | 'MULTITASK_MISSION_DONE_WITH_CAVEATS'
+  | 'MULTITASK_MISSION_FAILED'
+  | 'MULTITASK_MISSION_NEEDS_HUMAN'
+  | 'MULTITASK_MISSION_CI_TIMEOUT'
+  | 'MULTITASK_MISSION_REPAIR_EXHAUSTED';
 
 export interface AutopilotOneClickOptions {
   mode?: 'fake' | 'github';
@@ -40,6 +52,8 @@ export interface AutopilotOneClickResult {
   exit_code: number;
   generated_paths: string[];
   next_human_action?: string;
+  /** Present when the multitask mission runner produced a separate mission result. */
+  multitask_result?: import('./multitask/types.js').MultitaskMissionResult;
 }
 
 export interface AutopilotOneClickReport {
