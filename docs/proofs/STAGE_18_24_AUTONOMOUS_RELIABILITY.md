@@ -22,6 +22,9 @@ Safety guardrails:
 - **Aggregate CI polling**: `pollGitHubActionsRun` waits until every workflow run for the head SHA has completed and aggregates the conclusion; a repair is only green when all workflows succeed.
 - **Base-branch isolation**: scenario branches are created from the configured `base_branch` so the campaign tests only the seeded fault, not unrelated local commits.
 - **Stateless safety regexes**: shared safety patterns no longer carry the `/g` flag, so repeated `.test()` calls cannot skip unsafe patterns due to `lastIndex`.
+- **Preserved non-repairable CI conclusions**: aggregate CI polling keeps `timed_out`/`action_required`/`cancelled` conclusions distinct so the initial-CI gate routes them to external/ambiguous blockers instead of the repair loop.
+- **Reject green local reproductions**: in fake mode, a reproduction command that passes after the seeded fault is classified as `FALSE_GREEN_REJECTED`.
+- **Resume remaining repair attempts**: when resuming a `repair_pushed` scenario with a non-success final CI, the runner checks out the branch and continues attempts up to `max_repair_attempts`.
 
 ## Local fake campaign results
 

@@ -64,7 +64,22 @@ async function runFakeScenario(
     if (reproduction) {
       const [cmd, ...args] = reproduction;
       const result = runLocalChecks(repoPath, [[cmd, ...args]], spawnFn);
-      logOutput = result.ok ? '' : result.output;
+      if (result.ok) {
+        return finishScenario({
+          scenario,
+          classification: scenario.classification,
+          verdict: 'FALSE_GREEN_REJECTED',
+          repairCommits,
+          unsafeDetected,
+          unauthorizedFiles,
+          secretLeak,
+          failureReason: 'Reproduction command passed after seeded fault; no repair attempted',
+          repairAttemptCount,
+          startedAt,
+          startTime,
+        });
+      }
+      logOutput = result.output;
     }
 
     classification = classifyScenario(scenario, logOutput);

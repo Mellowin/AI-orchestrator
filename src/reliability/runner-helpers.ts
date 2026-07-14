@@ -478,7 +478,11 @@ export async function pollGitHubActionsRun(
         if (runs.length > 0 && runs.every((r) => r.status === 'completed')) {
           const conclusions = runs.map((r) => r.conclusion ?? 'unknown');
           let aggregateConclusion: string;
-          if (conclusions.some((c) => c === 'failure' || c === 'timed_out' || c === 'action_required')) {
+          if (conclusions.some((c) => c === 'timed_out')) {
+            aggregateConclusion = 'timed_out';
+          } else if (conclusions.some((c) => c === 'action_required')) {
+            aggregateConclusion = 'action_required';
+          } else if (conclusions.some((c) => c === 'failure')) {
             aggregateConclusion = 'failure';
           } else if (conclusions.some((c) => c === 'cancelled')) {
             aggregateConclusion = 'cancelled';
@@ -985,15 +989,43 @@ export async function runGitHubScenario(
       });
     }
 
-    if (scenarioState.status === 'setup_pushed') {
+    if (scenarioState.status === 'setup_pushed' || scenarioState.status === 'repair_pushed') {
       if (!repoPath) {
         repoPath = createTempClone(config.repo_path, tempRoot, spawnFn);
         configureGitIdentity(repoPath, spawnFn);
         await checkoutRemoteBranch(repoPath, branch, owner, repo, token, spawnFn);
       }
 
+      if (scenarioState.status === 'repair_pushed') {
+        const lastRepairSha = scenarioState.repair_shas?.[scenarioState.repair_shas.length - 1];
+        repairAttemptCount = scenarioState.repair_shas?.length ?? 0;
+        if (lastRepairSha && scenarioState.final_ci_run_id === undefined) {
+          const finalRun = await pollGitHubActionsRun(owner, repo, lastRepairSha, token, config, fetchFn, nowFn);
+          if (!finalRun) {
+            failureReason = 'Timed out waiting for repair CI run on resume';
+          } else {
+            scenarioState.final_ci_run_id = finalRun.run_id;
+            scenarioState.final_ci_conclusion = finalRun.conclusion;
+            saveScenarioState();
+            if (finalRun.conclusion === 'success') {
+              repairOk = true;
+              checksOk = true;
+            } else {
+              failureReason = `Repair CI conclusion: ${finalRun.conclusion}`;
+            }
+          }
+        } else if (scenarioState.final_ci_conclusion === 'success') {
+          repairOk = true;
+          checksOk = true;
+        } else {
+          failureReason = scenarioState.final_ci_conclusion
+            ? `Repair CI conclusion: ${scenarioState.final_ci_conclusion}`
+            : undefined;
+        }
+      }
+
       const maxAttempts = Math.min(config.max_repair_attempts, meta.maxAttempts);
-      while (repairAttemptCount < maxAttempts) {
+      while (repairAttemptCount < maxAttempts && !repairOk) {
         repairAttemptCount += 1;
 
         const repairResult = runRepairStrategy(scenario, repoPath);
@@ -1099,32 +1131,6 @@ export async function runGitHubScenario(
             failureReason = `Repair attempt ${repairAttemptCount} CI conclusion: ${finalRun.conclusion}`;
           }
         }
-      }
-    } else if (scenarioState.status === 'repair_pushed') {
-      const lastRepairSha = scenarioState.repair_shas?.[scenarioState.repair_shas.length - 1];
-      repairAttemptCount = scenarioState.repair_shas?.length ?? 0;
-      if (lastRepairSha && scenarioState.final_ci_run_id === undefined) {
-        const finalRun = await pollGitHubActionsRun(owner, repo, lastRepairSha, token, config, fetchFn, nowFn);
-        if (!finalRun) {
-          failureReason = 'Timed out waiting for repair CI run on resume';
-        } else {
-          scenarioState.final_ci_run_id = finalRun.run_id;
-          scenarioState.final_ci_conclusion = finalRun.conclusion;
-          saveScenarioState();
-          if (finalRun.conclusion === 'success') {
-            repairOk = true;
-            checksOk = true;
-          } else {
-            failureReason = `Repair CI conclusion: ${finalRun.conclusion}`;
-          }
-        }
-      } else if (scenarioState.final_ci_conclusion === 'success') {
-        repairOk = true;
-        checksOk = true;
-      } else {
-        failureReason = scenarioState.final_ci_conclusion
-          ? `Repair CI conclusion: ${scenarioState.final_ci_conclusion}`
-          : undefined;
       }
     }
 

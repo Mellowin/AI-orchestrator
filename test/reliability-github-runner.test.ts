@@ -958,3 +958,66 @@ describe('reliability setup scenario repo', () => {
     assert.ok(!existsSync(join(repoPath, 'feature.txt')), 'feature branch file should not be present');
   });
 });
+
+  test('pollGitHubActionsRun preserves timed_out conclusion', async () => {
+    const fakeFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        workflow_runs: [
+          { id: 1, status: 'completed', conclusion: 'success' },
+          { id: 2, status: 'completed', conclusion: 'timed_out' },
+        ],
+      }),
+    } as Response);
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run!.conclusion, 'timed_out');
+  });
+
+  test('pollGitHubActionsRun preserves action_required conclusion', async () => {
+    const fakeFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        workflow_runs: [
+          { id: 1, status: 'completed', conclusion: 'action_required' },
+        ],
+      }),
+    } as Response);
+
+    const config: ReliabilityConfig = {
+      run_id: 'r',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: makeTempDir('rel-src-'),
+      base_branch: 'main',
+      scenario_dir: makeTempDir('rel-scen-'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: makeTempDir('rel-report-'),
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+
+    const run = await pollGitHubActionsRun('owner', 'repo', 'abc123', 'token', config, fakeFetch, Date.now);
+    assert.ok(run);
+    assert.strictEqual(run!.conclusion, 'action_required');
+  });
