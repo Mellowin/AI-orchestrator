@@ -54,6 +54,9 @@ function validateReliabilityScenario(parsed: unknown, path: string): Reliability
   const classification = requiredString('classification');
   const fixable = obj.fixable === true;
   const allowedFiles = requiredStringArray('allowed_files');
+  const trustedMaintenanceFiles = Array.isArray(obj.trusted_maintenance_files)
+    ? obj.trusted_maintenance_files.filter((item): item is string => typeof item === 'string')
+    : undefined;
   const deniedFiles = Array.isArray(obj.denied_files)
     ? obj.denied_files.filter((item): item is string => typeof item === 'string')
     : undefined;
@@ -73,6 +76,7 @@ function validateReliabilityScenario(parsed: unknown, path: string): Reliability
     fixable,
     repair_strategy: repairStrategy,
     allowed_files: allowedFiles,
+    trusted_maintenance_files: trustedMaintenanceFiles,
     denied_files: deniedFiles,
     setup,
     fix,

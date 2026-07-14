@@ -586,6 +586,107 @@ export function refreshTestingSummaryLock(repoPath: string): SummaryLockUpdate {
   return { modified: true, files: ['TESTING_SUMMARY.md'], reason: `Updated TESTING_SUMMARY.md Last verified commit to ${headSha}` };
 }
 
+export function getChangedFilesSinceSha(
+  repoPath: string,
+  baseSha: string,
+  spawnFn: NonNullable<ReliabilityRunOptions['spawnFn']>
+): string[] {
+  const result = spawnFn('git', ['diff', '--name-only', `${baseSha}..HEAD`], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  if (result.status !== 0) return [];
+  return result.stdout.trim().split('\n').filter(Boolean);
+}
+
+export interface FinalScopeValidationResult {
+  ok: boolean;
+  unauthorized: string[];
+  safetyViolations: import('./repair-safety.js').RepairSafetyViolation[];
+}
+
+export function validateFinalRepairScope(
+  repoPath: string,
+  baseSha: string,
+  allowedFiles: string[],
+  spawnFn: NonNullable<ReliabilityRunOptions['spawnFn']>
+): FinalScopeValidationResult {
+  const changedFiles = getChangedFilesSinceSha(repoPath, baseSha, spawnFn);
+  const violations: import('./repair-safety.js').RepairSafetyViolation[] = [];
+  const unauthorized: string[] = [];
+
+  for (const path of changedFiles) {
+    let content = '';
+    try {
+      content = readFileSync(join(repoPath, path), 'utf-8');
+    } catch {
+      // Deleted or unreadable file; treat as out of scope if not explicitly allowed.
+      content = '';
+    }
+    const fileViolations = checkRepairSafety([{ path, content }], allowedFiles, false);
+    violations.push(...fileViolations);
+    const outOfScope = fileViolations.some(
+      (v) => v.type === 'destructive' || v.type === 'workflow_modified'
+    );
+    if (outOfScope) {
+      unauthorized.push(path);
+    }
+  }
+
+  return {
+    ok: violations.length === 0,
+    unauthorized: Array.from(new Set(unauthorized)),
+    safetyViolations: violations,
+  };
+}
+
+function isInitialCiConclusionRepairable(
+  conclusion: string | null | undefined
+): { repairable: true } | { repairable: false; classification: ReliabilityClassification; verdict: ReliabilityScenarioVerdict; reason: string } {
+  switch (conclusion) {
+    case 'failure':
+      return { repairable: true };
+    case 'timed_out':
+      return {
+        repairable: false,
+        classification: 'CI_TIMEOUT',
+        verdict: 'EXTERNAL_BLOCKER',
+        reason: 'Original CI run timed out; autonomous repair is not attempted without additional evidence',
+      };
+    case 'cancelled':
+      return {
+        repairable: false,
+        classification: 'CI_CANCELLED',
+        verdict: 'EXTERNAL_BLOCKER',
+        reason: 'Original CI run was cancelled',
+      };
+    case 'action_required':
+      return {
+        repairable: false,
+        classification: 'GITHUB_ACCESS_FAILURE',
+        verdict: 'EXTERNAL_BLOCKER',
+        reason: 'Original CI run requires manual action',
+      };
+    case 'success':
+    case 'neutral':
+    case 'skipped':
+      return {
+        repairable: false,
+        classification: 'UNKNOWN_FAILURE',
+        verdict: 'FALSE_GREEN_REJECTED',
+        reason: `Seeded fault produced a ${conclusion ?? 'green'} CI run; no autonomous repair attempted`,
+      };
+    default:
+      return {
+        repairable: false,
+        classification: 'UNKNOWN_FAILURE',
+        verdict: 'AMBIGUOUS_BLOCKER',
+        reason: `Original CI conclusion not suitable for autonomous repair: ${conclusion ?? 'unknown'}`,
+      };
+  }
+}
+
 export async function checkoutRemoteBranch(
   repoPath: string,
   branch: string,
@@ -836,6 +937,29 @@ export async function runGitHubScenario(
       saveScenarioState();
     }
 
+    const conclusionCheck = isInitialCiConclusionRepairable(scenarioState.original_ci_conclusion);
+    if (!conclusionCheck.repairable) {
+      return finishScenario({
+        scenario,
+        classification: conclusionCheck.classification,
+        verdict: conclusionCheck.verdict,
+        repairCommits,
+        unsafeDetected,
+        unauthorizedFiles,
+        secretLeak,
+        failureReason: conclusionCheck.reason,
+        repairAttemptCount,
+        startedAt,
+        startTime,
+        pr_number: prNumber,
+        pr_url: prUrl,
+        original_ci_run_id: scenarioState.original_ci_run_id,
+        original_ci_conclusion: scenarioState.original_ci_conclusion,
+        final_ci_run_id: scenarioState.final_ci_run_id,
+        final_ci_conclusion: scenarioState.final_ci_conclusion,
+      });
+    }
+
     if (scenarioState.status === 'setup_pushed') {
       if (!repoPath) {
         repoPath = createTempClone(config.repo_path, tempRoot, spawnFn);
@@ -879,18 +1003,23 @@ export async function runGitHubScenario(
           }
         }
 
-        const summaryUpdate = refreshTestingSummaryLock(repoPath);
-        if (summaryUpdate.reason.includes('verification still fails')) {
-          failureReason = summaryUpdate.reason;
-          continue;
-        }
-        if (summaryUpdate.modified) {
-          spawnFn('git', ['add', 'TESTING_SUMMARY.md'], { cwd: repoPath, encoding: 'utf-8', shell: false });
-          spawnFn(
-            'git',
-            ['commit', '-m', 'docs: refresh evidence lock after autonomous repair'],
-            { cwd: repoPath, encoding: 'utf-8', shell: false }
-          );
+        const maintenanceFiles = scenario.trusted_maintenance_files ?? [];
+        const effectiveAllowedFiles = [...scenario.allowed_files, ...maintenanceFiles];
+        const summaryAllowed = effectiveAllowedFiles.includes('TESTING_SUMMARY.md');
+        if (summaryAllowed) {
+          const summaryUpdate = refreshTestingSummaryLock(repoPath);
+          if (summaryUpdate.reason.includes('verification still fails')) {
+            failureReason = summaryUpdate.reason;
+            continue;
+          }
+          if (summaryUpdate.modified) {
+            spawnFn('git', ['add', 'TESTING_SUMMARY.md'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+            spawnFn(
+              'git',
+              ['commit', '-m', 'docs: refresh evidence lock after autonomous repair'],
+              { cwd: repoPath, encoding: 'utf-8', shell: false }
+            );
+          }
         }
 
         const shaResult = spawnFn('git', ['rev-parse', 'HEAD'], {
@@ -900,6 +1029,20 @@ export async function runGitHubScenario(
         });
         if (shaResult.status === 0) {
           repairCommits.push(shaResult.stdout.trim());
+        }
+
+        // Final scope check after repair and optional maintenance commits.
+        const scope = validateFinalRepairScope(repoPath!, setupSha, effectiveAllowedFiles, spawnFn);
+        if (!scope.ok) {
+          unauthorizedFiles = scope.unauthorized;
+          const nonScope = scope.safetyViolations.filter(
+            (v) => v.type !== 'destructive' && v.type !== 'workflow_modified'
+          );
+          if (nonScope.length > 0) {
+            unsafeDetected = true;
+          }
+          failureReason = `Final repair scope validation failed: ${scope.unauthorized.join(', ')}`;
+          break;
         }
 
         const pushResult = await pushBranchWithToken(repoPath, branch, token, owner, repo, spawnFn);

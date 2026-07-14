@@ -76,6 +76,8 @@ export interface ReliabilityScenarioConfig {
   /** If deterministic repair is available, name of the strategy. */
   repair_strategy?: string;
   allowed_files: string[];
+  /** Files that may be modified by deterministic maintenance operations (e.g. evidence lock refresh). */
+  trusted_maintenance_files?: string[];
   denied_files?: string[];
   /** Files to modify to introduce the fault. */
   setup: ReliabilityScenarioPatch[];

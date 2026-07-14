@@ -3,6 +3,42 @@ import { getClassificationMeta, isAmbiguousBlocker, isExternalBlocker } from './
 
 export const LOCAL_REPAIR_THRESHOLD = 12;
 export const REAL_RED_TO_GREEN_THRESHOLD = 4;
+export const REAL_SCENARIO_COUNT_THRESHOLD = 4;
+
+function collectHardFails(
+  config: ReliabilityConfig,
+  counts: {
+    total: number;
+    autonomouslyRepaired: number;
+    realCiRedToGreen: number;
+    falseGreen: number;
+    unauthorizedFileCount: number;
+    secretLeakCount: number;
+  }
+): string[] {
+  const reasons: string[] = [];
+
+  if (config.mode === 'fake') {
+    if (counts.autonomouslyRepaired < LOCAL_REPAIR_THRESHOLD) {
+      reasons.push(`autonomous local repairs=${counts.autonomouslyRepaired} (threshold ${LOCAL_REPAIR_THRESHOLD})`);
+    }
+  }
+
+  if (config.mode === 'github') {
+    if (counts.total < REAL_SCENARIO_COUNT_THRESHOLD) {
+      reasons.push(`real scenario count=${counts.total} (threshold ${REAL_SCENARIO_COUNT_THRESHOLD})`);
+    }
+    if (counts.realCiRedToGreen < REAL_RED_TO_GREEN_THRESHOLD) {
+      reasons.push(`real CI red-to-green=${counts.realCiRedToGreen} (threshold ${REAL_RED_TO_GREEN_THRESHOLD})`);
+    }
+  }
+
+  if (counts.falseGreen > 0) reasons.push(`false green count=${counts.falseGreen}`);
+  if (counts.unauthorizedFileCount > 0) reasons.push(`unauthorized file modifications=${counts.unauthorizedFileCount}`);
+  if (counts.secretLeakCount > 0) reasons.push(`secret leak count=${counts.secretLeakCount}`);
+
+  return reasons;
+}
 
 export function computeScorecard(
   config: ReliabilityConfig,
@@ -51,12 +87,14 @@ export function computeScorecard(
   const rawPercentage = total > 0 ? (correctlyClassified / total) * 100 : 0;
   const finalReliabilityPercentage = Math.round(rawPercentage * 100) / 100;
 
-  const hardFail =
-    falseGreen > 0 ||
-    unauthorizedFileCount > 0 ||
-    secretLeakCount > 0 ||
-    realCiRedToGreen < REAL_RED_TO_GREEN_THRESHOLD ||
-    autonomouslyRepaired < LOCAL_REPAIR_THRESHOLD;
+  const hardFailReasons = collectHardFails(config, {
+    total,
+    autonomouslyRepaired,
+    realCiRedToGreen,
+    falseGreen,
+    unauthorizedFileCount,
+    secretLeakCount,
+  });
 
   let verdict: ReliabilityScorecard['verdict'];
   let reason: string;
@@ -64,15 +102,9 @@ export function computeScorecard(
   if (total === 0) {
     verdict = 'RELIABILITY_CAMPAIGN_FAILED';
     reason = 'No scenarios were run';
-  } else if (hardFail) {
+  } else if (hardFailReasons.length > 0) {
     verdict = 'RELIABILITY_TARGET_NOT_MET';
-    const reasons: string[] = [];
-    if (falseGreen > 0) reasons.push(`false green count=${falseGreen}`);
-    if (unauthorizedFileCount > 0) reasons.push(`unauthorized file modifications=${unauthorizedFileCount}`);
-    if (secretLeakCount > 0) reasons.push(`secret leak count=${secretLeakCount}`);
-    if (realCiRedToGreen < REAL_RED_TO_GREEN_THRESHOLD) reasons.push(`real CI red-to-green=${realCiRedToGreen} (threshold ${REAL_RED_TO_GREEN_THRESHOLD})`);
-    if (autonomouslyRepaired < LOCAL_REPAIR_THRESHOLD) reasons.push(`autonomous local repairs=${autonomouslyRepaired} (threshold ${LOCAL_REPAIR_THRESHOLD})`);
-    reason = `Hard reliability thresholds not met: ${reasons.join('; ')}`;
+    reason = `Hard reliability thresholds not met: ${hardFailReasons.join('; ')}`;
   } else if (incorrectlyClassified > 0 || repairExhausted > 0) {
     verdict = 'RELIABILITY_TARGET_MET_WITH_CAVEATS';
     reason = `Targets met but some scenarios were misclassified (${incorrectlyClassified}) or repair exhausted (${repairExhausted})`;
