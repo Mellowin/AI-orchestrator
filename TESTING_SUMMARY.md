@@ -2,7 +2,7 @@
 
 **Branch:** `main`
 
-**Last verified:** `72626f0cec706e5c37a9582265f0bb4e886099b4`
+**Last verified:** `010d3e2041e066796dbb3452597d49a8d2b383c7`
 
 ## Test metrics
 
@@ -13,7 +13,7 @@
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `72626f0cec706e5c37a9582265f0bb4e886099b4` (Stage 18.24 autonomous reliability campaign + Codex review fixes; adds `reliability-run` command, mode-aware scorecard, initial-green false-green rejection, final changed-file scope validation, trusted_maintenance_files for scoped evidence-lock refresh; local fake campaign 20/20 classified and 16/16 fixable repaired with TARGET_MET; 5 real GitHub Actions red-to-green proofs validated under corrected rules; proof doc `docs/proofs/STAGE_18_24_AUTONOMOUS_RELIABILITY.md`; TESTING_SUMMARY lock refreshed)
+- **Last verified commit:** `010d3e2041e066796dbb3452597d49a8d2b383c7` (Stage 18.24 autonomous reliability campaign + Codex review fixes; adds `reliability-run` command, mode-aware scorecard, initial-green false-green rejection, final changed-file scope validation, trusted_maintenance_files for scoped evidence-lock refresh, aggregate CI polling, base-branch isolation, stateless safety regexes; local fake campaign 20/20 classified and 16/16 fixable repaired with TARGET_MET; 5 real GitHub Actions red-to-green proofs validated under corrected rules; proof doc `docs/proofs/STAGE_18_24_AUTONOMOUS_RELIABILITY.md`; TESTING_SUMMARY lock refreshed)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
