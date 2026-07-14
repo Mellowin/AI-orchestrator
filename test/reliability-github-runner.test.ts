@@ -1382,3 +1382,443 @@ describe('runGitHubScenario external blocker handling', () => {
     assert.ok(!result.failure_reason!.includes('Authorization'));
   });
 });
+
+
+describe('runGitHubScenario pre-repair external blockers and CI timeouts', () => {
+  function buildSourceRepo(): string {
+    const dir = makeTempDir('rel-src-');
+    writeFileSync(join(dir, 'src.txt'), 'good content\n', 'utf-8');
+    return dir;
+  }
+
+  function buildScenario(id = 'timeout-test'): ReliabilityScenarioConfig {
+    return {
+      id,
+      category: 'fixable',
+      classification: 'TEST_ASSERTION_FAILURE',
+      fixable: true,
+      repair_strategy: 'apply_fix_patch',
+      allowed_files: ['src.txt'],
+      setup: [{ path: 'src.txt', search: 'good', replace: 'bad' }],
+      fix: [{ path: 'src.txt', search: 'bad', replace: 'good' }],
+      expected_verdict: 'REPAIRED',
+    };
+  }
+
+  function buildConfig(sourceRepo: string, reportDir: string, tokenEnvName: string): ReliabilityConfig {
+    return {
+      run_id: 'github-test-run',
+      mode: 'github',
+      repo_slug: 'owner/repo',
+      repo_path: sourceRepo,
+      base_branch: 'main',
+      scenario_dir: join(sourceRepo, 'scenarios'),
+      max_repair_attempts: 2,
+      real_github: true,
+      real_provider: false,
+      report_dir: reportDir,
+      github_token_env: tokenEnvName,
+      ci_timeout_seconds: 1,
+      ci_poll_interval_seconds: 1,
+    };
+  }
+
+  function buildState(): ReliabilityCampaignState {
+    return {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [],
+    };
+  }
+
+  test('setup push permission denied returns PUSH_PERMISSION_FAILURE and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_SETUP_PUSH_DENIED';
+    process.env[envName] = 'ghp_setup_push_denied';
+
+    const calls: { cmd: string; args: string[] }[] = [];
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      calls.push({ cmd, args });
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        return {
+          status: 1,
+          stderr: "remote: Permission to Mellowin/AI-orchestrator.git denied to Mellowin.\nfatal: unable to access 'https://github.com/Mellowin/AI-orchestrator.git/': The requested URL returned error: 403",
+          stdout: '',
+        } as unknown as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async () => ({ ok: false, status: 500, json: async () => ({}) } as Response)) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('setup-push-denied'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'PUSH_PERMISSION_FAILURE');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+    assert.ok(!result.failure_reason!.includes('ghp_setup_push_denied'));
+
+    const setUrlCalls = calls.filter((c) => c.cmd === 'git' && c.args[0] === 'remote' && c.args[1] === 'set-url');
+    assert.strictEqual(setUrlCalls.length, 2, 'token remote set and original remote restored');
+    const lastSetUrl = setUrlCalls[setUrlCalls.length - 1].args[2];
+    assert.ok(!lastSetUrl.includes('x-access-token'), 'original remote URL restored without token');
+  });
+
+  test('setup push network failure returns NETWORK_TRANSIENT and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_SETUP_PUSH_NETWORK';
+    process.env[envName] = 'ghp_setup_push_network';
+
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        return {
+          status: 1,
+          stderr: 'fatal: unable to access \'https://github.com/owner/repo.git/\': Could not resolve host: github.com',
+          stdout: '',
+        } as unknown as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async () => ({ ok: false, status: 500, json: async () => ({}) } as Response)) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('setup-push-network'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'NETWORK_TRANSIENT');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+    assert.ok(!result.failure_reason!.includes('ghp_setup_push_network'));
+  });
+
+  test('PR creation 401 returns GITHUB_ACCESS_FAILURE and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_PR_CREATE';
+    process.env[envName] = 'ghp_pr_create';
+
+    let pushCount = 0;
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-pr\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: false, status: 401, json: async () => ({ message: 'Bad credentials' }) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('pr-create-401'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'GITHUB_ACCESS_FAILURE');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+    assert.strictEqual(pushCount, 1, 'only setup push');
+    assert.ok(!result.failure_reason!.includes('ghp_pr_create'));
+  });
+
+  test('initial CI timeout returns CI_TIMEOUT and EXTERNAL_BLOCKER without repair', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_INITIAL_TIMEOUT';
+    process.env[envName] = 'ghp_initial_timeout';
+
+    let pushCount = 0;
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { status: 0, stdout: 'setup-sha-timeout\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: true, status: 201, json: async () => ({ html_url: 'https://github.com/owner/repo/pull/20', number: 20, draft: true }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 1, status: 'in_progress', conclusion: null }] }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('initial-ci-timeout'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'CI_TIMEOUT');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 0);
+    assert.strictEqual(pushCount, 1, 'only setup push');
+    assert.ok(result.failure_reason!.includes('1s'));
+  });
+
+  test('repair CI timeout returns CI_TIMEOUT and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_REPAIR_TIMEOUT';
+    process.env[envName] = 'ghp_repair_timeout';
+
+    let commitCount = 0;
+    let pushCount = 0;
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'commit') {
+        commitCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        const sha = commitCount === 1 ? 'setup-sha-repair-timeout' : 'repair-sha-repair-timeout';
+        return { status: 0, stdout: `${sha}\n`, stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'diff' && args[1] === '--cached') {
+        return { status: 1, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'diff' && args[1] === '--name-only') {
+        return { status: 0, stdout: 'src.txt\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'POST' && url.includes('/pulls')) {
+        return { ok: true, status: 201, json: async () => ({ html_url: 'https://github.com/owner/repo/pull/21', number: 21, draft: true }) } as Response;
+      }
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        const sha = new URL(url).searchParams.get('head_sha');
+        if (sha === 'setup-sha-repair-timeout') {
+          return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 1, status: 'completed', conclusion: 'failure' }] }) } as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 2, status: 'in_progress', conclusion: null }] }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('repair-ci-timeout'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'CI_TIMEOUT');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 1);
+    assert.strictEqual(pushCount, 2, 'setup push + repair push');
+  });
+
+  test('resumed repair CI timeout returns CI_TIMEOUT and EXTERNAL_BLOCKER', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_RESUME_TIMEOUT';
+    process.env[envName] = 'ghp_resume_timeout';
+
+    let pushCount = 0;
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'checkout') {
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        pushCount += 1;
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (init?.method === 'GET' && url.includes('/actions/runs')) {
+        return { ok: true, status: 200, json: async () => ({ workflow_runs: [{ id: 3, status: 'in_progress', conclusion: null }] }) } as Response;
+      }
+      if (init?.method === 'PATCH' && url.includes('/pulls/')) {
+        return { ok: true, status: 200, json: async () => ({}) } as Response;
+      }
+      return { ok: false, status: 404, text: async () => 'not found' } as Response;
+    }) as unknown as typeof globalThis.fetch;
+
+    const state: ReliabilityCampaignState = {
+      run_id: 'github-test-run',
+      mode: 'github',
+      started_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      scenarios: [
+        {
+          scenario_id: 'resume-ci-timeout',
+          status: 'repair_pushed',
+          branch: 'reliability-resume-ci-timeout-123',
+          pr_number: 22,
+          pr_url: 'https://github.com/owner/repo/pull/22',
+          setup_sha: 'setup-sha-resume',
+          repair_shas: ['repair-sha-resume'],
+        },
+      ],
+    };
+
+    const result = await runGitHubScenario(
+      buildScenario('resume-ci-timeout'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      state,
+      () => {}
+    );
+
+    assert.strictEqual(result.classification, 'CI_TIMEOUT');
+    assert.strictEqual(result.verdict, 'EXTERNAL_BLOCKER');
+    assert.strictEqual(result.repair_attempts, 1);
+    assert.strictEqual(pushCount, 0, 'no new pushes on resume timeout');
+  });
+
+  test('REPAIR_EXHAUSTED requires repair_attempts > 0', async () => {
+    const sourceRepo = buildSourceRepo();
+    const reportDir = makeTempDir('rel-report-');
+    const envName = 'RELIABILITY_TEST_TOKEN_NO_EXHAUSTED';
+    process.env[envName] = 'ghp_no_exhausted';
+
+    const fakeSpawn = ((cmd: string, args: string[], opts?: { cwd?: string }) => {
+      const cwd = opts?.cwd ?? process.cwd();
+      if (cmd === 'git' && args[0] === 'clone') {
+        const target = args[2];
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, 'src.txt'), readFileSync(join(sourceRepo, 'src.txt')), 'utf-8');
+        return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url' && args[2] === 'origin') {
+        return { status: 0, stdout: 'https://github.com/owner/repo.git\n', stderr: '' } as SpawnSyncReturns<string>;
+      }
+      if (cmd === 'git' && args[0] === 'push') {
+        return {
+          status: 1,
+          stderr: 'remote: Permission denied',
+          stdout: '',
+        } as unknown as SpawnSyncReturns<string>;
+      }
+      return { status: 0, stdout: '', stderr: '' } as SpawnSyncReturns<string>;
+    }) as typeof spawnSync;
+
+    const fakeFetch = (async () => ({ ok: false, status: 500, json: async () => ({}) } as Response)) as unknown as typeof globalThis.fetch;
+
+    const result = await runGitHubScenario(
+      buildScenario('no-exhausted'),
+      buildConfig(sourceRepo, reportDir, envName),
+      reportDir,
+      { fetchFn: fakeFetch, spawnFn: fakeSpawn },
+      buildState(),
+      () => {}
+    );
+
+    assert.notStrictEqual(result.verdict, 'REPAIR_EXHAUSTED');
+    assert.strictEqual(result.repair_attempts, 0);
+  });
+});

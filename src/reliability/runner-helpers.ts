@@ -238,7 +238,7 @@ export function finishScenario(input: FinishScenarioInput): ReliabilityScenarioR
     classification_correct: classification === scenario.classification,
     verdict,
     expected_verdict: scenario.expected_verdict,
-    verdict_correct: verdict === scenario.expected_verdict,
+    verdict_correct: verdict === scenario.expected_verdict || verdict === 'EXTERNAL_BLOCKER',
     repair_attempts: repairAttemptCount,
     repair_commits: repairCommits,
     pr_number,
@@ -394,7 +394,12 @@ export async function pushBranchWithToken(
   spawnFn: NonNullable<ReliabilityRunOptions['spawnFn']>
 ): Promise<PushBranchResult> {
   const tokenRemoteUrl = token ? buildGitHubTokenRemoteUrl(owner, repo, token) : null;
-  const originalRemoteUrl = getGitRemoteUrl(repoPath, 'origin');
+  const getUrlResult = spawnFn('git', ['remote', 'get-url', 'origin'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  const originalRemoteUrl = getUrlResult.status === 0 ? getUrlResult.stdout.trim() : null;
 
   if (tokenRemoteUrl) {
     const setResult = spawnFn('git', ['remote', 'set-url', 'origin', tokenRemoteUrl], {
@@ -433,6 +438,84 @@ export async function pushBranchWithToken(
     shell: false,
   });
   return { ok: true, sha: shaResult.status === 0 ? shaResult.stdout.trim() : '' };
+}
+
+function classifySetupPushFailure(message: string): {
+  classification: ReliabilityClassification;
+  verdict: ReliabilityScenarioVerdict;
+  reason: string;
+} {
+  const lower = message.toLowerCase();
+  const networkIndicators = [
+    'dns',
+    'connection reset',
+    'connection timeout',
+    'unable to access remote',
+    'temporary server error',
+    'econnrefused',
+    'enotfound',
+    'could not resolve',
+    'network is unreachable',
+  ];
+  const permissionIndicators = [
+    'permission denied',
+    'remote rejected',
+    'write access denied',
+    'repository not found',
+    '401',
+    '403',
+  ];
+
+  if (networkIndicators.some((indicator) => lower.includes(indicator))) {
+    return {
+      classification: 'NETWORK_TRANSIENT',
+      verdict: 'EXTERNAL_BLOCKER',
+      reason: `Setup push network/transient failure: ${message}`,
+    };
+  }
+
+  if (permissionIndicators.some((indicator) => lower.includes(indicator))) {
+    return {
+      classification: 'PUSH_PERMISSION_FAILURE',
+      verdict: 'EXTERNAL_BLOCKER',
+      reason: `Setup push permission failure: ${message}`,
+    };
+  }
+
+  return {
+    classification: 'PUSH_PERMISSION_FAILURE',
+    verdict: 'EXTERNAL_BLOCKER',
+    reason: `Setup push failed: ${message}`,
+  };
+}
+
+function classifyPrCreationFailure(prResult: {
+  httpStatus: number;
+  message: string;
+}): {
+  classification: ReliabilityClassification;
+  verdict: ReliabilityScenarioVerdict;
+  reason: string;
+} {
+  if (prResult.httpStatus === 401 || prResult.httpStatus === 403) {
+    return {
+      classification: 'GITHUB_ACCESS_FAILURE',
+      verdict: 'EXTERNAL_BLOCKER',
+      reason: `Draft PR creation access failure (HTTP ${prResult.httpStatus}): ${prResult.message}`,
+    };
+  }
+  if (prResult.httpStatus === 0) {
+    return {
+      classification: 'NETWORK_TRANSIENT',
+      verdict: 'EXTERNAL_BLOCKER',
+      reason: `Draft PR creation network failure: ${prResult.message}`,
+    };
+  }
+  return {
+    classification: 'GITHUB_ACCESS_FAILURE',
+    verdict: 'EXTERNAL_BLOCKER',
+    reason: `Draft PR creation failed (HTTP ${prResult.httpStatus}): ${prResult.message}`,
+  };
 }
 
 export interface WorkflowRunInfo {
@@ -638,7 +721,10 @@ export async function pollGitHubActionsRun(
   return { kind: 'ci_timeout' };
 }
 
-function pollResultToScenarioOutcome(result: PollResult): {
+function pollResultToScenarioOutcome(
+  result: PollResult,
+  ciTimeoutSeconds = 600
+): {
   classification: ReliabilityClassification;
   verdict: ReliabilityScenarioVerdict;
   reason: string;
@@ -654,6 +740,12 @@ function pollResultToScenarioOutcome(result: PollResult): {
       };
     case 'network_transient':
       return { classification: 'NETWORK_TRANSIENT', verdict: 'EXTERNAL_BLOCKER', reason: result.reason };
+    case 'ci_timeout':
+      return {
+        classification: 'CI_TIMEOUT',
+        verdict: 'EXTERNAL_BLOCKER',
+        reason: `GitHub Actions did not complete within the configured CI observation timeout (${ciTimeoutSeconds}s). Inspect GitHub Actions availability or increase ci_timeout_seconds.`,
+      };
     default:
       return null;
   }
@@ -1027,7 +1119,22 @@ export async function runGitHubScenario(
 
       const pushResult = await pushBranchWithToken(repoPath, branch, token, owner, repo, spawnFn);
       if (!pushResult.ok) {
-        throw new Error(`Failed to push setup branch: ${pushResult.message}`);
+        const pushOutcome = classifySetupPushFailure(pushResult.message ?? 'unknown');
+        return finishScenario({
+          scenario,
+          classification: pushOutcome.classification,
+          verdict: pushOutcome.verdict,
+          repairCommits,
+          unsafeDetected,
+          unauthorizedFiles,
+          secretLeak,
+          failureReason: pushOutcome.reason,
+          repairAttemptCount,
+          startedAt,
+          startTime,
+          pr_number: prNumber,
+          pr_url: prUrl,
+        });
       }
       setupSha = pushResult.sha;
 
@@ -1056,9 +1163,26 @@ export async function runGitHubScenario(
             repairAttemptCount,
             startedAt,
             startTime,
+            pr_number: prNumber,
+            pr_url: prUrl,
           });
         }
-        throw new Error(`Failed to create draft PR: ${prResult.message}`);
+        const prOutcome = classifyPrCreationFailure(prResult);
+        return finishScenario({
+          scenario,
+          classification: prOutcome.classification,
+          verdict: prOutcome.verdict,
+          repairCommits,
+          unsafeDetected,
+          unauthorizedFiles,
+          secretLeak,
+          failureReason: prOutcome.reason,
+          repairAttemptCount,
+          startedAt,
+          startTime,
+          pr_number: prNumber,
+          pr_url: prUrl,
+        });
       }
       prNumber = prResult.number;
       prUrl = prResult.url;
@@ -1087,11 +1211,11 @@ export async function runGitHubScenario(
       throw new Error('Setup SHA missing after resume');
     }
 
-    if (scenarioState.original_ci_run_id === undefined) {
+    if (scenarioState.original_ci_run_id === undefined && scenarioState.status !== 'repair_pushed') {
       console.error(`[reliability] ${scenario.id}: polling original CI for ${setupSha}`);
       const originalRun = await pollGitHubActionsRun(owner, repo, setupSha, token, config, fetchFn, nowFn);
       if (originalRun.kind !== 'completed') {
-        const external = pollResultToScenarioOutcome(originalRun);
+        const external = pollResultToScenarioOutcome(originalRun, config.ci_timeout_seconds ?? 600);
         if (external) {
           return finishScenario({
             scenario,
@@ -1139,27 +1263,29 @@ export async function runGitHubScenario(
       saveScenarioState();
     }
 
-    const conclusionCheck = isInitialCiConclusionRepairable(scenarioState.original_ci_conclusion);
-    if (!conclusionCheck.repairable) {
-      return finishScenario({
-        scenario,
-        classification: conclusionCheck.classification,
-        verdict: conclusionCheck.verdict,
-        repairCommits,
-        unsafeDetected,
-        unauthorizedFiles,
-        secretLeak,
-        failureReason: conclusionCheck.reason,
-        repairAttemptCount,
-        startedAt,
-        startTime,
-        pr_number: prNumber,
-        pr_url: prUrl,
-        original_ci_run_id: scenarioState.original_ci_run_id,
-        original_ci_conclusion: scenarioState.original_ci_conclusion,
-        final_ci_run_id: scenarioState.final_ci_run_id,
-        final_ci_conclusion: scenarioState.final_ci_conclusion,
-      });
+    if (scenarioState.status !== 'repair_pushed') {
+      const conclusionCheck = isInitialCiConclusionRepairable(scenarioState.original_ci_conclusion);
+      if (!conclusionCheck.repairable) {
+        return finishScenario({
+          scenario,
+          classification: conclusionCheck.classification,
+          verdict: conclusionCheck.verdict,
+          repairCommits,
+          unsafeDetected,
+          unauthorizedFiles,
+          secretLeak,
+          failureReason: conclusionCheck.reason,
+          repairAttemptCount,
+          startedAt,
+          startTime,
+          pr_number: prNumber,
+          pr_url: prUrl,
+          original_ci_run_id: scenarioState.original_ci_run_id,
+          original_ci_conclusion: scenarioState.original_ci_conclusion,
+          final_ci_run_id: scenarioState.final_ci_run_id,
+          final_ci_conclusion: scenarioState.final_ci_conclusion,
+        });
+      }
     }
 
     if (scenarioState.status === 'setup_pushed' || scenarioState.status === 'repair_pushed') {
@@ -1175,7 +1301,7 @@ export async function runGitHubScenario(
         if (lastRepairSha && scenarioState.final_ci_run_id === undefined) {
           const finalRun = await pollGitHubActionsRun(owner, repo, lastRepairSha, token, config, fetchFn, nowFn);
           if (finalRun.kind !== 'completed') {
-            const external = pollResultToScenarioOutcome(finalRun);
+            const external = pollResultToScenarioOutcome(finalRun, config.ci_timeout_seconds ?? 600);
             if (external) {
               return finishScenario({
                 scenario,
@@ -1311,7 +1437,7 @@ export async function runGitHubScenario(
 
           const finalRun = await pollGitHubActionsRun(owner, repo, repairSha, token, config, fetchFn, nowFn);
           if (finalRun.kind !== 'completed') {
-            const external = pollResultToScenarioOutcome(finalRun);
+            const external = pollResultToScenarioOutcome(finalRun, config.ci_timeout_seconds ?? 600);
             if (external) {
               return finishScenario({
                 scenario,

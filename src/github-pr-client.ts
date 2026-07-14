@@ -81,7 +81,8 @@ export async function createDraftPullRequest(
   }
 
   if (!response.ok) {
-    const text = await response.text().catch(() => 'Unknown error');
+    const text =
+      typeof response.text === 'function' ? await response.text().catch(() => 'Unknown error') : 'Unknown error';
     const redacted = redactSecrets(text);
 
     if (response.status === 422 && redacted.includes('A pull request already exists')) {
