@@ -2,7 +2,7 @@
 
 **Branch:** `main`
 
-**Last verified:** `pending final commit hash`
+**Last verified:** `02c977386a184f486cc0e226bedfd6e444e3b984`
 
 ## Test metrics
 
@@ -13,7 +13,7 @@
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `pending final commit hash` (Stage 18.24 autonomous reliability campaign + third Codex review fixes; adds `reliability-run` command, mode-aware scorecard, initial-green false-green rejection, final changed-file scope validation, trusted_maintenance_files for scoped evidence-lock refresh, aggregate CI polling, base-branch isolation, stateless safety regexes, preserved non-repairable CI conclusions (`timed_out`/`action_required`/`cancelled`), rejection of green local reproductions in fake mode, and resume of remaining repair attempts in real mode; local fake campaign 20/20 classified and 16/16 fixable repaired with TARGET_MET; 5 real GitHub Actions red-to-green proofs validated under corrected rules; proof doc `docs/proofs/STAGE_18_24_AUTONOMOUS_RELIABILITY.md`; TESTING_SUMMARY lock refreshed)
+- **Last verified commit:** `02c977386a184f486cc0e226bedfd6e444e3b984` (Stage 18.24 autonomous reliability campaign + third Codex review fixes; adds `reliability-run` command, mode-aware scorecard, initial-green false-green rejection, final changed-file scope validation, trusted_maintenance_files for scoped evidence-lock refresh, aggregate CI polling, base-branch isolation, stateless safety regexes, preserved non-repairable CI conclusions (`timed_out`/`action_required`/`cancelled`), rejection of green local reproductions in fake mode, and resume of remaining repair attempts in real mode; local fake campaign 20/20 classified and 16/16 fixable repaired with TARGET_MET; 5 real GitHub Actions red-to-green proofs validated under corrected rules; proof doc `docs/proofs/STAGE_18_24_AUTONOMOUS_RELIABILITY.md`; TESTING_SUMMARY lock refreshed)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
