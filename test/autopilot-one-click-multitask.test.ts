@@ -83,7 +83,7 @@ describe('autopilot-one-click multitask presets', () => {
 });
 
 describe('autopilot-one-click multitask mission runner', () => {
-  test('multitask-safe mission completes with MULTITASK_MISSION_DONE', async () => {
+  test('multitask-safe mission completes with MULTITASK_MISSION_DONE_WITH_CAVEATS', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'multi-'));
     const runId = `multitask-test-${Date.now()}`;
     const mission = buildMissionFromGoal('Add a docs note', {
@@ -91,6 +91,52 @@ describe('autopilot-one-click multitask mission runner', () => {
       output_dir: tmpDir,
       run_id: runId,
     });
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      runAutopilotRunFn: async () => {
+        throw new Error('autopilot-run must not be invoked in safe mode');
+      },
+      gitExecFn: fakeGitExec(),
+      collectDiffFn: fakeCollectDiff,
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE_WITH_CAVEATS');
+    assert.strictEqual(result.exit_code, 0);
+    assert.strictEqual(result.task_results.length, 1);
+    assert.strictEqual(result.task_results[0].status, 'skipped_safe_mode');
+    assert.ok(existsSync(join(tmpDir, 'missions', runId, 'multitask-mission-report.md')));
+    assert.ok(existsSync(join(tmpDir, 'missions', runId, 'multitask-mission-report.json')));
+
+    const state = loadMissionState(join(tmpDir, 'missions', runId));
+    assert.ok(state);
+    assert.strictEqual(state?.stage, 'completed');
+    assert.strictEqual(state?.result?.verdict, 'MULTITASK_MISSION_DONE_WITH_CAVEATS');
+
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('mutation-enabled mission completes with MULTITASK_MISSION_DONE', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'multi-'));
+    const runId = `multitask-mut-test-${Date.now()}`;
+    const mission = buildMissionFromGoal('Add a docs note', {
+      preset: 'multitask-safe',
+      output_dir: tmpDir,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      allow_real_provider: true,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: true,
+      allow_pr_update: true,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
 
     const planResult = await runAutopilotPlan(mission, { command: 'test' });
     assert.strictEqual(planResult.exit_code, 0);
@@ -172,6 +218,16 @@ describe('autopilot-one-click multitask mission runner', () => {
       output_dir: tmpDir,
       run_id: runId,
     });
+    mission.capabilities = {
+      allow_real_provider: true,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: true,
+      allow_pr_update: true,
+      allow_actions_read: false,
+      allow_repair: true,
+    };
 
     const planResult = await runAutopilotPlan(mission, { command: 'test' });
     assert.strictEqual(planResult.exit_code, 0);
