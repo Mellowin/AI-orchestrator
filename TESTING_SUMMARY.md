@@ -2,18 +2,18 @@
 
 **Branch:** `stage-18-25-one-click-multitask`
 
-**Last verified:** `4ec6a2540b3181a4a22fc2ff38e3e8eeaae935ae`
+**Last verified:** `dfd2dcf2c3b2d9b8cd60946972f322663189c855`
 
 ## Test metrics
 
-- **Total tests:** 3922
-- **Total suites:** 257
+- **Total tests:** 3935
+- **Total suites:** 259
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `4ec6a2540b3181a4a22fc2ff38e3e8eeaae935ae` (Stage 18.25 Codex follow-up — mission allowlist enforcement, resume propagation, fix-commit validation)
+- **Last verified commit:** `dfd2dcf2c3b2d9b8cd60946972f322663189c855` (Stage 18.25 Codex follow-up — mission allowlist enforcement, resume propagation, fix-commit validation)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
