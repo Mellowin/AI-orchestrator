@@ -32,7 +32,7 @@ export function buildMvpRunBlock(config: MvpRunConfig): BlockDefinition {
       allowed_files: task.allowed_files,
       denied_files: task.denied_files?.length ? task.denied_files : ['.env'],
       max_lines_changed: task.max_lines_changed ?? MAX_LINES_CHANGED,
-      checks: task.checks?.length ? task.checks : task.tests ?? [],
+      checks: task.checks !== undefined ? task.checks : task.tests ?? [],
     })),
   };
 }

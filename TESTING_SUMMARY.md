@@ -2,7 +2,7 @@
 
 **Branch:** `main`
 
-**Last verified:** `e446d949187066a9ab8ee3d1d853b7d492586ddb`
+**Last verified:** `pending final commit hash`
 
 ## Test metrics
 
@@ -13,7 +13,7 @@
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `e446d949187066a9ab8ee3d1d853b7d492586ddb` (Stage 18.25: one-click autonomous multi-task mission runner with `real-multitask` and `multitask-safe` presets, validated task DAG with dependency-aware topological sort, mission-level state, final review, and `MULTITASK_MISSION_*` verdicts; extends planner task schema with `depends_on`, `checks`, `acceptance_criteria`, `expected_result`, `max_lines_changed`; integrates sorted task ordering and stop-on-block into MVP config generation; adds 13 regression/unit tests; local full suite 3880 tests / 249 suites / 0 failures)
+- **Last verified commit:** `pending final commit hash` (Stage 18.25 follow-up in progress; lock will be updated after the final follow-up commit passes typecheck/build/test)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)

@@ -86,7 +86,43 @@ export async function runAutopilotOneClick(
     const isMultitaskPreset = options.preset === 'real-multitask' || options.preset === 'multitask-safe';
 
     if (isMultitaskPreset) {
-      const multitaskResult = await runMultitaskMission(mission, planResult, { command });
+      const runMultitaskMissionFn = options.runMultitaskMissionFn ?? runMultitaskMission;
+      let multitaskResult;
+      try {
+        multitaskResult = await runMultitaskMissionFn(mission, planResult, { command });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const finishedAt = new Date().toISOString();
+        const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+        const reportPaths = writeOneClickReport(
+          runDirBase,
+          {
+            raw_goal: rawGoal,
+            mission_path: missionPath,
+            mission,
+            plan_result: planResult,
+            run_dir: runDirBase,
+            verdict: 'MULTITASK_MISSION_FAILED',
+            reason: `Multitask runner failed: ${message}`,
+            exit_code: 1,
+            generated_paths: planResult.generated_files,
+          },
+          startedAt,
+          finishedAt,
+          durationMs
+        );
+        return {
+          raw_goal: rawGoal,
+          mission_path: missionPath,
+          mission,
+          plan_result: planResult,
+          run_dir: runDirBase,
+          verdict: 'MULTITASK_MISSION_FAILED',
+          reason: `Multitask runner failed: ${message}`,
+          exit_code: 1,
+          generated_paths: [...planResult.generated_files, reportPaths.mdPath, reportPaths.jsonPath],
+        };
+      }
 
       const finishedAt = new Date().toISOString();
       const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();

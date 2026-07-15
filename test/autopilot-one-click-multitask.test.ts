@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { buildMissionFromGoal, MissionBuilderError } from '../src/autopilot-one-click/mission-builder.js';
 import { runAutopilotPlan } from '../src/autopilot-plan/runner.js';
 import { runMultitaskMission, loadMissionState } from '../src/autopilot-one-click/multitask/runner.js';
+import { runAutopilotOneClick } from '../src/autopilot-one-click/runner.js';
 import type { AutopilotRunResult } from '../src/autopilot-run/types.js';
 
 describe('autopilot-one-click multitask presets', () => {
@@ -160,6 +161,31 @@ describe('autopilot-one-click multitask mission runner', () => {
 
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_REPAIR_EXHAUSTED');
     assert.notStrictEqual(result.exit_code, 0);
+
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('runMultitaskMission rejection is converted to MULTITASK_MISSION_FAILED', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'multi-'));
+    const runId = `multitask-reject-${Date.now()}`;
+
+    const result = await runAutopilotOneClick(
+      'Add a docs note',
+      {
+        preset: 'multitask-safe',
+        output_dir: tmpDir,
+        run_id: runId,
+        runMultitaskMissionFn: async () => {
+          throw new Error('simulated multitask runner failure');
+        },
+      },
+      'test'
+    );
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.ok(result.reason.includes('simulated multitask runner failure'));
+    assert.strictEqual(result.exit_code, 1);
+    assert.ok(existsSync(join(tmpDir, runId, 'one-click-report.md')));
 
     rmSync(tmpDir, { recursive: true, force: true });
   });

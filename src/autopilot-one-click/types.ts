@@ -38,6 +38,12 @@ export interface AutopilotOneClickOptions {
   output_dir?: string;
   allowed_files?: string[];
   yes?: boolean;
+  /** Internal test hook for the multitask mission runner. */
+  runMultitaskMissionFn?: (
+    mission: AutopilotPlanMission,
+    planResult: AutopilotPlanResult,
+    options: { command: string }
+  ) => Promise<import('./multitask/types.js').MultitaskMissionResult>;
 }
 
 export interface AutopilotOneClickResult {
