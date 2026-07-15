@@ -31,10 +31,9 @@ function ensureDir(path: string): void {
   }
 }
 
-export function computePlanHash(plan: { tasks: Array<{ id: string; goal: string; allowed_files: string[]; depends_on?: string[] }> }): string {
-  const canonical = JSON.stringify(plan.tasks.map((t: { id: string; goal: string; allowed_files: string[]; depends_on?: string[] }) => ({
+export function computePlanHash(plan: { tasks: Array<{ id: string; allowed_files: string[]; depends_on?: string[] }> }): string {
+  const canonical = JSON.stringify(plan.tasks.map((t: { id: string; allowed_files: string[]; depends_on?: string[] }) => ({
     id: t.id,
-    goal: t.goal,
     allowed_files: [...t.allowed_files].sort(),
     depends_on: t.depends_on ? [...t.depends_on].sort() : [],
   })));
