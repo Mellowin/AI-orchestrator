@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import { validateTaskDAG } from '../../autopilot-plan/dag.js';
@@ -123,14 +122,6 @@ function inspectRepoFiles(
       const filePath = resolve(repoPath, file);
       if (!filePath.startsWith(repoPath)) {
         issues.push({ field: `${task.id}.allowed_files`, message: `Path escapes repo root: ${file}` });
-        continue;
-      }
-      const exists = existsSync(filePath);
-      if (!exists && !task.goal.toLowerCase().includes('create') && !task.goal.toLowerCase().includes('add')) {
-        issues.push({
-          field: `${task.id}.allowed_files`,
-          message: `File does not exist and task does not appear to create it: ${file}`,
-        });
       }
     }
   }

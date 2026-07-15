@@ -240,14 +240,7 @@ describe('plan validation', () => {
     assert.strictEqual(result.ok, false);
   });
 
-  test('flags non-existent file when goal does not imply creation', () => {
-    const plan = makePlan([makeTask('a', { allowed_files: ['src/this-file-does-not-exist-xyz.ts'] })]);
-    const result = validateGeneratedPlan(plan, baseMission);
-    assert.strictEqual(result.ok, false);
-    assert.ok(result.issues.some((i) => i.message.includes('does not exist')));
-  });
-
-  test('allows non-existent file when goal implies creation', () => {
+  test('allows non-existent file for create tasks', () => {
     const plan = makePlan([makeTask('a', { goal: 'Create new helper', allowed_files: ['src/new-helper.ts'] })]);
     const result = validateGeneratedPlan(plan, baseMission);
     assert.strictEqual(result.ok, true);
