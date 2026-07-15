@@ -259,7 +259,8 @@ export async function runAutopilotRun(
 
   addTimelineEvent(timeline, 'mvp_started');
   const runMvpRunFn = options.runMvpRunFn ?? runMvpRun;
-  const mvpResult = await runMvpRunFn(mvpConfig, config.mvp_config_path, { resume: false });
+  const resume = options.resume ?? false;
+  const mvpResult = await runMvpRunFn(mvpConfig, config.mvp_config_path, { resume });
   addTimelineEvent(timeline, 'mvp_completed', { verdict: mvpResult.verdict });
 
   if (!isMvpSuccess(mvpResult.verdict)) {

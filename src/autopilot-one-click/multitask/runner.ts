@@ -258,13 +258,45 @@ export async function runMultitaskMission(
   }
 
   if (resume) {
-    const acceptedCommits = state.tasks
-      .filter((s) => s.status === 'accepted' || s.status === 'fixed_and_accepted')
-      .map((s) => s.commit_sha)
-      .filter((sha): sha is string => typeof sha === 'string' && sha.length > 0);
-    const missing = acceptedCommits.filter((sha) => !isAncestor(mission.repo_path, sha, workBranch, gitExec));
+    const requiredCommits: { sha: string; task_id: string; kind: string }[] = [];
+    const absent: { task_id: string; kind: string }[] = [];
+    for (const s of state.tasks) {
+      if (s.status === 'accepted') {
+        if (s.commit_sha) {
+          requiredCommits.push({ sha: s.commit_sha, task_id: s.task_id, kind: 'commit_sha' });
+        } else {
+          absent.push({ task_id: s.task_id, kind: 'commit_sha' });
+        }
+      } else if (s.status === 'fixed_and_accepted') {
+        if (s.commit_sha) {
+          requiredCommits.push({ sha: s.commit_sha, task_id: s.task_id, kind: 'commit_sha' });
+        } else {
+          absent.push({ task_id: s.task_id, kind: 'commit_sha' });
+        }
+        if (s.fix_commit_sha) {
+          requiredCommits.push({ sha: s.fix_commit_sha, task_id: s.task_id, kind: 'fix_commit_sha' });
+        } else {
+          absent.push({ task_id: s.task_id, kind: 'fix_commit_sha' });
+        }
+      }
+    }
+
+    if (absent.length > 0) {
+      const details = absent.map((entry) => `${entry.kind} for task ${entry.task_id}`).join(', ');
+      const reason = `Resume aborted: required accepted commits are missing from state: ${details}`;
+      state.last_error = reason;
+      saveMissionState(runDir, state, options.writeStateFn);
+      return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
+    }
+
+    const missing = requiredCommits.filter(
+      (entry) => !isAncestor(mission.repo_path, entry.sha, workBranch, gitExec)
+    );
     if (missing.length > 0) {
-      const reason = `Resume aborted: accepted commits are not ancestors of ${workBranch}: ${missing.join(', ')}`;
+      const details = missing
+        .map((entry) => `${entry.kind} ${entry.sha} for task ${entry.task_id}`)
+        .join(', ');
+      const reason = `Resume aborted: required accepted commits are not ancestors of ${workBranch}: ${details}`;
       state.last_error = reason;
       saveMissionState(runDir, state, options.writeStateFn);
       return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
@@ -309,6 +341,7 @@ export async function runMultitaskMission(
   try {
     autopilotResult = await runAutopilotRunFn(autopilotConfig, autopilotConfigPath, {
       command: `npx tsx src/cli.ts autopilot-run ${autopilotConfigPath}`,
+      resume,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

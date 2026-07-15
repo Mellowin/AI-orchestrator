@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildMissionFromGoal } from '../src/autopilot-one-click/mission-builder.js';
 import { runAutopilotPlan } from '../src/autopilot-plan/runner.js';
+import { runAutopilotRun } from '../src/autopilot-run/runner.js';
 import { runMultitaskMission, loadMissionState } from '../src/autopilot-one-click/multitask/runner.js';
 import { saveMissionState, getMissionRunDir, computePlanHash } from '../src/autopilot-one-click/multitask/state-manager.js';
 import { validateGeneratedPlan } from '../src/autopilot-one-click/multitask/plan-validator.js';
@@ -64,7 +65,12 @@ function fakeGitExec(acceptedCommits: string[] = [], captured: string[][] = []) 
 
 function fakeAutopilotResult(
   planResult: ReturnType<typeof runAutopilotPlan> extends Promise<infer R> ? R : never,
-  taskStatuses: { id: string; status: 'passed' | 'failed' | 'blocked' | 'needs_human'; commit_sha?: string }[],
+  taskStatuses: {
+    id: string;
+    status: 'passed' | 'passed_with_caveats' | 'failed' | 'blocked' | 'needs_human';
+    commit_sha?: string;
+    fix_commit_sha?: string;
+  }[],
   verdict: AutopilotRunResult['verdict'] = 'AUTOPILOT_GREEN'
 ): AutopilotRunResult {
   const configPath = planResult.generated_files.find((p: string) => p.endsWith('autopilot.config.json'))!;
@@ -96,15 +102,16 @@ function fakeAutopilotResult(
         title: `Task ${t.id}`,
         status: t.status,
         provider_attempts: 1,
-        recovery_attempts: 0,
+        recovery_attempts: t.status === 'passed_with_caveats' ? 1 : 0,
         commit_sha: t.commit_sha,
+        fix_commit_sha: t.fix_commit_sha,
       })),
       tasks_total: taskStatuses.length,
-      tasks_passed: taskStatuses.filter((t) => t.status === 'passed').length,
+      tasks_passed: taskStatuses.filter((t) => t.status === 'passed' || t.status === 'passed_with_caveats').length,
       tasks_failed: taskStatuses.filter((t) => t.status === 'failed').length,
       tasks_blocked: taskStatuses.filter((t) => t.status === 'blocked').length,
       tasks_skipped: 0,
-      tasks_caveats: 0,
+      tasks_caveats: taskStatuses.filter((t) => t.status === 'passed_with_caveats').length,
       commits: taskStatuses.map((t) => t.commit_sha).filter((sha): sha is string => typeof sha === 'string'),
       branch: 'mission-branch',
       pushed: false,
@@ -243,6 +250,46 @@ describe('plan validation', () => {
   test('allows non-existent file for create tasks', () => {
     const plan = makePlan([makeTask('a', { goal: 'Create new helper', allowed_files: ['src/new-helper.ts'] })]);
     const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, true);
+  });
+
+  test('rejects task file outside mission allowlist', () => {
+    const mission = { ...baseMission, allowed_files: ['docs/proofs/part1.md'] };
+    const plan = makePlan([makeTask('a', { allowed_files: ['docs/proofs/part2.md'] })]);
+    const result = validateGeneratedPlan(plan, mission);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('outside the mission allowlist')));
+  });
+
+  test('allows exact task file within mission allowlist', () => {
+    const mission = { ...baseMission, allowed_files: ['docs/proofs/part1.md'] };
+    const plan = makePlan([makeTask('a', { allowed_files: ['docs/proofs/part1.md'] })]);
+    const result = validateGeneratedPlan(plan, mission);
+    assert.strictEqual(result.ok, true);
+  });
+
+  test('path normalization cannot bypass mission allowlist', () => {
+    const mission = { ...baseMission, allowed_files: ['docs/proofs/part1.md'] };
+    const plan = makePlan([makeTask('a', { allowed_files: ['docs\\proofs\\part2.md'] })]);
+    const result = validateGeneratedPlan(plan, mission);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('outside the mission allowlist')));
+  });
+
+  test('union of task scopes must stay within mission allowlist', () => {
+    const mission = { ...baseMission, allowed_files: ['docs/proofs/part1.md', 'docs/proofs/part2.md'] };
+    const plan = makePlan([
+      makeTask('a', { allowed_files: ['docs/proofs/part1.md'] }),
+      makeTask('b', { depends_on: ['a'], allowed_files: ['docs/proofs/part2.md'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, mission);
+    assert.strictEqual(result.ok, true);
+  });
+
+  test('supports glob patterns in mission allowlist', () => {
+    const mission = { ...baseMission, allowed_files: ['docs/proofs/*.md'] };
+    const plan = makePlan([makeTask('a', { allowed_files: ['docs/proofs/part1.md'] })]);
+    const result = validateGeneratedPlan(plan, mission);
     assert.strictEqual(result.ok, true);
   });
 });
@@ -443,6 +490,212 @@ describe('durable mission state and resume', () => {
     });
 
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_EXTERNAL_BLOCKER');
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('resume accepts normal accepted task without fix_commit_sha', async () => {
+    const { tmpDir, runId, mission, planResult } = await setupMission();
+    const runDir = getMissionRunDir(tmpDir, runId);
+    const commitSha = 'a'.repeat(40);
+    saveMissionState(runDir, {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: 'base-sha-1234567890abcdef',
+      work_branch: `mission-${runId}`,
+      tasks: [{ task_id: 'mission-task-1', status: 'accepted', commit_sha: commitSha }],
+    });
+
+    const autopilot = fakeAutopilotResult(planResult, [{ id: 'mission-task-1', status: 'passed', commit_sha: commitSha }]);
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () => autopilot,
+      gitExecFn: fakeGitExec([commitSha]),
+      collectDiffFn: () => 'diff --git a/docs/AUTOPILOT_PLAN.md b/docs/AUTOPILOT_PLAN.md\n+line',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('resume requires both commit_sha and fix_commit_sha for fixed_and_accepted task', async () => {
+    const { tmpDir, runId, mission, planResult } = await setupMission();
+    const runDir = getMissionRunDir(tmpDir, runId);
+    const commitSha = 'a'.repeat(40);
+    const fixCommitSha = 'f'.repeat(40);
+    saveMissionState(runDir, {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: 'base-sha-1234567890abcdef',
+      work_branch: `mission-${runId}`,
+      tasks: [
+        {
+          task_id: 'mission-task-1',
+          status: 'fixed_and_accepted',
+          commit_sha: commitSha,
+          fix_commit_sha: fixCommitSha,
+        },
+      ],
+    });
+
+    const autopilot = fakeAutopilotResult(planResult, [
+      { id: 'mission-task-1', status: 'passed_with_caveats', commit_sha: commitSha, fix_commit_sha: fixCommitSha },
+    ]);
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () => autopilot,
+      gitExecFn: fakeGitExec([commitSha, fixCommitSha]),
+      collectDiffFn: () => 'diff --git a/docs/AUTOPILOT_PLAN.md b/docs/AUTOPILOT_PLAN.md\n+line',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('resume rejects fixed_and_accepted when original commit is missing', async () => {
+    const { tmpDir, runId, mission, planResult } = await setupMission();
+    const runDir = getMissionRunDir(tmpDir, runId);
+    const fixCommitSha = 'f'.repeat(40);
+    saveMissionState(runDir, {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: 'base-sha-1234567890abcdef',
+      work_branch: `mission-${runId}`,
+      tasks: [
+        {
+          task_id: 'mission-task-1',
+          status: 'fixed_and_accepted',
+          commit_sha: undefined,
+          fix_commit_sha: fixCommitSha,
+        },
+      ],
+    });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () => ({} as AutopilotRunResult),
+      gitExecFn: fakeGitExec([fixCommitSha]),
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.ok(result.reason.includes('missing from state'));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('resume rejects fixed_and_accepted when fix commit is missing', async () => {
+    const { tmpDir, runId, mission, planResult } = await setupMission();
+    const runDir = getMissionRunDir(tmpDir, runId);
+    const commitSha = 'a'.repeat(40);
+    saveMissionState(runDir, {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: 'base-sha-1234567890abcdef',
+      work_branch: `mission-${runId}`,
+      tasks: [
+        {
+          task_id: 'mission-task-1',
+          status: 'fixed_and_accepted',
+          commit_sha: commitSha,
+          fix_commit_sha: undefined,
+        },
+      ],
+    });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () => ({} as AutopilotRunResult),
+      gitExecFn: fakeGitExec([commitSha]),
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.ok(result.reason.includes('missing from state'));
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('resume propagates option through real autopilot-run to mvp-run', async () => {
+    const { tmpDir, runId, mission, planResult } = await setupMission();
+    const runDir = getMissionRunDir(tmpDir, runId);
+    const commitSha = 'a'.repeat(40);
+    saveMissionState(runDir, {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: 'base-sha-1234567890abcdef',
+      work_branch: `mission-${runId}`,
+      tasks: [{ task_id: 'mission-task-1', status: 'accepted', commit_sha: commitSha }],
+    });
+
+    const captured: { resume?: boolean; callCount: number } = { callCount: 0 };
+    const fakeRunMvpRun = async (
+      mvpConfig: unknown,
+      mvpConfigPath: string,
+      options: { resume?: boolean } = {}
+    ) => {
+      captured.resume = options.resume;
+      captured.callCount += 1;
+      return {
+        config: mvpConfig,
+        command: 'mvp',
+        config_path: mvpConfigPath,
+        started_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+        duration_ms: 1,
+        verdict: 'MVP_RUN_PASSED',
+        reason: 'Fake resume MVP',
+        preflight: {} as AutopilotRunResult['mvp_result']['preflight'],
+        task_results: [
+          {
+            id: 'mission-task-1',
+            title: 'Task mission-task-1',
+            status: 'passed',
+            provider_attempts: 1,
+            recovery_attempts: 0,
+            commit_sha: commitSha,
+          },
+        ],
+        tasks_total: 1,
+        tasks_passed: 1,
+        tasks_failed: 0,
+        tasks_blocked: 0,
+        tasks_skipped: 0,
+        tasks_caveats: 0,
+        commits: [commitSha],
+        branch: `mission-${runId}`,
+        pushed: false,
+        pr: { created: false, number: 42, url: 'https://github.com/Mellowin/AI-orchestrator/pull/42' },
+        caveats: [],
+        report_dir: join(runDir, 'mvp-run-reports'),
+      } as AutopilotRunResult['mvp_result'];
+    };
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: (config, configPath, options) =>
+        runAutopilotRun(config, configPath, { ...options, runMvpRunFn: fakeRunMvpRun as typeof import('../src/mvp-run/runner.js').runMvpRun }),
+      gitExecFn: fakeGitExec([commitSha]),
+      collectDiffFn: () => 'diff --git a/docs/AUTOPILOT_PLAN.md b/docs/AUTOPILOT_PLAN.md\n+line',
+    });
+
+    assert.strictEqual(captured.resume, true, 'MVP run must receive resume: true');
+    assert.strictEqual(captured.callCount, 1, 'MVP run must be invoked exactly once');
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE_WITH_CAVEATS');
+    assert.strictEqual(result.task_states[0].commit_sha, commitSha, 'Existing accepted commit must be preserved');
+    assert.strictEqual(result.pr?.number, 42, 'Existing PR must be reused');
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });

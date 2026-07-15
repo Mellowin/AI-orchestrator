@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import { validateTaskDAG } from '../../autopilot-plan/dag.js';
+import { matchesPattern } from '../../guardrails.js';
 
 export interface PlanValidationIssue {
   field: string;
@@ -127,6 +128,39 @@ function inspectRepoFiles(
   }
 }
 
+function normalizeFilePath(file: string): string {
+  return file.replace(/\\/g, '/');
+}
+
+function fileMatchesAnyPattern(file: string, patterns: string[]): boolean {
+  const normalizedFile = normalizeFilePath(file);
+  return patterns.some((pattern) => matchesPattern(normalizedFile, normalizeFilePath(pattern)));
+}
+
+function validateTaskFilesWithinMissionAllowlist(
+  mission: AutopilotPlanMission,
+  tasks: AutopilotPlanTask[],
+  issues: PlanValidationIssue[]
+): void {
+  const missionAllowlist = mission.allowed_files;
+  if (!missionAllowlist || missionAllowlist.length === 0) {
+    return;
+  }
+
+  const normalizedMissionPatterns = missionAllowlist.map(normalizeFilePath);
+
+  for (const task of tasks) {
+    for (const file of task.allowed_files) {
+      if (!fileMatchesAnyPattern(file, normalizedMissionPatterns)) {
+        issues.push({
+          field: `${task.id}.allowed_files`,
+          message: `Task file ${JSON.stringify(file)} is outside the mission allowlist: ${missionAllowlist.join(', ')}`,
+        });
+      }
+    }
+  }
+}
+
 export function validateGeneratedPlan(
   plan: AutopilotPlanGeneratedPlan,
   mission: AutopilotPlanMission
@@ -158,6 +192,8 @@ export function validateGeneratedPlan(
   issues.push(...detectFileScopeOverlap(plan.tasks));
 
   inspectRepoFiles(mission, plan.tasks, issues);
+
+  validateTaskFilesWithinMissionAllowlist(mission, plan.tasks, issues);
 
   return { ok: issues.length === 0, issues };
 }

@@ -29,7 +29,7 @@ function patternToRegExp(pattern: string): RegExp {
   return new RegExp(`^${regex}$`);
 }
 
-function matchesPattern(file: string, pattern: string): boolean {
+export function matchesPattern(file: string, pattern: string): boolean {
   const regex = patternToRegExp(pattern);
   return regex.test(file);
 }
