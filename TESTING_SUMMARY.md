@@ -2,22 +2,22 @@
 
 **Branch:** `stage-18-25-one-click-multitask`
 
-**Last verified:** `98537255c4a40dbb24baac4ce111baa75ae53ea8`
+**Last verified:** `4ec6a2540b3181a4a22fc2ff38e3e8eeaae935ae`
 
 ## Test metrics
 
-- **Total tests:** 3912
+- **Total tests:** 3922
 - **Total suites:** 257
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `98537255c4a40dbb24baac4ce111baa75ae53ea8` (Stage 18.25 follow-up — durable multi-task runner, scheduler, validation, final review, resume/rollback, and checks precedence)
+- **Last verified commit:** `4ec6a2540b3181a4a22fc2ff38e3e8eeaae935ae` (Stage 18.25 Codex follow-up — mission allowlist enforcement, resume propagation, fix-commit validation)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #466 completed successfully (3698 tests / 0 failures). Stage 18.19 and 18.20 verified locally by running all per-chunk test runs (3743 tests / 0 failures) because the interactive `npm test` command exceeded the 300 s tool timeout. Stage 18.22 real one-click proof PR #15 triggered Mini-MVP CI run `28984214150`; it completed `failure` before the TESTING_SUMMARY.md refresh because the summary lock pointed to a commit older than the PR head. Main CI run `29236126850` after landing Stages 18.18–18.22 completed `success`. Stage 18.23 PR #17 CI run `29247577881` failed due to stale TESTING_SUMMARY lock; fix commit `873b071342084b871f06978a9c78a6fc8a707250` passed CI run `29254472034`. Stage 18.23C PR #18 passed CI run `29254472034`. Main CI run `29256820913` after landing PRs #17 and #18 completed `success` (3773 tests / 0 failures). Stage 18.25 implementation PR #78 passed Mini-MVP CI run `29403446217` (conclusion `success`; 3880 tests / 249 suites / 0 failures). Stage 18.25 follow-up commit `98537255c4a40dbb24baac4ce111baa75ae53ea8` passed Mini-MVP CI run `29418188602` (conclusion `success`; 3912 tests / 257 suites / 0 failures).
+- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #466 completed successfully (3698 tests / 0 failures). Stage 18.19 and 18.20 verified locally by running all per-chunk test runs (3743 tests / 0 failures) because the interactive `npm test` command exceeded the 300 s tool timeout. Stage 18.22 real one-click proof PR #15 triggered Mini-MVP CI run `28984214150`; it completed `failure` before the TESTING_SUMMARY.md refresh because the summary lock pointed to a commit older than the PR head. Main CI run `29236126850` after landing Stages 18.18–18.22 completed `success`. Stage 18.23 PR #17 CI run `29247577881` failed due to stale TESTING_SUMMARY lock; fix commit `873b071342084b871f06978a9c78a6fc8a707250` passed CI run `29254472034`. Stage 18.23C PR #18 passed CI run `29254472034`. Main CI run `29256820913` after landing PRs #17 and #18 completed `success` (3773 tests / 0 failures). Stage 18.25 implementation PR #78 passed Mini-MVP CI run `29403446217` (conclusion `success`; 3880 tests / 249 suites / 0 failures). Stage 18.25 follow-up commit `98537255c4a40dbb24baac4ce111baa75ae53ea8` passed Mini-MVP CI run `29418188602` (conclusion `success`; 3912 tests / 257 suites / 0 failures). Stage 18.25 Codex follow-up commit `4ec6a2540b3181a4a22fc2ff38e3e8eeaae935ae` addresses Codex P1/P2 findings; Mini-MVP CI run ID will be appended after the run completes.
 - **Product verification:**
   - Real one-command acceptance matrix proof passed locally:
     - Command: `npx tsx src/cli.ts acceptance-matrix tmp/stage-18-15-real.acceptance-matrix.json`
