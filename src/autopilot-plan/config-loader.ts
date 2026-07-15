@@ -157,6 +157,13 @@ export function validateMissionConfig(value: unknown): AutopilotPlanMission {
     };
   }
 
+  if (raw.allowed_files !== undefined) {
+    if (!isStringArray(raw.allowed_files)) {
+      throw new Error('Mission allowed_files must be an array of strings');
+    }
+    mission.allowed_files = raw.allowed_files;
+  }
+
   return mission;
 }
 

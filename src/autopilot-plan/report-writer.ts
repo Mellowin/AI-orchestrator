@@ -104,6 +104,9 @@ export function buildAutopilotRunConfig(
       allow_apply: mission.capabilities.allow_repo_apply,
       allow_commit: mission.capabilities.allow_repo_commit,
       allow_push: mission.capabilities.allow_repo_push,
+      allowed_files: Array.from(
+        new Set([...(mission.allowed_files ?? []), ...plan.tasks.flatMap((t) => t.allowed_files)])
+      ),
       denied_files: ['.env', 'node_modules/**', 'tmp/**', 'reports/**'],
     },
     github: {
