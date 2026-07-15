@@ -376,7 +376,7 @@ export async function runMultitaskMission(
         }
         checkoutBranch(mission.repo_path, workBranch, gitExec);
       } else {
-        createWorkBranch(mission.repo_path, mission.base_branch, workBranch, gitExec);
+        createWorkBranch(mission.repo_path, workBranch, baseSha, gitExec);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

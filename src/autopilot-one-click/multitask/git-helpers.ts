@@ -15,7 +15,11 @@ const defaultGitExec: GitExecFn = (args, options) => {
 };
 
 export function getBaseSha(repoPath: string, baseBranch: string, gitExec: GitExecFn = defaultGitExec): string {
-  const result = gitExec(['rev-parse', baseBranch], { cwd: repoPath });
+  let result = gitExec(['rev-parse', baseBranch], { cwd: repoPath });
+  if (result.status !== 0) {
+    // CI checkouts often leave only remote tracking refs (e.g. origin/main).
+    result = gitExec(['rev-parse', `origin/${baseBranch}`], { cwd: repoPath });
+  }
   if (result.status !== 0) {
     throw new Error(`Failed to resolve base branch ${baseBranch}: ${result.stderr}`);
   }
@@ -53,11 +57,11 @@ export function checkoutBranch(
 
 export function createWorkBranch(
   repoPath: string,
-  baseBranch: string,
   workBranch: string,
+  startRef: string,
   gitExec: GitExecFn = defaultGitExec
 ): void {
-  const result = gitExec(['checkout', '-B', workBranch, baseBranch], { cwd: repoPath });
+  const result = gitExec(['checkout', '-B', workBranch, startRef], { cwd: repoPath });
   if (result.status !== 0) {
     throw new Error(`Failed to create work branch ${workBranch}: ${result.stderr}`);
   }
@@ -92,7 +96,9 @@ export function isBranchBasedOn(
   baseSha: string,
   gitExec: GitExecFn = defaultGitExec
 ): boolean {
-  const mergeBase = getMergeBase(repoPath, workBranch, baseBranch, gitExec);
+  // Compare against the resolved base SHA so the check works even when the
+  // local base branch does not exist (common in CI detached-HEAD checkouts).
+  const mergeBase = getMergeBase(repoPath, workBranch, baseSha, gitExec);
   return mergeBase === baseSha;
 }
 
@@ -158,12 +164,12 @@ export function cherryPickCommit(
 
 export function rebuildBranchWithAcceptedCommits(
   repoPath: string,
-  baseBranch: string,
+  startRef: string,
   workBranch: string,
   acceptedCommits: string[],
   gitExec: GitExecFn = defaultGitExec
 ): void {
-  createWorkBranch(repoPath, baseBranch, workBranch, gitExec);
+  createWorkBranch(repoPath, workBranch, startRef, gitExec);
   for (const commit of acceptedCommits) {
     cherryPickCommit(repoPath, commit, gitExec);
   }

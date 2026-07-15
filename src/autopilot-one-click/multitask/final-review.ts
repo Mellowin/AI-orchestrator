@@ -7,11 +7,19 @@ import type { FinalReviewInput, MultitaskMissionFinalReview, MultitaskMissionTas
 export type FinalReviewCallFn = (prompt: string) => Promise<string>;
 
 function collectDiff(repoPath: string, baseBranch: string, workBranch: string): string {
-  const result = spawnSync('git', ['diff', `${baseBranch}...${workBranch}`], {
+  let result = spawnSync('git', ['diff', `${baseBranch}...${workBranch}`], {
     cwd: repoPath,
     encoding: 'utf-8',
     shell: false,
   });
+  if (result.status !== 0) {
+    // CI checkouts may not have a local base branch; fall back to the remote ref.
+    result = spawnSync('git', ['diff', `origin/${baseBranch}...${workBranch}`], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+  }
   if (result.status !== 0) {
     return `// Could not collect diff: ${result.stderr}`;
   }
