@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
+import { isAbsolute } from 'node:path';
 import type { AutopilotRunResult } from '../../autopilot-run/types.js';
+import { matchesPattern } from '../../guardrails.js';
 import type { FinalReviewInput, MultitaskMissionFinalReview, MultitaskMissionTaskState } from './types.js';
 
 export type FinalReviewCallFn = (prompt: string) => Promise<string>;
@@ -20,13 +22,21 @@ function collectUnauthorizedFiles(
   diff: string,
   allowedFiles: string[]
 ): string[] {
-  const allowedSet = new Set(allowedFiles.map((f) => f.replace(/\\/g, '/')));
+  const normalizedPatterns = allowedFiles.map((p) => p.replace(/\\/g, '/'));
   const files = new Set<string>();
   const diffIndexRe = /^diff --git a\/(.+?) b\/(.+?)$/gm;
   let match: RegExpExecArray | null;
   while ((match = diffIndexRe.exec(diff)) !== null) {
     const file = match[2];
-    if (!allowedSet.has(file)) {
+    const normalized = file.replace(/\\/g, '/');
+
+    if (isAbsolute(normalized) || normalized.includes('..')) {
+      files.add(file);
+      continue;
+    }
+
+    const allowed = normalizedPatterns.some((pattern) => matchesPattern(normalized, pattern));
+    if (!allowed) {
       files.add(file);
     }
   }

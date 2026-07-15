@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildMissionFromGoal } from '../src/autopilot-one-click/mission-builder.js';
@@ -12,6 +13,8 @@ import { validateGeneratedPlan } from '../src/autopilot-one-click/multitask/plan
 import { scheduleTasks, filterRunnableTasks, allRequiredTasksAccepted } from '../src/autopilot-one-click/multitask/scheduler.js';
 import { runMissionFinalReview } from '../src/autopilot-one-click/multitask/final-review.js';
 import { collectUnauthorizedFiles, collectAcceptanceGaps } from '../src/autopilot-one-click/multitask/final-review.js';
+import { validateFileList } from '../src/guardrails.js';
+import { branchExists, getCurrentBranch } from '../src/autopilot-one-click/multitask/git-helpers.js';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanTask } from '../src/autopilot-plan/types.js';
 import type { AutopilotRunResult } from '../src/autopilot-run/types.js';
 
@@ -380,6 +383,13 @@ describe('durable mission state and resume', () => {
       output_dir: tmpDir,
       run_id: runId,
     });
+    // Enable repository mutation so that branch preparation, rollback, and resume
+    // commit validation are exercised by the durable-state tests.
+    mission.capabilities.allow_repo_apply = true;
+    mission.capabilities.allow_repo_commit = true;
+    mission.capabilities.allow_repo_push = true;
+    mission.capabilities.allow_pr_create = true;
+    mission.capabilities.allow_pr_update = true;
     const planResult = await runAutopilotPlan(mission, { command: 'test' });
     return { tmpDir, runId, mission, planResult };
   }
@@ -697,5 +707,246 @@ describe('durable mission state and resume', () => {
     assert.strictEqual(result.task_states[0].commit_sha, commitSha, 'Existing accepted commit must be preserved');
     assert.strictEqual(result.pr?.number, 42, 'Existing PR must be reused');
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+
+describe('multitask safe zero-mutation', () => {
+  function initTempGitRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'repo-'));
+    spawnSync('git', ['init', '--initial-branch=main'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf-8', shell: false });
+    writeFileSync(join(dir, 'README.md'), '# test\n');
+    spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: dir, encoding: 'utf-8', shell: false });
+    return dir;
+  }
+
+  function makeRecordingGitExec(calls: string[][]) {
+    return (args: string[], options?: { cwd?: string }) => {
+      calls.push(args);
+      return spawnSync('git', args, { cwd: options?.cwd, encoding: 'utf-8', shell: false });
+    };
+  }
+
+  async function setupSafeMissionInTempRepo(): Promise<{
+    tmpRepo: string;
+    tmpOut: string;
+    runId: string;
+    mission: AutopilotPlanMission;
+    planResult: Awaited<ReturnType<typeof runAutopilotPlan>>;
+  }> {
+    const tmpRepo = initTempGitRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `safe-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const mission = buildMissionFromGoal('Add docs note', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    return { tmpRepo, tmpOut, runId, mission, planResult };
+  }
+
+  test('multitask-safe does not call createWorkBranch', async () => {
+    const { tmpRepo, tmpOut, mission, planResult } = await setupSafeMissionInTempRepo();
+    const calls: string[][] = [];
+    const result = await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      gitExecFn: makeRecordingGitExec(calls),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    assert.ok(!calls.some((args) => args[0] === 'checkout' && args[1] === '-B'), 'must not create work branch');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('multitask-safe does not call checkoutBranch', async () => {
+    const { tmpRepo, tmpOut, mission, planResult } = await setupSafeMissionInTempRepo();
+    const calls: string[][] = [];
+    await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      gitExecFn: makeRecordingGitExec(calls),
+      collectDiffFn: () => '',
+    });
+
+    assert.ok(!calls.some((args) => args[0] === 'checkout'), 'must not checkout any branch');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('existing mission branch is not checked out', async () => {
+    const { tmpRepo, tmpOut, runId, mission, planResult } = await setupSafeMissionInTempRepo();
+    const workBranch = `mission-${runId}`;
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], {
+      cwd: tmpRepo,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['checkout', 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+
+    const calls: string[][] = [];
+    await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      gitExecFn: makeRecordingGitExec(calls),
+      collectDiffFn: () => '',
+    });
+
+    assert.ok(!calls.some((args) => args[0] === 'checkout'), 'must not checkout existing mission branch');
+    assert.ok(branchExists(tmpRepo, workBranch), 'pre-existing branch should remain');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('missing mission branch is not created', async () => {
+    const { tmpRepo, tmpOut, runId, mission, planResult } = await setupSafeMissionInTempRepo();
+    const workBranch = `mission-${runId}`;
+    await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(branchExists(tmpRepo, workBranch), false, 'work branch must not be created');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('current branch remains unchanged', async () => {
+    const { tmpRepo, tmpOut, mission, planResult } = await setupSafeMissionInTempRepo();
+    const before = getCurrentBranch(tmpRepo);
+    await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      collectDiffFn: () => '',
+    });
+    const after = getCurrentBranch(tmpRepo);
+
+    assert.strictEqual(after, before, 'current branch must not change');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('safe plan/report/state artifacts are still written', async () => {
+    const { tmpRepo, tmpOut, runId, mission, planResult } = await setupSafeMissionInTempRepo();
+    const result = await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      collectDiffFn: () => '',
+    });
+
+    const runDir = getMissionRunDir(tmpOut, runId);
+    assert.strictEqual(result.run_dir, runDir);
+    assert.ok(existsSync(join(runDir, 'multitask-mission-state.json')), 'state file must exist');
+    assert.ok(existsSync(join(runDir, 'multitask-mission-report.md')), 'report markdown must exist');
+    assert.ok(existsSync(join(runDir, 'multitask-mission-report.json')), 'report json must exist');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('real-multitask still prepares and reuses its work branch correctly', async () => {
+    const tmpRepo = initTempGitRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `real-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const mission = buildMissionFromGoal('Add docs note', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      allow_real_provider: true,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: true,
+      allow_pr_update: true,
+      allow_actions_read: true,
+      allow_repair: true,
+    };
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    const workBranch = `mission-${runId}`;
+
+    const result = await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    assert.ok(branchExists(tmpRepo, workBranch), 'work branch must be created');
+    assert.strictEqual(getCurrentBranch(tmpRepo), workBranch, 'work branch must be checked out');
+
+    const result2 = await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result2.verdict, 'MULTITASK_MISSION_DONE');
+    assert.strictEqual(getCurrentBranch(tmpRepo), workBranch, 'existing work branch must remain checked out');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+});
+
+describe('final review glob scope', () => {
+  test('exact allowed file passes', () => {
+    const diff = 'diff --git a/docs/proofs/part1.md b/docs/proofs/part1.md\n+line';
+    assert.deepStrictEqual(collectUnauthorizedFiles(diff, ['docs/proofs/part1.md']), []);
+  });
+
+  test('docs/proofs/*.md accepts docs/proofs/part1.md', () => {
+    const diff = 'diff --git a/docs/proofs/part1.md b/docs/proofs/part1.md\n+line';
+    assert.deepStrictEqual(collectUnauthorizedFiles(diff, ['docs/proofs/*.md']), []);
+  });
+
+  test('nested or unrelated files outside the pattern are rejected', () => {
+    const diff =
+      'diff --git a/docs/proofs/part1.md b/docs/proofs/part1.md\n+line\n' +
+      'diff --git a/src/secret.ts b/src/secret.ts\n+line';
+    assert.deepStrictEqual(collectUnauthorizedFiles(diff, ['docs/proofs/*.md']), ['src/secret.ts']);
+  });
+
+  test('Windows separators are normalized', () => {
+    const diff = 'diff --git a/docs/proofs/part1.md b/docs/proofs/part1.md\n+line';
+    assert.deepStrictEqual(collectUnauthorizedFiles(diff, ['docs\\proofs\\*.md']), []);
+  });
+
+  test('traversal or absolute paths remain rejected', () => {
+    const diff =
+      'diff --git a/../secret.md b/../secret.md\n+line\n' +
+      'diff --git a//etc/passwd b//etc/passwd\n+line';
+    const unauthorized = collectUnauthorizedFiles(diff, ['docs/*.md']);
+    assert.ok(unauthorized.includes('../secret.md'));
+    assert.ok(unauthorized.includes('/etc/passwd'));
+  });
+
+  test('final review and task guardrails produce consistent scope decisions', () => {
+    const patterns = ['docs/**/*.md', 'src/*.ts'];
+    const files = ['docs/proofs/part1.md', 'src/index.ts', 'src/secret.ts', '../escape.md', '/etc/passwd'];
+    const guardrails = { allow_modify: patterns, deny_modify: [] as string[] };
+
+    for (const file of files) {
+      const guardResult = validateFileList([file], guardrails);
+      const diff = `diff --git a/${file} b/${file}\n+line`;
+      const unauthorized = collectUnauthorizedFiles(diff, patterns);
+      if (guardResult.ok) {
+        assert.deepStrictEqual(unauthorized, [], `expected ${file} to be allowed by final review`);
+      } else {
+        assert.ok(unauthorized.includes(file), `expected ${file} to be unauthorized by final review`);
+      }
+    }
   });
 });

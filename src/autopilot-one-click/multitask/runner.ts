@@ -183,6 +183,11 @@ function mapAutopilotVerdict(
   return { verdict: 'MULTITASK_MISSION_FAILED', reason: baseReason };
 }
 
+function isRepoMutationAllowed(mission: AutopilotPlanMission): boolean {
+  const caps = mission.capabilities;
+  return caps.allow_repo_apply || caps.allow_repo_commit || caps.allow_repo_push;
+}
+
 function buildFailureResult(
   mission: AutopilotPlanMission,
   planResult: AutopilotPlanResult,
@@ -258,50 +263,52 @@ export async function runMultitaskMission(
   }
 
   if (resume) {
-    const requiredCommits: { sha: string; task_id: string; kind: string }[] = [];
-    const absent: { task_id: string; kind: string }[] = [];
-    for (const s of state.tasks) {
-      if (s.status === 'accepted') {
-        if (s.commit_sha) {
-          requiredCommits.push({ sha: s.commit_sha, task_id: s.task_id, kind: 'commit_sha' });
-        } else {
-          absent.push({ task_id: s.task_id, kind: 'commit_sha' });
-        }
-      } else if (s.status === 'fixed_and_accepted') {
-        if (s.commit_sha) {
-          requiredCommits.push({ sha: s.commit_sha, task_id: s.task_id, kind: 'commit_sha' });
-        } else {
-          absent.push({ task_id: s.task_id, kind: 'commit_sha' });
-        }
-        if (s.fix_commit_sha) {
-          requiredCommits.push({ sha: s.fix_commit_sha, task_id: s.task_id, kind: 'fix_commit_sha' });
-        } else {
-          absent.push({ task_id: s.task_id, kind: 'fix_commit_sha' });
+    if (isRepoMutationAllowed(mission)) {
+      const requiredCommits: { sha: string; task_id: string; kind: string }[] = [];
+      const absent: { task_id: string; kind: string }[] = [];
+      for (const s of state.tasks) {
+        if (s.status === 'accepted') {
+          if (s.commit_sha) {
+            requiredCommits.push({ sha: s.commit_sha, task_id: s.task_id, kind: 'commit_sha' });
+          } else {
+            absent.push({ task_id: s.task_id, kind: 'commit_sha' });
+          }
+        } else if (s.status === 'fixed_and_accepted') {
+          if (s.commit_sha) {
+            requiredCommits.push({ sha: s.commit_sha, task_id: s.task_id, kind: 'commit_sha' });
+          } else {
+            absent.push({ task_id: s.task_id, kind: 'commit_sha' });
+          }
+          if (s.fix_commit_sha) {
+            requiredCommits.push({ sha: s.fix_commit_sha, task_id: s.task_id, kind: 'fix_commit_sha' });
+          } else {
+            absent.push({ task_id: s.task_id, kind: 'fix_commit_sha' });
+          }
         }
       }
-    }
 
-    if (absent.length > 0) {
-      const details = absent.map((entry) => `${entry.kind} for task ${entry.task_id}`).join(', ');
-      const reason = `Resume aborted: required accepted commits are missing from state: ${details}`;
-      state.last_error = reason;
-      saveMissionState(runDir, state, options.writeStateFn);
-      return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
-    }
+      if (absent.length > 0) {
+        const details = absent.map((entry) => `${entry.kind} for task ${entry.task_id}`).join(', ');
+        const reason = `Resume aborted: required accepted commits are missing from state: ${details}`;
+        state.last_error = reason;
+        saveMissionState(runDir, state, options.writeStateFn);
+        return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
+      }
 
-    const missing = requiredCommits.filter(
-      (entry) => !isAncestor(mission.repo_path, entry.sha, workBranch, gitExec)
-    );
-    if (missing.length > 0) {
-      const details = missing
-        .map((entry) => `${entry.kind} ${entry.sha} for task ${entry.task_id}`)
-        .join(', ');
-      const reason = `Resume aborted: required accepted commits are not ancestors of ${workBranch}: ${details}`;
-      state.last_error = reason;
-      saveMissionState(runDir, state, options.writeStateFn);
-      return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
+      const missing = requiredCommits.filter(
+        (entry) => !isAncestor(mission.repo_path, entry.sha, workBranch, gitExec)
+      );
+      if (missing.length > 0) {
+        const details = missing
+          .map((entry) => `${entry.kind} ${entry.sha} for task ${entry.task_id}`)
+          .join(', ');
+        const reason = `Resume aborted: required accepted commits are not ancestors of ${workBranch}: ${details}`;
+        state.last_error = reason;
+        saveMissionState(runDir, state, options.writeStateFn);
+        return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
+      }
     }
-  } else {
+  } else if (isRepoMutationAllowed(mission)) {
     try {
       if (branchExists(mission.repo_path, workBranch, gitExec)) {
         if (!isBranchBasedOn(mission.repo_path, workBranch, mission.base_branch, baseSha, gitExec)) {
@@ -354,24 +361,26 @@ export async function runMultitaskMission(
   const latestStates = mapAutopilotResultToTaskStates(autopilotResult);
   state.tasks = markDescendantsSkipped(planResult.plan.tasks, mergeTaskStates(state.tasks, latestStates));
 
-  // Roll back rejected/blocked task commits from the mission branch.
-  const rollbackCommits = state.tasks
-    .filter((s) => s.status === 'blocked' || s.status === 'failed' || s.status === 'needs_human')
-    .map((s) => s.commit_sha)
-    .filter((sha): sha is string => typeof sha === 'string' && sha.length > 0);
-  if (rollbackCommits.length > 0) {
-    try {
-      checkoutBranch(mission.repo_path, workBranch, gitExec);
-      revertCommits(mission.repo_path, rollbackCommits, gitExec);
-      if (mission.capabilities.allow_repo_push) {
-        const pushResult = gitExec(['push', 'origin', workBranch], { cwd: mission.repo_path });
-        if (pushResult.status !== 0) {
-          state.last_error = `Rollback revert push failed: ${pushResult.stderr}`;
+  // Roll back rejected/blocked task commits from the mission branch only when mutation is allowed.
+  if (isRepoMutationAllowed(mission)) {
+    const rollbackCommits = state.tasks
+      .filter((s) => s.status === 'blocked' || s.status === 'failed' || s.status === 'needs_human')
+      .map((s) => s.commit_sha)
+      .filter((sha): sha is string => typeof sha === 'string' && sha.length > 0);
+    if (rollbackCommits.length > 0) {
+      try {
+        checkoutBranch(mission.repo_path, workBranch, gitExec);
+        revertCommits(mission.repo_path, rollbackCommits, gitExec);
+        if (mission.capabilities.allow_repo_push) {
+          const pushResult = gitExec(['push', 'origin', workBranch], { cwd: mission.repo_path });
+          if (pushResult.status !== 0) {
+            state.last_error = `Rollback revert push failed: ${pushResult.stderr}`;
+          }
         }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        state.last_error = `Rollback failed: ${message}`;
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      state.last_error = `Rollback failed: ${message}`;
     }
   }
 
@@ -379,9 +388,11 @@ export async function runMultitaskMission(
   saveMissionState(runDir, state, options.writeStateFn);
 
   const allRequiredAccepted = allRequiredTasksAccepted(planResult.plan.tasks, state.tasks);
-  const integratedDiff = options.collectDiffFn
-    ? options.collectDiffFn(mission.repo_path, mission.base_branch, workBranch)
-    : collectDiff(mission.repo_path, mission.base_branch, workBranch);
+  const integratedDiff = isRepoMutationAllowed(mission)
+    ? options.collectDiffFn
+      ? options.collectDiffFn(mission.repo_path, mission.base_branch, workBranch)
+      : collectDiff(mission.repo_path, mission.base_branch, workBranch)
+    : '';
 
   const finalReviewInput = {
     mission,
