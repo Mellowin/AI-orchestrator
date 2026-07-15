@@ -89,7 +89,7 @@ export async function runAutopilotOneClick(
       const runMultitaskMissionFn = options.runMultitaskMissionFn ?? runMultitaskMission;
       let multitaskResult;
       try {
-        multitaskResult = await runMultitaskMissionFn(mission, planResult, { command });
+        multitaskResult = await runMultitaskMissionFn(mission, planResult, { command, resume: options.resume });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         const finishedAt = new Date().toISOString();

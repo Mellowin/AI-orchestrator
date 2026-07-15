@@ -27,7 +27,7 @@ export function writeMultitaskMissionReport(
   const taskRows = result.task_results
     .map(
       (t) =>
-        `| ${t.task_id} | ${t.title} | ${t.status} | ${t.commit_sha ? t.commit_sha.slice(0, 7) : '-'} |`
+        `| ${t.task_id} | ${t.title} | ${t.status} | ${t.commit_sha ? t.commit_sha.slice(0, 7) : '-'} | ${t.reason ?? '-'} |`
     )
     .join('\n');
 
@@ -41,17 +41,19 @@ export function writeMultitaskMissionReport(
     `- **Duration:** ${durationMs}ms`,
     `- **Verdict:** ${result.verdict}`,
     `- **Reason:** ${result.reason}`,
+    result.work_branch ? `- **Work branch:** ${result.work_branch}` : '',
+    result.pr ? `- **PR:** #${result.pr.number} (${result.pr.url})` : '',
     '',
     '## Tasks',
     '',
-    '| Task | Title | Status | Commit |',
-    '|------|-------|--------|--------|',
-    taskRows || '| - | - | - | - |',
+    '| Task | Title | Status | Commit | Reason |',
+    '|------|-------|--------|--------|--------|',
+    taskRows || '| - | - | - | - | - |',
     '',
     '## Final review',
     '',
     result.final_review
-      ? `- **Verdict:** ${result.final_review.verdict}\n- **Summary:** ${result.final_review.summary}\n- **Caveats:** ${result.final_review.caveats.length > 0 ? result.final_review.caveats.join(', ') : 'none'}`
+      ? `- **Verdict:** ${result.final_review.verdict}\n- **Summary:** ${result.final_review.summary}\n- **Caveats:** ${result.final_review.caveats.length > 0 ? result.final_review.caveats.join(', ') : 'none'}${result.final_review.unauthorized_files && result.final_review.unauthorized_files.length > 0 ? `\n- **Unauthorized files:** ${result.final_review.unauthorized_files.join(', ')}` : ''}${result.final_review.acceptance_gaps && result.final_review.acceptance_gaps.length > 0 ? `\n- **Acceptance gaps:** ${result.final_review.acceptance_gaps.join(', ')}` : ''}`
       : '- No final review performed.',
     '',
     '## Next human action',

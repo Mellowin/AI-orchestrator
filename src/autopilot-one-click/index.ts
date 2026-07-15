@@ -59,6 +59,8 @@ function parseArgs(rawArgs: string[]): { input: string; options: AutopilotOneCli
       i += 1;
     } else if (arg === '--yes') {
       options.yes = true;
+    } else if (arg === '--resume') {
+      options.resume = true;
     } else if (arg.startsWith('--')) {
       throw new Error(`Unknown option: ${arg}`);
     } else {
@@ -87,7 +89,7 @@ export async function main(rawArgs: string[] = process.argv.slice(2)): Promise<v
   if (rawArgs.length === 0) {
     console.error('[autopilot-one-click] Error: mission config path or raw goal is required');
     console.error('[autopilot-one-click] Usage: npx tsx src/cli.ts autopilot-one-click <mission.json>');
-    console.error('                                     autopilot-one-click "goal text" [--preset safe|read-ci|real-pr|real-repair|real-multitask|multitask-safe]');
+    console.error('                                     autopilot-one-click "goal text" [--preset safe|read-ci|real-pr|real-repair|real-multitask|multitask-safe] [--resume]');
     process.exitCode = 1;
     return;
   }

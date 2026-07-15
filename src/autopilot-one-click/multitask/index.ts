@@ -5,6 +5,7 @@ export type {
   MultitaskMissionResult,
   MultitaskMissionVerdict,
   MultitaskMissionTaskResult,
+  MultitaskMissionTaskState,
   MultitaskMissionFinalReview,
   RunMultitaskMissionOptions,
   FinalReviewInput,

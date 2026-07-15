@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildMissionFromGoal, MissionBuilderError } from '../src/autopilot-one-click/mission-builder.js';
@@ -8,6 +8,39 @@ import { runAutopilotPlan } from '../src/autopilot-plan/runner.js';
 import { runMultitaskMission, loadMissionState } from '../src/autopilot-one-click/multitask/runner.js';
 import { runAutopilotOneClick } from '../src/autopilot-one-click/runner.js';
 import type { AutopilotRunResult } from '../src/autopilot-run/types.js';
+
+function fakeGitExec(acceptedCommits: string[] = []) {
+  return (args: string[], options?: { cwd?: string }) => {
+    const command = args[0];
+    if (command === 'rev-parse' && args[1] === 'main') {
+      return { status: 0, stdout: 'base-sha-1234567890abcdef\n', stderr: '' };
+    }
+    if (command === 'rev-parse' && args[1] === '--abbrev-ref' && args[2] === 'HEAD') {
+      return { status: 0, stdout: 'mission-branch\n', stderr: '' };
+    }
+    if (command === 'checkout' || command === 'revert' || command === 'push') {
+      return { status: 0, stdout: '', stderr: '' };
+    }
+    if (command === 'checkout' && args[1] === '-B') {
+      return { status: 0, stdout: '', stderr: '' };
+    }
+    if (command === 'merge-base' && args[1] === '--is-ancestor') {
+      const sha = args[2];
+      return { status: acceptedCommits.includes(sha) ? 0 : 1, stdout: '', stderr: '' };
+    }
+    if (command === 'merge-base') {
+      return { status: 0, stdout: 'base-sha-1234567890abcdef\n', stderr: '' };
+    }
+    if (command === 'rev-parse' && args[1] === '--verify') {
+      return { status: 0, stdout: args[2] + '\n', stderr: '' };
+    }
+    return { status: 0, stdout: '', stderr: '' };
+  };
+}
+
+function fakeCollectDiff(): string {
+  return 'diff --git a/docs/AUTOPILOT_PLAN.md b/docs/AUTOPILOT_PLAN.md\n+added line';
+}
 
 describe('autopilot-one-click multitask presets', () => {
   test('multitask-safe preset is fake with no writes', () => {
@@ -62,6 +95,7 @@ describe('autopilot-one-click multitask mission runner', () => {
     const planResult = await runAutopilotPlan(mission, { command: 'test' });
     assert.strictEqual(planResult.exit_code, 0);
 
+    const commitSha = 'a'.repeat(40);
     const fakeAutopilotResult: AutopilotRunResult = {
       config: {} as AutopilotRunResult['config'],
       command: 'test',
@@ -91,7 +125,7 @@ describe('autopilot-one-click multitask mission runner', () => {
             status: 'passed',
             provider_attempts: 1,
             recovery_attempts: 0,
-            commit_sha: 'a'.repeat(40),
+            commit_sha: commitSha,
           },
         ],
         tasks_total: 1,
@@ -100,7 +134,7 @@ describe('autopilot-one-click multitask mission runner', () => {
         tasks_blocked: 0,
         tasks_skipped: 0,
         tasks_caveats: 0,
-        commits: ['a'.repeat(40)],
+        commits: [commitSha],
         branch: `mission-${runId}`,
         pushed: false,
         caveats: [],
@@ -111,16 +145,18 @@ describe('autopilot-one-click multitask mission runner', () => {
     const result = await runMultitaskMission(mission, planResult, {
       command: 'test',
       runAutopilotRunFn: async () => fakeAutopilotResult,
+      gitExecFn: fakeGitExec([commitSha]),
+      collectDiffFn: fakeCollectDiff,
     });
 
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
     assert.strictEqual(result.exit_code, 0);
     assert.strictEqual(result.task_results.length, 1);
     assert.strictEqual(result.task_results[0].status, 'accepted');
-    assert.ok(existsSync(join(tmpDir, runId, 'multitask-mission-report.md')));
-    assert.ok(existsSync(join(tmpDir, runId, 'multitask-mission-report.json')));
+    assert.ok(existsSync(join(tmpDir, 'missions', runId, 'multitask-mission-report.md')));
+    assert.ok(existsSync(join(tmpDir, 'missions', runId, 'multitask-mission-report.json')));
 
-    const state = loadMissionState(join(tmpDir, runId));
+    const state = loadMissionState(join(tmpDir, 'missions', runId));
     assert.ok(state);
     assert.strictEqual(state?.stage, 'completed');
     assert.strictEqual(state?.result?.verdict, 'MULTITASK_MISSION_DONE');
@@ -128,7 +164,7 @@ describe('autopilot-one-click multitask mission runner', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test('repair-exhausted autopilot maps to MULTITASK_MISSION_REPAIR_EXHAUSTED', async () => {
+  test('repair-exhausted autopilot maps to MULTITASK_MISSION_FAILED', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'multi-'));
     const runId = `multitask-repair-${Date.now()}`;
     const mission = buildMissionFromGoal('Fix CI', {
@@ -157,9 +193,11 @@ describe('autopilot-one-click multitask mission runner', () => {
     const result = await runMultitaskMission(mission, planResult, {
       command: 'test',
       runAutopilotRunFn: async () => fakeAutopilotResult,
+      gitExecFn: fakeGitExec(),
+      collectDiffFn: fakeCollectDiff,
     });
 
-    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_REPAIR_EXHAUSTED');
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
     assert.notStrictEqual(result.exit_code, 0);
 
     rmSync(tmpDir, { recursive: true, force: true });

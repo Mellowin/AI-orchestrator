@@ -25,8 +25,7 @@ export type AutopilotOneClickVerdict =
   | 'MULTITASK_MISSION_DONE_WITH_CAVEATS'
   | 'MULTITASK_MISSION_FAILED'
   | 'MULTITASK_MISSION_NEEDS_HUMAN'
-  | 'MULTITASK_MISSION_CI_TIMEOUT'
-  | 'MULTITASK_MISSION_REPAIR_EXHAUSTED';
+  | 'MULTITASK_MISSION_EXTERNAL_BLOCKER';
 
 export interface AutopilotOneClickOptions {
   mode?: 'fake' | 'github';
@@ -38,11 +37,12 @@ export interface AutopilotOneClickOptions {
   output_dir?: string;
   allowed_files?: string[];
   yes?: boolean;
+  resume?: boolean;
   /** Internal test hook for the multitask mission runner. */
   runMultitaskMissionFn?: (
     mission: AutopilotPlanMission,
     planResult: AutopilotPlanResult,
-    options: { command: string }
+    options: { command: string; resume?: boolean }
   ) => Promise<import('./multitask/types.js').MultitaskMissionResult>;
 }
 
