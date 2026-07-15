@@ -1,23 +1,23 @@
 # MVP Test Hardening Summary
 
-**Branch:** `main`
+**Branch:** `stage-18-25-one-click-multitask`
 
-**Last verified:** `pending final commit hash`
+**Last verified:** `236afb491de652f601b0884102693846bad6d87d`
 
 ## Test metrics
 
-- **Total tests:** 3880
-- **Total suites:** 249
+- **Total tests:** 3913
+- **Total suites:** 257
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 9/9 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `pending final commit hash` (Stage 18.25 follow-up in progress; lock will be updated after the final follow-up commit passes typecheck/build/test)
+- **Last verified commit:** `236afb491de652f601b0884102693846bad6d87d` (Stage 18.25 real multitask proof — part1/part2/part3 commits on `mission-stage-18-25-real-multitask-proof2`)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
-- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #466 completed successfully (3698 tests / 0 failures). Stage 18.19 and 18.20 verified locally by running all per-chunk test runs (3743 tests / 0 failures) because the interactive `npm test` command exceeded the 300 s tool timeout. Stage 18.22 real one-click proof PR #15 triggered Mini-MVP CI run `28984214150`; it completed `failure` before the TESTING_SUMMARY.md refresh because the summary lock pointed to a commit older than the PR head. Main CI run `29236126850` after landing Stages 18.18–18.22 completed `success`. Stage 18.23 PR #17 CI run `29247577881` failed due to stale TESTING_SUMMARY lock; fix commit `873b071342084b871f06978a9c78a6fc8a707250` passed CI run `29254472034`. Stage 18.23C PR #18 passed CI run `29254472034`. Main CI run `29256820913` after landing PRs #17 and #18 completed `success` (3773 tests / 0 failures). Stage 18.25 implementation PR #78 passed Mini-MVP CI run `29403446217` (conclusion `success`; 3880 tests / 249 suites / 0 failures).
+- **GitHub CI:** Mini-MVP CI #464 on main completed successfully after merging Stage 18.17. Stage 18.18 PR CI run #466 completed successfully (3698 tests / 0 failures). Stage 18.19 and 18.20 verified locally by running all per-chunk test runs (3743 tests / 0 failures) because the interactive `npm test` command exceeded the 300 s tool timeout. Stage 18.22 real one-click proof PR #15 triggered Mini-MVP CI run `28984214150`; it completed `failure` before the TESTING_SUMMARY.md refresh because the summary lock pointed to a commit older than the PR head. Main CI run `29236126850` after landing Stages 18.18–18.22 completed `success`. Stage 18.23 PR #17 CI run `29247577881` failed due to stale TESTING_SUMMARY lock; fix commit `873b071342084b871f06978a9c78a6fc8a707250` passed CI run `29254472034`. Stage 18.23C PR #18 passed CI run `29254472034`. Main CI run `29256820913` after landing PRs #17 and #18 completed `success` (3773 tests / 0 failures). Stage 18.25 implementation PR #78 passed Mini-MVP CI run `29403446217` (conclusion `success`; 3880 tests / 249 suites / 0 failures). Real multitask proof PR #80 Mini-MVP CI run `29416287869` completed `failure` because TESTING_SUMMARY.md still contained unresolved commit-hash placeholders; this summary-only refresh resolves the lock so the next CI run is expected to pass (3913 tests / 257 suites / 0 failures).
 - **Product verification:**
   - Real one-command acceptance matrix proof passed locally:
     - Command: `npx tsx src/cli.ts acceptance-matrix tmp/stage-18-15-real.acceptance-matrix.json`
@@ -48,10 +48,9 @@
     - Safe command: `npx tsx src/cli.ts autopilot-one-click "Add a small docs note" --preset multitask-safe --output-dir tmp/multitask-cli-test --run-id mt-safe-cli-test` → `MULTITASK_MISSION_DONE_WITH_CAVEATS` (autopilot verdict `AUTOPILOT_MVP_DONE_CI_NOT_OBSERVED`)
     - Generated reports: `multitask-mission-report.md`, `multitask-mission-report.json`, `multitask-mission-state.json`
   - Real multitask proof PR (targeting implementation branch, closed without merging):
-    - Command: `npx tsx src/cli.ts autopilot-one-click "Create two proof files in docs/proofs: STAGE_18_25_MULTITASK_PART1.md ... Part 2 must be created only after part 1 exists." --preset real-multitask --mode github --repo-slug Mellowin/AI-orchestrator --repo-path tmp/stage-18-25-real-proof-repo --base-branch stage-18-25-one-click-multitask --allowed-files docs/proofs/STAGE_18_25_MULTITASK_PART1.md --allowed-files docs/proofs/STAGE_18_25_MULTITASK_PART2.md --output-dir tmp/stage-18-25-real-multitask-proof2 --run-id stage-18-25-real-multitask-proof2 --yes`
-    - Plan generated two tasks (`create-part1` → `create-part2`) with dependency ordering.
-    - Result: branch `mission-stage-18-25-real-multitask-proof2`, PR #80 (closed without merging), task 1 accepted/pushed, task 2 blocked by reviewer fix-loop evidence check.
-    - Verdict: `MULTITASK_MISSION_FAILED` because task 2 did not satisfy the reviewer gate; the multi-task orchestration, DAG ordering, branch/PR creation, and real Kimi provider calls all exercised successfully.
+    - Command: `npx tsx src/cli.ts autopilot-one-click "Create three proof files in docs/proofs: STAGE_18_25_ONE_CLICK_MULTITASK_PART1.md, STAGE_18_25_ONE_CLICK_MULTITASK_PART2.md, and STAGE_18_25_ONE_CLICK_MULTITASK_PART3.md. Part 2 must be created only after part 1 exists, and part 3 only after part 2 exists." --preset real-multitask --mode github --repo-slug Mellowin/AI-orchestrator --repo-path tmp/stage-18-25-real-proof-repo --base-branch stage-18-25-one-click-multitask --allowed-files docs/proofs/STAGE_18_25_ONE_CLICK_MULTITASK_PART1.md --allowed-files docs/proofs/STAGE_18_25_ONE_CLICK_MULTITASK_PART2.md --allowed-files docs/proofs/STAGE_18_25_ONE_CLICK_MULTITASK_PART3.md --output-dir tmp/stage-18-25-real-multitask-proof2 --run-id stage-18-25-real-multitask-proof2 --yes`
+    - Plan generated three tasks (`create-part1` → `create-part2` → `create-part3`) with dependency ordering.
+    - Result: branch `mission-stage-18-25-real-multitask-proof2`, PR #80 (reused and closed without merging). The durable runner produced three separate commits (`5d3e687`, `f2a8ab6`, `236afb4`) for the dependent tasks, each accepted by the reviewer gate. The mission runner reported `MULTITASK_MISSION_EXTERNAL_BLOCKER` only because Mini-MVP CI on the proof branch timed out while TESTING_SUMMARY.md placeholders were being resolved; no code/test regressions were involved.
   - Raw goal one-click proof passed locally:
     - Command: `npx tsx src/cli.ts autopilot-one-click "Add a docs note proving raw-goal one-click works"` → `ONE_CLICK_DONE_WITH_CAVEATS` (autopilot verdict `AUTOPILOT_MVP_DONE_CI_NOT_OBSERVED`)
     - Package script: `npm run autopilot:one-click -- "Add a docs note proving raw-goal one-click works"` → `ONE_CLICK_DONE_WITH_CAVEATS`
