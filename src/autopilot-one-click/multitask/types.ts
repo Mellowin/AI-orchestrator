@@ -20,7 +20,7 @@ export type MultitaskMissionVerdict =
 
 export interface MultitaskMissionTaskState {
   task_id: string;
-  status: 'pending' | 'running' | 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'needs_human';
+  status: 'pending' | 'running' | 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human';
   commit_sha?: string;
   fix_commit_sha?: string;
   reason?: string;
@@ -30,7 +30,7 @@ export interface MultitaskMissionTaskState {
 export interface MultitaskMissionTaskResult {
   task_id: string;
   title: string;
-  status: 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'needs_human';
+  status: 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human';
   commit_sha?: string;
   fix_commit_sha?: string;
   reason?: string;

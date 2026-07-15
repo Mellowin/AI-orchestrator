@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -750,17 +750,21 @@ describe('multitask safe zero-mutation', () => {
     return { tmpRepo, tmpOut, runId, mission, planResult };
   }
 
-  test('multitask-safe does not call createWorkBranch', async () => {
+  test('multitask-safe returns DONE_WITH_CAVEATS and skips autopilot execution', async () => {
     const { tmpRepo, tmpOut, mission, planResult } = await setupSafeMissionInTempRepo();
     const calls: string[][] = [];
+    let autopilotCalled = false;
     const result = await runMultitaskMission(mission, planResult, {
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      runAutopilotRunFn: async () => {
+        autopilotCalled = true;
+        return {} as AutopilotRunResult;
+      },
       gitExecFn: makeRecordingGitExec(calls),
       collectDiffFn: () => '',
     });
 
-    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE_WITH_CAVEATS');
+    assert.strictEqual(autopilotCalled, false, 'autopilot-run must not be called in safe mode');
     assert.ok(!calls.some((args) => args[0] === 'checkout' && args[1] === '-B'), 'must not create work branch');
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
@@ -770,8 +774,9 @@ describe('multitask safe zero-mutation', () => {
     const { tmpRepo, tmpOut, mission, planResult } = await setupSafeMissionInTempRepo();
     const calls: string[][] = [];
     await runMultitaskMission(mission, planResult, {
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      runAutopilotRunFn: async () => {
+        throw new Error('autopilot-run must not be invoked in safe mode');
+      },
       gitExecFn: makeRecordingGitExec(calls),
       collectDiffFn: () => '',
     });
@@ -781,7 +786,7 @@ describe('multitask safe zero-mutation', () => {
     rmSync(tmpOut, { recursive: true, force: true });
   });
 
-  test('existing mission branch is not checked out', async () => {
+  test('existing mission branch is not checked out in safe mode', async () => {
     const { tmpRepo, tmpOut, runId, mission, planResult } = await setupSafeMissionInTempRepo();
     const workBranch = `mission-${runId}`;
     spawnSync('git', ['checkout', '-B', workBranch, 'main'], {
@@ -793,8 +798,9 @@ describe('multitask safe zero-mutation', () => {
 
     const calls: string[][] = [];
     await runMultitaskMission(mission, planResult, {
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      runAutopilotRunFn: async () => {
+        throw new Error('autopilot-run must not be invoked in safe mode');
+      },
       gitExecFn: makeRecordingGitExec(calls),
       collectDiffFn: () => '',
     });
@@ -805,12 +811,13 @@ describe('multitask safe zero-mutation', () => {
     rmSync(tmpOut, { recursive: true, force: true });
   });
 
-  test('missing mission branch is not created', async () => {
+  test('missing mission branch is not created in safe mode', async () => {
     const { tmpRepo, tmpOut, runId, mission, planResult } = await setupSafeMissionInTempRepo();
     const workBranch = `mission-${runId}`;
     await runMultitaskMission(mission, planResult, {
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      runAutopilotRunFn: async () => {
+        throw new Error('autopilot-run must not be invoked in safe mode');
+      },
       collectDiffFn: () => '',
     });
 
@@ -819,12 +826,13 @@ describe('multitask safe zero-mutation', () => {
     rmSync(tmpOut, { recursive: true, force: true });
   });
 
-  test('current branch remains unchanged', async () => {
+  test('current branch remains unchanged in safe mode', async () => {
     const { tmpRepo, tmpOut, mission, planResult } = await setupSafeMissionInTempRepo();
     const before = getCurrentBranch(tmpRepo);
     await runMultitaskMission(mission, planResult, {
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      runAutopilotRunFn: async () => {
+        throw new Error('autopilot-run must not be invoked in safe mode');
+      },
       collectDiffFn: () => '',
     });
     const after = getCurrentBranch(tmpRepo);
@@ -837,8 +845,9 @@ describe('multitask safe zero-mutation', () => {
   test('safe plan/report/state artifacts are still written', async () => {
     const { tmpRepo, tmpOut, runId, mission, planResult } = await setupSafeMissionInTempRepo();
     const result = await runMultitaskMission(mission, planResult, {
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed' }]),
+      runAutopilotRunFn: async () => {
+        throw new Error('autopilot-run must not be invoked in safe mode');
+      },
       collectDiffFn: () => '',
     });
 
@@ -847,6 +856,7 @@ describe('multitask safe zero-mutation', () => {
     assert.ok(existsSync(join(runDir, 'multitask-mission-state.json')), 'state file must exist');
     assert.ok(existsSync(join(runDir, 'multitask-mission-report.md')), 'report markdown must exist');
     assert.ok(existsSync(join(runDir, 'multitask-mission-report.json')), 'report json must exist');
+    assert.ok(result.task_states?.every((s) => s.status === 'skipped_safe_mode'), 'tasks must be marked skipped_safe_mode');
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
   });
@@ -948,5 +958,398 @@ describe('final review glob scope', () => {
         assert.ok(unauthorized.includes(file), `expected ${file} to be unauthorized by final review`);
       }
     }
+  });
+});
+
+
+describe('fresh-run state isolation', () => {
+  function initTempGitRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'repo-'));
+    spawnSync('git', ['init', '--initial-branch=main'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf-8', shell: false });
+    writeFileSync(join(dir, 'README.md'), '# test\n');
+    spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: dir, encoding: 'utf-8', shell: false });
+    return dir;
+  }
+
+  async function setupFreshMission(): Promise<{
+    tmpRepo: string;
+    tmpOut: string;
+    runId: string;
+    mission: AutopilotPlanMission;
+    planResult: Awaited<ReturnType<typeof runAutopilotPlan>>;
+  }> {
+    const tmpRepo = initTempGitRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `fresh-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const mission = buildMissionFromGoal('Add docs note', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      allow_real_provider: true,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: true,
+      allow_pr_update: true,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    return { tmpRepo, tmpOut, runId, mission, planResult };
+  }
+
+  test('resume loads and validates persisted state', async () => {
+    const { tmpRepo, tmpOut, runId, mission, planResult } = await setupFreshMission();
+    const runDir = getMissionRunDir(tmpOut, runId);
+    const oldCommit = 'a'.repeat(40);
+    saveMissionState(runDir, {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: 'base-sha-1234567890abcdef',
+      work_branch: `mission-${runId}`,
+      tasks: [{ task_id: planResult.plan.tasks[0].id, status: 'accepted', commit_sha: oldCommit }],
+    });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: oldCommit }]),
+      gitExecFn: fakeGitExec([oldCommit]),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    assert.strictEqual(result.task_states[0].commit_sha, oldCommit, 'resume must preserve old accepted commit');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('existing state without resume is not reused', async () => {
+    const { tmpRepo, tmpOut, runId, mission, planResult } = await setupFreshMission();
+    const runDir = getMissionRunDir(tmpOut, runId);
+    const oldCommit = 'a'.repeat(40);
+    saveMissionState(runDir, {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: 'base-sha-1234567890abcdef',
+      work_branch: `mission-${runId}`,
+      tasks: [{ task_id: planResult.plan.tasks[0].id, status: 'accepted', commit_sha: oldCommit }],
+    });
+
+    const newCommit = 'b'.repeat(40);
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: false,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: newCommit }]),
+      gitExecFn: fakeGitExec([newCommit]),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    assert.strictEqual(result.task_states[0].commit_sha, newCommit, 'fresh run must use new commit, not old state');
+    const reloaded = loadMissionState(runDir);
+    assert.strictEqual(reloaded?.tasks[0].commit_sha, newCommit, 'persisted state must be overwritten with fresh run');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('accepted states from old run cannot survive into a fresh run', async () => {
+    const { tmpRepo, tmpOut, runId, mission, planResult } = await setupFreshMission();
+    const runDir = getMissionRunDir(tmpOut, runId);
+    saveMissionState(runDir, {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: 'base-sha-1234567890abcdef',
+      work_branch: `mission-${runId}`,
+      tasks: [{ task_id: planResult.plan.tasks[0].id, status: 'accepted', commit_sha: 'a'.repeat(40) }],
+    });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: false,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'c'.repeat(40) }]),
+      gitExecFn: fakeGitExec(['c'.repeat(40)]),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result.task_states[0].status, 'accepted');
+    assert.notStrictEqual(result.task_states[0].commit_sha, 'a'.repeat(40));
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('old commit SHAs cannot appear in the fresh result', async () => {
+    const { tmpRepo, tmpOut, runId, mission, planResult } = await setupFreshMission();
+    const runDir = getMissionRunDir(tmpOut, runId);
+    const staleCommit = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+    saveMissionState(runDir, {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: 'base-sha-1234567890abcdef',
+      work_branch: `mission-${runId}`,
+      tasks: [{ task_id: planResult.plan.tasks[0].id, status: 'accepted', commit_sha: staleCommit }],
+    });
+
+    const freshCommit = 'cafebabecafebabecafebabecafebabecafebabe';
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: false,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: freshCommit }]),
+      gitExecFn: fakeGitExec([freshCommit]),
+      collectDiffFn: () => '',
+    });
+
+    const allShas = result.task_states
+      ?.map((s) => [s.commit_sha, s.fix_commit_sha])
+      .flat()
+      .filter((sha): sha is string => typeof sha === 'string');
+    assert.ok(allShas !== undefined);
+    assert.ok(!allShas.includes(staleCommit), 'stale commit must not appear in fresh result');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('no accidental branch or PR duplication on fresh re-run', async () => {
+    const { tmpRepo, tmpOut, runId, mission, planResult } = await setupFreshMission();
+    const workBranch = `mission-${runId}`;
+
+    const firstResult = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: false,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) }], 'AUTOPILOT_GREEN'),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(firstResult.verdict, 'MULTITASK_MISSION_DONE');
+    assert.strictEqual(getCurrentBranch(tmpRepo), workBranch, 'work branch must be checked out after first run');
+
+    const secondResult = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: false,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'b'.repeat(40) }], 'AUTOPILOT_GREEN'),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(secondResult.verdict, 'MULTITASK_MISSION_DONE');
+    assert.strictEqual(getCurrentBranch(tmpRepo), workBranch, 'existing work branch must be reused, not duplicated');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+});
+
+describe('computePlanHash covers complete execution contract', () => {
+  function baseTask(): AutopilotPlanTask {
+    return {
+      id: 'task-a',
+      title: 'Task A',
+      goal: 'Implement A',
+      allowed_files: ['src/a.ts'],
+      denied_files: ['.env'],
+      checks: ['npm test'],
+      tests: [],
+      risk: 'low',
+      depends_on: [],
+      acceptance_criteria: ['A works'],
+      expected_result: 'A passes',
+      max_lines_changed: 100,
+    };
+  }
+
+  function basePlan(overrides: Partial<AutopilotPlanGeneratedPlan> = {}): AutopilotPlanGeneratedPlan {
+    return {
+      goal: 'Test plan',
+      mode: 'fake',
+      tasks: [baseTask()],
+      ci_enabled: false,
+      repair_enabled: false,
+      risk_level: 'low',
+      caveats: [],
+      ...overrides,
+    };
+  }
+
+  test('changing task id changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), id: 'task-b' }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing title changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), title: 'Different' }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing goal changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), goal: 'Different' }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing allowed_files changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), allowed_files: ['src/b.ts'] }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing denied_files changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), denied_files: ['secret.key'] }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing checks changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), checks: ['npm run lint'] }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing tests changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), tests: ['test/a.test.ts'] }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing depends_on changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), depends_on: ['task-x'] }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing acceptance_criteria changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), acceptance_criteria: ['Different criteria'] }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing expected_result changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), expected_result: 'Different result' }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing max_lines_changed changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), max_lines_changed: 999 }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('changing risk changes hash', () => {
+    const h1 = computePlanHash(basePlan());
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), risk: 'high' }] }));
+    assert.notStrictEqual(h1, h2);
+  });
+
+  test('harmless task property ordering does not change hash', () => {
+    const t1 = baseTask();
+    const t2 = {
+      risk: t1.risk,
+      id: t1.id,
+      title: t1.title,
+      goal: t1.goal,
+      allowed_files: t1.allowed_files,
+      denied_files: t1.denied_files,
+      checks: t1.checks,
+      tests: t1.tests,
+      depends_on: t1.depends_on,
+      acceptance_criteria: t1.acceptance_criteria,
+      expected_result: t1.expected_result,
+      max_lines_changed: t1.max_lines_changed,
+    } as AutopilotPlanTask;
+    assert.strictEqual(computePlanHash(basePlan({ tasks: [t1] })), computePlanHash(basePlan({ tasks: [t2] })));
+  });
+
+  test('task order does not change hash because of canonical sorting', () => {
+    const taskA = { ...baseTask(), id: 'a' };
+    const taskB = { ...baseTask(), id: 'b', allowed_files: ['src/b.ts'] };
+    const h1 = computePlanHash(basePlan({ tasks: [taskA, taskB] }));
+    const h2 = computePlanHash(basePlan({ tasks: [taskB, taskA] }));
+    assert.strictEqual(h1, h2);
+  });
+
+  test('normalizes Windows path separators', () => {
+    const h1 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), allowed_files: ['src/a.ts'] }] }));
+    const h2 = computePlanHash(basePlan({ tasks: [{ ...baseTask(), allowed_files: ['src\\a.ts'] }] }));
+    assert.strictEqual(h1, h2);
+  });
+});
+
+describe('real safe-mode production path', () => {
+  test('npm run one-click --preset multitask-safe returns DONE_WITH_CAVEATS without mutation', () => {
+    const runId = `safe-prod-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const outDir = mkdtempSync(join(tmpdir(), 'safe-prod-out-'));
+    const beforeBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      shell: false,
+    }).trim();
+
+    const result =
+      process.platform === 'win32'
+        ? spawnSync(
+            'cmd',
+            ['/c', 'npm', 'run', 'one-click', '--', 'Add a tiny safe-mode docs note', '--preset', 'multitask-safe', '--output-dir', outDir, '--run-id', runId, '--yes'],
+            {
+              cwd: process.cwd(),
+              encoding: 'utf-8',
+              shell: false,
+              stdio: ['ignore', 'pipe', 'pipe'],
+            }
+          )
+        : spawnSync(
+            'npm',
+            ['run', 'one-click', '--', 'Add a tiny safe-mode docs note', '--preset', 'multitask-safe', '--output-dir', outDir, '--run-id', runId, '--yes'],
+            {
+              cwd: process.cwd(),
+              encoding: 'utf-8',
+              shell: false,
+              stdio: ['ignore', 'pipe', 'pipe'],
+            }
+          );
+    const combined = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+
+    const afterBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      shell: false,
+    }).trim();
+
+    assert.strictEqual(result.status, 0, `CLI must exit 0; output: ${combined}`);
+    assert.ok(combined.includes('MULTITASK_MISSION_DONE_WITH_CAVEATS'), `output must contain safe-mode verdict; got: ${combined}`);
+    assert.strictEqual(afterBranch, beforeBranch, 'current branch must not change');
+
+    const workBranch = `mission-${runId}`;
+    const branchExistsNow = execFileSync('git', ['branch', '--list', workBranch], {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      shell: false,
+    }).trim();
+    assert.strictEqual(branchExistsNow, '', `work branch ${workBranch} must not be created`);
+
+    const runDir = join(outDir, 'missions', runId);
+    assert.ok(existsSync(join(runDir, 'multitask-mission-state.json')), 'state file must exist');
+    assert.ok(existsSync(join(runDir, 'multitask-mission-report.md')), 'report markdown must exist');
+
+    rmSync(outDir, { recursive: true, force: true });
   });
 });

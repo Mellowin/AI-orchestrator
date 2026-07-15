@@ -208,6 +208,55 @@ function buildFailureResult(
   };
 }
 
+function buildSafeModeResult(
+  mission: AutopilotPlanMission,
+  planResult: AutopilotPlanResult,
+  runDir: string,
+  state: PersistedMissionState,
+  options: RunMultitaskMissionOptions,
+  startedAt: string,
+  startTime: number
+): MultitaskMissionResult {
+  const safeReason = 'Safe mode: task planned but not executed because repository mutation is disabled';
+  const safeStates = planResult.plan.tasks.map((t) => ({
+    task_id: t.id,
+    status: 'skipped_safe_mode' as const,
+    reason: safeReason,
+  }));
+  state.tasks = safeStates;
+  state.stage = 'completed';
+
+  const taskResults: MultitaskMissionTaskResult[] = planResult.plan.tasks.map((t) => ({
+    task_id: t.id,
+    title: t.title,
+    status: 'skipped_safe_mode',
+    reason: safeReason,
+  }));
+
+  const result: MultitaskMissionResult = {
+    mission,
+    plan: planResult.plan,
+    plan_result: planResult,
+    task_results: taskResults,
+    task_states: safeStates,
+    verdict: 'MULTITASK_MISSION_DONE_WITH_CAVEATS',
+    reason: 'Safe mode: mission planned and validated; no repository mutation was performed.',
+    run_dir: runDir,
+    exit_code: 0,
+    next_human_action: 'To execute this mission, rerun with a mutation-capable preset (e.g., real-multitask).',
+    work_branch: state.work_branch,
+  };
+
+  state.result = result;
+  saveMissionState(runDir, state, options.writeStateFn);
+
+  const finishedAt = nowIso();
+  const durationMs = Date.now() - startTime;
+  writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+
+  return result;
+}
+
 export async function runMultitaskMission(
   mission: AutopilotPlanMission,
   planResult: AutopilotPlanResult,
@@ -231,7 +280,7 @@ export async function runMultitaskMission(
     return buildFailureResult(mission, planResult, runDir, `Failed to resolve base branch: ${message}`, startedAt, startTime);
   }
 
-  let state: PersistedMissionState | null = loadMissionState(runDir, options.readStateFn);
+  let state: PersistedMissionState | null = resume ? loadMissionState(runDir, options.readStateFn) : null;
   if (state) {
     if (state.plan_hash !== planHash) {
       return buildFailureResult(mission, planResult, runDir, 'Resume aborted: mission plan changed', startedAt, startTime);
@@ -260,6 +309,10 @@ export async function runMultitaskMission(
     state.last_error = reason;
     saveMissionState(runDir, state, options.writeStateFn);
     return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
+  }
+
+  if (!isRepoMutationAllowed(mission)) {
+    return buildSafeModeResult(mission, planResult, runDir, state, options, startedAt, startTime);
   }
 
   if (resume) {

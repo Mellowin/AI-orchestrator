@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import type { AutopilotPlanGeneratedPlan, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import type { MultitaskMissionResult, MultitaskMissionTaskState } from './types.js';
 
 export interface PersistedMissionState {
@@ -31,12 +32,44 @@ function ensureDir(path: string): void {
   }
 }
 
-export function computePlanHash(plan: { tasks: Array<{ id: string; allowed_files: string[]; depends_on?: string[] }> }): string {
-  const canonical = JSON.stringify(plan.tasks.map((t: { id: string; allowed_files: string[]; depends_on?: string[] }) => ({
+function normalizeSeparators(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.replace(/\\/g, '/');
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeSeparators);
+  }
+  return value;
+}
+
+function canonicalTask(t: AutopilotPlanTask) {
+  return {
     id: t.id,
-    allowed_files: [...t.allowed_files].sort(),
-    depends_on: t.depends_on ? [...t.depends_on].sort() : [],
-  })));
+    title: t.title,
+    goal: t.goal,
+    allowed_files: normalizeSeparators([...t.allowed_files].sort()),
+    denied_files: normalizeSeparators([...(t.denied_files ?? [])].sort()),
+    checks: normalizeSeparators([...(t.checks ?? [])].sort()),
+    tests: normalizeSeparators([...(t.tests ?? [])].sort()),
+    depends_on: [...(t.depends_on ?? [])].sort(),
+    acceptance_criteria: normalizeSeparators([...(t.acceptance_criteria ?? [])].sort()),
+    expected_result: t.expected_result ?? '',
+    max_lines_changed: t.max_lines_changed ?? null,
+    risk: t.risk,
+  };
+}
+
+export function computePlanHash(plan: AutopilotPlanGeneratedPlan): string {
+  const canonical = JSON.stringify({
+    goal: plan.goal,
+    mode: plan.mode,
+    ci_enabled: plan.ci_enabled,
+    repair_enabled: plan.repair_enabled,
+    risk_level: plan.risk_level,
+    tasks: [...plan.tasks]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map(canonicalTask),
+  });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
 }
 
