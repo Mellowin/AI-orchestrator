@@ -490,7 +490,10 @@ export async function runMvpRun(
   }
 
   let prResult: MvpRunResult['pr'] | undefined;
-  if (config.allow_github_pr_create && blockState?.status !== 'failed') {
+  const isPassingVerdict =
+    verdictResult.verdict === 'MVP_RUN_PASSED' ||
+    verdictResult.verdict === 'MVP_RUN_PASSED_WITH_CAVEATS';
+  if (config.allow_github_pr_create && isPassingVerdict) {
     const reportSummary = `${verdictResult.verdict}: ${verdictResult.reason}`;
     prResult = await createMvpRunPr(config, process.env.GITHUB_TOKEN ?? '', reportSummary);
     if (!prResult.created && prResult.classification) {
@@ -499,7 +502,10 @@ export async function runMvpRun(
   } else if (!config.allow_github_pr_create) {
     prResult = { created: false, reason: 'PR creation not attempted' };
   } else {
-    prResult = { created: false, reason: 'PR creation not attempted because the block failed' };
+    prResult = {
+      created: false,
+      reason: `PR creation not attempted because the block verdict is ${verdictResult.verdict}`,
+    };
   }
 
   const passed = taskReports.filter((t) => t.status === 'passed').length;

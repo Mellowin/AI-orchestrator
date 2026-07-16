@@ -372,4 +372,50 @@ describe('mvp-run product flow', () => {
       rmSync(config.report_dir, { recursive: true, force: true });
     }
   });
+
+  test('blocked task blocks PR creation', async () => {
+    const repo = createTempGitRepo();
+    const runId = `blocked-no-pr-${Date.now()}`;
+    const config: MvpRunConfig = {
+      ...baseConfig(repo.path, runId),
+      provider: 'kimi',
+      allow_real_provider: true,
+      allow_github_pr_create: true,
+      tasks: [
+        {
+          id: 'task_1',
+          title: 'Task 1',
+          goal: 'Create a.txt',
+          allowed_files: ['a.txt'],
+          denied_files: ['.env'],
+          tests: [],
+        },
+      ],
+    };
+
+    const fileUpdate = (path: string, content: string) =>
+      JSON.stringify({ mode: 'file_update', files: [{ path, content }], notes: `Update ${path}` });
+
+    // Provider proposes b.txt, which is outside the allowed_files scope.
+    // Guardrails should block the task before any commit is created.
+    process.env.REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES = JSON.stringify([fileUpdate('b.txt', 'b\n')]);
+    process.env.REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES = JSON.stringify([null]);
+    // Clear optional fix/second-reviewer arrays so the readiness check does not see stale lengths from previous tests.
+    delete process.env.REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES;
+    delete process.env.REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES;
+    process.env.GITHUB_TOKEN = 'ghp_fake_token_for_pr_gating_test';
+
+    try {
+      const result = await runMvpRun(config, join(config.report_dir, 'config.json'));
+      assert.strictEqual(result.verdict, 'MVP_RUN_FAILED', `Expected MVP failure, got ${result.verdict}`);
+      assert.ok(result.pr);
+      assert.strictEqual(result.pr?.created, false);
+      assert.ok(result.pr?.reason.includes('not attempted'), 'PR creation must not be attempted for a blocked task');
+      assert.strictEqual(result.pr?.classification, undefined, 'No PR attempt should not produce a classification');
+      assert.strictEqual(result.commits.length, 0, 'Blocked task must not create commits');
+    } finally {
+      repo.cleanup();
+      rmSync(config.report_dir, { recursive: true, force: true });
+    }
+  });
 });
