@@ -2,18 +2,18 @@
 
 **Branch:** `stage-18-25-one-click-multitask`
 
-**Last verified:** `e61bd2ecd6da970426f960062335b944a906c2cb`
+**Last verified:** `888182c00db988d62c7e0eacf970b8dda1142ae4`
 
 ## Test metrics
 
-- **Total tests:** 3987
-- **Total suites:** 271
+- **Total tests:** 4011
+- **Total suites:** 272
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `e61bd2ecd6da970426f960062335b944a906c2cb` (Stage 18.25.6 real final reviewer and PR gating fix + Stage 18.25.7 regression-test and CI-flakiness fix — production real-multitask flow wires OpenAI final reviewer and gates PR on final mission review; fake mode keeps deterministic fallback; legacy tests/checks overlap, glob-aware scope overlap, dependency-aware block execution, rename diff validation, and mission.json routing covered by regression tests; production final reviewer tests made hermetic and CI-flakiness-resistant)
+- **Last verified commit:** `888182c00db988d62c7e0eacf970b8dda1142ae4` (Stage 18.25 current-head review follow-up: deterministic final-review gates, terminal final-review persistence, fail-closed branch reuse, local rejected-task rollback; 4011 tests / 272 suites / 0 failures)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
