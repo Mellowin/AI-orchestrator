@@ -1353,3 +1353,182 @@ describe('real safe-mode production path', () => {
     rmSync(outDir, { recursive: true, force: true });
   });
 });
+
+
+describe('multitask safe mode defers git base resolution', () => {
+  test('safe mode works in a directory without a git repo', async () => {
+    const tmpRepo = mkdtempSync(join(tmpdir(), 'not-a-repo-'));
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `safe-no-git-${Date.now()}`;
+    const mission = buildMissionFromGoal('Add docs note', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+
+    let gitCalled = false;
+    const result = await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () => {
+        throw new Error('autopilot-run must not be invoked in safe mode');
+      },
+      gitExecFn: () => {
+        gitCalled = true;
+        return { status: 0, stdout: '', stderr: '' };
+      },
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE_WITH_CAVEATS');
+    assert.strictEqual(result.exit_code, 0);
+    assert.strictEqual(gitCalled, false, 'git must not be invoked in safe mode');
+
+    const state = loadMissionState(getMissionRunDir(tmpOut, runId));
+    assert.ok(state);
+    assert.ok(state.base_sha.startsWith('safe-mode-no-base-'), `expected placeholder base sha, got ${state.base_sha}`);
+
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+});
+
+describe('multitask rollback reverts both original and fix commits', () => {
+  function initTempGitRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'repo-'));
+    spawnSync('git', ['init', '--initial-branch=main'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf-8', shell: false });
+    writeFileSync(join(dir, 'README.md'), '# test\n');
+    spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: dir, encoding: 'utf-8', shell: false });
+    return dir;
+  }
+
+  function getHeadSha(repoPath: string): string {
+    const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    return result.stdout!.trim();
+  }
+
+  test('rejected task with commit_sha and fix_commit_sha reverts both, newest first', async () => {
+    const tmpRepo = initTempGitRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `rollback-${Date.now()}`;
+    const workBranch = `mission-${runId}`;
+
+    // Prepare work branch with two commits representing original and fix.
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(tmpRepo, 'feature.ts'), 'original\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'original', '--no-gpg-sign'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    const originalSha = getHeadSha(tmpRepo);
+
+    writeFileSync(join(tmpRepo, 'feature.ts'), 'fixed\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'fix', '--no-gpg-sign'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    const fixSha = getHeadSha(tmpRepo);
+
+    // Return to main so the runner can prepare the branch itself.
+    spawnSync('git', ['checkout', 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+
+    const mission = buildMissionFromGoal('Add feature', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    // Enable mutation so rollback executes.
+    mission.capabilities = {
+      ...mission.capabilities,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: false,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+
+    const revertCalls: string[][] = [];
+    const result = await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: async () => {
+        const configPath = planResult.generated_files.find((p) => p.endsWith('autopilot.config.json'))!;
+        const mvpConfigPath = planResult.generated_files.find((p) => p.endsWith('mvp-run.config.json'))!;
+        return {
+          config: {},
+          command: 'test',
+          config_path: configPath,
+          started_at: new Date().toISOString(),
+          finished_at: new Date().toISOString(),
+          duration_ms: 100,
+          verdict: 'AUTOPILOT_MVP_FAILED',
+          reason: 'Rejected',
+          repair_attempts: 0,
+          report_dir: join(tmpOut, runId),
+          exit_code: 1,
+          mvp_result: {
+            config: {},
+            command: 'mvp',
+            config_path: mvpConfigPath,
+            started_at: new Date().toISOString(),
+            finished_at: new Date().toISOString(),
+            duration_ms: 50,
+            verdict: 'MVP_RUN_FAILED',
+            reason: 'Rejected',
+            preflight: {},
+            task_results: [
+              {
+                id: planResult.plan.tasks[0].id,
+                title: planResult.plan.tasks[0].title,
+                status: 'blocked',
+                provider_attempts: 1,
+                recovery_attempts: 0,
+                commit_sha: originalSha,
+                fix_commit_sha: fixSha,
+              },
+            ],
+            tasks_total: 1,
+            tasks_passed: 0,
+            tasks_failed: 0,
+            tasks_blocked: 1,
+            tasks_skipped: 0,
+            tasks_caveats: 0,
+            commits: [originalSha, fixSha],
+            branch: workBranch,
+            pushed: false,
+            caveats: [],
+            report_dir: join(tmpOut, runId, 'mvp-run-reports'),
+          },
+        } as AutopilotRunResult;
+      },
+      gitExecFn: (args, options) => {
+        if (args[0] === 'revert') {
+          revertCalls.push(args);
+        }
+        return spawnSync('git', args, { cwd: options?.cwd, encoding: 'utf-8', shell: false });
+      },
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.strictEqual(revertCalls.length, 1, 'revert must be called once');
+    const revertArgs = revertCalls[0];
+    assert.strictEqual(revertArgs[0], 'revert');
+    assert.strictEqual(revertArgs[1], '--no-edit');
+    // Newest first: fix commit before original commit.
+    assert.strictEqual(revertArgs[2], fixSha, 'first revert must be the newest (fix) commit');
+    assert.strictEqual(revertArgs[3], originalSha, 'second revert must be the original commit');
+
+    // Verify the file no longer exists on the work branch after rollback.
+    spawnSync('git', ['checkout', workBranch], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(tmpRepo, 'feature.ts')), false, 'feature.ts must be removed by revert');
+
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+});

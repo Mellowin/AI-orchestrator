@@ -452,6 +452,10 @@ function getGateStatus(gate: Record<string, unknown> | undefined): string | unde
   return typeof status === 'string' ? status : undefined;
 }
 
+function isBlockingStatus(status: string): boolean {
+  return status === 'blocked' || status === 'failed' || status === 'fix_required';
+}
+
 function deriveTaskResult(
   task: BlockTaskDefinition,
   run: { exitCode: number; state: Record<string, unknown> | null }
@@ -916,11 +920,11 @@ export async function runRealBlockRunAI(
       resumeStartedAt: now,
     };
 
-    const onBlockedTask = resolveOnBlockedTask(block);
     for (const result of blockState.taskResults) {
       if (isCompletedTaskStatus(result.status)) {
         skippedTaskIds.push(result.taskId);
-      } else if (isSkippedBlockedTaskStatus(result.status) && onBlockedTask === 'continue') {
+      } else if (isSkippedBlockedTaskStatus(result.status)) {
+        // Intentionally skipped tasks (e.g. descendants of failed tasks) are not re-run.
         skippedTaskIds.push(result.taskId);
       }
     }
@@ -964,12 +968,10 @@ export async function runRealBlockRunAI(
     const existingResult =
       existingResultIndex >= 0 ? blockState.taskResults[existingResultIndex] : undefined;
 
-    const onBlockedTask = resolveOnBlockedTask(block);
-
     if (existingResult !== undefined) {
       const canSkip =
         isCompletedTaskStatus(existingResult.status) ||
-        (isSkippedBlockedTaskStatus(existingResult.status) && onBlockedTask === 'continue');
+        isSkippedBlockedTaskStatus(existingResult.status);
       if (canSkip) {
         const history = verifyTaskResultHistory(existingResult, block.repo_path);
         if (!history.ok) {
@@ -981,6 +983,36 @@ export async function runRealBlockRunAI(
 
     blockState.currentTaskId = task.task_id;
     saveBlockState(block, blockState);
+
+    // Dependency-aware execution: skip tasks whose required ancestors failed or were blocked.
+    const blockingDeps = (task.depends_on ?? []).filter((depId) => {
+      const depResult = blockState.taskResults.find((r) => r.taskId === depId);
+      return depResult !== undefined && isBlockingStatus(depResult.status);
+    });
+    if (blockingDeps.length > 0) {
+      const skippedResult: RealBlockRunTaskResult = {
+        taskId: task.task_id,
+        title: task.title,
+        status: 'blocked_skipped',
+        finalStatus: 'blocked_skipped',
+        nextAction: 'continue',
+        reason: redactSecrets(
+          `Skipped because dependency task(s) failed or were blocked: ${blockingDeps.join(', ')}`
+        ),
+        fixAttempted: false,
+        childStateTaskId: task.task_id,
+        codeApplied: false,
+        pushed: false,
+        checksResult: 'unknown',
+      };
+      if (existingResultIndex >= 0) {
+        blockState.taskResults[existingResultIndex] = skippedResult;
+      } else {
+        blockState.taskResults.push(skippedResult);
+      }
+      saveBlockState(block, blockState);
+      continue;
+    }
 
     let taskResult: RealBlockRunTaskResult;
     const hasStaleIncompleteResult =
@@ -1036,6 +1068,17 @@ export async function runRealBlockRunAI(
       taskResult.status !== 'accepted' &&
       taskResult.status !== 'fixed_and_accepted'
     ) {
+      const hasDependencies = block.tasks.some(
+        (t) => (t.depends_on ?? []).length > 0
+      );
+      if (hasDependencies) {
+        // Dependency-aware mode: a failed/blocked task stops only its descendants.
+        // The current task keeps its actual status and the loop continues with unrelated tasks.
+        saveBlockState(block, blockState);
+        continue;
+      }
+
+      const onBlockedTask = resolveOnBlockedTask(block);
       const shouldContinue =
         onBlockedTask === 'continue' &&
         (taskResult.status === 'blocked' || taskResult.status === 'fix_required');
@@ -1128,11 +1171,19 @@ export async function runRealBlockRunAI(
   blockState.summary.skippedBlockedTasks = skippedBlockedCount;
   blockState.summary.completedTasks = acceptedCount + fixedCount + skippedBlockedCount;
 
-  if (!stopped && blockState.summary.completedTasks === block.tasks.length) {
+  const hasBlockingTasks = blockState.taskResults.some((r) => isBlockingStatus(r.status));
+  const allTasksProcessed = blockState.taskResults.length === block.tasks.length;
+
+  if (!stopped && allTasksProcessed && !hasBlockingTasks) {
     blockState.status = skippedBlockedCount > 0 ? 'completed_with_caveats' : 'completed';
     blockState.summary.stoppedReason = skippedBlockedCount > 0
       ? `All tasks finished; ${skippedBlockedCount} task(s) blocked/skipped.`
       : 'All tasks completed.';
+  } else if (!stopped && allTasksProcessed && hasBlockingTasks) {
+    // Dependency-aware mode: some tasks failed/blocked but unrelated tasks continued.
+    blockState.status = 'completed_with_caveats';
+    const blockingCount = blockState.taskResults.filter((r) => isBlockingStatus(r.status)).length;
+    blockState.summary.stoppedReason = `All tasks processed; ${blockingCount} task(s) failed/blocked and ${skippedBlockedCount} dependent task(s) skipped.`;
   } else {
     const lastResult = blockState.taskResults[blockState.taskResults.length - 1];
     const stopReason = lastResult?.reason ?? 'Block stopped.';

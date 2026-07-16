@@ -272,12 +272,20 @@ export async function runMultitaskMission(
   const workBranch = `mission-${mission.run_id}`;
 
   const planHash = computePlanHash(planResult.plan);
+
+  // Safe mode does not need a real git base; resolve it only when mutation is allowed.
+  // This lets no-mutation missions run in directories without a git repo or base branch.
+  const mutationAllowed = isRepoMutationAllowed(mission);
   let baseSha: string;
-  try {
-    baseSha = getBaseSha(mission.repo_path, mission.base_branch, gitExec);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return buildFailureResult(mission, planResult, runDir, `Failed to resolve base branch: ${message}`, startedAt, startTime);
+  if (mutationAllowed) {
+    try {
+      baseSha = getBaseSha(mission.repo_path, mission.base_branch, gitExec);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return buildFailureResult(mission, planResult, runDir, `Failed to resolve base branch: ${message}`, startedAt, startTime);
+    }
+  } else {
+    baseSha = `safe-mode-no-base-${planHash}`;
   }
 
   let state: PersistedMissionState | null = resume ? loadMissionState(runDir, options.readStateFn) : null;
@@ -311,7 +319,7 @@ export async function runMultitaskMission(
     return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
   }
 
-  if (!isRepoMutationAllowed(mission)) {
+  if (!mutationAllowed) {
     return buildSafeModeResult(mission, planResult, runDir, state, options, startedAt, startTime);
   }
 
@@ -415,11 +423,17 @@ export async function runMultitaskMission(
   state.tasks = markDescendantsSkipped(planResult.plan.tasks, mergeTaskStates(state.tasks, latestStates));
 
   // Roll back rejected/blocked task commits from the mission branch only when mutation is allowed.
-  if (isRepoMutationAllowed(mission)) {
-    const rollbackCommits = state.tasks
-      .filter((s) => s.status === 'blocked' || s.status === 'failed' || s.status === 'needs_human')
-      .map((s) => s.commit_sha)
-      .filter((sha): sha is string => typeof sha === 'string' && sha.length > 0);
+  if (mutationAllowed) {
+    const rollbackCommits = Array.from(
+      new Set(
+        state.tasks
+          .filter((s) => s.status === 'blocked' || s.status === 'failed' || s.status === 'needs_human')
+          .flatMap((s) => [s.commit_sha, s.fix_commit_sha])
+          .filter((sha): sha is string => typeof sha === 'string' && sha.length > 0)
+      )
+    );
+    // Revert newest first so each revert applies cleanly to the previous state.
+    rollbackCommits.reverse();
     if (rollbackCommits.length > 0) {
       try {
         checkoutBranch(mission.repo_path, workBranch, gitExec);

@@ -35,17 +35,41 @@ function collectUnauthorizedFiles(
   const diffIndexRe = /^diff --git a\/(.+?) b\/(.+?)$/gm;
   let match: RegExpExecArray | null;
   while ((match = diffIndexRe.exec(diff)) !== null) {
-    const file = match[2];
-    const normalized = file.replace(/\\/g, '/');
+    const startIndex = match.index;
+    const nextDiffIndex = diff.indexOf('diff --git a/', startIndex + match[0].length);
+    const chunk = nextDiffIndex === -1 ? diff.slice(startIndex) : diff.slice(startIndex, nextDiffIndex);
 
-    if (isAbsolute(normalized) || normalized.includes('..')) {
-      files.add(file);
-      continue;
+    const oldPath = match[1].replace(/\\/g, '/');
+    const newPath = match[2].replace(/\\/g, '/');
+
+    // Determine diff kind from the chunk body so we validate the semantically
+    // correct side(s): creates → destination, deletes → source, renames → both.
+    const isCreate = chunk.includes('--- /dev/null');
+    const isDelete = chunk.includes('+++ /dev/null');
+    const isRename = chunk.includes('rename from ') && chunk.includes('rename to ');
+
+    const pathsToCheck: string[] = [];
+    if (isCreate) {
+      pathsToCheck.push(newPath);
+    } else if (isDelete) {
+      pathsToCheck.push(oldPath);
+    } else if (isRename) {
+      pathsToCheck.push(oldPath, newPath);
+    } else {
+      // Normal modification: path stays the same; validate the post-change path.
+      pathsToCheck.push(newPath);
     }
 
-    const allowed = normalizedPatterns.some((pattern) => matchesPattern(normalized, pattern));
-    if (!allowed) {
-      files.add(file);
+    for (const file of pathsToCheck) {
+      if (isAbsolute(file) || file.includes('..')) {
+        files.add(file);
+        continue;
+      }
+
+      const allowed = normalizedPatterns.some((pattern) => matchesPattern(file, pattern));
+      if (!allowed) {
+        files.add(file);
+      }
     }
   }
   return Array.from(files);

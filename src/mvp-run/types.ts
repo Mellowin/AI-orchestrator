@@ -30,6 +30,7 @@ export interface MvpRunTaskConfig {
   /** Shell commands to run as deterministic checks. Takes precedence over `tests`. */
   checks?: string[];
   max_lines_changed?: number;
+  depends_on?: string[];
 }
 
 export interface MvpRunConfig {

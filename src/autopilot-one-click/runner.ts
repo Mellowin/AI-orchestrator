@@ -83,9 +83,17 @@ export async function runAutopilotOneClick(
     reason = planResult.reason || 'Plan step failed';
     exitCode = 1;
   } else {
-    const isMultitaskPreset = options.preset === 'real-multitask' || options.preset === 'multitask-safe';
+    const presetFromMission = mission.constraints
+      ?.find((c) => c.startsWith('Preset: '))
+      ?.slice('Preset: '.length)
+      .trim();
+    const isMultitaskMission =
+      options.preset === 'real-multitask' ||
+      options.preset === 'multitask-safe' ||
+      presetFromMission === 'real-multitask' ||
+      presetFromMission === 'multitask-safe';
 
-    if (isMultitaskPreset) {
+    if (isMultitaskMission) {
       const runMultitaskMissionFn = options.runMultitaskMissionFn ?? runMultitaskMission;
       let multitaskResult;
       try {

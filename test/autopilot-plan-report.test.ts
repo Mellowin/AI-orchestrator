@@ -4,6 +4,8 @@ import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { runAutopilotPlan } from '../src/autopilot-plan/runner.js';
 import { validateMissionConfig } from '../src/autopilot-plan/config-loader.js';
+import { buildMvpRunConfig } from '../src/autopilot-plan/report-writer.js';
+import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanTask } from '../src/autopilot-plan/types.js';
 
 describe('autopilot-plan report-writer', () => {
   test('operator-command.md contains exact autopilot-run command', async () => {
@@ -133,5 +135,99 @@ describe('autopilot-plan report-writer', () => {
     assert.ok(!autopilotConfig.repair.allowed_files.includes('src/secret.ts'), 'must not include arbitrary files');
 
     rmSync(outDir, { recursive: true, force: true });
+  });
+});
+
+
+function makeMission(overrides: Partial<AutopilotPlanMission> = {}): AutopilotPlanMission {
+  return {
+    run_id: 'report-legacy-tests',
+    repo_slug: 'owner/repo',
+    repo_path: '.',
+    base_branch: 'main',
+    goal: 'Add docs',
+    mode: 'fake',
+    capabilities: {
+      allow_real_provider: false,
+      allow_repo_apply: false,
+      allow_repo_commit: false,
+      allow_repo_push: false,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    },
+    output_dir: '/tmp/out',
+    ...overrides,
+  };
+}
+
+function makePlan(tasks: AutopilotPlanTask[]): AutopilotPlanGeneratedPlan {
+  return {
+    goal: 'Test plan',
+    mode: 'fake',
+    tasks,
+    ci_enabled: false,
+    repair_enabled: false,
+    risk_level: 'low',
+    caveats: [],
+  };
+}
+
+function makeTask(overrides: Partial<AutopilotPlanTask> = {}): AutopilotPlanTask {
+  return {
+    id: 't1',
+    title: 'Task 1',
+    goal: 'Do something',
+    allowed_files: ['docs/AUTOPILOT_PLAN.md'],
+    denied_files: ['.env'],
+    risk: 'low',
+    acceptance_criteria: ['it works'],
+    expected_result: 'passes',
+    max_lines_changed: 100,
+    ...overrides,
+  };
+}
+
+describe('taskToMvpTask preserves legacy tests when checks are absent', () => {
+  test('omits checks field when only legacy tests are defined', () => {
+    const mission = makeMission();
+    const plan = makePlan([makeTask({ tests: ['npm test'], checks: undefined })]);
+    const config = buildMvpRunConfig(mission, plan, '/tmp/out/run');
+    const task = config.tasks[0];
+    assert.ok(!('checks' in task), 'checks must be omitted to preserve legacy tests');
+    assert.deepStrictEqual(task.tests, ['npm test']);
+  });
+
+  test('explicit empty checks override legacy tests', () => {
+    const mission = makeMission();
+    const plan = makePlan([makeTask({ tests: ['npm test'], checks: [] })]);
+    const config = buildMvpRunConfig(mission, plan, '/tmp/out/run');
+    const task = config.tasks[0];
+    assert.deepStrictEqual(task.checks, []);
+    assert.deepStrictEqual(task.tests, ['npm test']);
+  });
+
+  test('non-empty checks take precedence over legacy tests', () => {
+    const mission = makeMission();
+    const plan = makePlan([makeTask({ tests: ['npm test'], checks: ['npm run lint'] })]);
+    const config = buildMvpRunConfig(mission, plan, '/tmp/out/run');
+    const task = config.tasks[0];
+    assert.deepStrictEqual(task.checks, ['npm run lint']);
+    assert.deepStrictEqual(task.tests, ['npm test']);
+  });
+
+  test('mixed tasks keep correct checks/tests per task', () => {
+    const mission = makeMission();
+    const plan = makePlan([
+      makeTask({ id: 'legacy', tests: ['npm test'], checks: undefined }),
+      makeTask({ id: 'explicit', tests: ['npm test'], checks: ['npm run lint'] }),
+      makeTask({ id: 'empty', tests: ['npm test'], checks: [] }),
+    ]);
+    const config = buildMvpRunConfig(mission, plan, '/tmp/out/run');
+    assert.ok(!('checks' in config.tasks[0]));
+    assert.deepStrictEqual(config.tasks[0].tests, ['npm test']);
+    assert.deepStrictEqual(config.tasks[1].checks, ['npm run lint']);
+    assert.deepStrictEqual(config.tasks[2].checks, []);
   });
 });

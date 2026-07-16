@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildMissionFromGoal, MissionBuilderError } from '../src/autopilot-one-click/mission-builder.js';
@@ -8,6 +8,7 @@ import { runAutopilotPlan } from '../src/autopilot-plan/runner.js';
 import { runMultitaskMission, loadMissionState } from '../src/autopilot-one-click/multitask/runner.js';
 import { runAutopilotOneClick } from '../src/autopilot-one-click/runner.js';
 import type { AutopilotRunResult } from '../src/autopilot-run/types.js';
+import type { AutopilotPlanMission } from '../src/autopilot-plan/types.js';
 
 function fakeGitExec(acceptedCommits: string[] = []) {
   return (args: string[], options?: { cwd?: string }) => {
@@ -280,6 +281,108 @@ describe('autopilot-one-click multitask mission runner', () => {
     assert.ok(result.reason.includes('simulated multitask runner failure'));
     assert.strictEqual(result.exit_code, 1);
     assert.ok(existsSync(join(tmpDir, runId, 'one-click-report.md')));
+
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+
+describe('autopilot-one-click mission.json routing', () => {
+  function writeMissionJson(tmpDir: string, mission: Partial<AutopilotPlanMission>): string {
+    const fullMission: AutopilotPlanMission = {
+      run_id: `mission-routing-${Date.now()}`,
+      repo_slug: 'owner/repo',
+      repo_path: '.',
+      base_branch: 'main',
+      goal: 'Add docs',
+      mode: 'fake',
+      capabilities: {
+        allow_real_provider: false,
+        allow_repo_apply: false,
+        allow_repo_commit: false,
+        allow_repo_push: false,
+        allow_pr_create: false,
+        allow_pr_update: false,
+        allow_actions_read: false,
+        allow_repair: false,
+      },
+      output_dir: tmpDir,
+      ...mission,
+    } as AutopilotPlanMission;
+    const path = join(tmpDir, 'mission.json');
+    writeFileSync(path, JSON.stringify(fullMission, null, 2), 'utf-8');
+    return path;
+  }
+
+  test('mission.json with Preset: multitask-safe routes to multitask runner', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'multi-route-'));
+    const missionPath = writeMissionJson(tmpDir, {
+      constraints: ['Preset: multitask-safe', 'Mode: fake'],
+    });
+
+    let multitaskCalled = false;
+    const result = await runAutopilotOneClick(missionPath, {
+      runMultitaskMissionFn: async () => {
+        multitaskCalled = true;
+        return {
+          verdict: 'MULTITASK_MISSION_DONE_WITH_CAVEATS',
+          exit_code: 0,
+          reason: 'safe mode',
+        } as unknown as import('../src/autopilot-one-click/multitask/types.js').MultitaskMissionResult;
+      },
+    }, 'test');
+
+    assert.strictEqual(multitaskCalled, true);
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE_WITH_CAVEATS');
+
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('mission.json with Preset: real-multitask routes to multitask runner', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'multi-route-'));
+    const missionPath = writeMissionJson(tmpDir, {
+      constraints: ['Preset: real-multitask', 'Mode: fake'],
+    });
+
+    let multitaskCalled = false;
+    const result = await runAutopilotOneClick(missionPath, {
+      runMultitaskMissionFn: async () => {
+        multitaskCalled = true;
+        return {
+          verdict: 'MULTITASK_MISSION_DONE',
+          exit_code: 0,
+          reason: 'done',
+        } as unknown as import('../src/autopilot-one-click/multitask/types.js').MultitaskMissionResult;
+      },
+    }, 'test');
+
+    assert.strictEqual(multitaskCalled, true);
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('mission.json with legacy Preset: safe does not route to multitask runner', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'multi-route-'));
+    const missionPath = writeMissionJson(tmpDir, {
+      constraints: ['Preset: safe', 'Mode: fake'],
+    });
+
+    let multitaskCalled = false;
+    const result = await runAutopilotOneClick(missionPath, {
+      runMultitaskMissionFn: async () => {
+        multitaskCalled = true;
+        return {} as import('../src/autopilot-one-click/multitask/types.js').MultitaskMissionResult;
+      },
+    }, 'test');
+
+    assert.strictEqual(multitaskCalled, false);
+    // Legacy safe mode in fake should complete via autopilot-run.
+    assert.ok(
+      result.verdict === 'ONE_CLICK_DONE' ||
+        result.verdict === 'ONE_CLICK_DONE_WITH_CAVEATS' ||
+        result.verdict === 'ONE_CLICK_AUTOPILOT_FAILED'
+    );
 
     rmSync(tmpDir, { recursive: true, force: true });
   });

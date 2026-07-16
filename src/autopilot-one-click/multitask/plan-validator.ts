@@ -87,6 +87,24 @@ function validateTask(task: AutopilotPlanTask, index: number, issues: PlanValida
   }
 }
 
+function makeConcretePath(pattern: string): string {
+  // Replace wildcards with representative placeholders so two patterns overlap
+  // iff a concrete instance of one matches the other pattern.
+  const doublePlaceholder = 'ORCHESTRATOR_GLOB_DOUBLE';
+  const singlePlaceholder = 'ORCHESTRATOR_GLOB_SINGLE';
+  return pattern
+    .replace(/\*\*/g, doublePlaceholder)
+    .replace(/\*/g, singlePlaceholder)
+    .replace(new RegExp(doublePlaceholder, 'g'), 'nested/dir')
+    .replace(new RegExp(singlePlaceholder, 'g'), 'file');
+}
+
+function patternsOverlap(a: string, b: string): boolean {
+  const concreteA = makeConcretePath(a);
+  const concreteB = makeConcretePath(b);
+  return matchesPattern(concreteA, b) || matchesPattern(concreteB, a);
+}
+
 function detectFileScopeOverlap(tasks: AutopilotPlanTask[]): PlanValidationIssue[] {
   const issues: PlanValidationIssue[] = [];
   for (let i = 0; i < tasks.length; i += 1) {
@@ -99,12 +117,22 @@ function detectFileScopeOverlap(tasks: AutopilotPlanTask[]): PlanValidationIssue
         (a.depends_on ?? []).some((d) => (b.depends_on ?? []).includes(d));
       if (depsOverlap) continue;
 
-      const aFiles = new Set(a.allowed_files.map((f) => f.replace(/\\/g, '/')));
-      const overlap = b.allowed_files.filter((f) => aFiles.has(f.replace(/\\/g, '/')));
-      if (overlap.length > 0) {
+      const aPatterns = a.allowed_files.map((f) => f.replace(/\\/g, '/'));
+      const bPatterns = b.allowed_files.map((f) => f.replace(/\\/g, '/'));
+
+      const overlaps: string[] = [];
+      for (const aPattern of aPatterns) {
+        for (const bPattern of bPatterns) {
+          if (patternsOverlap(aPattern, bPattern)) {
+            overlaps.push(`${aPattern} / ${bPattern}`);
+          }
+        }
+      }
+
+      if (overlaps.length > 0) {
         issues.push({
           field: 'tasks',
-          message: `Independent tasks ${a.id} and ${b.id} share allowed files: ${overlap.join(', ')}`,
+          message: `Independent tasks ${a.id} and ${b.id} share allowed files or have overlapping scopes: ${overlaps.join('; ')}`,
         });
       }
     }

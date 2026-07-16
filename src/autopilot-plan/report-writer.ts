@@ -31,16 +31,24 @@ export function ensureRunDir(runDir: string): void {
 }
 
 function taskToMvpTask(task: AutopilotPlanTask): import('../mvp-run/types.js').MvpRunTaskConfig {
-  return {
+  const mvpTask: import('../mvp-run/types.js').MvpRunTaskConfig = {
     id: task.id,
     title: task.title,
     goal: task.goal,
     allowed_files: task.allowed_files,
     denied_files: task.denied_files ?? ['.env', 'node_modules/**'],
     tests: task.tests ?? [],
-    checks: task.checks ?? [],
     max_lines_changed: task.max_lines_changed,
   };
+  // Preserve legacy tests when checks are absent. Omitting the field lets
+  // block-builder fall back to `tests`; an explicit empty array still overrides.
+  if (task.checks !== undefined) {
+    mvpTask.checks = task.checks;
+  }
+  if (task.depends_on !== undefined && task.depends_on.length > 0) {
+    mvpTask.depends_on = task.depends_on;
+  }
+  return mvpTask;
 }
 
 export function buildMvpRunConfig(
@@ -67,7 +75,9 @@ export function buildMvpRunConfig(
     allow_github_pr_create: mission.capabilities.allow_pr_create,
     tasks: sortedTasks.map(taskToMvpTask),
     report_dir: join(runDir, 'mvp-run-reports'),
-    on_blocked_task: hasDependencies ? 'stop' : 'continue',
+    // With dependencies the runner skips only descendants of failed/blocked tasks;
+    // independent tasks always continue, so the policy is always "continue".
+    on_blocked_task: 'continue',
   };
 }
 
