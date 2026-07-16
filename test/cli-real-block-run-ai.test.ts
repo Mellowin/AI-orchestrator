@@ -2777,4 +2777,62 @@ describe('dependency-aware block execution', () => {
       cleanup();
     }
   });
+
+  test('unresolved dependency blocks task as skipped before execution', () => {
+    const tasks = [
+      {
+        task_id: 'task-a',
+        title: 'Task A',
+        goal: 'Update A',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+      },
+      {
+        task_id: 'task-b',
+        title: 'Task B',
+        goal: 'Update B',
+        allowed_files: ['b.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+        depends_on: ['nonexistent-dep'],
+      },
+    ];
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv(tasks);
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'a.txt', content: 'a content\n' }]),
+          buildFakeKimiOutput([{ path: 'b.txt', content: 'b content\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task A good'),
+          buildAcceptReview('Task B good'),
+        ]),
+      }));
+
+      const output = result.stdout + result.stderr;
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null, `Expected block state; output: ${output}`);
+      assert.strictEqual(state.status, 'completed_with_caveats', `Expected caveated completion: ${output}`);
+
+      const taskResults = state.taskResults as Array<Record<string, unknown>>;
+      assert.strictEqual(taskResults.length, 2);
+
+      const taskA = taskResults.find((t) => t.taskId === 'task-a');
+      const taskB = taskResults.find((t) => t.taskId === 'task-b');
+
+      assert.strictEqual(taskA?.status, 'accepted', 'task-a must be accepted');
+      assert.strictEqual(taskB?.status, 'blocked_skipped', 'task-b must be skipped because its dependency is unresolved');
+
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Only task-a should create a commit');
+    } finally {
+      cleanup();
+    }
+  });
 });

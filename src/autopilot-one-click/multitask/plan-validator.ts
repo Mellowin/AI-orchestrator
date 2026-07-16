@@ -87,22 +87,58 @@ function validateTask(task: AutopilotPlanTask, index: number, issues: PlanValida
   }
 }
 
-function makeConcretePath(pattern: string): string {
-  // Replace wildcards with representative placeholders so two patterns overlap
-  // iff a concrete instance of one matches the other pattern.
-  const doublePlaceholder = 'ORCHESTRATOR_GLOB_DOUBLE';
-  const singlePlaceholder = 'ORCHESTRATOR_GLOB_SINGLE';
-  return pattern
-    .replace(/\*\*/g, doublePlaceholder)
-    .replace(/\*/g, singlePlaceholder)
-    .replace(new RegExp(doublePlaceholder, 'g'), 'nested/dir')
-    .replace(new RegExp(singlePlaceholder, 'g'), 'file');
+function segmentToRegex(segment: string): RegExp {
+  let regex = '';
+  for (let i = 0; i < segment.length; i++) {
+    const c = segment[i];
+    if (c === '*') {
+      regex += '[^/]*';
+    } else if (/[.+^${}()|[\]\\]/.test(c)) {
+      regex += '\\' + c;
+    } else {
+      regex += c;
+    }
+  }
+  return new RegExp(`^${regex}$`);
+}
+
+function segmentMatches(a: string, b: string): boolean {
+  if (a === '*' || b === '*') return true;
+  return segmentToRegex(a).test(b) || segmentToRegex(b).test(a);
 }
 
 function patternsOverlap(a: string, b: string): boolean {
-  const concreteA = makeConcretePath(a);
-  const concreteB = makeConcretePath(b);
-  return matchesPattern(concreteA, b) || matchesPattern(concreteB, a);
+  const aParts = a.split('/');
+  const bParts = b.split('/');
+  const dp: boolean[][] = Array(aParts.length + 1)
+    .fill(null)
+    .map(() => Array(bParts.length + 1).fill(false));
+  dp[0][0] = true;
+
+  for (let i = 0; i <= aParts.length; i += 1) {
+    for (let j = 0; j <= bParts.length; j += 1) {
+      if (!dp[i][j]) continue;
+
+      // `**` matches zero or more segments in the other pattern.
+      if (i < aParts.length && aParts[i] === '**') {
+        for (let k = 0; k <= bParts.length - j; k += 1) {
+          dp[i + 1][j + k] = true;
+        }
+      }
+      if (j < bParts.length && bParts[j] === '**') {
+        for (let k = 0; k <= aParts.length - i; k += 1) {
+          dp[i + k][j + 1] = true;
+        }
+      }
+
+      // Single-segment wildcards and literals advance one segment each.
+      if (i < aParts.length && j < bParts.length && segmentMatches(aParts[i], bParts[j])) {
+        dp[i + 1][j + 1] = true;
+      }
+    }
+  }
+
+  return dp[aParts.length][bParts.length];
 }
 
 function detectFileScopeOverlap(tasks: AutopilotPlanTask[]): PlanValidationIssue[] {

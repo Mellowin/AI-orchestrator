@@ -989,7 +989,8 @@ export async function runRealBlockRunAI(
     const blockingDeps = (task.depends_on ?? []).filter((depId) => {
       const depResult = blockState.taskResults.find((r) => r.taskId === depId);
       if (depResult === undefined) {
-        return false;
+        // An unresolved dependency (missing or out-of-order) must block the task.
+        return true;
       }
       return isBlockingStatus(depResult.status) || isSkippedBlockedTaskStatus(depResult.status);
     });
