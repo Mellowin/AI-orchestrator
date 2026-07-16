@@ -2679,7 +2679,7 @@ describe('dependency-aware block execution', () => {
       const output = result.stdout + result.stderr;
       const state = getBlockState(runsDir, blockId);
       assert(state !== null, `Expected block state; output: ${output}`);
-      assert.strictEqual(state.status, 'completed_with_caveats', `Expected caveated completion: ${output}`);
+      assert.strictEqual(state.status, 'failed', `Expected failed block status: ${output}`);
 
       const taskResults = state.taskResults as Array<Record<string, unknown>>;
       assert.strictEqual(taskResults.length, 3);
@@ -2759,7 +2759,7 @@ describe('dependency-aware block execution', () => {
       const output = result.stdout + result.stderr;
       const state = getBlockState(runsDir, blockId);
       assert(state !== null, `Expected block state; output: ${output}`);
-      assert.strictEqual(state.status, 'completed_with_caveats', `Expected caveated completion: ${output}`);
+      assert.strictEqual(state.status, 'failed', `Expected failed block status: ${output}`);
 
       const taskResults = state.taskResults as Array<Record<string, unknown>>;
       assert.strictEqual(taskResults.length, 3);

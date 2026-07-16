@@ -498,6 +498,8 @@ export async function runMvpRun(
     }
   } else if (!config.allow_github_pr_create) {
     prResult = { created: false, reason: 'PR creation not attempted' };
+  } else {
+    prResult = { created: false, reason: 'PR creation not attempted because the block failed' };
   }
 
   const passed = taskReports.filter((t) => t.status === 'passed').length;

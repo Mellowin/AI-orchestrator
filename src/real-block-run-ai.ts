@@ -1186,7 +1186,8 @@ export async function runRealBlockRunAI(
       : 'All tasks completed.';
   } else if (!stopped && allTasksProcessed && hasBlockingTasks) {
     // Dependency-aware mode: some tasks failed/blocked but unrelated tasks continued.
-    blockState.status = 'completed_with_caveats';
+    // A block with any failed/blocked task is a failed block; it must not be promoted to a PR.
+    blockState.status = 'failed';
     const blockingCount = blockState.taskResults.filter((r) => isBlockingStatus(r.status)).length;
     blockState.summary.stoppedReason = `All tasks processed; ${blockingCount} task(s) failed/blocked and ${skippedBlockedCount} dependent task(s) skipped.`;
   } else {
