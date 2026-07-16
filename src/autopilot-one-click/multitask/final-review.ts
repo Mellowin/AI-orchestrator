@@ -194,8 +194,10 @@ function parseReviewJson(text: string): MultitaskMissionFinalReview {
   return { verdict, summary, caveats, unauthorized_files, acceptance_gaps };
 }
 
-function deterministicFallback(input: FinalReviewInput): MultitaskMissionFinalReview {
-  const autopilot = input.autopilotResult;
+function computeMandatoryGaps(input: FinalReviewInput): {
+  unauthorized: string[];
+  gaps: string[];
+} {
   const expectedResults = new Map(input.plan.tasks.map((t) => [t.id, t.expected_result ?? '']));
   const gaps = collectAcceptanceGaps(input.taskStates ?? [], expectedResults);
   const unauthorized = input.integratedDiff
@@ -204,7 +206,15 @@ function deterministicFallback(input: FinalReviewInput): MultitaskMissionFinalRe
         input.plan.tasks.flatMap((t) => t.allowed_files)
       )
     : [];
+  return { unauthorized, gaps };
+}
 
+function buildDeterministicReview(
+  input: FinalReviewInput,
+  unauthorized: string[],
+  gaps: string[]
+): MultitaskMissionFinalReview {
+  const autopilot = input.autopilotResult;
   if (unauthorized.length > 0 || gaps.length > 0) {
     return {
       verdict: 'rejected',
@@ -238,17 +248,57 @@ function deterministicFallback(input: FinalReviewInput): MultitaskMissionFinalRe
   };
 }
 
+function buildGateRejectedReview(
+  review: MultitaskMissionFinalReview,
+  unauthorized: string[],
+  gaps: string[]
+): MultitaskMissionFinalReview {
+  return {
+    ...review,
+    verdict: 'rejected',
+    summary: `Mandatory deterministic gate failed: ${gaps.length > 0 ? `${gaps.length} task(s) not accepted` : ''} ${unauthorized.length > 0 ? `unauthorized files: ${unauthorized.join(', ')}` : ''}`.trim(),
+    caveats: [
+      ...gaps,
+      ...unauthorized.map((f) => `Unauthorized file: ${f}`),
+      ...(review.caveats ?? []),
+    ],
+    unauthorized_files: unauthorized,
+    acceptance_gaps: gaps,
+  };
+}
+
+function deterministicFallback(input: FinalReviewInput): MultitaskMissionFinalReview {
+  const { unauthorized, gaps } = computeMandatoryGaps(input);
+  return buildDeterministicReview(input, unauthorized, gaps);
+}
+
 export async function runMissionFinalReview(
   input: FinalReviewInput,
   reviewerCallFn?: FinalReviewCallFn
 ): Promise<MultitaskMissionFinalReview> {
+  const { unauthorized, gaps } = computeMandatoryGaps(input);
+
   if (!reviewerCallFn) {
-    return deterministicFallback(input);
+    return buildDeterministicReview(input, unauthorized, gaps);
   }
 
   const prompt = buildReviewPrompt(input);
   const raw = await reviewerCallFn(prompt);
-  return parseReviewJson(raw);
+  const parsed = parseReviewJson(raw);
+
+  // Mandatory deterministic gate: model approval is not a security boundary.
+  if (parsed.verdict === 'approved' || parsed.verdict === 'approved_with_caveats') {
+    if (unauthorized.length > 0 || gaps.length > 0) {
+      return buildGateRejectedReview(parsed, unauthorized, gaps);
+    }
+  }
+
+  return {
+    ...parsed,
+    caveats: parsed.caveats ?? [],
+    unauthorized_files: unauthorized,
+    acceptance_gaps: gaps,
+  };
 }
 
 export { collectDiff, collectUnauthorizedFiles, collectAcceptanceGaps };

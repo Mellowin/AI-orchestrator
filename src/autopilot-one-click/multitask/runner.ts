@@ -429,6 +429,10 @@ export async function runMultitaskMission(
     if (state.base_sha !== baseSha) {
       return buildFailureResult(mission, planResult, runDir, 'Resume aborted: base branch moved', startedAt, startTime);
     }
+    if (resume && state.stage === 'completed' && state.result) {
+      // A terminal result has already been recorded; do not re-run autopilot-run.
+      return state.result;
+    }
   }
 
   if (!state) {
@@ -505,20 +509,16 @@ export async function runMultitaskMission(
   } else if (isRepoMutationAllowed(mission)) {
     try {
       if (branchExists(mission.repo_path, workBranch, gitExec)) {
+        let reason = `Work branch ${workBranch} already exists; rerun with --resume or use a different run-id to avoid resetting branch state`;
         if (!isBranchBasedOn(mission.repo_path, workBranch, mission.base_branch, baseSha, gitExec)) {
-          return buildFailureResult(
-            mission,
-            planResult,
-            runDir,
-            `Work branch ${workBranch} exists but is not based on ${mission.base_branch} (${baseSha}); refusing to reuse`,
-            startedAt,
-            startTime
-          );
+          reason = `Work branch ${workBranch} exists but is not based on ${mission.base_branch} (${baseSha}); refusing to reuse`;
         }
-        checkoutBranch(mission.repo_path, workBranch, gitExec);
-      } else {
-        createWorkBranch(mission.repo_path, workBranch, baseSha, gitExec);
+        state.stage = 'completed';
+        state.last_error = reason;
+        saveMissionState(runDir, state, options.writeStateFn);
+        return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
       }
+      createWorkBranch(mission.repo_path, workBranch, baseSha, gitExec);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return buildFailureResult(mission, planResult, runDir, `Failed to prepare work branch: ${message}`, startedAt, startTime);
@@ -572,12 +572,7 @@ export async function runMultitaskMission(
       try {
         checkoutBranch(mission.repo_path, workBranch, gitExec);
         revertCommits(mission.repo_path, rollbackCommits, gitExec);
-        if (mission.capabilities.allow_repo_push) {
-          const pushResult = gitExec(['push', 'origin', workBranch], { cwd: mission.repo_path });
-          if (pushResult.status !== 0) {
-            state.last_error = `Rollback revert push failed: ${pushResult.stderr}`;
-          }
-        }
+        // Rollback is intentionally kept local; do not push the revert to origin.
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         state.last_error = `Rollback failed: ${message}`;
@@ -617,26 +612,53 @@ export async function runMultitaskMission(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('OPENAI_API_KEY') || message.includes('Final reviewer is not available')) {
-      return buildMissionResult(
-        mission,
-        planResult,
-        runDir,
-        `Final reviewer is not available: ${message}`,
-        'MULTITASK_MISSION_NEEDS_HUMAN',
-        startedAt,
-        startTime
-      );
-    }
-    return buildMissionResult(
+    const verdict: MultitaskMissionVerdict =
+      message.includes('OPENAI_API_KEY') || message.includes('Final reviewer is not available')
+        ? 'MULTITASK_MISSION_NEEDS_HUMAN'
+        : 'MULTITASK_MISSION_EXTERNAL_BLOCKER';
+    const reason =
+      verdict === 'MULTITASK_MISSION_NEEDS_HUMAN'
+        ? `Final reviewer is not available: ${message}`
+        : `Final reviewer failed: ${message}`;
+
+    const taskResults: MultitaskMissionTaskResult[] = state.tasks
+      .filter((s): s is MultitaskMissionTaskState & { status: MultitaskMissionTaskResult['status'] } =>
+        s.status !== 'pending' && s.status !== 'running'
+      )
+      .map((s) => ({
+        task_id: s.task_id,
+        title: planResult.plan.tasks.find((t) => t.id === s.task_id)?.title ?? s.task_id,
+        status: s.status,
+        commit_sha: s.commit_sha,
+        fix_commit_sha: s.fix_commit_sha,
+        reason: s.reason,
+      }));
+
+    const result: MultitaskMissionResult = {
       mission,
-      planResult,
-      runDir,
-      `Final reviewer failed: ${message}`,
-      'MULTITASK_MISSION_EXTERNAL_BLOCKER',
-      startedAt,
-      startTime
-    );
+      plan: planResult.plan,
+      plan_result: planResult,
+      autopilot_result: autopilotResult,
+      task_results: taskResults,
+      task_states: state.tasks,
+      verdict,
+      reason,
+      run_dir: runDir,
+      exit_code: 1,
+      next_human_action: buildNextHumanAction(verdict, autopilotResult),
+      work_branch: workBranch,
+    };
+
+    state.stage = 'completed';
+    state.last_error = reason;
+    state.result = result;
+    saveMissionState(runDir, state, options.writeStateFn);
+
+    const finishedAt = nowIso();
+    const durationMs = Date.now() - startTime;
+    writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+
+    return result;
   }
 
   const { verdict, reason } = mapAutopilotVerdict(autopilotResult, finalReview, allRequiredAccepted);

@@ -61,7 +61,7 @@ function fakeGitExec(acceptedCommits: string[] = [], captured: string[][] = []) 
       return { status: 0, stdout: 'base-sha-1234567890abcdef\n', stderr: '' };
     }
     if (command === 'rev-parse' && args[1] === '--verify') {
-      return { status: 0, stdout: args[2] + '\n', stderr: '' };
+      return { status: 1, stdout: '', stderr: 'unknown revision' };
     }
     return { status: 0, stdout: '', stderr: '' };
   };
@@ -449,6 +449,94 @@ describe('final review helpers', () => {
       taskStates: [{ task_id: 'a', status: 'accepted' }],
     });
     assert.strictEqual(review.verdict, 'approved');
+  });
+
+  test('model approval is overridden when deterministic scope gate fails', async () => {
+    const mission = buildMissionFromGoal('Add feature', { preset: 'multitask-safe', repo_path: '.' });
+    const plan = makePlan([makeTask('a', { allowed_files: ['src/a.ts'] })]);
+    const autopilot = fakeAutopilotResult(
+      { generated_files: [], run_dir: '/tmp' } as unknown as Awaited<ReturnType<typeof runAutopilotPlan>>,
+      [{ id: 'a', status: 'passed', commit_sha: 'abc' }]
+    );
+    const review = await runMissionFinalReview(
+      {
+        mission,
+        plan,
+        autopilotResult: autopilot,
+        integratedDiff: 'diff --git a/src/other.ts b/src/other.ts\n+line',
+        taskStates: [{ task_id: 'a', status: 'accepted' }],
+      },
+      async () => '{"verdict":"approved","summary":"looks good","caveats":[]}'
+    );
+    assert.strictEqual(review.verdict, 'rejected');
+    assert.ok(review.unauthorized_files?.includes('src/other.ts'));
+  });
+
+  test('model approval is overridden when acceptance gap exists', async () => {
+    const mission = buildMissionFromGoal('Add feature', { preset: 'multitask-safe', repo_path: '.' });
+    const plan = makePlan([makeTask('a', { allowed_files: ['src/a.ts'] })]);
+    const autopilot = fakeAutopilotResult(
+      { generated_files: [], run_dir: '/tmp' } as unknown as Awaited<ReturnType<typeof runAutopilotPlan>>,
+      [{ id: 'a', status: 'passed', commit_sha: 'abc' }]
+    );
+    const review = await runMissionFinalReview(
+      {
+        mission,
+        plan,
+        autopilotResult: autopilot,
+        integratedDiff: 'diff --git a/src/a.ts b/src/a.ts\n+line',
+        taskStates: [{ task_id: 'a', status: 'failed' }],
+      },
+      async () => '{"verdict":"approved","summary":"looks good","caveats":[]}'
+    );
+    assert.strictEqual(review.verdict, 'rejected');
+    assert.ok(review.acceptance_gaps?.some((g) => g.includes('a')));
+  });
+
+  test('model approval passes when deterministic gates are clean', async () => {
+    const mission = buildMissionFromGoal('Add feature', { preset: 'multitask-safe', repo_path: '.' });
+    const plan = makePlan([makeTask('a', { allowed_files: ['src/a.ts'] })]);
+    const autopilot = fakeAutopilotResult(
+      { generated_files: [], run_dir: '/tmp' } as unknown as Awaited<ReturnType<typeof runAutopilotPlan>>,
+      [{ id: 'a', status: 'passed', commit_sha: 'abc' }]
+    );
+    const review = await runMissionFinalReview(
+      {
+        mission,
+        plan,
+        autopilotResult: autopilot,
+        integratedDiff: 'diff --git a/src/a.ts b/src/a.ts\n+line',
+        taskStates: [{ task_id: 'a', status: 'accepted' }],
+      },
+      async () => '{"verdict":"approved","summary":"looks good","caveats":[]}'
+    );
+    assert.strictEqual(review.verdict, 'approved');
+    assert.deepStrictEqual(review.caveats, []);
+  });
+
+  test('fallback and model path share mandatory gates', async () => {
+    const mission = buildMissionFromGoal('Add feature', { preset: 'multitask-safe', repo_path: '.' });
+    const plan = makePlan([makeTask('a', { allowed_files: ['src/a.ts'] })]);
+    const autopilot = fakeAutopilotResult(
+      { generated_files: [], run_dir: '/tmp' } as unknown as Awaited<ReturnType<typeof runAutopilotPlan>>,
+      [{ id: 'a', status: 'passed', commit_sha: 'abc' }]
+    );
+    const input = {
+      mission,
+      plan,
+      autopilotResult: autopilot,
+      integratedDiff: 'diff --git a/src/other.ts b/src/other.ts\n+line',
+      taskStates: [{ task_id: 'a', status: 'accepted' }],
+    };
+    const fallbackReview = await runMissionFinalReview(input);
+    const modelReview = await runMissionFinalReview(
+      input,
+      async () => '{"verdict":"approved","summary":"looks good","caveats":[]}'
+    );
+    assert.strictEqual(fallbackReview.verdict, 'rejected');
+    assert.strictEqual(modelReview.verdict, 'rejected');
+    assert.deepStrictEqual(modelReview.unauthorized_files, fallbackReview.unauthorized_files);
+    assert.deepStrictEqual(modelReview.acceptance_gaps, fallbackReview.acceptance_gaps);
   });
 });
 
@@ -989,6 +1077,7 @@ describe('multitask safe zero-mutation', () => {
     assert.strictEqual(getCurrentBranch(tmpRepo), workBranch, 'work branch must be checked out');
 
     const result2 = await runMultitaskMission(mission, planResult, {
+      resume: true,
       runAutopilotRunFn: async () =>
         fakeAutopilotResult(planResult, [
           { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
@@ -1236,7 +1325,7 @@ describe('fresh-run state isolation', () => {
 
     const secondResult = await runMultitaskMission(mission, planResult, {
       command: 'test',
-      resume: false,
+      resume: true,
       runAutopilotRunFn: async () =>
         fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'b'.repeat(40) }], 'AUTOPILOT_GREEN'),
       collectDiffFn: () => '',
@@ -1244,6 +1333,64 @@ describe('fresh-run state isolation', () => {
 
     assert.strictEqual(secondResult.verdict, 'MULTITASK_MISSION_DONE');
     assert.strictEqual(getCurrentBranch(tmpRepo), workBranch, 'existing work branch must be reused, not duplicated');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('fresh run with existing mission branch fails closed', async () => {
+    const { tmpRepo, tmpOut, runId, mission, planResult } = await setupFreshMission();
+    const workBranch = `mission-${runId}`;
+
+    // Pre-create a mission branch with a commit.
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], {
+      cwd: tmpRepo,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    writeFileSync(join(tmpRepo, 'existing.md'), '# existing\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'existing', '--no-gpg-sign'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['checkout', 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    const existingCommit = spawnSync('git', ['rev-parse', workBranch], {
+      cwd: tmpRepo,
+      encoding: 'utf-8',
+      shell: false,
+    }).stdout.trim();
+
+    let autopilotCalled = false;
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: false,
+      runAutopilotRunFn: async () => {
+        autopilotCalled = true;
+        return fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]);
+      },
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(autopilotCalled, false, 'autopilot-run must not be invoked when branch exists without resume');
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.ok(result.reason.includes('Work branch'), 'reason must mention work branch');
+    assert.ok(
+      result.reason.includes('resume') || result.reason.includes('run-id'),
+      'reason must direct user to --resume or a different run-id'
+    );
+
+    assert.ok(branchExists(tmpRepo, workBranch), 'existing branch must remain');
+    const currentCommit = spawnSync('git', ['rev-parse', workBranch], {
+      cwd: tmpRepo,
+      encoding: 'utf-8',
+      shell: false,
+    }).stdout.trim();
+    assert.strictEqual(currentCommit, existingCommit, 'existing branch commit must not change');
+
+    const runDir = getMissionRunDir(tmpOut, runId);
+    const state = loadMissionState(runDir);
+    assert.ok(state, 'state must be persisted');
+    assert.strictEqual(state.stage, 'completed', 'terminal failure must mark stage completed');
+
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
   });
@@ -1522,7 +1669,7 @@ describe('multitask rollback reverts both original and fix commits', () => {
     spawnSync('git', ['commit', '-m', 'fix', '--no-gpg-sign'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
     const fixSha = getHeadSha(tmpRepo);
 
-    // Return to main so the runner can prepare the branch itself.
+    // Return to main so the runner can reuse the existing branch via resume.
     spawnSync('git', ['checkout', 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
 
     const mission = buildMissionFromGoal('Add feature', {
@@ -1546,58 +1693,28 @@ describe('multitask rollback reverts both original and fix commits', () => {
     const planResult = await runAutopilotPlan(mission, { command: 'test' });
     assert.strictEqual(planResult.exit_code, 0);
 
+    // Persist running state so the runner resumes and reuses the existing branch.
+    const baseSha = getHeadSha(tmpRepo);
+    saveMissionState(getMissionRunDir(tmpOut, runId), {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: baseSha,
+      work_branch: workBranch,
+      tasks: [],
+    });
+
     const revertCalls: string[][] = [];
     const result = await runMultitaskMission(mission, planResult, {
-      runAutopilotRunFn: async () => {
-        const configPath = planResult.generated_files.find((p) => p.endsWith('autopilot.config.json'))!;
-        const mvpConfigPath = planResult.generated_files.find((p) => p.endsWith('mvp-run.config.json'))!;
-        return {
-          config: {},
-          command: 'test',
-          config_path: configPath,
-          started_at: new Date().toISOString(),
-          finished_at: new Date().toISOString(),
-          duration_ms: 100,
-          verdict: 'AUTOPILOT_MVP_FAILED',
-          reason: 'Rejected',
-          repair_attempts: 0,
-          report_dir: join(tmpOut, runId),
-          exit_code: 1,
-          mvp_result: {
-            config: {},
-            command: 'mvp',
-            config_path: mvpConfigPath,
-            started_at: new Date().toISOString(),
-            finished_at: new Date().toISOString(),
-            duration_ms: 50,
-            verdict: 'MVP_RUN_FAILED',
-            reason: 'Rejected',
-            preflight: {},
-            task_results: [
-              {
-                id: planResult.plan.tasks[0].id,
-                title: planResult.plan.tasks[0].title,
-                status: 'blocked',
-                provider_attempts: 1,
-                recovery_attempts: 0,
-                commit_sha: originalSha,
-                fix_commit_sha: fixSha,
-              },
-            ],
-            tasks_total: 1,
-            tasks_passed: 0,
-            tasks_failed: 0,
-            tasks_blocked: 1,
-            tasks_skipped: 0,
-            tasks_caveats: 0,
-            commits: [originalSha, fixSha],
-            branch: workBranch,
-            pushed: false,
-            caveats: [],
-            report_dir: join(tmpOut, runId, 'mvp-run-reports'),
-          },
-        } as AutopilotRunResult;
-      },
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(
+          planResult,
+          [{ id: planResult.plan.tasks[0].id, status: 'blocked', commit_sha: originalSha, fix_commit_sha: fixSha }],
+          'AUTOPILOT_MVP_FAILED'
+        ),
       gitExecFn: (args, options) => {
         if (args[0] === 'revert') {
           revertCalls.push(args);
@@ -1619,6 +1736,87 @@ describe('multitask rollback reverts both original and fix commits', () => {
     // Verify the file no longer exists on the work branch after rollback.
     spawnSync('git', ['checkout', workBranch], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
     assert.strictEqual(existsSync(join(tmpRepo, 'feature.ts')), false, 'feature.ts must be removed by revert');
+
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('rejected task rollback stays local and does not push to origin', async () => {
+    const tmpRepo = initTempGitRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `rollback-local-${Date.now()}`;
+    const workBranch = `mission-${runId}`;
+
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(tmpRepo, 'feature.ts'), 'original\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'original', '--no-gpg-sign'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    const originalSha = getHeadSha(tmpRepo);
+
+    writeFileSync(join(tmpRepo, 'feature.ts'), 'fixed\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'fix', '--no-gpg-sign'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    const fixSha = getHeadSha(tmpRepo);
+
+    spawnSync('git', ['checkout', 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+
+    const mission = buildMissionFromGoal('Add feature', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      ...mission.capabilities,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+
+    const baseSha = getHeadSha(tmpRepo);
+    saveMissionState(getMissionRunDir(tmpOut, runId), {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: baseSha,
+      work_branch: workBranch,
+      tasks: [],
+    });
+
+    const gitCalls: string[][] = [];
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(
+          planResult,
+          [{ id: planResult.plan.tasks[0].id, status: 'blocked', commit_sha: originalSha, fix_commit_sha: fixSha }],
+          'AUTOPILOT_MVP_FAILED'
+        ),
+      gitExecFn: (args, options) => {
+        gitCalls.push(args);
+        return spawnSync('git', args, { cwd: options?.cwd, encoding: 'utf-8', shell: false });
+      },
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.ok(
+      !gitCalls.some((args) => args[0] === 'push' && args.includes('origin')),
+      'rollback must not push revert to origin'
+    );
+    assert.ok(
+      gitCalls.some((args) => args[0] === 'revert' && args.includes(originalSha) && args.includes(fixSha)),
+      'local revert must include both commits'
+    );
 
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
@@ -1781,6 +1979,62 @@ describe('production final reviewer and PR gating', () => {
 
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_NEEDS_HUMAN');
     assert.ok(result.reason.includes('Final reviewer is not available'));
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('terminal final reviewer failure is persisted and not re-run on resume', async () => {
+    const { tmpRepo, tmpOut, mission } = setupGithubMission();
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    let autopilotCalls = 0;
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      runAutopilotRunFn: async () => {
+        autopilotCalls += 1;
+        return fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]);
+      },
+      gitExecFn: fakeGitExec(),
+      collectDiffFn: () => '',
+      reviewCallFn: async () => {
+        throw new Error('Final reviewer is not available: OPENAI_API_KEY is missing');
+      },
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_NEEDS_HUMAN');
+    assert.strictEqual(autopilotCalls, 1, 'autopilot-run must be invoked exactly once on first run');
+
+    const runDir = getMissionRunDir(tmpOut, mission.run_id);
+    const state = loadMissionState(runDir);
+    assert.ok(state, 'state must be persisted');
+    assert.strictEqual(state.stage, 'completed', 'terminal failure must mark stage completed');
+    assert.ok(state.last_error?.includes('Final reviewer is not available'), 'last_error must record failure');
+    assert.strictEqual(state.result?.verdict, 'MULTITASK_MISSION_NEEDS_HUMAN', 'terminal result must be persisted');
+
+    assert.ok(existsSync(join(runDir, 'multitask-mission-report.json')), 'report JSON must be written');
+    assert.ok(existsSync(join(runDir, 'multitask-mission-report.md')), 'report markdown must be written');
+
+    let autopilotCalledOnResume = false;
+    const resumed = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () => {
+        autopilotCalledOnResume = true;
+        return fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]);
+      },
+      gitExecFn: fakeGitExec(),
+      collectDiffFn: () => '',
+      reviewCallFn: async () => '{"verdict":"approved","summary":"ok","caveats":[]}',
+    });
+
+    assert.strictEqual(autopilotCalledOnResume, false, 'resume must not re-run autopilot-run for terminal failure');
+    assert.strictEqual(resumed.verdict, 'MULTITASK_MISSION_NEEDS_HUMAN');
+    assert.strictEqual(resumed.run_dir, result.run_dir);
+
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
   });

@@ -33,7 +33,7 @@ function fakeGitExec(acceptedCommits: string[] = []) {
       return { status: 0, stdout: 'base-sha-1234567890abcdef\n', stderr: '' };
     }
     if (command === 'rev-parse' && args[1] === '--verify') {
-      return { status: 0, stdout: args[2] + '\n', stderr: '' };
+      return { status: 1, stdout: '', stderr: 'unknown revision' };
     }
     return { status: 0, stdout: '', stderr: '' };
   };
