@@ -13,6 +13,7 @@ import { validateGeneratedPlan } from '../src/autopilot-one-click/multitask/plan
 import { scheduleTasks, filterRunnableTasks, allRequiredTasksAccepted } from '../src/autopilot-one-click/multitask/scheduler.js';
 import { runMissionFinalReview } from '../src/autopilot-one-click/multitask/final-review.js';
 import { collectUnauthorizedFiles, collectAcceptanceGaps } from '../src/autopilot-one-click/multitask/final-review.js';
+import { buildOpenAIReviewCallFn, buildProductionFinalReviewCallFn } from '../src/autopilot-one-click/multitask/reviewer-provider.js';
 import { validateFileList } from '../src/guardrails.js';
 import { branchExists, getCurrentBranch } from '../src/autopilot-one-click/multitask/git-helpers.js';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanTask } from '../src/autopilot-plan/types.js';
@@ -388,8 +389,8 @@ describe('durable mission state and resume', () => {
     mission.capabilities.allow_repo_apply = true;
     mission.capabilities.allow_repo_commit = true;
     mission.capabilities.allow_repo_push = true;
-    mission.capabilities.allow_pr_create = true;
-    mission.capabilities.allow_pr_update = true;
+    mission.capabilities.allow_pr_create = false;
+    mission.capabilities.allow_pr_update = false;
     const planResult = await runAutopilotPlan(mission, { command: 'test' });
     return { tmpDir, runId, mission, planResult };
   }
@@ -647,6 +648,7 @@ describe('durable mission state and resume', () => {
       base_sha: 'base-sha-1234567890abcdef',
       work_branch: `mission-${runId}`,
       tasks: [{ task_id: 'mission-task-1', status: 'accepted', commit_sha: commitSha }],
+      pr: { number: 42, url: 'https://github.com/Mellowin/AI-orchestrator/pull/42' },
     });
 
     const captured: { resume?: boolean; callCount: number } = { callCount: 0 };
@@ -686,12 +688,13 @@ describe('durable mission state and resume', () => {
         commits: [commitSha],
         branch: `mission-${runId}`,
         pushed: false,
-        pr: { created: false, number: 42, url: 'https://github.com/Mellowin/AI-orchestrator/pull/42' },
+        pr: { created: false, reason: 'PR creation not attempted' },
         caveats: [],
         report_dir: join(runDir, 'mvp-run-reports'),
       } as AutopilotRunResult['mvp_result'];
     };
 
+    mission.capabilities.allow_pr_create = true;
     const result = await runMultitaskMission(mission, planResult, {
       command: 'test',
       resume: true,
@@ -699,6 +702,13 @@ describe('durable mission state and resume', () => {
         runAutopilotRun(config, configPath, { ...options, runMvpRunFn: fakeRunMvpRun as typeof import('../src/mvp-run/runner.js').runMvpRun }),
       gitExecFn: fakeGitExec([commitSha]),
       collectDiffFn: () => 'diff --git a/docs/AUTOPILOT_PLAN.md b/docs/AUTOPILOT_PLAN.md\n+line',
+      createMvpRunPrFn: async () => ({
+        created: true,
+        number: 42,
+        url: 'https://github.com/Mellowin/AI-orchestrator/pull/42',
+        draft: true,
+        reason: 'PR created as draft',
+      }),
     });
 
     assert.strictEqual(captured.resume, true, 'MVP run must receive resume: true');
@@ -876,8 +886,8 @@ describe('multitask safe zero-mutation', () => {
       allow_repo_apply: true,
       allow_repo_commit: true,
       allow_repo_push: true,
-      allow_pr_create: true,
-      allow_pr_update: true,
+      allow_pr_create: false,
+      allow_pr_update: false,
       allow_actions_read: true,
       allow_repair: true,
     };
@@ -995,8 +1005,8 @@ describe('fresh-run state isolation', () => {
       allow_repo_apply: true,
       allow_repo_commit: true,
       allow_repo_push: true,
-      allow_pr_create: true,
-      allow_pr_update: true,
+      allow_pr_create: false,
+      allow_pr_update: false,
       allow_actions_read: false,
       allow_repair: false,
     };
@@ -1528,6 +1538,137 @@ describe('multitask rollback reverts both original and fix commits', () => {
     spawnSync('git', ['checkout', workBranch], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
     assert.strictEqual(existsSync(join(tmpRepo, 'feature.ts')), false, 'feature.ts must be removed by revert');
 
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+});
+
+
+describe('production final reviewer and PR gating', () => {
+  function setupGithubMission() {
+    const tmpRepo = mkdtempSync(join(tmpdir(), 'repo-'));
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    spawnSync('git', ['init', '--initial-branch=main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(tmpRepo, 'README.md'), '# test\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+
+    const runId = `pr-gate-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const mission = buildMissionFromGoal('Add docs note', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.mode = 'github';
+    mission.capabilities = {
+      allow_real_provider: true,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: true,
+      allow_pr_update: true,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+    return { tmpRepo, tmpOut, runId, mission };
+  }
+
+  test('buildOpenAIReviewCallFn returns fake response without network call', async () => {
+    const fn = buildOpenAIReviewCallFn({
+      fakeResponse: '{"verdict":"approved","summary":"ok","caveats":[]}',
+    });
+    const result = await fn('prompt');
+    assert.strictEqual(result, '{"verdict":"approved","summary":"ok","caveats":[]}');
+  });
+
+  test('buildOpenAIReviewCallFn throws when API key is missing', () => {
+    assert.throws(() => buildOpenAIReviewCallFn({ apiKey: '' }), /OPENAI_API_KEY is required/);
+  });
+
+  test('buildOpenAIReviewCallFn calls OpenAI API and returns content', async () => {
+    const fetchCalls: Array<{ url: string; init: { method?: string; headers?: Record<string, string>; body?: string } }> = [];
+    const fetchFn = async (url: string, init: { method?: string; headers?: Record<string, string>; body?: string }) => {
+      fetchCalls.push({ url, init });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '{"verdict":"approved","summary":"ok","caveats":[]}' } }],
+        }),
+      } as unknown as Response;
+    };
+
+    const fn = buildOpenAIReviewCallFn({ apiKey: 'sk-test', model: 'gpt-test', fetchFn });
+    const result = await fn('review prompt');
+    assert.strictEqual(result, '{"verdict":"approved","summary":"ok","caveats":[]}');
+    assert.strictEqual(fetchCalls.length, 1);
+    const call = fetchCalls[0];
+    assert.ok(call.url.includes('openai.com'));
+    const body = JSON.parse(call.init.body ?? '{}');
+    assert.strictEqual(body.model, 'gpt-test');
+    assert.strictEqual(body.messages[0].content, 'review prompt');
+  });
+
+  test('final review rejection prevents PR creation', async () => {
+    const { tmpRepo, tmpOut, mission } = setupGithubMission();
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    let createCalled = false;
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]),
+      gitExecFn: fakeGitExec(),
+      collectDiffFn: () => '',
+      reviewCallFn: async () => '{"verdict":"rejected","summary":"bad","caveats":[]}',
+      createMvpRunPrFn: async () => {
+        createCalled = true;
+        return { created: false, reason: 'should not be called' };
+      },
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.ok(result.reason.includes('rejected'));
+    assert.strictEqual(createCalled, false, 'PR must not be created when final review rejects');
+    assert.strictEqual(result.pr, undefined, 'Result must not contain a PR after rejection');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('final review approval creates PR after deterministic checks', async () => {
+    const { tmpRepo, tmpOut, mission } = setupGithubMission();
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    let createCalled = false;
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]),
+      gitExecFn: fakeGitExec(),
+      collectDiffFn: () => '',
+      reviewCallFn: async () => '{"verdict":"approved","summary":"ok","caveats":[]}',
+      createMvpRunPrFn: async () => {
+        createCalled = true;
+        return {
+          created: true,
+          number: 99,
+          url: 'https://github.com/test/99',
+          draft: true,
+          reason: 'PR created as draft',
+        };
+      },
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    assert.strictEqual(createCalled, true, 'PR must be created after final review approval');
+    assert.strictEqual(result.pr?.number, 99);
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
   });

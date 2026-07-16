@@ -1,6 +1,10 @@
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanResult, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import type { AutopilotRunResult } from '../../autopilot-run/types.js';
 
+import type { MvpRunPrResult } from '../../mvp-run/types.js';
+
+export type FinalReviewCallFn = (prompt: string) => Promise<string>;
+
 export interface FinalReviewInput {
   mission: AutopilotPlanMission;
   plan: AutopilotPlanGeneratedPlan;
@@ -69,8 +73,14 @@ export interface RunMultitaskMissionOptions {
   runAutopilotPlanFn?: typeof import('../../autopilot-plan/runner.js').runAutopilotPlan;
   runAutopilotRunFn?: typeof import('../../autopilot-run/index.js').runAutopilotRun;
   runFinalReviewFn?: (input: FinalReviewInput) => Promise<MultitaskMissionFinalReview>;
+  /** Production path: override the OpenAI reviewer callback used by the final review. */
+  reviewCallFn?: FinalReviewCallFn;
   collectDiffFn?: (repoPath: string, baseBranch: string, workBranch: string) => string;
   writeStateFn?: (path: string, data: string) => void;
   readStateFn?: (path: string) => string;
   gitExecFn?: (args: string[], options?: { cwd?: string }) => { status: number | null; stdout: string; stderr: string };
+  /** Override PR creation for tests. */
+  createMvpRunPrFn?: (config: import('../../mvp-run/types.js').MvpRunConfig, token: string, summary: string) => Promise<MvpRunPrResult>;
+  /** Override PR close for tests. */
+  closeMvpRunPrFn?: (repoSlug: string, prNumber: number, token: string) => Promise<void>;
 }

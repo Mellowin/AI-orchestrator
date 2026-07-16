@@ -1,6 +1,10 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadAutopilotRunConfig, runAutopilotRun } from '../../autopilot-run/index.js';
+import { loadMvpRunConfig } from '../../mvp-run/index.js';
+import { createMvpRunPr } from '../../mvp-run/pr-creator.js';
+import type { MvpRunConfig, MvpRunPrResult } from '../../mvp-run/types.js';
+import { buildProductionFinalReviewCallFn } from './reviewer-provider.js';
 import type { AutopilotPlanMission, AutopilotPlanResult, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import type { AutopilotRunResult } from '../../autopilot-run/types.js';
 import { runMissionFinalReview } from './final-review.js';
@@ -196,16 +200,145 @@ function buildFailureResult(
   startedAt: string,
   startTime: number
 ): MultitaskMissionResult {
+  return buildVerdictResult(
+    mission,
+    planResult,
+    runDir,
+    reason,
+    'MULTITASK_MISSION_FAILED',
+    startedAt,
+    startTime
+  );
+}
+
+function buildVerdictResult(
+  mission: AutopilotPlanMission,
+  planResult: AutopilotPlanResult,
+  runDir: string,
+  reason: string,
+  verdict: MultitaskMissionVerdict,
+  startedAt: string,
+  startTime: number
+): MultitaskMissionResult {
   return {
     mission,
     plan: planResult.plan,
     plan_result: planResult,
     task_results: [],
-    verdict: 'MULTITASK_MISSION_FAILED',
+    verdict,
     reason,
     run_dir: runDir,
     exit_code: 1,
   };
+}
+
+async function defaultCloseMissionPr(repoSlug: string, prNumber: number, token: string): Promise<void> {
+  if (!token) {
+    throw new Error('GITHUB_TOKEN is missing');
+  }
+  const { default: https } = await import('node:https');
+  const payload = JSON.stringify({ state: 'closed' });
+  const url = `https://api.github.com/repos/${repoSlug}/pulls/${prNumber}`;
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      url,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'ai-orchestrator',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            resolve();
+          } else {
+            reject(new Error(`GitHub API returned status ${res.statusCode}: ${data}`));
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+function buildMvpConfigForMissionPr(
+  autopilotConfigPath: string,
+  autopilotResult: AutopilotRunResult
+): MvpRunConfig {
+  const autopilotConfig = loadAutopilotRunConfig(autopilotConfigPath);
+  const mvpConfig = loadMvpRunConfig(autopilotConfig.mvp_config_path);
+  mvpConfig.repo_slug = autopilotConfig.repo_slug;
+  mvpConfig.base_branch = autopilotConfig.base_branch;
+  mvpConfig.work_branch = autopilotConfig.work_branch;
+  mvpConfig.run_id = autopilotConfig.run_id;
+  mvpConfig.report_dir = autopilotResult.mvp_result?.report_dir ?? mvpConfig.report_dir;
+  mvpConfig.allow_github_pr_create = true;
+  return mvpConfig;
+}
+
+async function createMissionPr(
+  autopilotConfigPath: string,
+  autopilotResult: AutopilotRunResult,
+  reportSummary: string,
+  options: RunMultitaskMissionOptions
+): Promise<{ number: number; url: string } | undefined> {
+  const createFn = options.createMvpRunPrFn ?? createMvpRunPr;
+  const token = process.env.GITHUB_TOKEN ?? '';
+  if (!token) {
+    return undefined;
+  }
+  let mvpConfig: MvpRunConfig;
+  try {
+    mvpConfig = buildMvpConfigForMissionPr(autopilotConfigPath, autopilotResult);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[multitask] Failed to load MVP config for PR creation: ${message}`);
+    return undefined;
+  }
+  const prResult = await createFn(mvpConfig, token, reportSummary);
+  if (prResult.created && prResult.number !== undefined) {
+    return { number: prResult.number, url: prResult.url ?? '' };
+  }
+  return undefined;
+}
+
+async function closeMissionPr(
+  repoSlug: string,
+  prNumber: number,
+  options: RunMultitaskMissionOptions
+): Promise<void> {
+  const closeFn = options.closeMvpRunPrFn ?? defaultCloseMissionPr;
+  const token = process.env.GITHUB_TOKEN ?? '';
+  try {
+    await closeFn(repoSlug, prNumber, token);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[multitask] Failed to close mission PR #${prNumber}: ${message}`);
+  }
+}
+
+function buildMissionResult(
+  mission: AutopilotPlanMission,
+  planResult: AutopilotPlanResult,
+  runDir: string,
+  reason: string,
+  verdict: MultitaskMissionVerdict,
+  startedAt: string,
+  startTime: number
+): MultitaskMissionResult {
+  return buildVerdictResult(mission, planResult, runDir, reason, verdict, startedAt, startTime);
 }
 
 function buildSafeModeResult(
@@ -410,6 +543,7 @@ export async function runMultitaskMission(
     autopilotResult = await runAutopilotRunFn(autopilotConfig, autopilotConfigPath, {
       command: `npx tsx src/cli.ts autopilot-run ${autopilotConfigPath}`,
       resume,
+      skipPrCreation: true,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -469,9 +603,41 @@ export async function runMultitaskMission(
     taskStates: state.tasks,
   };
 
-  const finalReview = options.runFinalReviewFn
-    ? await options.runFinalReviewFn(finalReviewInput)
-    : await runMissionFinalReview(finalReviewInput);
+  let finalReview: MultitaskMissionFinalReview;
+  try {
+    if (options.runFinalReviewFn) {
+      finalReview = await options.runFinalReviewFn(finalReviewInput);
+    } else if (mission.mode === 'fake') {
+      // Fake mode missions (tests / dry runs) use the deterministic fallback so
+      // they can exercise the rest of the pipeline without an OpenAI token.
+      finalReview = await runMissionFinalReview(finalReviewInput);
+    } else {
+      const reviewCallFn = options.reviewCallFn ?? buildProductionFinalReviewCallFn();
+      finalReview = await runMissionFinalReview(finalReviewInput, reviewCallFn);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('OPENAI_API_KEY') || message.includes('Final reviewer is not available')) {
+      return buildMissionResult(
+        mission,
+        planResult,
+        runDir,
+        `Final reviewer is not available: ${message}`,
+        'MULTITASK_MISSION_NEEDS_HUMAN',
+        startedAt,
+        startTime
+      );
+    }
+    return buildMissionResult(
+      mission,
+      planResult,
+      runDir,
+      `Final reviewer failed: ${message}`,
+      'MULTITASK_MISSION_EXTERNAL_BLOCKER',
+      startedAt,
+      startTime
+    );
+  }
 
   const { verdict, reason } = mapAutopilotVerdict(autopilotResult, finalReview, allRequiredAccepted);
   const exitCode =
@@ -493,6 +659,15 @@ export async function runMultitaskMission(
       reason: s.reason,
     }));
 
+  let pr: { number: number; url: string } | undefined;
+  if (verdict === 'MULTITASK_MISSION_DONE' || verdict === 'MULTITASK_MISSION_DONE_WITH_CAVEATS') {
+    if (mission.capabilities.allow_pr_create) {
+      pr = await createMissionPr(autopilotConfigPath, autopilotResult, reason, options);
+    }
+  } else if (state.pr) {
+    await closeMissionPr(mission.repo_slug, state.pr.number, options);
+  }
+
   const result: MultitaskMissionResult = {
     mission,
     plan: planResult.plan,
@@ -507,12 +682,7 @@ export async function runMultitaskMission(
     exit_code: exitCode,
     next_human_action: buildNextHumanAction(verdict, autopilotResult),
     work_branch: workBranch,
-    pr: autopilotResult.mvp_result?.pr?.number !== undefined
-      ? {
-          number: autopilotResult.mvp_result.pr.number,
-          url: autopilotResult.mvp_result.pr.url ?? '',
-        }
-      : state.pr,
+    pr: pr ?? state.pr,
   };
 
   state.stage = 'completed';

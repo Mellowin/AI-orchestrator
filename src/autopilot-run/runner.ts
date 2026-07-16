@@ -28,6 +28,8 @@ export interface RunAutopilotRunInternalOptions extends AutopilotRunOptions {
   runDiagnoseCiFn?: typeof runDiagnoseCi;
   createAIClientFn?: typeof createAIClient;
   spawnFn?: typeof spawnSync;
+  /** When true, the autopilot run executes the MVP loop but does not create a GitHub PR. */
+  skipPrCreation?: boolean;
 }
 
 function nowIso(): string {
@@ -252,6 +254,9 @@ export async function runAutopilotRun(
   let mvpConfig: MvpRunConfig;
   try {
     mvpConfig = buildMvpConfig(config);
+    if (options.skipPrCreation) {
+      mvpConfig.allow_github_pr_create = false;
+    }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return finalize(buildResult('AUTOPILOT_CONFIG_ERROR', reason));

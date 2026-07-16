@@ -2,9 +2,9 @@ import { spawnSync } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import type { AutopilotRunResult } from '../../autopilot-run/types.js';
 import { matchesPattern } from '../../guardrails.js';
-import type { FinalReviewInput, MultitaskMissionFinalReview, MultitaskMissionTaskState } from './types.js';
+import type { FinalReviewInput, MultitaskMissionFinalReview, MultitaskMissionTaskState, FinalReviewCallFn } from './types.js';
 
-export type FinalReviewCallFn = (prompt: string) => Promise<string>;
+export type { FinalReviewCallFn };
 
 function collectDiff(repoPath: string, baseBranch: string, workBranch: string): string {
   let result = spawnSync('git', ['diff', `${baseBranch}...${workBranch}`], {
