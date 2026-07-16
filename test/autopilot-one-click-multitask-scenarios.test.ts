@@ -296,6 +296,54 @@ describe('plan validation', () => {
     const result = validateGeneratedPlan(plan, mission);
     assert.strictEqual(result.ok, true);
   });
+  test('detects glob scope overlap on independent tasks', () => {
+    const plan = makePlan([
+      makeTask('a', { allowed_files: ['src/**'] }),
+      makeTask('b', { allowed_files: ['src/foo.ts'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('overlapping scopes')));
+  });
+
+  test('detects glob scope overlap with single-segment wildcards', () => {
+    const plan = makePlan([
+      makeTask('a', { allowed_files: ['docs/*.md'] }),
+      makeTask('b', { allowed_files: ['docs/readme.md'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('overlapping scopes')));
+  });
+
+  test('allows identical globs for dependent tasks', () => {
+    const plan = makePlan([
+      makeTask('a', { allowed_files: ['src/**'] }),
+      makeTask('b', { depends_on: ['a'], allowed_files: ['src/**'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, true);
+  });
+
+  test('allows non-overlapping exact paths', () => {
+    const plan = makePlan([
+      makeTask('a', { allowed_files: ['src/a.ts'] }),
+      makeTask('b', { allowed_files: ['src/b.ts'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, true);
+  });
+
+  test('normalizes Windows separators for scope overlap', () => {
+    const plan = makePlan([
+      makeTask('a', { allowed_files: ['src/**'] }),
+      makeTask('b', { allowed_files: ['src\\foo.ts'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('overlapping scopes')));
+  });
+
 });
 
 describe('final review helpers', () => {
@@ -307,6 +355,40 @@ describe('final review helpers', () => {
   test('collectUnauthorizedFiles ignores allowed files', () => {
     const diff = 'diff --git a/src/ok.ts b/src/ok.ts\n+line';
     assert.deepStrictEqual(collectUnauthorizedFiles(diff, ['src/ok.ts']), []);
+  });
+
+  test('collectUnauthorizedFiles rejects rename from allowed to out-of-scope', () => {
+    const diff = [
+      'diff --git a/src/ok.ts b/src/bad.ts',
+      'rename from src/ok.ts',
+      'rename to src/bad.ts',
+    ].join('\n');
+    assert.deepStrictEqual(collectUnauthorizedFiles(diff, ['src/ok.ts']), ['src/bad.ts']);
+  });
+
+  test('collectUnauthorizedFiles rejects rename from out-of-scope to allowed', () => {
+    const diff = [
+      'diff --git a/bad.ts b/src/ok.ts',
+      'rename from bad.ts',
+      'rename to src/ok.ts',
+    ].join('\n');
+    assert.deepStrictEqual(collectUnauthorizedFiles(diff, ['src/ok.ts']), ['bad.ts']);
+  });
+
+  test('collectUnauthorizedFiles allows rename within allowed scope', () => {
+    const diff = [
+      'diff --git a/src/old.ts b/src/new.ts',
+      'rename from src/old.ts',
+      'rename to src/new.ts',
+    ].join('\n');
+    assert.deepStrictEqual(collectUnauthorizedFiles(diff, ['src/**']), []);
+  });
+
+  test('collectUnauthorizedFiles validates create and delete sides', () => {
+    const createDiff = 'diff --git a/dev/null b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts';
+    const deleteDiff = 'diff --git a/src/old.ts b/dev/null\ndeleted file mode 100644\n--- src/old.ts\n+++ /dev/null';
+    assert.deepStrictEqual(collectUnauthorizedFiles(createDiff, ['src/ok.ts']), ['src/new.ts']);
+    assert.deepStrictEqual(collectUnauthorizedFiles(deleteDiff, ['src/ok.ts']), ['src/old.ts']);
   });
 
   test('collectAcceptanceGaps lists non-accepted tasks', () => {
@@ -1564,7 +1646,7 @@ describe('production final reviewer and PR gating', () => {
     });
     mission.mode = 'github';
     mission.capabilities = {
-      allow_real_provider: true,
+      allow_real_provider: false,
       allow_repo_apply: true,
       allow_repo_commit: true,
       allow_repo_push: true,
@@ -1644,8 +1726,12 @@ describe('production final reviewer and PR gating', () => {
     const { tmpRepo, tmpOut, mission } = setupGithubMission();
     const planResult = await runAutopilotPlan(mission, { command: 'test' });
     let createCalled = false;
+    const originalToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'fake-token-for-test';
 
-    const result = await runMultitaskMission(mission, planResult, {
+    let result: import('../src/autopilot-one-click/multitask/types.js').MultitaskMissionResult;
+    try {
+      result = await runMultitaskMission(mission, planResult, {
       command: 'test',
       runAutopilotRunFn: async () =>
         fakeAutopilotResult(planResult, [
@@ -1669,6 +1755,32 @@ describe('production final reviewer and PR gating', () => {
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
     assert.strictEqual(createCalled, true, 'PR must be created after final review approval');
     assert.strictEqual(result.pr?.number, 99);
+    } finally {
+      process.env.GITHUB_TOKEN = originalToken;
+    }
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('runner fails closed when final reviewer is unavailable', async () => {
+    const { tmpRepo, tmpOut, mission } = setupGithubMission();
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]),
+      gitExecFn: fakeGitExec(),
+      collectDiffFn: () => '',
+      reviewCallFn: async () => {
+        throw new Error('Final reviewer is not available: OPENAI_API_KEY is missing');
+      },
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_NEEDS_HUMAN');
+    assert.ok(result.reason.includes('Final reviewer is not available'));
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
   });
