@@ -102,9 +102,55 @@ function segmentToRegex(segment: string): RegExp {
   return new RegExp(`^${regex}$`);
 }
 
+function generateSegmentWitnesses(pattern: string, replacements: string[]): string[] {
+  const parts = pattern.split('*');
+  if (parts.length === 1) return [pattern];
+  const results: string[] = [];
+  function build(index: number, current: string) {
+    if (index === parts.length - 1) {
+      results.push(current + parts[index]);
+      return;
+    }
+    for (const replacement of replacements) {
+      build(index + 1, current + parts[index] + replacement);
+    }
+  }
+  build(0, '');
+  return results;
+}
+
 function segmentMatches(a: string, b: string): boolean {
   if (a === '*' || b === '*') return true;
-  return segmentToRegex(a).test(b) || segmentToRegex(b).test(a);
+  const aHasWild = a.includes('*');
+  const bHasWild = b.includes('*');
+  if (!aHasWild && !bHasWild) return a === b;
+  if (!aHasWild) return segmentToRegex(b).test(a);
+  if (!bHasWild) return segmentToRegex(a).test(b);
+
+  // Both segments contain wildcards. Try to construct a concrete witness that
+  // matches both patterns, using each pattern's literal fragments plus a small
+  // set of generic fillers for every wildcard position.
+  const candidates = new Set(['', 'x', 'xy', '1', '12']);
+  for (const fragment of a.split('*')) {
+    if (fragment) candidates.add(fragment);
+  }
+  for (const fragment of b.split('*')) {
+    if (fragment) candidates.add(fragment);
+  }
+  const replacements = Array.from(candidates);
+
+  let checked = 0;
+  const maxWitnesses = 200;
+
+  for (const witness of generateSegmentWitnesses(a, replacements)) {
+    if (segmentToRegex(b).test(witness)) return true;
+    if (++checked >= maxWitnesses) break;
+  }
+  for (const witness of generateSegmentWitnesses(b, replacements)) {
+    if (segmentToRegex(a).test(witness)) return true;
+    if (++checked >= maxWitnesses) break;
+  }
+  return false;
 }
 
 function patternsOverlap(a: string, b: string): boolean {

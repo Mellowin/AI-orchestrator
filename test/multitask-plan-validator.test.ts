@@ -85,6 +85,17 @@ describe('detectFileScopeOverlap glob-aware analysis', () => {
     assert.ok(result.issues.some((i) => i.message.includes('overlapping scopes')));
   });
 
+  test('detects partial wildcard segment intersection', () => {
+    // `src/a*b.ts` and `src/ab*.ts` both authorize `src/ab.ts`.
+    const plan = makePlan([
+      makeTask('a', ['src/a*b.ts']),
+      makeTask('b', ['src/ab*.ts']),
+    ]);
+    const result = validateGeneratedPlan(plan, makeMission());
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('overlapping scopes')));
+  });
+
   test('detects identical globs as overlapping', () => {
     const plan = makePlan([
       makeTask('a', ['src/**']),
