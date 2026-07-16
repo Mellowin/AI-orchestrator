@@ -112,3 +112,20 @@ describe('detectFileScopeOverlap glob-aware analysis', () => {
     assert.ok(result.issues.some((i) => i.message.includes('overlapping scopes')));
   });
 });
+
+
+describe('sibling task scope overlap validation', () => {
+  test('detects overlap between sibling tasks that share a dependency', () => {
+    const plan = makePlan([
+      makeTask('parent', ['src/parent.ts']),
+      makeTask('sibling-a', ['src/shared.ts'], { depends_on: ['parent'] }),
+      makeTask('sibling-b', ['src/shared.ts'], { depends_on: ['parent'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, makeMission());
+    assert.strictEqual(result.ok, false);
+    assert.ok(
+      result.issues.some((i) => i.message.includes('overlapping scopes') && i.message.includes('sibling-a') && i.message.includes('sibling-b')),
+      `expected sibling overlap issue, got: ${result.issues.map((i) => i.message).join(', ')}`
+    );
+  });
+});

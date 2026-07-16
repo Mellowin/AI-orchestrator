@@ -984,10 +984,14 @@ export async function runRealBlockRunAI(
     blockState.currentTaskId = task.task_id;
     saveBlockState(block, blockState);
 
-    // Dependency-aware execution: skip tasks whose required ancestors failed or were blocked.
+    // Dependency-aware execution: skip tasks whose required ancestors failed,
+    // were blocked, or were skipped because an ancestor failed.
     const blockingDeps = (task.depends_on ?? []).filter((depId) => {
       const depResult = blockState.taskResults.find((r) => r.taskId === depId);
-      return depResult !== undefined && isBlockingStatus(depResult.status);
+      if (depResult === undefined) {
+        return false;
+      }
+      return isBlockingStatus(depResult.status) || isSkippedBlockedTaskStatus(depResult.status);
     });
     if (blockingDeps.length > 0) {
       const skippedResult: RealBlockRunTaskResult = {

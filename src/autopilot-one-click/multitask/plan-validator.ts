@@ -111,11 +111,11 @@ function detectFileScopeOverlap(tasks: AutopilotPlanTask[]): PlanValidationIssue
     for (let j = i + 1; j < tasks.length; j += 1) {
       const a = tasks[i];
       const b = tasks[j];
-      const depsOverlap =
-        a.depends_on?.includes(b.id) ||
-        b.depends_on?.includes(a.id) ||
-        (a.depends_on ?? []).some((d) => (b.depends_on ?? []).includes(d));
-      if (depsOverlap) continue;
+      // Only directly dependent tasks are allowed to overlap; tasks that merely
+      // share a dependency are still independent siblings and must not collide.
+      const directDepOverlap =
+        a.depends_on?.includes(b.id) || b.depends_on?.includes(a.id);
+      if (directDepOverlap) continue;
 
       const aPatterns = a.allowed_files.map((f) => f.replace(/\\/g, '/'));
       const bPatterns = b.allowed_files.map((f) => f.replace(/\\/g, '/'));

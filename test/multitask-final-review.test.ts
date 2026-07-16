@@ -1,6 +1,9 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { collectUnauthorizedFiles } from '../src/autopilot-one-click/multitask/final-review.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { collectUnauthorizedFiles, collectDiff } from '../src/autopilot-one-click/multitask/final-review.js';
 
 describe('collectUnauthorizedFiles validates both sides of renames', () => {
   test('create outside allowlist is unauthorized', () => {
@@ -72,5 +75,17 @@ describe('collectUnauthorizedFiles validates both sides of renames', () => {
     ].join('\n');
     const files = collectUnauthorizedFiles(diff, ['src/**']);
     assert.deepStrictEqual(files, []);
+  });
+});
+
+
+describe('collectDiff fails closed', () => {
+  test('throws when both git diff attempts fail in a non-git directory', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'no-git-'));
+    assert.throws(
+      () => collectDiff(tmpDir, 'main', 'work'),
+      /Could not collect diff/
+    );
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 });

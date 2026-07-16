@@ -21,7 +21,9 @@ function collectDiff(repoPath: string, baseBranch: string, workBranch: string): 
     });
   }
   if (result.status !== 0) {
-    return `// Could not collect diff: ${result.stderr}`;
+    // Fail closed: an unreadable diff prevents the deterministic reviewer from
+    // authorizing changes it cannot see.
+    throw new Error(`Could not collect diff between ${baseBranch} and ${workBranch}: ${result.stderr}`);
   }
   return result.stdout ?? '';
 }
