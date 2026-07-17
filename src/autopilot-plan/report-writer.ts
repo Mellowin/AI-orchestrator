@@ -75,9 +75,11 @@ export function buildMvpRunConfig(
     allow_github_pr_create: mission.capabilities.allow_pr_create,
     tasks: sortedTasks.map(taskToMvpTask),
     report_dir: join(runDir, 'mvp-run-reports'),
-    // With dependencies the runner skips only descendants of failed/blocked tasks;
-    // independent tasks always continue, so the policy is always "continue".
-    on_blocked_task: 'continue',
+    // With dependencies the block runner already skips only descendants of
+    // failed/blocked tasks. For plans without dependencies, a blocked task must stop
+    // the run so that a rejected task is not reported as passed_with_caveats and
+    // potentially published as a PR.
+    on_blocked_task: hasDependencies ? 'continue' : 'stop',
   };
 }
 

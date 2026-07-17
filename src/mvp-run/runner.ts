@@ -328,8 +328,8 @@ export async function runMvpRun(
     return result;
   }
 
-  if (!config.allow_real_repo_commit || !config.allow_real_repo_push) {
-    const reason = 'Current engine requires commit and push to be enabled when apply is enabled.';
+  if (!config.allow_real_repo_commit) {
+    const reason = 'Current engine requires commit to be enabled when apply is enabled.';
     console.error(`[mvp-run] ${reason}`);
     const result: MvpRunResult = {
       config,
@@ -354,7 +354,7 @@ export async function runMvpRun(
       pushed: false,
       caveats: [],
       failure_classification: 'CONFIG_ERROR',
-      next_human_action: 'Enable allow_real_repo_commit and allow_real_repo_push, or disable apply for a safe dry run.',
+      next_human_action: 'Enable allow_real_repo_commit, or disable apply for a safe dry run.',
       report_dir: reportDir,
     };
     writeMvpRunReports(result);
