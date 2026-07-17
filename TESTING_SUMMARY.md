@@ -2,18 +2,18 @@
 
 **Branch:** `stage-18-25-one-click-multitask`
 
-**Last verified:** `aa90540449dba587982ddd1fb49fb2abaf0c9ee3`
+**Last verified:** `12c05af7d97b0bbe2467426a67191dd1aad4917f`
 
 ## Test metrics
 
-- **Total tests:** 4030
-- **Total suites:** 275
+- **Total tests:** 4032
+- **Total suites:** 276
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-**Last verified commit:** `aa90540449dba587982ddd1fb49fb2abaf0c9ee3` (Stage 18.25 Codex follow-up: track mission commits from the mission base; disable remote CI/PR for real-multitask preset; keep real-multitask executable without push; stop reviewer-blocked single-task plans from becoming PRs; track mission-owned commits and limit rollback to them; disable git push in real-multitask preset; revert all mission-owned branch commits on rollback; validate accepted commits on terminal resume; do not pre-create mission work branch before inner MVP runner; transitive dependency overlap in plan validation; final-review rollback of all pushed mission commits after rejection/needs_changes; full per-chunk suite 4031 tests / 276 suites / 0 failures local run)
+**Last verified commit:** `12c05af7d97b0bbe2467426a67191dd1aad4917f` (Stage 18.25 Codex follow-up: keep rejected-mission rollback local; roll back on diff collection failure; full per-chunk suite 4032 tests / 276 suites / 0 failures local run; heavy chunk 5 run individually with 600 s timeout)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
