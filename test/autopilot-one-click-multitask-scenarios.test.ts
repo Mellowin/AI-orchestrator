@@ -2487,6 +2487,7 @@ describe('final-review rollback of pushed mission commits', () => {
       base_sha: baseSha,
       work_branch: workBranch,
       tasks: [],
+      mission_commits: [originalCommit],
     });
 
     const result = await runMultitaskMission(mission, planResult, {
@@ -2715,6 +2716,7 @@ describe('final-review rollback of pushed mission commits', () => {
       base_sha: baseSha,
       work_branch: workBranch,
       tasks: [],
+      mission_commits: [taskCommit, repairCommit],
     });
 
     const result = await runMultitaskMission(mission, planResult, {
@@ -2742,6 +2744,92 @@ describe('final-review rollback of pushed mission commits', () => {
     spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
     assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'task feature.ts must not remain on remote');
     assert.strictEqual(existsSync(join(repos.local, 'repair.ts')), false, 'repair.ts must not remain on remote');
+
+    rmSync(repos.remote, { recursive: true, force: true });
+    rmSync(repos.local, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('unrelated actor commits on work branch are not reverted by final-review rollback', async () => {
+    const repos = initRemoteRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `actor-rollback-${Date.now()}`;
+    const workBranch = `mission-${runId}`;
+
+    // Create a work branch with a mission task commit and an unrelated actor
+    // commit after it; both are pushed to the remote.
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    writeFileSync(join(repos.local, 'feature.ts'), 'added\n');
+    spawnSync('git', ['add', '.'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'task-a', '--no-gpg-sign'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    const taskCommit = getHeadSha(repos.local);
+
+    writeFileSync(join(repos.local, 'actor.ts'), 'actor\n');
+    spawnSync('git', ['add', '.'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'unrelated actor commit', '--no-gpg-sign'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    const actorCommit = getHeadSha(repos.local);
+    spawnSync('git', ['push', 'origin', workBranch], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['checkout', 'main'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+
+    const mission = buildMissionFromGoal('Add feature', {
+      preset: 'multitask-safe',
+      repo_path: repos.local,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      ...mission.capabilities,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+    planResult.plan.tasks[0].allowed_files = ['feature.ts', 'actor.ts'];
+
+    const baseSha = getHeadSha(repos.local);
+    saveMissionState(getMissionRunDir(tmpOut, runId), {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: baseSha,
+      work_branch: workBranch,
+      tasks: [],
+      // Only the mission task commit is tracked; the actor commit is unknown.
+      mission_commits: [taskCommit],
+    });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: taskCommit }]),
+      collectDiffFn: () => 'diff --git a/feature.ts b/feature.ts\n+added\ndiff --git a/actor.ts b/actor.ts\n+actor',
+      runFinalReviewFn: async () => ({
+        verdict: 'rejected',
+        summary: 'rejected',
+        caveats: [],
+        unauthorized_files: [],
+        acceptance_gaps: ['not accepted'],
+      }),
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    const persisted = loadMissionState(result.run_dir);
+    assert.strictEqual(persisted?.rolled_back_commits?.includes(taskCommit), true, 'mission task commit must be rolled back');
+    assert.strictEqual(persisted?.rolled_back_commits?.includes(actorCommit), false, 'unrelated actor commit must not be rolled back');
+
+    spawnSync('git', ['fetch', 'origin'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'mission feature.ts must not remain on remote');
+    assert.strictEqual(existsSync(join(repos.local, 'actor.ts')), true, 'actor.ts must remain on remote');
 
     rmSync(repos.remote, { recursive: true, force: true });
     rmSync(repos.local, { recursive: true, force: true });

@@ -191,6 +191,23 @@ function isRepoMutationAllowed(mission: AutopilotPlanMission): boolean {
   return caps.allow_repo_apply || caps.allow_repo_commit || caps.allow_repo_push;
 }
 
+function getCurrentHead(repoPath: string, gitExec: GitExecFn): string | undefined {
+  const result = gitExec(['rev-parse', 'HEAD'], { cwd: repoPath });
+  if (result.status !== 0) return undefined;
+  return (result.stdout ?? '').trim();
+}
+
+function getCommitsBetween(
+  repoPath: string,
+  fromSha: string,
+  toSha: string,
+  gitExec: GitExecFn
+): string[] {
+  const result = gitExec(['log', '--format=%H', `${fromSha}..${toSha}`], { cwd: repoPath });
+  if (result.status !== 0) return [];
+  return (result.stdout ?? '').split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
 function getBranchCommitsSinceBase(
   repoPath: string,
   workBranch: string,
@@ -208,19 +225,15 @@ function getBranchCommitsSinceBase(
 function performMissionRollback(
   repoPath: string,
   workBranch: string,
-  baseSha: string,
+  missionCommits: string[],
   alreadyRolledBack: string[],
   push: boolean,
   gitExec: GitExecFn
 ): { ok: true; rolledBack: string[] } | { ok: false; rolledBack: string[]; error: string } {
-  const log = getBranchCommitsSinceBase(repoPath, workBranch, baseSha, gitExec);
-  if (!log.ok) {
-    return { ok: false, rolledBack: alreadyRolledBack, error: log.error };
-  }
-  // git log returns newest-first. Revert every mission-owned commit (task commits,
-  // fix commits, and any CI repair commits) that has not already been rolled back,
+  // git log returns newest-first. Revert only mission-owned commits (task commits,
+  // fix commits, and CI repair commits) that have not already been rolled back,
   // newest first so each revert applies cleanly to the previous state.
-  const toRevert = log.commits.filter((sha) => !alreadyRolledBack.includes(sha));
+  const toRevert = missionCommits.filter((sha) => !alreadyRolledBack.includes(sha));
   if (toRevert.length === 0) {
     return { ok: true, rolledBack: alreadyRolledBack };
   }
@@ -497,7 +510,12 @@ export async function runMultitaskMission(
       base_sha: baseSha,
       work_branch: workBranch,
       tasks: buildInitialTaskStates(planResult.plan.tasks),
+      mission_commits: [],
     };
+  }
+
+  if (!state.mission_commits) {
+    state.mission_commits = [];
   }
 
   const planValidation = validateGeneratedPlan(planResult.plan, mission);
@@ -613,12 +631,23 @@ export async function runMultitaskMission(
 
   const autopilotConfig = loadAutopilotRunConfig(autopilotConfigPath);
   let autopilotResult: AutopilotRunResult;
+  let beforeHead: string | undefined;
   try {
+    if (mutationAllowed) {
+      beforeHead = getCurrentHead(mission.repo_path, gitExec);
+    }
     autopilotResult = await runAutopilotRunFn(autopilotConfig, autopilotConfigPath, {
       command: `npx tsx src/cli.ts autopilot-run ${autopilotConfigPath}`,
       resume,
       skipPrCreation: true,
     });
+    if (mutationAllowed && beforeHead) {
+      const afterHead = getCurrentHead(mission.repo_path, gitExec);
+      if (afterHead && afterHead !== beforeHead) {
+        const newCommits = getCommitsBetween(mission.repo_path, beforeHead, afterHead, gitExec);
+        state.mission_commits = [...(state.mission_commits ?? []), ...newCommits];
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     state.last_error = message;
@@ -762,7 +791,7 @@ export async function runMultitaskMission(
     const rollback = performMissionRollback(
       mission.repo_path,
       workBranch,
-      baseSha,
+      state.mission_commits ?? [],
       state.rolled_back_commits ?? [],
       mission.capabilities.allow_repo_push,
       gitExec
