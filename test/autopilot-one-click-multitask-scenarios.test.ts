@@ -1,14 +1,14 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildMissionFromGoal } from '../src/autopilot-one-click/mission-builder.js';
 import { runAutopilotPlan } from '../src/autopilot-plan/runner.js';
 import { runAutopilotRun } from '../src/autopilot-run/runner.js';
-import { runMultitaskMission, loadMissionState } from '../src/autopilot-one-click/multitask/runner.js';
-import { saveMissionState, getMissionRunDir, computePlanHash } from '../src/autopilot-one-click/multitask/state-manager.js';
+import { loadMissionState, runMultitaskMission } from '../src/autopilot-one-click/multitask/runner.js';
+import { loadMissionState, saveMissionState, getMissionRunDir, computePlanHash } from '../src/autopilot-one-click/multitask/state-manager.js';
 import { validateGeneratedPlan } from '../src/autopilot-one-click/multitask/plan-validator.js';
 import { scheduleTasks, filterRunnableTasks, allRequiredTasksAccepted } from '../src/autopilot-one-click/multitask/scheduler.js';
 import { runMissionFinalReview } from '../src/autopilot-one-click/multitask/final-review.js';
@@ -1741,10 +1741,10 @@ describe('multitask rollback reverts both original and fix commits', () => {
     rmSync(tmpOut, { recursive: true, force: true });
   });
 
-  test('rejected task rollback stays local and does not push to origin', async () => {
+  test('rejected task rollback is pushed to origin when allow_repo_push is enabled', async () => {
     const tmpRepo = initTempGitRepo();
     const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
-    const runId = `rollback-local-${Date.now()}`;
+    const runId = `rollback-push-${Date.now()}`;
     const workBranch = `mission-${runId}`;
 
     spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
@@ -1810,13 +1810,19 @@ describe('multitask rollback reverts both original and fix commits', () => {
 
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
     assert.ok(
-      !gitCalls.some((args) => args[0] === 'push' && args.includes('origin')),
-      'rollback must not push revert to origin'
+      gitCalls.some((args) => args[0] === 'push' && args.includes('origin') && args.includes(workBranch)),
+      'rollback revert must be pushed to origin when allow_repo_push is enabled'
     );
     assert.ok(
       gitCalls.some((args) => args[0] === 'revert' && args.includes(originalSha) && args.includes(fixSha)),
       'local revert must include both commits'
     );
+
+    // Verify the remote branch no longer contains the rejected file (HEAD is the revert).
+    spawnSync('git', ['fetch', 'origin'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: tmpRepo, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', remoteHead], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(tmpRepo, 'feature.ts')), false, 'rejected file must not remain on remote branch');
 
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
@@ -2162,6 +2168,47 @@ describe('production final reviewer and PR gating', () => {
     assert.strictEqual(createCalled, false, 'PR must not be created when deterministic gate fails');
 
     rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+});
+
+describe('mission state persistence is atomic', () => {
+  test('saveMissionState writes valid JSON via atomic rename', () => {
+    const tmpOut = mkdtempSync(join(tmpdir(), 'state-'));
+    const runId = `atomic-${Date.now()}`;
+    const runDir = getMissionRunDir(tmpOut, runId);
+
+    const state = {
+      version: 1 as const,
+      run_id: runId,
+      stage: 'planning' as const,
+      plan_hash: 'abc123',
+      base_sha: 'base'.padEnd(40, '0'),
+      work_branch: `mission-${runId}`,
+      tasks: [],
+    };
+
+    saveMissionState(runDir, state);
+
+    const statePath = join(runDir, 'multitask-mission-state.json');
+    assert.strictEqual(existsSync(`${statePath}.tmp`), false, 'temp state file must not remain');
+    const loaded = loadMissionState(runDir);
+    assert.deepStrictEqual(loaded, { ...state });
+
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('loadMissionState treats malformed JSON as absent', () => {
+    const tmpOut = mkdtempSync(join(tmpdir(), 'state-'));
+    const runId = `malformed-${Date.now()}`;
+    const runDir = getMissionRunDir(tmpOut, runId);
+    const statePath = join(runDir, 'multitask-mission-state.json');
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(statePath, '{"run_id": "broken", "tasks": [', 'utf-8');
+
+    const loaded = loadMissionState(runDir);
+    assert.strictEqual(loaded, null, 'malformed state must be treated as absent');
+
     rmSync(tmpOut, { recursive: true, force: true });
   });
 });

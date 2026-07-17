@@ -572,7 +572,15 @@ export async function runMultitaskMission(
       try {
         checkoutBranch(mission.repo_path, workBranch, gitExec);
         revertCommits(mission.repo_path, rollbackCommits, gitExec);
-        // Rollback is intentionally kept local; do not push the revert to origin.
+        // When the mission is allowed to push, the remote branch already contains
+        // the rejected commits; push the revert so the branch does not keep code
+        // that the final mission gate rejected.
+        if (mission.capabilities.allow_repo_push) {
+          const pushResult = gitExec(['push', 'origin', workBranch], { cwd: mission.repo_path });
+          if (pushResult.status !== 0) {
+            throw new Error(pushResult.stderr || `git push origin ${workBranch} failed`);
+          }
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         state.last_error = `Rollback failed: ${message}`;

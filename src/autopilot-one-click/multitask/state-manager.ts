@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import type { MultitaskMissionResult, MultitaskMissionTaskState } from './types.js';
@@ -84,7 +84,9 @@ export function saveMissionState(
   if (writeFn) {
     writeFn(path, data);
   } else {
-    writeFileSync(path, data, 'utf-8');
+    const tempPath = `${path}.tmp`;
+    writeFileSync(tempPath, data, 'utf-8');
+    renameSync(tempPath, path);
   }
 }
 
