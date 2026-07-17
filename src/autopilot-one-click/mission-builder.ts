@@ -44,7 +44,7 @@ function applyPreset(preset: AutopilotOneClickPreset) {
       caps.allow_real_provider = true;
       caps.allow_repo_apply = true;
       caps.allow_repo_commit = true;
-      caps.allow_repo_push = true;
+      caps.allow_repo_push = false;
       caps.allow_pr_create = true;
       caps.allow_pr_update = true;
       caps.allow_actions_read = true;

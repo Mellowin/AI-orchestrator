@@ -55,13 +55,13 @@ describe('autopilot-one-click multitask presets', () => {
     assert.strictEqual(mission.capabilities.allow_repair, false);
   });
 
-  test('real-multitask preset enables all mutation and repair capabilities', () => {
+  test('real-multitask preset enables mutation and repair capabilities except push', () => {
     const mission = buildMissionFromGoal('Implement multi-task feature', { preset: 'real-multitask' });
     assert.strictEqual(mission.mode, 'github');
     assert.strictEqual(mission.capabilities.allow_real_provider, true);
     assert.strictEqual(mission.capabilities.allow_repo_apply, true);
     assert.strictEqual(mission.capabilities.allow_repo_commit, true);
-    assert.strictEqual(mission.capabilities.allow_repo_push, true);
+    assert.strictEqual(mission.capabilities.allow_repo_push, false);
     assert.strictEqual(mission.capabilities.allow_pr_create, true);
     assert.strictEqual(mission.capabilities.allow_actions_read, true);
     assert.strictEqual(mission.capabilities.allow_repair, true);
