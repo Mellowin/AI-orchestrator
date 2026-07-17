@@ -922,6 +922,59 @@ describe('durable mission state and resume', () => {
     assert.strictEqual(result.pr?.number, 42, 'Existing PR must be reused');
     rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  test('resume with terminal DONE state fails when accepted commits are missing from branch', async () => {
+    const { tmpDir, runId, mission, planResult } = await setupMission();
+    const repoPath = mkdtempSync(join(tmpdir(), 'repo-'));
+    spawnSync('git', ['init', '--initial-branch=main'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    writeFileSync(join(repoPath, 'README.md'), '# test\n');
+    spawnSync('git', ['add', '.'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    mission.repo_path = repoPath;
+
+    const workBranch = `mission-${runId}`;
+    const baseSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf-8', shell: false }).stdout.trim();
+    const acceptedCommit = 'a'.repeat(40);
+
+    saveMissionState(getMissionRunDir(tmpDir, runId), {
+      version: 1,
+      run_id: runId,
+      stage: 'completed',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: baseSha,
+      work_branch: workBranch,
+      tasks: [{ task_id: planResult.plan.tasks[0].id, status: 'accepted', commit_sha: acceptedCommit }],
+      result: {
+        verdict: 'MULTITASK_MISSION_DONE',
+        reason: 'Stale terminal result',
+        run_dir: getMissionRunDir(tmpDir, runId),
+        exit_code: 0,
+      } as any,
+    });
+
+    let autopilotCalled = false;
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () => {
+        autopilotCalled = true;
+        return {} as AutopilotRunResult;
+      },
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(autopilotCalled, false, 'autopilot-run must not be invoked when terminal state is invalid');
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED', 'must fail closed instead of returning stale DONE');
+    assert.ok(
+      result.reason.includes('Resume aborted') && result.reason.includes('not ancestors'),
+      `reason must mention missing accepted commits, got: ${result.reason}`
+    );
+
+    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(repoPath, { recursive: true, force: true });
+  });
 });
 
 
@@ -1098,17 +1151,28 @@ describe('multitask safe zero-mutation', () => {
     const planResult = await runAutopilotPlan(mission, { command: 'test' });
     const workBranch = `mission-${runId}`;
 
-    function runWithBranchCreation(commitSha: string) {
+    function runWithBranchCreation() {
+      let commitSha: string | undefined;
       return async (): Promise<AutopilotRunResult> => {
-        spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+        if (!branchExists(tmpRepo, workBranch)) {
+          spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+          const filePath = join(tmpRepo, 'docs', 'AUTOPILOT_PLAN.md');
+          mkdirSync(join(tmpRepo, 'docs'), { recursive: true });
+          writeFileSync(filePath, '# Plan\n', 'utf-8');
+          spawnSync('git', ['add', 'docs/AUTOPILOT_PLAN.md'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+          spawnSync('git', ['commit', '-m', 'mission task'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+          commitSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: tmpRepo, encoding: 'utf-8', shell: false }).stdout.trim();
+        } else {
+          spawnSync('git', ['checkout', workBranch], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+        }
         return fakeAutopilotResult(planResult, [
-          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: commitSha },
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: commitSha! },
         ]);
       };
     }
 
     const result = await runMultitaskMission(mission, planResult, {
-      runAutopilotRunFn: runWithBranchCreation('a'.repeat(40)),
+      runAutopilotRunFn: runWithBranchCreation(),
       collectDiffFn: () => '',
     });
 
@@ -1118,7 +1182,7 @@ describe('multitask safe zero-mutation', () => {
 
     const result2 = await runMultitaskMission(mission, planResult, {
       resume: true,
-      runAutopilotRunFn: runWithBranchCreation('a'.repeat(40)),
+      runAutopilotRunFn: runWithBranchCreation(),
       collectDiffFn: () => '',
     });
 
@@ -1473,11 +1537,20 @@ describe('fresh-run state isolation', () => {
     const { tmpRepo, tmpOut, runId, mission, planResult } = await setupFreshMission();
     const workBranch = `mission-${runId}`;
 
-    function runWithBranchCreation(commitSha: string, verdict: AutopilotRunResult['verdict'] = 'AUTOPILOT_GREEN') {
+    function runWithBranchCreation(verdict: AutopilotRunResult['verdict'] = 'AUTOPILOT_GREEN') {
+      let commitSha: string | undefined;
       return async (): Promise<AutopilotRunResult> => {
-        spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+        if (!branchExists(tmpRepo, workBranch)) {
+          spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+          writeFileSync(join(tmpRepo, 'feature.txt'), 'x\n', 'utf-8');
+          spawnSync('git', ['add', '.'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+          spawnSync('git', ['commit', '-m', 'mission task', '--no-gpg-sign'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+          commitSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: tmpRepo, encoding: 'utf-8', shell: false }).stdout.trim();
+        } else {
+          spawnSync('git', ['checkout', workBranch], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+        }
         return fakeAutopilotResult(planResult, [
-          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: commitSha },
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: commitSha! },
         ], verdict);
       };
     }
@@ -1485,7 +1558,7 @@ describe('fresh-run state isolation', () => {
     const firstResult = await runMultitaskMission(mission, planResult, {
       command: 'test',
       resume: false,
-      runAutopilotRunFn: runWithBranchCreation('a'.repeat(40), 'AUTOPILOT_GREEN'),
+      runAutopilotRunFn: runWithBranchCreation('AUTOPILOT_GREEN'),
       collectDiffFn: () => '',
     });
 
@@ -1495,7 +1568,7 @@ describe('fresh-run state isolation', () => {
     const secondResult = await runMultitaskMission(mission, planResult, {
       command: 'test',
       resume: true,
-      runAutopilotRunFn: runWithBranchCreation('b'.repeat(40), 'AUTOPILOT_GREEN'),
+      runAutopilotRunFn: runWithBranchCreation('AUTOPILOT_GREEN'),
       collectDiffFn: () => '',
     });
 
@@ -2588,6 +2661,90 @@ describe('final-review rollback of pushed mission commits', () => {
     assert.strictEqual(revertCount, 1, 'blocked commit must be reverted exactly once');
 
     rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('repair commits are reverted along with task commits when final review rejects', async () => {
+    const repos = initRemoteRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `repair-rollback-${Date.now()}`;
+    const workBranch = `mission-${runId}`;
+
+    // Create a work branch with a task commit and a repair commit that is not
+    // tracked in task state. Both are pushed to the remote.
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    writeFileSync(join(repos.local, 'feature.ts'), 'added\n');
+    spawnSync('git', ['add', '.'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'task-a', '--no-gpg-sign'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    const taskCommit = getHeadSha(repos.local);
+
+    writeFileSync(join(repos.local, 'repair.ts'), 'fix\n');
+    spawnSync('git', ['add', '.'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'ai-orchestrator: autopilot repair attempt 1', '--no-gpg-sign'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    const repairCommit = getHeadSha(repos.local);
+    spawnSync('git', ['push', 'origin', workBranch], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['checkout', 'main'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+
+    const mission = buildMissionFromGoal('Add feature', {
+      preset: 'multitask-safe',
+      repo_path: repos.local,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      ...mission.capabilities,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+    planResult.plan.tasks[0].allowed_files = ['feature.ts', 'repair.ts'];
+
+    const baseSha = getHeadSha(repos.local);
+    saveMissionState(getMissionRunDir(tmpOut, runId), {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: baseSha,
+      work_branch: workBranch,
+      tasks: [],
+    });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: taskCommit }]),
+      collectDiffFn: () => 'diff --git a/feature.ts b/feature.ts\n+added\ndiff --git a/repair.ts b/repair.ts\n+fix',
+      runFinalReviewFn: async () => ({
+        verdict: 'rejected',
+        summary: 'rejected',
+        caveats: [],
+        unauthorized_files: [],
+        acceptance_gaps: ['not accepted'],
+      }),
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    const persisted = loadMissionState(result.run_dir);
+    assert.strictEqual(persisted?.rolled_back_commits?.includes(taskCommit), true, 'task commit must be recorded as rolled back');
+    assert.strictEqual(persisted?.rolled_back_commits?.includes(repairCommit), true, 'repair commit must be recorded as rolled back');
+
+    spawnSync('git', ['fetch', 'origin'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'task feature.ts must not remain on remote');
+    assert.strictEqual(existsSync(join(repos.local, 'repair.ts')), false, 'repair.ts must not remain on remote');
+
+    rmSync(repos.remote, { recursive: true, force: true });
+    rmSync(repos.local, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
   });
 });

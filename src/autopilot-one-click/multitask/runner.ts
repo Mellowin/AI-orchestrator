@@ -191,15 +191,6 @@ function isRepoMutationAllowed(mission: AutopilotPlanMission): boolean {
   return caps.allow_repo_apply || caps.allow_repo_commit || caps.allow_repo_push;
 }
 
-function collectMissionCommitShas(tasks: MultitaskMissionTaskState[]): Set<string> {
-  const shas = new Set<string>();
-  for (const s of tasks) {
-    if (s.commit_sha) shas.add(s.commit_sha);
-    if (s.fix_commit_sha) shas.add(s.fix_commit_sha);
-  }
-  return shas;
-}
-
 function getBranchCommitsSinceBase(
   repoPath: string,
   workBranch: string,
@@ -218,19 +209,18 @@ function performMissionRollback(
   repoPath: string,
   workBranch: string,
   baseSha: string,
-  tasks: MultitaskMissionTaskState[],
   alreadyRolledBack: string[],
   push: boolean,
   gitExec: GitExecFn
 ): { ok: true; rolledBack: string[] } | { ok: false; rolledBack: string[]; error: string } {
-  const missionCommits = collectMissionCommitShas(tasks);
   const log = getBranchCommitsSinceBase(repoPath, workBranch, baseSha, gitExec);
   if (!log.ok) {
     return { ok: false, rolledBack: alreadyRolledBack, error: log.error };
   }
-  // git log returns newest-first; revert newest first so each revert applies
-  // cleanly to the previous state.
-  const toRevert = log.commits.filter((sha) => missionCommits.has(sha) && !alreadyRolledBack.includes(sha));
+  // git log returns newest-first. Revert every mission-owned commit (task commits,
+  // fix commits, and any CI repair commits) that has not already been rolled back,
+  // newest first so each revert applies cleanly to the previous state.
+  const toRevert = log.commits.filter((sha) => !alreadyRolledBack.includes(sha));
   if (toRevert.length === 0) {
     return { ok: true, rolledBack: alreadyRolledBack };
   }
@@ -496,10 +486,6 @@ export async function runMultitaskMission(
     if (state.base_sha !== baseSha) {
       return buildFailureResult(mission, planResult, runDir, 'Resume aborted: base branch moved', startedAt, startTime);
     }
-    if (resume && state.stage === 'completed' && state.result) {
-      // A terminal result has already been recorded; do not re-run autopilot-run.
-      return state.result;
-    }
   }
 
   if (!state) {
@@ -528,6 +514,18 @@ export async function runMultitaskMission(
   }
 
   if (resume) {
+    // Terminal failures can be returned without re-running, even if the work
+    // branch is no longer present, because the persisted result is already a
+    // failure. Successful terminal results must still pass the ancestry gate.
+    if (
+      state.stage === 'completed' &&
+      state.result &&
+      state.result.verdict !== 'MULTITASK_MISSION_DONE' &&
+      state.result.verdict !== 'MULTITASK_MISSION_DONE_WITH_CAVEATS'
+    ) {
+      return state.result;
+    }
+
     if (isRepoMutationAllowed(mission)) {
       const requiredCommits: { sha: string; task_id: string; kind: string }[] = [];
       const absent: { task_id: string; kind: string }[] = [];
@@ -572,6 +570,12 @@ export async function runMultitaskMission(
         saveMissionState(runDir, state, options.writeStateFn);
         return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
       }
+    }
+
+    if (state.stage === 'completed' && state.result) {
+      // A terminal result has already been recorded and the accepted commits are
+      // still present on the work branch; do not re-run autopilot-run.
+      return state.result;
     }
   } else if (isRepoMutationAllowed(mission)) {
     try {
@@ -641,8 +645,14 @@ export async function runMultitaskMission(
     if (blockedTaskCommits.length > 0) {
       try {
         checkoutBranch(mission.repo_path, workBranch, gitExec);
+        const beforeSha = gitExec(['rev-parse', 'HEAD'], { cwd: mission.repo_path }).stdout?.trim() ?? '';
         revertCommits(mission.repo_path, blockedTaskCommits, gitExec);
-        const rolledBack = [...(state.rolled_back_commits ?? []), ...blockedTaskCommits];
+        // On some git configurations `git revert` with multiple commits creates a
+        // separate revert commit per SHA. Capture every new commit so later
+        // final-review rollback does not try to revert them again.
+        const logResult = gitExec(['log', '--format=%H', `${beforeSha}..HEAD`], { cwd: mission.repo_path });
+        const newRevertShas = (logResult.stdout ?? '').split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
+        const rolledBack = [...(state.rolled_back_commits ?? []), ...blockedTaskCommits, ...newRevertShas];
         state.rolled_back_commits = rolledBack;
         // When the mission is allowed to push, the remote branch already contains
         // the rejected commits; push the revert so the branch does not keep code
@@ -753,7 +763,6 @@ export async function runMultitaskMission(
       mission.repo_path,
       workBranch,
       baseSha,
-      state.tasks,
       state.rolled_back_commits ?? [],
       mission.capabilities.allow_repo_push,
       gitExec
