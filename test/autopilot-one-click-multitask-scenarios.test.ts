@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { buildMissionFromGoal } from '../src/autopilot-one-click/mission-builder.js';
 import { runAutopilotPlan } from '../src/autopilot-plan/runner.js';
 import { runAutopilotRun } from '../src/autopilot-run/runner.js';
+import type { MvpRunResult } from '../src/mvp-run/types.js';
+import { prepareScenarioWorkBranch } from '../src/acceptance-matrix/sandbox-preparer.js';
 import { loadMissionState, runMultitaskMission } from '../src/autopilot-one-click/multitask/runner.js';
 import { loadMissionState, saveMissionState, getMissionRunDir, computePlanHash } from '../src/autopilot-one-click/multitask/state-manager.js';
 import { validateGeneratedPlan } from '../src/autopilot-one-click/multitask/plan-validator.js';
@@ -1096,11 +1098,17 @@ describe('multitask safe zero-mutation', () => {
     const planResult = await runAutopilotPlan(mission, { command: 'test' });
     const workBranch = `mission-${runId}`;
 
+    function runWithBranchCreation(commitSha: string) {
+      return async (): Promise<AutopilotRunResult> => {
+        spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+        return fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: commitSha },
+        ]);
+      };
+    }
+
     const result = await runMultitaskMission(mission, planResult, {
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [
-          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
-        ]),
+      runAutopilotRunFn: runWithBranchCreation('a'.repeat(40)),
       collectDiffFn: () => '',
     });
 
@@ -1110,15 +1118,136 @@ describe('multitask safe zero-mutation', () => {
 
     const result2 = await runMultitaskMission(mission, planResult, {
       resume: true,
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [
-          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
-        ]),
+      runAutopilotRunFn: runWithBranchCreation('a'.repeat(40)),
       collectDiffFn: () => '',
     });
 
     assert.strictEqual(result2.verdict, 'MULTITASK_MISSION_DONE');
     assert.strictEqual(getCurrentBranch(tmpRepo), workBranch, 'existing work branch must remain checked out');
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+});
+
+describe('real-multitask production branch preparation', () => {
+  function initTempGitRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'repo-'));
+    spawnSync('git', ['init', '--initial-branch=main'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf-8', shell: false });
+    writeFileSync(join(dir, 'README.md'), '# test\n');
+    spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: dir, encoding: 'utf-8', shell: false });
+    return dir;
+  }
+
+  test('does not pre-create work branch before invoking autopilot-run', async () => {
+    const tmpRepo = initTempGitRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `real-prod-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const mission = buildMissionFromGoal('Add docs note', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      allow_real_provider: false,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: false,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: true,
+      allow_repair: true,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    const workBranch = `mission-${runId}`;
+
+    let branchSeenBeforeMvp = false;
+    const result = await runMultitaskMission(mission, planResult, {
+      runAutopilotRunFn: (config, configPath, options) =>
+        runAutopilotRun(config, configPath, {
+          ...options,
+          runMvpRunFn: (mvpConfig, _mvpConfigPath, _mvpOptions) => {
+            branchSeenBeforeMvp = branchSeenBeforeMvp || branchExists(mvpConfig.repo_path, mvpConfig.work_branch);
+
+            // Mirror the real MVP runner's branch preparation, which fails if the
+            // multitask runner has already created and checked out the branch.
+            prepareScenarioWorkBranch(mvpConfig.repo_path, mvpConfig.base_branch, mvpConfig.work_branch);
+
+            const docsDir = join(mvpConfig.repo_path, 'docs');
+            const filePath = join(docsDir, 'AUTOPILOT_PLAN.md');
+            mkdirSync(docsDir, { recursive: true });
+            writeFileSync(filePath, '# Plan\n', 'utf-8');
+            spawnSync('git', ['add', 'docs/AUTOPILOT_PLAN.md'], { cwd: mvpConfig.repo_path, encoding: 'utf-8', shell: false });
+            spawnSync('git', ['commit', '-m', 'mission task'], { cwd: mvpConfig.repo_path, encoding: 'utf-8', shell: false });
+            const commitSha = spawnSync('git', ['rev-parse', 'HEAD'], {
+              cwd: mvpConfig.repo_path,
+              encoding: 'utf-8',
+              shell: false,
+            }).stdout.trim();
+
+            const mvpResult: MvpRunResult = {
+              config: mvpConfig,
+              command: 'test mvp',
+              config_path: _mvpConfigPath,
+              started_at: new Date().toISOString(),
+              finished_at: new Date().toISOString(),
+              duration_ms: 1,
+              verdict: 'MVP_RUN_PASSED',
+              reason: 'Fake production MVP run',
+              preflight: {
+                repo_path: mvpConfig.repo_path,
+                repo_slug: mvpConfig.repo_slug,
+                base_branch: mvpConfig.base_branch,
+                work_branch: mvpConfig.work_branch,
+                provider: 'fake',
+                real_provider_enabled: false,
+                apply_enabled: mvpConfig.allow_real_repo_apply ?? false,
+                commit_enabled: mvpConfig.allow_real_repo_commit ?? false,
+                push_enabled: mvpConfig.allow_real_repo_push ?? false,
+                pr_creation_enabled: mvpConfig.allow_github_pr_create ?? false,
+                missing_env_vars: [],
+                detected_risks: [],
+              },
+              task_results: [
+                {
+                  id: 'mission-task-1',
+                  title: 'Mission task',
+                  status: 'passed',
+                  provider_attempts: 1,
+                  recovery_attempts: 0,
+                  commit_sha: commitSha,
+                },
+              ],
+              tasks_total: 1,
+              tasks_passed: 1,
+              tasks_failed: 0,
+              tasks_blocked: 0,
+              tasks_skipped: 0,
+              tasks_caveats: 0,
+              commits: [commitSha],
+              branch: mvpConfig.work_branch,
+              pushed: false,
+              caveats: [],
+              report_dir: join(tmpOut, 'mvp-report'),
+            };
+            return Promise.resolve(mvpResult);
+          },
+        }),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(branchSeenBeforeMvp, false, 'work branch must not exist before inner MVP runner creates it');
+    assert.ok(
+      result.verdict === 'MULTITASK_MISSION_DONE' || result.verdict === 'MULTITASK_MISSION_DONE_WITH_CAVEATS',
+      `mission must succeed, got ${result.verdict}: ${result.reason}`
+    );
+    assert.strictEqual(getCurrentBranch(tmpRepo), workBranch, 'work branch must be checked out after mission');
+    assert.ok(branchExists(tmpRepo, workBranch), 'work branch must exist');
+
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
   });
@@ -1344,11 +1473,19 @@ describe('fresh-run state isolation', () => {
     const { tmpRepo, tmpOut, runId, mission, planResult } = await setupFreshMission();
     const workBranch = `mission-${runId}`;
 
+    function runWithBranchCreation(commitSha: string, verdict: AutopilotRunResult['verdict'] = 'AUTOPILOT_GREEN') {
+      return async (): Promise<AutopilotRunResult> => {
+        spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+        return fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: commitSha },
+        ], verdict);
+      };
+    }
+
     const firstResult = await runMultitaskMission(mission, planResult, {
       command: 'test',
       resume: false,
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) }], 'AUTOPILOT_GREEN'),
+      runAutopilotRunFn: runWithBranchCreation('a'.repeat(40), 'AUTOPILOT_GREEN'),
       collectDiffFn: () => '',
     });
 
@@ -1358,8 +1495,7 @@ describe('fresh-run state isolation', () => {
     const secondResult = await runMultitaskMission(mission, planResult, {
       command: 'test',
       resume: true,
-      runAutopilotRunFn: async () =>
-        fakeAutopilotResult(planResult, [{ id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'b'.repeat(40) }], 'AUTOPILOT_GREEN'),
+      runAutopilotRunFn: runWithBranchCreation('b'.repeat(40), 'AUTOPILOT_GREEN'),
       collectDiffFn: () => '',
     });
 

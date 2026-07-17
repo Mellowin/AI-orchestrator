@@ -29,7 +29,6 @@ import { validateGeneratedPlan } from './plan-validator.js';
 import {
   branchExists,
   checkoutBranch,
-  createWorkBranch,
   getBaseSha,
   isAncestor,
   isBranchBasedOn,
@@ -586,7 +585,10 @@ export async function runMultitaskMission(
         saveMissionState(runDir, state, options.writeStateFn);
         return buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
       }
-      createWorkBranch(mission.repo_path, workBranch, baseSha, gitExec);
+      // The inner MVP runner is responsible for creating and checking out the
+      // work branch. Pre-creating it here would leave the branch checked out and
+      // cause the runner's `prepareScenarioWorkBranch` to fail when it tries
+      // to delete the existing branch before recreating it.
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return buildFailureResult(mission, planResult, runDir, `Failed to prepare work branch: ${message}`, startedAt, startTime);
