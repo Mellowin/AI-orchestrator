@@ -631,20 +631,21 @@ export async function runMultitaskMission(
 
   const autopilotConfig = loadAutopilotRunConfig(autopilotConfigPath);
   let autopilotResult: AutopilotRunResult;
-  let beforeHead: string | undefined;
   try {
-    if (mutationAllowed) {
-      beforeHead = getCurrentHead(mission.repo_path, gitExec);
-    }
     autopilotResult = await runAutopilotRunFn(autopilotConfig, autopilotConfigPath, {
       command: `npx tsx src/cli.ts autopilot-run ${autopilotConfigPath}`,
       resume,
       skipPrCreation: true,
     });
-    if (mutationAllowed && beforeHead) {
+    if (mutationAllowed) {
       const afterHead = getCurrentHead(mission.repo_path, gitExec);
-      if (afterHead && afterHead !== beforeHead) {
-        const newCommits = getCommitsBetween(mission.repo_path, beforeHead, afterHead, gitExec);
+      // Track only commits introduced on top of the mission base. When the
+      // caller started from a branch other than base_branch, the inner MVP runner
+      // will have checked out base_branch and created the work branch from
+      // baseSha; comparing against the pre-run HEAD would include base-branch
+      // commits that are not part of this mission.
+      if (afterHead && isAncestor(mission.repo_path, baseSha, afterHead, gitExec)) {
+        const newCommits = getCommitsBetween(mission.repo_path, baseSha, afterHead, gitExec);
         state.mission_commits = [...(state.mission_commits ?? []), ...newCommits];
       }
     }

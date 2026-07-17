@@ -2837,6 +2837,94 @@ describe('final-review rollback of pushed mission commits', () => {
   });
 });
 
+describe('mission commit tracking from base', () => {
+  test('only tracks commits introduced since mission base, not unrelated pre-run HEAD history', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'multi-base-'));
+    const runId = `base-track-${Date.now()}`;
+    const repo = join(tmpDir, 'repo');
+    mkdirSync(repo, { recursive: true });
+    spawnSync('git', ['init'], { cwd: repo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test'], { cwd: repo, encoding: 'utf-8', shell: false });
+
+    writeFileSync(join(repo, 'root.txt'), 'root');
+    spawnSync('git', ['add', '.'], { cwd: repo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'root', '--no-gpg-sign'], { cwd: repo, encoding: 'utf-8', shell: false });
+
+    // Unrelated branch that is not the mission base.
+    spawnSync('git', ['checkout', '-b', 'other'], { cwd: repo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(repo, 'other.txt'), 'other');
+    spawnSync('git', ['add', '.'], { cwd: repo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'other', '--no-gpg-sign'], { cwd: repo, encoding: 'utf-8', shell: false });
+
+    // Add a commit to main that is not an ancestor of the current 'other' HEAD.
+    spawnSync('git', ['checkout', 'main'], { cwd: repo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(repo, 'base.txt'), 'base');
+    spawnSync('git', ['add', '.'], { cwd: repo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'base', '--no-gpg-sign'], { cwd: repo, encoding: 'utf-8', shell: false });
+    const baseBranchCommit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf-8', shell: false }).stdout!.trim();
+
+    // Start the mission from the unrelated branch.
+    spawnSync('git', ['checkout', 'other'], { cwd: repo, encoding: 'utf-8', shell: false });
+
+    const mission = buildMissionFromGoal('Add mission feature', {
+      preset: 'multitask-safe',
+      repo_path: repo,
+      output_dir: tmpDir,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      ...mission.capabilities,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: false,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+
+    const workBranch = `mission-${runId}`;
+    const taskId = planResult.plan.tasks[0].id;
+    planResult.plan.tasks[0].allowed_files = ['mission.txt'];
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      runAutopilotRunFn: async () => {
+        // Simulate the inner MVP runner checking out the mission base and creating work branch.
+        spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: repo, encoding: 'utf-8', shell: false });
+        writeFileSync(join(repo, 'mission.txt'), 'mission');
+        spawnSync('git', ['add', '.'], { cwd: repo, encoding: 'utf-8', shell: false });
+        spawnSync('git', ['commit', '-m', 'mission commit', '--no-gpg-sign'], { cwd: repo, encoding: 'utf-8', shell: false });
+        return fakeAutopilotResult(planResult, [{ id: taskId, status: 'passed' }]);
+      },
+      runFinalReviewFn: async () => ({
+        verdict: 'approved',
+        summary: 'ok',
+        caveats: [],
+        unauthorized_files: [],
+        acceptance_gaps: [],
+      }),
+      collectDiffFn: () => '',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    const persisted = loadMissionState(getMissionRunDir(tmpDir, runId));
+    assert.ok(persisted, 'state persisted');
+    assert.ok(persisted!.mission_commits!.length > 0, 'mission commits tracked');
+    assert.strictEqual(
+      persisted!.mission_commits!.includes(baseBranchCommit),
+      false,
+      'must not include base-branch commit that existed before the mission'
+    );
+
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
 describe('mission state persistence is atomic', () => {
   test('saveMissionState writes valid JSON via atomic rename', () => {
     const tmpOut = mkdtempSync(join(tmpdir(), 'state-'));
