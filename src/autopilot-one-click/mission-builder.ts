@@ -54,9 +54,9 @@ function applyPreset(preset: AutopilotOneClickPreset) {
       caps.allow_repo_apply = true;
       caps.allow_repo_commit = true;
       caps.allow_repo_push = false;
-      caps.allow_pr_create = true;
-      caps.allow_pr_update = true;
-      caps.allow_actions_read = true;
+      caps.allow_pr_create = false;
+      caps.allow_pr_update = false;
+      caps.allow_actions_read = false;
       caps.allow_repair = true;
       break;
     case 'multitask-safe':
