@@ -20,6 +20,29 @@ type OpenAIChatResponse = {
   }>;
 };
 
+const finalReviewSchema = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'FinalMissionReview',
+    strict: true,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        verdict: {
+          type: 'string',
+          enum: ['approved', 'approved_with_caveats', 'needs_changes', 'rejected'],
+        },
+        summary: { type: 'string' },
+        caveats: { type: 'array', items: { type: 'string' } },
+        unauthorized_files: { type: 'array', items: { type: 'string' } },
+        acceptance_gaps: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['verdict', 'summary', 'caveats', 'unauthorized_files', 'acceptance_gaps'],
+    },
+  },
+};
+
 function redactSecrets(message: string): string {
   return message
     .replace(/sk-[a-zA-Z0-9_-]+/g, '[REDACTED]')
@@ -56,6 +79,7 @@ export function buildOpenAIReviewCallFn(options: BuildOpenAIReviewCallFnOptions 
         model,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0,
+        response_format: finalReviewSchema,
       }),
     });
 

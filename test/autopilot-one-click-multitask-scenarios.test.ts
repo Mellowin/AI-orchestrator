@@ -1856,6 +1856,26 @@ describe('production final reviewer and PR gating', () => {
     return { tmpRepo, tmpOut, runId, mission };
   }
 
+  function buildReviewInput(): import('../src/autopilot-one-click/multitask/types.js').FinalReviewInput {
+    const mission = buildMissionFromGoal('Add docs note', { preset: 'multitask-safe', repo_path: '.' });
+    const task = makeTask('a');
+    const plan = makePlan([task]);
+    return {
+      mission,
+      plan,
+      autopilotResult: {
+        verdict: 'AUTOPILOT_GREEN',
+        reason: 'Fake green',
+        exit_code: 0,
+        ci_run_id: undefined,
+        ci_conclusion: undefined,
+        repair_attempts: 0,
+      } as AutopilotRunResult,
+      integratedDiff: '',
+      taskStates: [{ task_id: 'a', status: 'accepted' }],
+    };
+  }
+
   test('buildOpenAIReviewCallFn returns fake response without network call', async () => {
     const fn = buildOpenAIReviewCallFn({
       fakeResponse: '{"verdict":"approved","summary":"ok","caveats":[]}',
@@ -1868,7 +1888,7 @@ describe('production final reviewer and PR gating', () => {
     assert.throws(() => buildOpenAIReviewCallFn({ apiKey: '' }), /OPENAI_API_KEY is required/);
   });
 
-  test('buildOpenAIReviewCallFn calls OpenAI API and returns content', async () => {
+  test('buildOpenAIReviewCallFn calls OpenAI API with structured response_format and returns content', async () => {
     const fetchCalls: Array<{ url: string; init: { method?: string; headers?: Record<string, string>; body?: string } }> = [];
     const fetchFn = async (url: string, init: { method?: string; headers?: Record<string, string>; body?: string }) => {
       fetchCalls.push({ url, init });
@@ -1876,20 +1896,39 @@ describe('production final reviewer and PR gating', () => {
         ok: true,
         status: 200,
         json: async () => ({
-          choices: [{ message: { content: '{"verdict":"approved","summary":"ok","caveats":[]}' } }],
+          choices: [{ message: { content: '{"verdict":"approved","summary":"ok","caveats":[],"unauthorized_files":[],"acceptance_gaps":[]}' } }],
         }),
       } as unknown as Response;
     };
 
     const fn = buildOpenAIReviewCallFn({ apiKey: 'sk-test', model: 'gpt-test', fetchFn });
     const result = await fn('review prompt');
-    assert.strictEqual(result, '{"verdict":"approved","summary":"ok","caveats":[]}');
+    assert.strictEqual(result, '{"verdict":"approved","summary":"ok","caveats":[],"unauthorized_files":[],"acceptance_gaps":[]}');
     assert.strictEqual(fetchCalls.length, 1);
     const call = fetchCalls[0];
     assert.ok(call.url.includes('openai.com'));
     const body = JSON.parse(call.init.body ?? '{}');
     assert.strictEqual(body.model, 'gpt-test');
     assert.strictEqual(body.messages[0].content, 'review prompt');
+    assert.deepStrictEqual(body.response_format, {
+      type: 'json_schema',
+      json_schema: {
+        name: 'FinalMissionReview',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            verdict: { type: 'string', enum: ['approved', 'approved_with_caveats', 'needs_changes', 'rejected'] },
+            summary: { type: 'string' },
+            caveats: { type: 'array', items: { type: 'string' } },
+            unauthorized_files: { type: 'array', items: { type: 'string' } },
+            acceptance_gaps: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['verdict', 'summary', 'caveats', 'unauthorized_files', 'acceptance_gaps'],
+        },
+      },
+    });
   });
 
   test('final review rejection prevents PR creation', async () => {
@@ -2034,6 +2073,93 @@ describe('production final reviewer and PR gating', () => {
     assert.strictEqual(autopilotCalledOnResume, false, 'resume must not re-run autopilot-run for terminal failure');
     assert.strictEqual(resumed.verdict, 'MULTITASK_MISSION_NEEDS_HUMAN');
     assert.strictEqual(resumed.run_dir, result.run_dir);
+
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('parseReviewJson rejects prose response', async () => {
+    const input = buildReviewInput();
+    await assert.rejects(
+      () => runMissionFinalReview(input, async () => 'The mission looks good to me.'),
+      /not valid JSON/
+    );
+  });
+
+  test('parseReviewJson rejects JSON missing required fields', async () => {
+    const input = buildReviewInput();
+    await assert.rejects(
+      () => runMissionFinalReview(input, async () => '{"verdict":"approved","summary":"ok"}'),
+      /Invalid final review verdict|not valid JSON|Missing/
+    );
+  });
+
+  test('parseReviewJson rejects unknown verdict', async () => {
+    const input = buildReviewInput();
+    await assert.rejects(
+      () =>
+        runMissionFinalReview(
+          input,
+          async () =>
+            '{"verdict":"maybe","summary":"ok","caveats":[],"unauthorized_files":[],"acceptance_gaps":[]}'
+        ),
+      /Invalid final review verdict/
+    );
+  });
+
+  test('malformed final-review response persists terminal EXTERNAL_BLOCKER state and report', async () => {
+    const { tmpRepo, tmpOut, mission } = setupGithubMission();
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]),
+      gitExecFn: fakeGitExec(),
+      collectDiffFn: () => '',
+      reviewCallFn: async () => 'not-json {',
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_EXTERNAL_BLOCKER');
+    assert.ok(result.reason.includes('Final reviewer failed'));
+
+    const runDir = getMissionRunDir(tmpOut, mission.run_id);
+    const state = loadMissionState(runDir);
+    assert.strictEqual(state.stage, 'completed');
+    assert.strictEqual(state.result?.verdict, 'MULTITASK_MISSION_EXTERNAL_BLOCKER');
+    assert.ok(existsSync(join(runDir, 'multitask-mission-report.json')));
+    assert.ok(existsSync(join(runDir, 'multitask-mission-report.md')));
+
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('structured approved response still passes deterministic gate and rejects unauthorized diff', async () => {
+    const { tmpRepo, tmpOut, mission } = setupGithubMission();
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    let createCalled = false;
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: 'a'.repeat(40) },
+        ]),
+      gitExecFn: fakeGitExec(),
+      collectDiffFn: () => 'diff --git a/out/bad.ts b/out/bad.ts\n--- /dev/null\n+++ b/out/bad.ts',
+      reviewCallFn: async () =>
+        '{"verdict":"approved","summary":"looks good","caveats":[],"unauthorized_files":[],"acceptance_gaps":[]}',
+      createMvpRunPrFn: async () => {
+        createCalled = true;
+        return { created: false, reason: 'should not be called' };
+      },
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.ok(result.reason.toLowerCase().includes('unauthorized'));
+    assert.strictEqual(createCalled, false, 'PR must not be created when deterministic gate fails');
 
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });

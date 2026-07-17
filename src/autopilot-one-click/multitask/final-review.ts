@@ -183,8 +183,11 @@ function parseReviewJson(text: string): MultitaskMissionFinalReview {
   ) {
     throw new Error(`Invalid final review verdict: ${String(verdict)}`);
   }
-  const summary = typeof obj.summary === 'string' ? obj.summary : '';
-  const caveats = Array.isArray(obj.caveats) ? obj.caveats.filter((c): c is string => typeof c === 'string') : [];
+  if (typeof obj.summary !== 'string' || !Array.isArray(obj.caveats)) {
+    throw new Error('Missing required final review fields');
+  }
+  const summary = obj.summary;
+  const caveats = obj.caveats.filter((c): c is string => typeof c === 'string');
   const unauthorized_files = Array.isArray(obj.unauthorized_files)
     ? obj.unauthorized_files.filter((c): c is string => typeof c === 'string')
     : [];
