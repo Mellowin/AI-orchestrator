@@ -192,6 +192,74 @@ function isRepoMutationAllowed(mission: AutopilotPlanMission): boolean {
   return caps.allow_repo_apply || caps.allow_repo_commit || caps.allow_repo_push;
 }
 
+function collectMissionCommitShas(tasks: MultitaskMissionTaskState[]): Set<string> {
+  const shas = new Set<string>();
+  for (const s of tasks) {
+    if (s.commit_sha) shas.add(s.commit_sha);
+    if (s.fix_commit_sha) shas.add(s.fix_commit_sha);
+  }
+  return shas;
+}
+
+function getBranchCommitsSinceBase(
+  repoPath: string,
+  workBranch: string,
+  baseSha: string,
+  gitExec: GitExecFn
+): { ok: true; commits: string[] } | { ok: false; error: string } {
+  const result = gitExec(['log', '--format=%H', `${baseSha}..${workBranch}`], { cwd: repoPath });
+  if (result.status !== 0) {
+    return { ok: false, error: result.stderr || `git log ${baseSha}..${workBranch} failed` };
+  }
+  const commits = (result.stdout ?? '').split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
+  return { ok: true, commits };
+}
+
+function performMissionRollback(
+  repoPath: string,
+  workBranch: string,
+  baseSha: string,
+  tasks: MultitaskMissionTaskState[],
+  alreadyRolledBack: string[],
+  push: boolean,
+  gitExec: GitExecFn
+): { ok: true; rolledBack: string[] } | { ok: false; rolledBack: string[]; error: string } {
+  const missionCommits = collectMissionCommitShas(tasks);
+  const log = getBranchCommitsSinceBase(repoPath, workBranch, baseSha, gitExec);
+  if (!log.ok) {
+    return { ok: false, rolledBack: alreadyRolledBack, error: log.error };
+  }
+  // git log returns newest-first; revert newest first so each revert applies
+  // cleanly to the previous state.
+  const toRevert = log.commits.filter((sha) => missionCommits.has(sha) && !alreadyRolledBack.includes(sha));
+  if (toRevert.length === 0) {
+    return { ok: true, rolledBack: alreadyRolledBack };
+  }
+
+  const checkout = gitExec(['checkout', workBranch], { cwd: repoPath });
+  if (checkout.status !== 0) {
+    return { ok: false, rolledBack: alreadyRolledBack, error: checkout.stderr || `checkout ${workBranch} failed` };
+  }
+
+  const rolledBack = [...alreadyRolledBack];
+  for (const sha of toRevert) {
+    const revert = gitExec(['revert', '--no-edit', sha], { cwd: repoPath });
+    if (revert.status !== 0) {
+      return { ok: false, rolledBack, error: revert.stderr || `revert ${sha} failed` };
+    }
+    rolledBack.push(sha);
+  }
+
+  if (push) {
+    const pushResult = gitExec(['push', 'origin', workBranch], { cwd: repoPath });
+    if (pushResult.status !== 0) {
+      return { ok: false, rolledBack, error: pushResult.stderr || `git push origin ${workBranch} failed` };
+    }
+  }
+
+  return { ok: true, rolledBack };
+}
+
 function buildFailureResult(
   mission: AutopilotPlanMission,
   planResult: AutopilotPlanResult,
@@ -558,7 +626,7 @@ export async function runMultitaskMission(
 
   // Roll back rejected/blocked task commits from the mission branch only when mutation is allowed.
   if (mutationAllowed) {
-    const rollbackCommits = Array.from(
+    const blockedTaskCommits = Array.from(
       new Set(
         state.tasks
           .filter((s) => s.status === 'blocked' || s.status === 'failed' || s.status === 'needs_human')
@@ -567,11 +635,13 @@ export async function runMultitaskMission(
       )
     );
     // Revert newest first so each revert applies cleanly to the previous state.
-    rollbackCommits.reverse();
-    if (rollbackCommits.length > 0) {
+    blockedTaskCommits.reverse();
+    if (blockedTaskCommits.length > 0) {
       try {
         checkoutBranch(mission.repo_path, workBranch, gitExec);
-        revertCommits(mission.repo_path, rollbackCommits, gitExec);
+        revertCommits(mission.repo_path, blockedTaskCommits, gitExec);
+        const rolledBack = [...(state.rolled_back_commits ?? []), ...blockedTaskCommits];
+        state.rolled_back_commits = rolledBack;
         // When the mission is allowed to push, the remote branch already contains
         // the rejected commits; push the revert so the branch does not keep code
         // that the final mission gate rejected.
@@ -669,7 +739,33 @@ export async function runMultitaskMission(
     return result;
   }
 
-  const { verdict, reason } = mapAutopilotVerdict(autopilotResult, finalReview, allRequiredAccepted);
+  let { verdict, reason } = mapAutopilotVerdict(autopilotResult, finalReview, allRequiredAccepted);
+  let rollbackError: string | undefined;
+
+  // When the final mission gate rejects the work, any mission commits already
+  // pushed to the remote branch must be reverted so the branch does not keep
+  // rejected code. This covers both blocked/failed tasks (handled earlier) and
+  // accepted tasks that fail the integrated final review.
+  if (mutationAllowed && verdict !== 'MULTITASK_MISSION_DONE' && verdict !== 'MULTITASK_MISSION_DONE_WITH_CAVEATS') {
+    const rollback = performMissionRollback(
+      mission.repo_path,
+      workBranch,
+      baseSha,
+      state.tasks,
+      state.rolled_back_commits ?? [],
+      mission.capabilities.allow_repo_push,
+      gitExec
+    );
+    if (rollback.ok) {
+      state.rolled_back_commits = rollback.rolledBack;
+    } else {
+      rollbackError = rollback.error;
+      state.rolled_back_commits = rollback.rolledBack;
+      verdict = 'MULTITASK_MISSION_FAILED';
+      reason = `Mission rollback failed: ${rollback.error}`;
+    }
+  }
+
   const exitCode =
     autopilotResult.exit_code === 0 &&
     (verdict === 'MULTITASK_MISSION_DONE' || verdict === 'MULTITASK_MISSION_DONE_WITH_CAVEATS')

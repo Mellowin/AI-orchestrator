@@ -344,6 +344,38 @@ describe('plan validation', () => {
     assert.ok(result.issues.some((i) => i.message.includes('overlapping scopes')));
   });
 
+
+  test('allows overlap between transitively ordered tasks', () => {
+    const plan = makePlan([
+      makeTask('a', { allowed_files: ['src/shared.ts'] }),
+      makeTask('b', { depends_on: ['a'], allowed_files: ['src/b.ts'] }),
+      makeTask('c', { depends_on: ['b'], allowed_files: ['src/shared.ts'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, true);
+  });
+
+  test('rejects overlap between sibling tasks with a shared ancestor', () => {
+    const plan = makePlan([
+      makeTask('a', { allowed_files: ['src/shared.ts'] }),
+      makeTask('b', { depends_on: ['a'], allowed_files: ['src/shared.ts'] }),
+      makeTask('c', { depends_on: ['a'], allowed_files: ['src/shared.ts'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('overlapping scopes')));
+  });
+
+  test('allows transitive chain with glob overlap', () => {
+    const plan = makePlan([
+      makeTask('a', { allowed_files: ['src/**/*.ts'] }),
+      makeTask('b', { depends_on: ['a'], allowed_files: ['src/api/*.ts'] }),
+      makeTask('c', { depends_on: ['b'], allowed_files: ['src/api/index.ts'] }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, true);
+  });
+
 });
 
 describe('final review helpers', () => {
@@ -2166,6 +2198,258 @@ describe('production final reviewer and PR gating', () => {
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
     assert.ok(result.reason.toLowerCase().includes('unauthorized'));
     assert.strictEqual(createCalled, false, 'PR must not be created when deterministic gate fails');
+
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+});
+
+
+describe('final-review rollback of pushed mission commits', () => {
+  function initRemoteRepo(): { remote: string; local: string } {
+    const remote = mkdtempSync(join(tmpdir(), 'remote-'));
+    const local = mkdtempSync(join(tmpdir(), 'local-'));
+    for (const dir of [remote, local]) {
+      spawnSync('git', ['init', '--initial-branch=main'], { cwd: dir, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf-8', shell: false });
+      writeFileSync(join(dir, 'README.md'), '# test\n');
+      spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'init'], { cwd: dir, encoding: 'utf-8', shell: false });
+    }
+    spawnSync('git', ['remote', 'add', 'origin', remote], { cwd: local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['push', '-u', 'origin', 'main'], { cwd: local, encoding: 'utf-8', shell: false });
+    return { remote, local };
+  }
+
+  function getHeadSha(repoPath: string): string {
+    const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    return result.stdout!.trim();
+  }
+
+  async function runMissionWithCommits(
+    repos: { remote: string; local: string },
+    finalReview: import('../../src/autopilot-one-click/multitask/types.js').MultitaskMissionFinalReview,
+    pushFailure?: { stage: 'revert' | 'push' }
+  ): Promise<{ result: any; mission: any; planResult: any; originalCommit: string; workBranch: string }> {
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `final-rollback-${Date.now()}`;
+    const workBranch = `mission-${runId}`;
+    const { remote, local } = repos;
+
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: local, encoding: 'utf-8', shell: false });
+    writeFileSync(join(local, 'feature.ts'), 'added\n');
+    spawnSync('git', ['add', '.'], { cwd: local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'task-a', '--no-gpg-sign'], { cwd: local, encoding: 'utf-8', shell: false });
+    const originalCommit = getHeadSha(local);
+    spawnSync('git', ['push', 'origin', workBranch], { cwd: local, encoding: 'utf-8', shell: false });
+
+    spawnSync('git', ['checkout', 'main'], { cwd: local, encoding: 'utf-8', shell: false });
+
+    const mission = buildMissionFromGoal('Add feature', {
+      preset: 'multitask-safe',
+      repo_path: local,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      ...mission.capabilities,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+    // Make the generated task cover the commit we actually wrote so the
+    // deterministic final-review gate does not reject the diff.
+    planResult.plan.tasks[0].allowed_files = ['feature.ts'];
+
+    const baseSha = getHeadSha(local);
+    saveMissionState(getMissionRunDir(tmpOut, runId), {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: baseSha,
+      work_branch: workBranch,
+      tasks: [],
+    });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: originalCommit },
+        ]),
+      collectDiffFn: () => 'diff --git a/feature.ts b/feature.ts\n+added',
+      runFinalReviewFn: async () => finalReview,
+      gitExecFn: (args, options) => {
+        if (pushFailure && args[0] === 'revert' && pushFailure.stage === 'revert') {
+          return { status: 1, stderr: 'forced revert failure', stdout: '', pid: -1, output: [], signal: null };
+        }
+        if (pushFailure && args[0] === 'push' && pushFailure.stage === 'push') {
+          return { status: 1, stderr: 'forced push failure', stdout: '', pid: -1, output: [], signal: null };
+        }
+        return spawnSync('git', args, { cwd: options?.cwd, encoding: 'utf-8', shell: false });
+      },
+    });
+
+    return { result, mission, planResult, originalCommit, workBranch };
+  }
+
+  test('all tasks accepted + final review rejected + allow_repo_push=true => remote branch reverted to base', async () => {
+    const repos = initRemoteRepo();
+    const { result, workBranch, originalCommit } = await runMissionWithCommits(
+      repos,
+      { verdict: 'rejected', summary: 'rejected', caveats: [], unauthorized_files: ['feature.ts'], acceptance_gaps: [] }
+    );
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    spawnSync('git', ['fetch', 'origin'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'rejected feature.ts must not be on remote branch');
+    const persisted = loadMissionState(result.run_dir);
+    assert.strictEqual(persisted?.rolled_back_commits?.includes(originalCommit), true, 'state must record rolled back commit');
+
+    rmSync(repos.remote, { recursive: true, force: true });
+    rmSync(repos.local, { recursive: true, force: true });
+  });
+
+  test('all tasks accepted + final review needs_changes + allow_repo_push=true => rejected commits removed from remote', async () => {
+    const repos = initRemoteRepo();
+    const { result, workBranch } = await runMissionWithCommits(
+      repos,
+      { verdict: 'needs_changes', summary: 'needs changes', caveats: ['fix it'], unauthorized_files: [], acceptance_gaps: ['task not accepted'] }
+    );
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    spawnSync('git', ['fetch', 'origin'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'feature.ts must not remain on remote after needs_changes');
+
+    rmSync(repos.remote, { recursive: true, force: true });
+    rmSync(repos.local, { recursive: true, force: true });
+  });
+
+  test('final review approved => no rollback', async () => {
+    const repos = initRemoteRepo();
+    const { result, workBranch } = await runMissionWithCommits(
+      repos,
+      { verdict: 'approved', summary: 'approved', caveats: [], unauthorized_files: [], acceptance_gaps: [] }
+    );
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    spawnSync('git', ['fetch', 'origin'], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), true, 'approved feature.ts must stay on remote branch');
+
+    rmSync(repos.remote, { recursive: true, force: true });
+    rmSync(repos.local, { recursive: true, force: true });
+  });
+
+  test('rollback push failure => terminal failure, not DONE', async () => {
+    const repos = initRemoteRepo();
+    const { result } = await runMissionWithCommits(
+      repos,
+      { verdict: 'rejected', summary: 'rejected', caveats: [], unauthorized_files: ['feature.ts'], acceptance_gaps: [] },
+      { stage: 'push' }
+    );
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.ok(result.reason.toLowerCase().includes('push') || result.last_error?.toLowerCase().includes('push'), 'failure must mention push');
+    rmSync(repos.remote, { recursive: true, force: true });
+    rmSync(repos.local, { recursive: true, force: true });
+  });
+
+  test('already reverted blocked commits are not reverted again', async () => {
+    function initTempGitRepo(): string {
+      const dir = mkdtempSync(join(tmpdir(), 'repo-'));
+      spawnSync('git', ['init', '--initial-branch=main'], { cwd: dir, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf-8', shell: false });
+      writeFileSync(join(dir, 'README.md'), '# test\\n');
+      spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf-8', shell: false });
+      spawnSync('git', ['commit', '-m', 'init'], { cwd: dir, encoding: 'utf-8', shell: false });
+      return dir;
+    }
+    function getHeadSha(repoPath: string): string {
+      const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+      return result.stdout!.trim();
+    }
+    const tmpRepo = initTempGitRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `final-rollback-dedup-${Date.now()}`;
+    const workBranch = `mission-${runId}`;
+
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(tmpRepo, 'feature.ts'), 'added\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'task-a', '--no-gpg-sign'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    const originalCommit = getHeadSha(tmpRepo);
+
+    spawnSync('git', ['checkout', 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+
+    const mission = buildMissionFromGoal('Add feature', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      ...mission.capabilities,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: false,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+
+    const baseSha = getHeadSha(tmpRepo);
+    saveMissionState(getMissionRunDir(tmpOut, runId), {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: baseSha,
+      work_branch: workBranch,
+      tasks: [],
+    });
+
+    const revertCalls: string[][] = [];
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(
+          planResult,
+          [{ id: planResult.plan.tasks[0].id, status: 'blocked', commit_sha: originalCommit }],
+          'AUTOPILOT_MVP_FAILED'
+        ),
+      collectDiffFn: () => '',
+      reviewCallFn: async () => ({ verdict: 'rejected', summary: 'rejected', caveats: [], unauthorized_files: ['feature.ts'], acceptance_gaps: [] }),
+      gitExecFn: (args, options) => {
+        if (args[0] === 'revert') revertCalls.push(args);
+        return spawnSync('git', args, { cwd: options?.cwd, encoding: 'utf-8', shell: false });
+      },
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    const revertCount = revertCalls.filter((args) => args.includes(originalCommit)).length;
+    assert.strictEqual(revertCount, 1, 'blocked commit must be reverted exactly once');
 
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });

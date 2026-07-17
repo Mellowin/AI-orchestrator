@@ -187,17 +187,49 @@ function patternsOverlap(a: string, b: string): boolean {
   return dp[aParts.length][bParts.length];
 }
 
+function buildReachability(tasks: AutopilotPlanTask[]): Map<string, Set<string>> {
+  const reach = new Map<string, Set<string>>();
+  for (const t of tasks) {
+    reach.set(t.id, new Set());
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const t of tasks) {
+      const deps = t.depends_on ?? [];
+      const tReach = reach.get(t.id)!;
+      for (const d of deps) {
+        if (!reach.has(d)) continue;
+        const dReach = reach.get(d)!;
+        if (!tReach.has(d)) {
+          tReach.add(d);
+          changed = true;
+        }
+        for (const transitive of dReach) {
+          if (!tReach.has(transitive)) {
+            tReach.add(transitive);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+  return reach;
+}
+
 function detectFileScopeOverlap(tasks: AutopilotPlanTask[]): PlanValidationIssue[] {
   const issues: PlanValidationIssue[] = [];
+  const reachability = buildReachability(tasks);
   for (let i = 0; i < tasks.length; i += 1) {
     for (let j = i + 1; j < tasks.length; j += 1) {
       const a = tasks[i];
       const b = tasks[j];
-      // Only directly dependent tasks are allowed to overlap; tasks that merely
-      // share a dependency are still independent siblings and must not collide.
-      const directDepOverlap =
-        a.depends_on?.includes(b.id) || b.depends_on?.includes(a.id);
-      if (directDepOverlap) continue;
+      // Tasks that are ordered by the transitive dependency graph are serialized,
+      // so they may intentionally touch the same files. Independent tasks or
+      // siblings with a shared ancestor must not overlap.
+      const ordered =
+        reachability.get(a.id)!.has(b.id) || reachability.get(b.id)!.has(a.id);
+      if (ordered) continue;
 
       const aPatterns = a.allowed_files.map((f) => f.replace(/\\/g, '/'));
       const bPatterns = b.allowed_files.map((f) => f.replace(/\\/g, '/'));

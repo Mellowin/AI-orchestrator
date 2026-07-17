@@ -15,6 +15,7 @@ export interface PersistedMissionState {
   tasks: MultitaskMissionTaskState[];
   result?: MultitaskMissionResult;
   last_error?: string;
+  rolled_back_commits?: string[];
 }
 
 export function getMissionRunDir(outputDir: string, runId: string): string {
