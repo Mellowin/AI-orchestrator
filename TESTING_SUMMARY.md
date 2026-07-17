@@ -2,18 +2,18 @@
 
 **Branch:** `stage-18-25-one-click-multitask`
 
-**Last verified:** `38b4f99727c3a5fd497829d1e01aa4f794542080`
+**Last verified:** `948ca8bc2fff96f7101fbfd0c856c25b3a9f9bfb`
 
 ## Test metrics
 
-- **Total tests:** 4016
-- **Total suites:** 272
+- **Total tests:** 4018
+- **Total suites:** 273
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `38b4f99727c3a5fd497829d1e01aa4f794542080` (Stage 18.25 Codex follow-up: OpenAI structured output for final review, required-field validation, regression tests; full chunk suite 4016 tests / 272 suites / 0 failures local run)
+- **Last verified commit:** `948ca8bc2fff96f7101fbfd0c856c25b3a9f9bfb` (Stage 18.25 Codex follow-up: push rejected-task rollback when allow_repo_push is enabled, atomic mission-state write via temp+rename, regression tests; full per-chunk suite 4018 tests / 273 suites / 0 failures local run)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
