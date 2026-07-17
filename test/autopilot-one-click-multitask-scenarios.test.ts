@@ -17,7 +17,7 @@ import { runMissionFinalReview } from '../src/autopilot-one-click/multitask/fina
 import { collectUnauthorizedFiles, collectAcceptanceGaps } from '../src/autopilot-one-click/multitask/final-review.js';
 import { buildOpenAIReviewCallFn, buildProductionFinalReviewCallFn } from '../src/autopilot-one-click/multitask/reviewer-provider.js';
 import { validateFileList } from '../src/guardrails.js';
-import { branchExists, getCurrentBranch } from '../src/autopilot-one-click/multitask/git-helpers.js';
+import { branchExists, getCurrentBranch, type GitExecFn } from '../src/autopilot-one-click/multitask/git-helpers.js';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanTask } from '../src/autopilot-plan/types.js';
 import type { AutopilotRunResult } from '../src/autopilot-run/types.js';
 
@@ -2439,7 +2439,7 @@ describe('final-review rollback of pushed mission commits', () => {
   async function runMissionWithCommits(
     repos: { remote: string; local: string },
     finalReview: import('../../src/autopilot-one-click/multitask/types.js').MultitaskMissionFinalReview,
-    pushFailure?: { stage: 'revert' | 'push' }
+    gitExecFn?: GitExecFn
   ): Promise<{ result: any; mission: any; planResult: any; originalCommit: string; workBranch: string }> {
     const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
     const runId = `final-rollback-${Date.now()}`;
@@ -2499,21 +2499,13 @@ describe('final-review rollback of pushed mission commits', () => {
         ]),
       collectDiffFn: () => 'diff --git a/feature.ts b/feature.ts\n+added',
       runFinalReviewFn: async () => finalReview,
-      gitExecFn: (args, options) => {
-        if (pushFailure && args[0] === 'revert' && pushFailure.stage === 'revert') {
-          return { status: 1, stderr: 'forced revert failure', stdout: '', pid: -1, output: [], signal: null };
-        }
-        if (pushFailure && args[0] === 'push' && pushFailure.stage === 'push') {
-          return { status: 1, stderr: 'forced push failure', stdout: '', pid: -1, output: [], signal: null };
-        }
-        return spawnSync('git', args, { cwd: options?.cwd, encoding: 'utf-8', shell: false });
-      },
+      gitExecFn: gitExecFn ?? ((args, options) => spawnSync('git', args, { cwd: options?.cwd, encoding: 'utf-8', shell: false })),
     });
 
     return { result, mission, planResult, originalCommit, workBranch };
   }
 
-  test('all tasks accepted + final review rejected + allow_repo_push=true => remote branch reverted to base', async () => {
+  test('all tasks accepted + final review rejected => local work branch reverted, remote unchanged', async () => {
     const repos = initRemoteRepo();
     const { result, workBranch, originalCommit } = await runMissionWithCommits(
       repos,
@@ -2521,10 +2513,15 @@ describe('final-review rollback of pushed mission commits', () => {
     );
 
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    // Local work branch must be reverted to the base state.
+    const localWorkHead = spawnSync('git', ['rev-parse', workBranch], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', localWorkHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'rejected feature.ts must not be on local work branch');
+    // The remote branch must remain untouched; per AGENTS.md the orchestrator never pushes.
     spawnSync('git', ['fetch', 'origin'], { cwd: repos.local, encoding: 'utf-8', shell: false });
     const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
     spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
-    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'rejected feature.ts must not be on remote branch');
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), true, 'remote branch must still contain the rejected commit');
     const persisted = loadMissionState(result.run_dir);
     assert.strictEqual(persisted?.rolled_back_commits?.includes(originalCommit), true, 'state must record rolled back commit');
 
@@ -2532,7 +2529,7 @@ describe('final-review rollback of pushed mission commits', () => {
     rmSync(repos.local, { recursive: true, force: true });
   });
 
-  test('all tasks accepted + final review needs_changes + allow_repo_push=true => rejected commits removed from remote', async () => {
+  test('all tasks accepted + final review needs_changes => local work branch reverted, remote unchanged', async () => {
     const repos = initRemoteRepo();
     const { result, workBranch } = await runMissionWithCommits(
       repos,
@@ -2540,10 +2537,13 @@ describe('final-review rollback of pushed mission commits', () => {
     );
 
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    const localWorkHead = spawnSync('git', ['rev-parse', workBranch], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', localWorkHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'feature.ts must not remain on local work branch after needs_changes');
     spawnSync('git', ['fetch', 'origin'], { cwd: repos.local, encoding: 'utf-8', shell: false });
     const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
     spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
-    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'feature.ts must not remain on remote after needs_changes');
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), true, 'remote branch must still contain the rejected commit');
 
     rmSync(repos.remote, { recursive: true, force: true });
     rmSync(repos.local, { recursive: true, force: true });
@@ -2566,16 +2566,26 @@ describe('final-review rollback of pushed mission commits', () => {
     rmSync(repos.local, { recursive: true, force: true });
   });
 
-  test('rollback push failure => terminal failure, not DONE', async () => {
+  test('local rollback succeeds without any push to origin', async () => {
     const repos = initRemoteRepo();
-    const { result } = await runMissionWithCommits(
+    const pushCalls: string[][] = [];
+    const { result, workBranch, originalCommit } = await runMissionWithCommits(
       repos,
       { verdict: 'rejected', summary: 'rejected', caveats: [], unauthorized_files: ['feature.ts'], acceptance_gaps: [] },
-      { stage: 'push' }
+      (args, options) => {
+        if (args[0] === 'push') pushCalls.push(args);
+        return spawnSync('git', args, { cwd: options?.cwd, encoding: 'utf-8', shell: false });
+      }
     );
 
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
-    assert.ok(result.reason.toLowerCase().includes('push') || result.last_error?.toLowerCase().includes('push'), 'failure must mention push');
+    assert.strictEqual(pushCalls.length, 0, 'rollback must not push to origin');
+    const localWorkHead = spawnSync('git', ['rev-parse', workBranch], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', localWorkHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'local work branch must be reverted');
+    const persisted = loadMissionState(result.run_dir);
+    assert.strictEqual(persisted?.rolled_back_commits?.includes(originalCommit), true, 'state must record rolled back commit');
+
     rmSync(repos.remote, { recursive: true, force: true });
     rmSync(repos.local, { recursive: true, force: true });
   });
@@ -2665,7 +2675,7 @@ describe('final-review rollback of pushed mission commits', () => {
     rmSync(tmpOut, { recursive: true, force: true });
   });
 
-  test('repair commits are reverted along with task commits when final review rejects', async () => {
+  test('repair commits are reverted locally along with task commits when final review rejects', async () => {
     const repos = initRemoteRepo();
     const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
     const runId = `repair-rollback-${Date.now()}`;
@@ -2739,18 +2749,24 @@ describe('final-review rollback of pushed mission commits', () => {
     assert.strictEqual(persisted?.rolled_back_commits?.includes(taskCommit), true, 'task commit must be recorded as rolled back');
     assert.strictEqual(persisted?.rolled_back_commits?.includes(repairCommit), true, 'repair commit must be recorded as rolled back');
 
+    // Local work branch must be clean of rejected mission changes.
+    const localWorkHead = spawnSync('git', ['rev-parse', workBranch], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', localWorkHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'task feature.ts must not remain on local work branch');
+    assert.strictEqual(existsSync(join(repos.local, 'repair.ts')), false, 'repair.ts must not remain on local work branch');
+    // Remote branch must remain untouched.
     spawnSync('git', ['fetch', 'origin'], { cwd: repos.local, encoding: 'utf-8', shell: false });
     const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
     spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
-    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'task feature.ts must not remain on remote');
-    assert.strictEqual(existsSync(join(repos.local, 'repair.ts')), false, 'repair.ts must not remain on remote');
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), true, 'task feature.ts must remain on remote');
+    assert.strictEqual(existsSync(join(repos.local, 'repair.ts')), true, 'repair.ts must remain on remote');
 
     rmSync(repos.remote, { recursive: true, force: true });
     rmSync(repos.local, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });
   });
 
-  test('unrelated actor commits on work branch are not reverted by final-review rollback', async () => {
+  test('unrelated actor commits on work branch are not reverted by local final-review rollback', async () => {
     const repos = initRemoteRepo();
     const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
     const runId = `actor-rollback-${Date.now()}`;
@@ -2825,11 +2841,102 @@ describe('final-review rollback of pushed mission commits', () => {
     assert.strictEqual(persisted?.rolled_back_commits?.includes(taskCommit), true, 'mission task commit must be rolled back');
     assert.strictEqual(persisted?.rolled_back_commits?.includes(actorCommit), false, 'unrelated actor commit must not be rolled back');
 
+    // Local work branch must be reverted only for mission-owned commits.
+    const localWorkHead = spawnSync('git', ['rev-parse', workBranch], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', localWorkHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'mission feature.ts must not remain on local work branch');
+    assert.strictEqual(existsSync(join(repos.local, 'actor.ts')), true, 'actor.ts must remain on local work branch because revert only touches mission commits');
+    // Remote branch must remain untouched.
     spawnSync('git', ['fetch', 'origin'], { cwd: repos.local, encoding: 'utf-8', shell: false });
     const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: repos.local, encoding: 'utf-8', shell: false }).stdout!.trim();
     spawnSync('git', ['checkout', remoteHead], { cwd: repos.local, encoding: 'utf-8', shell: false });
-    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), false, 'mission feature.ts must not remain on remote');
+    assert.strictEqual(existsSync(join(repos.local, 'feature.ts')), true, 'mission feature.ts must remain on remote');
     assert.strictEqual(existsSync(join(repos.local, 'actor.ts')), true, 'actor.ts must remain on remote');
+
+    rmSync(repos.remote, { recursive: true, force: true });
+    rmSync(repos.local, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+
+  test('diff collection failure rolls back local mission branch and persists terminal failure', async () => {
+    const repos = initRemoteRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `diff-failure-${Date.now()}`;
+    const workBranch = `mission-${runId}`;
+    const { local } = repos;
+
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: local, encoding: 'utf-8', shell: false });
+    writeFileSync(join(local, 'feature.ts'), 'added\n');
+    spawnSync('git', ['add', '.'], { cwd: local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'task-a', '--no-gpg-sign'], { cwd: local, encoding: 'utf-8', shell: false });
+    const originalCommit = getHeadSha(local);
+    spawnSync('git', ['push', 'origin', workBranch], { cwd: local, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['checkout', 'main'], { cwd: local, encoding: 'utf-8', shell: false });
+
+    const mission = buildMissionFromGoal('Add feature', {
+      preset: 'multitask-safe',
+      repo_path: local,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      ...mission.capabilities,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+    planResult.plan.tasks[0].allowed_files = ['feature.ts'];
+
+    const baseSha = getHeadSha(local);
+    saveMissionState(getMissionRunDir(tmpOut, runId), {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: baseSha,
+      work_branch: workBranch,
+      tasks: [],
+      mission_commits: [originalCommit],
+    });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: originalCommit },
+        ]),
+      collectDiffFn: () => {
+        throw new Error('simulated diff collection failure');
+      },
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.ok(result.reason.includes('Integrated diff collection failed'), 'reason must mention diff collection failure');
+
+    const persisted = loadMissionState(result.run_dir);
+    assert.strictEqual(persisted?.stage, 'completed');
+    assert.strictEqual(persisted?.result?.verdict, 'MULTITASK_MISSION_FAILED');
+    assert.strictEqual(persisted?.rolled_back_commits?.includes(originalCommit), true, 'state must record rolled back mission commit');
+    assert.ok(existsSync(join(result.run_dir, 'multitask-mission-report.json')), 'mission report JSON must exist');
+    assert.ok(existsSync(join(result.run_dir, 'multitask-mission-report.md')), 'mission report markdown must exist');
+
+    // Local work branch must be reverted.
+    const localWorkHead = spawnSync('git', ['rev-parse', workBranch], { cwd: local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', localWorkHead], { cwd: local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(local, 'feature.ts')), false, 'feature.ts must not remain on local work branch after diff failure');
+    // Remote branch must remain untouched.
+    spawnSync('git', ['fetch', 'origin'], { cwd: local, encoding: 'utf-8', shell: false });
+    const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: local, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', remoteHead], { cwd: local, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(local, 'feature.ts')), true, 'remote branch must still contain the mission commit');
 
     rmSync(repos.remote, { recursive: true, force: true });
     rmSync(repos.local, { recursive: true, force: true });

@@ -704,11 +704,43 @@ export async function runMultitaskMission(
   saveMissionState(runDir, state, options.writeStateFn);
 
   const allRequiredAccepted = allRequiredTasksAccepted(planResult.plan.tasks, state.tasks);
-  const integratedDiff = isRepoMutationAllowed(mission)
-    ? options.collectDiffFn
-      ? options.collectDiffFn(mission.repo_path, mission.base_branch, workBranch)
-      : collectDiff(mission.repo_path, mission.base_branch, workBranch)
-    : '';
+  let integratedDiff: string;
+  try {
+    integratedDiff = isRepoMutationAllowed(mission)
+      ? options.collectDiffFn
+        ? options.collectDiffFn(mission.repo_path, mission.base_branch, workBranch)
+        : collectDiff(mission.repo_path, mission.base_branch, workBranch)
+      : '';
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const reason = `Integrated diff collection failed: ${message}`;
+    // If diff collection fails after task commits have been made, rollback the
+    // local mission branch so rejected work is not left behind without a result.
+    if (mutationAllowed) {
+      const rollback = performMissionRollback(
+        mission.repo_path,
+        workBranch,
+        state.mission_commits ?? [],
+        state.rolled_back_commits ?? [],
+        false,
+        gitExec
+      );
+      if (rollback.ok) {
+        state.rolled_back_commits = rollback.rolledBack;
+      } else {
+        state.rolled_back_commits = rollback.rolledBack;
+      }
+    }
+    const result = buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
+    state.stage = 'completed';
+    state.last_error = reason;
+    state.result = result;
+    saveMissionState(runDir, state, options.writeStateFn);
+    const finishedAt = nowIso();
+    const durationMs = Date.now() - startTime;
+    writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+    return result;
+  }
 
   const finalReviewInput = {
     mission,
@@ -784,17 +816,16 @@ export async function runMultitaskMission(
   let { verdict, reason } = mapAutopilotVerdict(autopilotResult, finalReview, allRequiredAccepted);
   let rollbackError: string | undefined;
 
-  // When the final mission gate rejects the work, any mission commits already
-  // pushed to the remote branch must be reverted so the branch does not keep
-  // rejected code. This covers both blocked/failed tasks (handled earlier) and
-  // accepted tasks that fail the integrated final review.
+  // When the final mission gate rejects the work, revert the mission-owned commits
+  // on the local work branch. Per AGENTS.md, the orchestrator never pushes; the
+  // human operator decides whether to push the cleaned-up branch.
   if (mutationAllowed && verdict !== 'MULTITASK_MISSION_DONE' && verdict !== 'MULTITASK_MISSION_DONE_WITH_CAVEATS') {
     const rollback = performMissionRollback(
       mission.repo_path,
       workBranch,
       state.mission_commits ?? [],
       state.rolled_back_commits ?? [],
-      mission.capabilities.allow_repo_push,
+      false,
       gitExec
     );
     if (rollback.ok) {
