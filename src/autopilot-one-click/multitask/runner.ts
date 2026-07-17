@@ -646,7 +646,7 @@ export async function runMultitaskMission(
       // commits that are not part of this mission.
       if (afterHead && isAncestor(mission.repo_path, baseSha, afterHead, gitExec)) {
         const newCommits = getCommitsBetween(mission.repo_path, baseSha, afterHead, gitExec);
-        state.mission_commits = [...(state.mission_commits ?? []), ...newCommits];
+        state.mission_commits = Array.from(new Set([...(state.mission_commits ?? []), ...newCommits]));
       }
     }
   } catch (err) {
@@ -684,15 +684,8 @@ export async function runMultitaskMission(
         const newRevertShas = (logResult.stdout ?? '').split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
         const rolledBack = [...(state.rolled_back_commits ?? []), ...blockedTaskCommits, ...newRevertShas];
         state.rolled_back_commits = rolledBack;
-        // When the mission is allowed to push, the remote branch already contains
-        // the rejected commits; push the revert so the branch does not keep code
-        // that the final mission gate rejected.
-        if (mission.capabilities.allow_repo_push) {
-          const pushResult = gitExec(['push', 'origin', workBranch], { cwd: mission.repo_path });
-          if (pushResult.status !== 0) {
-            throw new Error(pushResult.stderr || `git push origin ${workBranch} failed`);
-          }
-        }
+        // Rollback for blocked/failed/needs_human tasks stays local per AGENTS.md;
+        // the human operator decides whether to push the cleaned-up branch.
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         state.last_error = `Rollback failed: ${message}`;

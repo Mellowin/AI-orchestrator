@@ -425,6 +425,11 @@ describe('final review helpers', () => {
     assert.deepStrictEqual(collectUnauthorizedFiles(deleteDiff, ['src/ok.ts']), ['src/old.ts']);
   });
 
+  test('collectUnauthorizedFiles parses quoted git paths with tabs and quotes', () => {
+    const diff = 'diff --git "a/out\\tfile.ts" "b/out\\tfile.ts"\nnew file mode 100644\n--- /dev/null\n+++ "b/out\\tfile.ts"';
+    assert.deepStrictEqual(collectUnauthorizedFiles(diff, ['src/ok.ts']), ['out\tfile.ts']);
+  });
+
   test('collectAcceptanceGaps lists non-accepted tasks', () => {
     const expected = new Map([['a', 'works']]);
     const gaps = collectAcceptanceGaps([{ task_id: 'a', status: 'failed' }], expected);
@@ -1982,10 +1987,10 @@ describe('multitask rollback reverts both original and fix commits', () => {
     rmSync(tmpOut, { recursive: true, force: true });
   });
 
-  test('rejected task rollback is pushed to origin when allow_repo_push is enabled', async () => {
+  test('rejected task rollback stays local even when allow_repo_push is enabled', async () => {
     const tmpRepo = initTempGitRepo();
     const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
-    const runId = `rollback-push-${Date.now()}`;
+    const runId = `rollback-no-push-${Date.now()}`;
     const workBranch = `mission-${runId}`;
 
     spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
@@ -2050,20 +2055,112 @@ describe('multitask rollback reverts both original and fix commits', () => {
     });
 
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
-    assert.ok(
+    assert.strictEqual(
       gitCalls.some((args) => args[0] === 'push' && args.includes('origin') && args.includes(workBranch)),
-      'rollback revert must be pushed to origin when allow_repo_push is enabled'
+      false,
+      'blocked task rollback must not push to origin per AGENTS.md'
     );
     assert.ok(
       gitCalls.some((args) => args[0] === 'revert' && args.includes(originalSha) && args.includes(fixSha)),
       'local revert must include both commits'
     );
 
-    // Verify the remote branch no longer contains the rejected file (HEAD is the revert).
-    spawnSync('git', ['fetch', 'origin'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
-    const remoteHead = spawnSync('git', ['rev-parse', `origin/${workBranch}`], { cwd: tmpRepo, encoding: 'utf-8', shell: false }).stdout!.trim();
-    spawnSync('git', ['checkout', remoteHead], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
-    assert.strictEqual(existsSync(join(tmpRepo, 'feature.ts')), false, 'rejected file must not remain on remote branch');
+    // Verify the local work branch no longer contains the rejected file.
+    const localWorkHead = spawnSync('git', ['rev-parse', workBranch], { cwd: tmpRepo, encoding: 'utf-8', shell: false }).stdout!.trim();
+    spawnSync('git', ['checkout', localWorkHead], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    assert.strictEqual(existsSync(join(tmpRepo, 'feature.ts')), false, 'rejected file must not remain on local work branch');
+
+    rmSync(tmpRepo, { recursive: true, force: true });
+    rmSync(tmpOut, { recursive: true, force: true });
+  });
+});
+
+describe('mission commit deduplication on resume', () => {
+  function initTempGitRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'repo-'));
+    spawnSync('git', ['init', '--initial-branch=main'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['config', 'user.name', 'Test User'], { cwd: dir, encoding: 'utf-8', shell: false });
+    writeFileSync(join(dir, 'README.md'), '# test\n');
+    spawnSync('git', ['add', '.'], { cwd: dir, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: dir, encoding: 'utf-8', shell: false });
+    return dir;
+  }
+
+  function getHeadSha(repoPath: string): string {
+    const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    return result.stdout!.trim();
+  }
+
+  test('resuming with already tracked mission commits does not duplicate them', async () => {
+    const tmpRepo = initTempGitRepo();
+    const tmpOut = mkdtempSync(join(tmpdir(), 'out-'));
+    const runId = `dedup-${Date.now()}`;
+    const workBranch = `mission-${runId}`;
+
+    // Existing mission commit on the work branch.
+    spawnSync('git', ['checkout', '-B', workBranch, 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    writeFileSync(join(tmpRepo, 'feature.ts'), 'added\n');
+    spawnSync('git', ['add', '.'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'task-a', '--no-gpg-sign'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+    const missionCommit = getHeadSha(tmpRepo);
+
+    spawnSync('git', ['checkout', 'main'], { cwd: tmpRepo, encoding: 'utf-8', shell: false });
+
+    const mission = buildMissionFromGoal('Add feature', {
+      preset: 'multitask-safe',
+      repo_path: tmpRepo,
+      output_dir: tmpOut,
+      run_id: runId,
+    });
+    mission.capabilities = {
+      ...mission.capabilities,
+      allow_repo_apply: true,
+      allow_repo_commit: true,
+      allow_repo_push: true,
+      allow_pr_create: false,
+      allow_pr_update: false,
+      allow_actions_read: false,
+      allow_repair: false,
+    };
+
+    const planResult = await runAutopilotPlan(mission, { command: 'test' });
+    assert.strictEqual(planResult.exit_code, 0);
+    planResult.plan.tasks[0].allowed_files = ['feature.ts'];
+
+    const baseSha = getHeadSha(tmpRepo);
+    saveMissionState(getMissionRunDir(tmpOut, runId), {
+      version: 1,
+      run_id: runId,
+      stage: 'running',
+      plan_hash: computePlanHash(planResult.plan),
+      base_sha: baseSha,
+      work_branch: workBranch,
+      tasks: [],
+      mission_commits: [missionCommit],
+    });
+
+    const result = await runMultitaskMission(mission, planResult, {
+      command: 'test',
+      resume: true,
+      runAutopilotRunFn: async () =>
+        fakeAutopilotResult(planResult, [
+          { id: planResult.plan.tasks[0].id, status: 'passed', commit_sha: missionCommit },
+        ]),
+      collectDiffFn: () => 'diff --git a/feature.ts b/feature.ts\n+added',
+      runFinalReviewFn: async () => ({
+        verdict: 'rejected',
+        summary: 'rejected',
+        caveats: [],
+        unauthorized_files: ['feature.ts'],
+        acceptance_gaps: [],
+      }),
+    });
+
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_FAILED');
+    const persisted = loadMissionState(result.run_dir);
+    assert.strictEqual(persisted?.mission_commits?.length, 1, 'mission_commits must not contain duplicates after resume');
+    assert.deepStrictEqual(persisted?.mission_commits, [missionCommit]);
 
     rmSync(tmpRepo, { recursive: true, force: true });
     rmSync(tmpOut, { recursive: true, force: true });

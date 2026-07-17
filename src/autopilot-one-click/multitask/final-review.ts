@@ -28,21 +28,48 @@ function collectDiff(repoPath: string, baseBranch: string, workBranch: string): 
   return result.stdout ?? '';
 }
 
+function unquoteGitPath(quoted: string): string {
+  // Git's core.quotePath wraps paths containing special characters in double quotes
+  // and uses C-style escapes (e.g. \\t, \\n, \", \\). Decode the common escapes
+  // so the path can be matched against allowlist patterns.
+  return quoted.replace(/\\(.)/g, (_match, char: string) => {
+    switch (char) {
+      case 't':
+        return '\t';
+      case 'n':
+        return '\n';
+      case 'r':
+        return '\r';
+      case 'b':
+        return '\b';
+      case '"':
+        return '"';
+      case '\\':
+        return '\\';
+      default:
+        return char;
+    }
+  });
+}
+
 function collectUnauthorizedFiles(
   diff: string,
   allowedFiles: string[]
 ): string[] {
   const normalizedPatterns = allowedFiles.map((p) => p.replace(/\\/g, '/'));
   const files = new Set<string>();
-  const diffIndexRe = /^diff --git a\/(.+?) b\/(.+?)$/gm;
+  // Match unquoted headers (diff --git a/<path> b/<path>) and quoted headers
+  // (diff --git "a/<path>" "b/<path>") that Git emits for paths with special
+  // characters when core.quotePath is enabled.
+  const diffIndexRe = /^diff --git (?:a\/(.+?) b\/(.+?)|"a\/(.+?)" "b\/(.+?)")$/gm;
   let match: RegExpExecArray | null;
   while ((match = diffIndexRe.exec(diff)) !== null) {
     const startIndex = match.index;
     const nextDiffIndex = diff.indexOf('diff --git a/', startIndex + match[0].length);
     const chunk = nextDiffIndex === -1 ? diff.slice(startIndex) : diff.slice(startIndex, nextDiffIndex);
 
-    const oldPath = match[1].replace(/\\/g, '/');
-    const newPath = match[2].replace(/\\/g, '/');
+    const oldPath = (match[1] !== undefined ? match[1] : unquoteGitPath(match[3]!)).replace(/\\/g, '/');
+    const newPath = (match[2] !== undefined ? match[2] : unquoteGitPath(match[4]!)).replace(/\\/g, '/');
 
     // Determine diff kind from the chunk body so we validate the semantically
     // correct side(s): creates → destination, deletes → source, renames → both.
