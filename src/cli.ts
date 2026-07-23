@@ -1994,6 +1994,39 @@ if (command === 'real-repo-run-ai') {
           const realExecutor = enableFixLoop
             ? createReviewerFixTaskRealExecutor({ parentTask: task })
             : undefined;
+
+          function createFakeSecondReviewerProvider(): (() => string | undefined) | undefined {
+            const pluralRaw = process.env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSES;
+            if (pluralRaw !== undefined) {
+              let responses: (string | undefined)[] = [];
+              try {
+                const parsed = JSON.parse(pluralRaw);
+                if (Array.isArray(parsed)) {
+                  responses = parsed.map((item) =>
+                    item === null || item === undefined ? undefined : String(item)
+                  );
+                }
+              } catch {
+                return undefined;
+              }
+              let index = 0;
+              return () => {
+                const value = responses[index];
+                index++;
+                return value;
+              };
+            }
+            const singular = process.env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE;
+            if (singular !== undefined) {
+              return () => singular;
+            }
+            return undefined;
+          }
+          const fakeSecondReviewerProvider = createFakeSecondReviewerProvider();
+          function getNextFakeSecondReviewerResponse(): string | undefined {
+            return fakeSecondReviewerProvider ? fakeSecondReviewerProvider() : undefined;
+          }
+
           let fixAttemptCount = 0;
 
           while (true) {
@@ -2169,6 +2202,64 @@ if (command === 'real-repo-run-ai') {
             });
             (stateWithGate as Record<string, unknown>).reviewer_fix_task_post_run_review_plan = postRunPlan;
 
+            if (postRunPlan.action === 'retry_fix') {
+              fixAttemptCount++;
+              const attempts = ((stateWithGate as Record<string, unknown>).reviewer_fix_attempts as unknown[] | undefined) ?? [];
+              attempts.push({
+                taskId: postRunPlan.taskId,
+                parentTaskId: postRunPlan.parentTaskId,
+                attempt: postRunPlan.attempt,
+                beforeSha: postRunPlan.baseCommitSha,
+                candidateSha: postRunPlan.commitSha,
+                changedFiles: postRunPlan.changedFiles,
+                checkSummary: postRunPlan.checkSummary,
+                reason: postRunPlan.reason,
+                blockingIssues: postRunPlan.blockingIssues,
+                decision: 'retry',
+              });
+              (stateWithGate as Record<string, unknown>).reviewer_fix_attempts = attempts;
+
+              const retryReason = redactSecrets(postRunPlan.reason);
+              console.error(`[real-repo-run-ai] Reviewer fix attempt ${fixAttemptCount} failed: ${retryReason}`);
+
+              if (fixAttemptCount >= reviewerMaxFixAttempts) {
+                (stateWithGate as Record<string, unknown>).reviewer_gate = {
+                  status: 'blocked',
+                  source: 'deterministic_safety',
+                  nextAction: 'block',
+                  blockingIssues: [retryReason, `Max fix attempts (${reviewerMaxFixAttempts}) reached.`],
+                  nonBlockingIssues: [],
+                  reviewSummary: retryReason,
+                };
+                skipRollbackForPostPush(
+                  stateWithGate as RunState,
+                  `Reviewer fix attempt ${fixAttemptCount} failed and max fix attempts reached. Pushed original commit preserved for human follow-up.`
+                );
+                console.error('[real-repo-run-ai] Rollback skipped: max fix attempts reached; pushed original commit preserved for human follow-up');
+                console.error('[real-repo-run-ai] No merge was performed');
+                console.error('[real-repo-run-ai] No checkout was performed');
+                console.error('[real-repo-run-ai] No main touch was performed');
+                try {
+                  saveState(taskId, stateWithGate as RunState);
+                } catch (stateErr) {
+                  console.error('[real-repo-run-ai] Reviewer fix-loop state write failed');
+                }
+                process.exitCode = 1;
+                break commandDispatch;
+              }
+
+              (stateWithGate as Record<string, unknown>).reviewer_gate = {
+                status: 'fix_required',
+                source: 'deterministic_safety',
+                nextAction: 'fix',
+                blockingIssues: [retryReason, ...postRunPlan.blockingIssues],
+                nonBlockingIssues: [],
+                reviewSummary: retryReason,
+              };
+              console.error('[real-repo-run-ai] Retrying reviewer fix with updated blocking issues');
+              continue;
+            }
+
             if (
               postRunPlan.action !== 'review_fix_result' ||
               !postRunPlan.commitSha
@@ -2199,7 +2290,7 @@ if (command === 'real-repo-run-ai') {
             const fixCommitSha = postRunPlan.commitSha;
 
             const secondReviewerResponse =
-              process.env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE ?? fakeReviewerResponse;
+              getNextFakeSecondReviewerResponse() ?? fakeReviewerResponse;
             let secondReviewPersisted:
               | {
                   status: ReviewerGateStatus;
@@ -2277,7 +2368,8 @@ if (command === 'real-repo-run-ai') {
                         fetchFn: globalThis.fetch as unknown as FetchFn,
                       }
                     );
-                    const diffResult = spawnSync('git', ['show', '--format=', '-p', fixCommitSha], {
+                    const baseCommitSha = postRunPlan.baseCommitSha ?? task.base_branch;
+                    const diffResult = spawnSync('git', ['diff', `${baseCommitSha}..${fixCommitSha}`], {
                       cwd: task.repo_path,
                       shell: false,
                       encoding: 'utf-8',
@@ -2386,6 +2478,29 @@ if (command === 'real-repo-run-ai') {
                 : 'Second reviewer gate blocked the fix commit.';
             }
 
+            const fixAttemptDecision: 'accept' | 'retry' | 'block' =
+              finalStatus === 'accepted'
+                ? 'accept'
+                : finalStatus === 'fix_required'
+                  ? 'retry'
+                  : 'block';
+            const fixAttemptsArray =
+              ((stateWithGate as Record<string, unknown>).reviewer_fix_attempts as unknown[] | undefined) ??
+              [];
+            fixAttemptsArray.push({
+              taskId: postRunPlan.taskId,
+              parentTaskId: postRunPlan.parentTaskId,
+              attempt: fixAttemptCount,
+              beforeSha: postRunPlan.baseCommitSha,
+              candidateSha: postRunPlan.commitSha,
+              changedFiles: postRunPlan.changedFiles,
+              checkSummary: postRunPlan.checkSummary,
+              reason: redactSecrets(finalReason),
+              blockingIssues: secondReviewPersisted.blockingIssues,
+              decision: fixAttemptDecision,
+            });
+            (stateWithGate as Record<string, unknown>).reviewer_fix_attempts = fixAttemptsArray;
+
             const secondReviewRunState = {
               ...stateWithGate,
               reviewer_gate: secondReviewPersisted,
@@ -2422,6 +2537,38 @@ if (command === 'real-repo-run-ai') {
             };
 
             if (finalStatus === 'accepted') {
+              // Push the accepted fix commit to remote. The original task commit was
+              // already pushed before the reviewer gate; pushing the current branch
+              // publishes the fix commit on top of it.
+              if (process.env.ALLOW_REAL_REPO_PUSH === 'true') {
+                const fixPushResult = spawnSync(
+                  'git',
+                  ['push', 'origin', currentBranch],
+                  {
+                    cwd: task.repo_path,
+                    shell: false,
+                    encoding: 'utf-8',
+                    timeout: 60000,
+                  }
+                );
+                if (fixPushResult.status !== 0) {
+                  skipRollbackForPostPush(
+                    stateWithGate as RunState,
+                    `Fix commit accepted but push failed: ${redactSecrets(fixPushResult.stderr)}. Human follow-up required.`
+                  );
+                  console.error('[real-repo-run-ai] Fix commit push failed');
+                  console.error('[real-repo-run-ai] No merge was performed');
+                  console.error('[real-repo-run-ai] No checkout was performed');
+                  console.error('[real-repo-run-ai] No main touch was performed');
+                  try {
+                    saveState(taskId, stateWithGate as RunState);
+                  } catch (stateErr) {
+                    console.error('[real-repo-run-ai] Reviewer fix-loop state write failed');
+                  }
+                  process.exitCode = 1;
+                  break commandDispatch;
+                }
+              }
               rollbackRecord = {
                 ok: true,
                 status: 'skipped',
@@ -2458,6 +2605,31 @@ if (command === 'real-repo-run-ai') {
             }
 
             if (finalStatus === 'fix_required' && fixAttemptCount < reviewerMaxFixAttempts) {
+              const retryBaseSha = postRunPlan.baseCommitSha;
+              if (retryBaseSha && /^[0-9a-f]{40}$/i.test(retryBaseSha)) {
+                const resetResult = spawnSync('git', ['reset', '--hard', retryBaseSha], {
+                  cwd: task.repo_path,
+                  shell: false,
+                  encoding: 'utf-8',
+                });
+                if (resetResult.status !== 0) {
+                  skipRollbackForPostPush(
+                    stateWithGate as RunState,
+                    `Failed to reset work branch to the last accepted commit before retry: ${redactSecrets(resetResult.stderr)}. Human follow-up required.`
+                  );
+                  console.error('[real-repo-run-ai] Rollback skipped: reset to accepted commit failed');
+                  console.error('[real-repo-run-ai] No merge was performed');
+                  console.error('[real-repo-run-ai] No checkout was performed');
+                  console.error('[real-repo-run-ai] No main touch was performed');
+                  try {
+                    saveState(taskId, stateWithGate as RunState);
+                  } catch (stateErr) {
+                    console.error('[real-repo-run-ai] Reviewer fix-loop state write failed');
+                  }
+                  process.exitCode = 1;
+                  break commandDispatch;
+                }
+              }
               (stateWithGate as Record<string, unknown>).reviewer_gate = secondReviewPersisted;
               continue;
             }

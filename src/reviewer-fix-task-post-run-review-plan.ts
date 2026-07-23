@@ -10,6 +10,7 @@ import type { ReviewerFixTaskDraft } from './reviewer-fix-task-plan.js';
 export type ReviewerFixTaskPostRunReviewPlanAction =
   | 'no_op'
   | 'review_fix_result'
+  | 'retry_fix'
   | 'block_for_human';
 
 export interface ReviewerFixTaskPostRunReviewPlanInput {
@@ -23,6 +24,7 @@ export interface ReviewerFixTaskPostRunReviewPlan {
   parentTaskId?: string;
   attempt?: number;
   commitSha?: string;
+  baseCommitSha?: string;
   changedFiles: string[];
   executionRequest?: ReviewerFixTaskExecutionRequest;
   fixTask?: ReviewerFixTaskDraft;
@@ -197,6 +199,34 @@ export function deriveReviewerFixTaskPostRunReviewPlan(
     );
   }
 
+  if (state.status === 'failed_attempt') {
+    const executorResult = state.executorResult;
+    return {
+      action: 'retry_fix',
+      reason: state.reason,
+      taskId: state.taskId,
+      parentTaskId: state.parentTaskId,
+      attempt: state.attempt,
+      commitSha: executorResult?.commitSha,
+      baseCommitSha: executorResult?.baseCommitSha,
+      changedFiles: changedFilesFromExecutorResult(executorResult),
+      checkSummary:
+        executorResult?.checkSummary === undefined
+          ? undefined
+          : cloneCheckSummary(executorResult.checkSummary),
+      executionRequest:
+        state.executionRequest !== undefined
+          ? cloneExecutionRequest(state.executionRequest)
+          : undefined,
+      fixTask:
+        state.fixTask !== undefined ? cloneFixTask(state.fixTask) : undefined,
+      executorResult: executorResult !== undefined
+        ? cloneExecutorResult(executorResult)
+        : undefined,
+      blockingIssues: [...state.blockingIssues],
+    };
+  }
+
   // state.status === 'executed'
 
   if (state.nextAction !== 'review_fix_result') {
@@ -253,6 +283,7 @@ export function deriveReviewerFixTaskPostRunReviewPlan(
     parentTaskId: state.parentTaskId,
     attempt: state.attempt,
     commitSha,
+    baseCommitSha: state.executorResult.baseCommitSha,
     changedFiles: changedFilesFromExecutorResult(state.executorResult),
     checkSummary:
       state.executorResult.checkSummary === undefined

@@ -10,12 +10,14 @@ export type ReviewerFixTaskRunnerStatus =
   | 'not_ready'
   | 'blocked'
   | 'executed'
+  | 'failed_attempt'
   | 'executor_failed';
 
 export type ReviewerFixTaskRunnerNextAction =
   | 'wait'
   | 'block'
-  | 'review_fix_result';
+  | 'review_fix_result'
+  | 'retry_fix';
 
 export interface ReviewerFixTaskExecutorInput {
   executionRequest: ReviewerFixTaskExecutionRequest;
@@ -29,10 +31,11 @@ export interface ReviewerFixTaskExecutorInput {
 }
 
 export interface ReviewerFixTaskExecutorResult {
-  status: 'completed' | 'blocked';
+  status: 'completed' | 'blocked' | 'failed';
   reason: string;
   runState?: unknown;
   commitSha?: string;
+  baseCommitSha?: string;
   changedFiles?: string[];
   blockingIssues?: string[];
   checkSummary?: {
@@ -114,14 +117,23 @@ function cloneExecutorResult(
     status: value.status,
     reason: value.reason,
     runState: value.runState,
-    commitSha: value.commitSha,
-    changedFiles:
-      value.changedFiles === undefined ? undefined : [...value.changedFiles],
-    blockingIssues:
-      value.blockingIssues === undefined
-        ? undefined
-        : [...value.blockingIssues],
   };
+
+  if (value.commitSha !== undefined) {
+    result.commitSha = value.commitSha;
+  }
+
+  if (value.baseCommitSha !== undefined) {
+    result.baseCommitSha = value.baseCommitSha;
+  }
+
+  if (value.changedFiles !== undefined) {
+    result.changedFiles = [...value.changedFiles];
+  }
+
+  if (value.blockingIssues !== undefined) {
+    result.blockingIssues = [...value.blockingIssues];
+  }
 
   if (value.checkSummary !== undefined) {
     result.checkSummary = {
@@ -200,6 +212,24 @@ export async function runReviewerFixTaskWithExecutor(
         fixTask,
         executorResult: result,
         blockingIssues: [...blockingIssues],
+      };
+    }
+
+    if (result.status === 'failed') {
+      return {
+        status: 'failed_attempt',
+        nextAction: 'retry_fix',
+        reason: result.reason,
+        executorCalled: true,
+        taskId: executionRequest.taskId,
+        parentTaskId: executionRequest.parentTaskId,
+        attempt: executionRequest.attempt,
+        executionRequest,
+        fixTask,
+        executorResult: result,
+        blockingIssues: result.blockingIssues
+          ? [...result.blockingIssues]
+          : [...blockingIssues],
       };
     }
 

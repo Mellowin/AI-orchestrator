@@ -433,6 +433,55 @@ describe('runReviewerFixTaskWithExecutor', () => {
     assert.deepStrictEqual(result.blockingIssues, ['still broken']);
   });
 
+  it('failed executor result maps to failed_attempt', async () => {
+    const result = await runReviewerFixTaskWithExecutor({
+      runPlanState: buildReadyState(),
+      executor: async () => ({
+        status: 'failed',
+        reason: 'No reviewable diff produced.',
+        baseCommitSha: 'def456',
+        blockingIssues: ['no changes'],
+      }),
+    });
+    assert.strictEqual(result.status, 'failed_attempt');
+  });
+
+  it('failed executor result nextAction is retry_fix', async () => {
+    const result = await runReviewerFixTaskWithExecutor({
+      runPlanState: buildReadyState(),
+      executor: async () => ({
+        status: 'failed',
+        reason: 'No reviewable diff produced.',
+        baseCommitSha: 'def456',
+      }),
+    });
+    assert.strictEqual(result.nextAction, 'retry_fix');
+  });
+
+  it('failed executor result preserves baseCommitSha', async () => {
+    const result = await runReviewerFixTaskWithExecutor({
+      runPlanState: buildReadyState(),
+      executor: async () => ({
+        status: 'failed',
+        reason: 'No reviewable diff produced.',
+        baseCommitSha: 'def4567890abcdef1234567890abcdef12345678',
+      }),
+    });
+    assert.strictEqual(result.executorResult?.baseCommitSha, 'def4567890abcdef1234567890abcdef12345678');
+  });
+
+  it('failed executor result preserves blockingIssues', async () => {
+    const result = await runReviewerFixTaskWithExecutor({
+      runPlanState: buildReadyState(),
+      executor: async () => ({
+        status: 'failed',
+        reason: 'No reviewable diff produced.',
+        blockingIssues: ['no changes'],
+      }),
+    });
+    assert.deepStrictEqual(result.blockingIssues, ['no changes']);
+  });
+
   it('thrown executor error maps to executor_failed', async () => {
     const result = await runReviewerFixTaskWithExecutor({
       runPlanState: buildReadyState(),

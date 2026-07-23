@@ -26,6 +26,7 @@ export interface RealBlockRunTaskResult {
   secondReviewerGateStatus?: string;
   secondReviewerSummary?: string;
   fixCheckSummary?: ReviewerEvidence['checkSummary'];
+  reviewerFixAttempts?: unknown[];
   finalStatus: string;
   nextAction: string;
   reason?: string;
@@ -59,6 +60,7 @@ export interface RealBlockRunState {
   safetyNote: string;
   resumed?: boolean;
   resumeStartedAt?: string;
+  reviewer_fix_attempts?: unknown[];
 }
 
 function isObject(val: unknown): val is Record<string, unknown> {

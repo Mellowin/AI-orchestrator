@@ -168,6 +168,17 @@ function saveBlockState(block: BlockDefinition, state: RealBlockRunState): void 
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
+  const allAttempts: unknown[] = [];
+  for (const result of state.taskResults) {
+    if (Array.isArray(result.reviewerFixAttempts)) {
+      allAttempts.push(...result.reviewerFixAttempts);
+    }
+  }
+  if (allAttempts.length > 0) {
+    state.reviewer_fix_attempts = allAttempts;
+  } else {
+    delete (state as unknown as Record<string, unknown>).reviewer_fix_attempts;
+  }
   writeJsonAtomic(getBlockStatePath(block), state);
 }
 
@@ -193,6 +204,10 @@ function buildBaseChildEnv(): NodeJS.ProcessEnv {
 
 function getChildRunsDir(runsDir: string): string {
   return join(runsDir, 'tasks');
+}
+
+function looksLikeJsonArrayString(value: string): boolean {
+  return value.trim().startsWith('[');
 }
 
 function runSingleTask(
@@ -255,12 +270,20 @@ function runSingleTask(
 
   const fixKimiResponse = getTaskFakeResponse(arrays, 'fixKimi', index);
   if (typeof fixKimiResponse === 'string') {
-    env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE = fixKimiResponse;
+    if (looksLikeJsonArrayString(fixKimiResponse)) {
+      env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES = fixKimiResponse;
+    } else {
+      env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE = fixKimiResponse;
+    }
   }
 
   const secondReviewerResponse = getTaskFakeResponse(arrays, 'secondReviewer', index);
   if (typeof secondReviewerResponse === 'string') {
-    env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE = secondReviewerResponse;
+    if (looksLikeJsonArrayString(secondReviewerResponse)) {
+      env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSES = secondReviewerResponse;
+    } else {
+      env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE = secondReviewerResponse;
+    }
   }
 
   const cliPath = join(projectRoot, 'src', 'cli.ts');
@@ -538,6 +561,11 @@ function deriveTaskResult(
         base.fixTaskId = pendingTaskId;
       }
     }
+  }
+
+  const childFixAttempts = state.reviewer_fix_attempts;
+  if (Array.isArray(childFixAttempts)) {
+    base.reviewerFixAttempts = childFixAttempts;
   }
 
   if (secondReview !== undefined) {

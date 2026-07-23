@@ -142,6 +142,48 @@ describe('deriveReviewerFixTaskPostRunReviewPlan', () => {
     assert.deepStrictEqual(result.blockingIssues, ['issue two']);
   });
 
+  it('failed_attempt maps to retry_fix', () => {
+    const result = derive({
+      status: 'failed_attempt',
+      nextAction: 'retry_fix',
+      executorResult: buildExecutorResult({
+        status: 'failed',
+        reason: 'No reviewable diff.',
+        baseCommitSha: 'b961b0bbfb16242491307adbd8741b0595942497',
+      }),
+    });
+    assert.strictEqual(result.action, 'retry_fix');
+  });
+
+  it('failed_attempt preserves baseCommitSha', () => {
+    const baseSha = 'b961b0bbfb16242491307adbd8741b0595942497';
+    const result = derive({
+      status: 'failed_attempt',
+      nextAction: 'retry_fix',
+      executorResult: buildExecutorResult({
+        status: 'failed',
+        reason: 'No reviewable diff.',
+        baseCommitSha: baseSha,
+      }),
+    });
+    assert.strictEqual(result.baseCommitSha, baseSha);
+  });
+
+  it('failed_attempt preserves reason and blockingIssues', () => {
+    const result = derive({
+      status: 'failed_attempt',
+      nextAction: 'retry_fix',
+      reason: 'No reviewable diff produced.',
+      blockingIssues: ['no changes'],
+      executorResult: buildExecutorResult({
+        status: 'failed',
+        reason: 'No reviewable diff produced.',
+      }),
+    });
+    assert.strictEqual(result.reason, 'No reviewable diff produced.');
+    assert.deepStrictEqual(result.blockingIssues, ['no changes']);
+  });
+
   it('executed with completed executor result maps to review_fix_result', () => {
     const result = derive();
     assert.strictEqual(result.action, 'review_fix_result');

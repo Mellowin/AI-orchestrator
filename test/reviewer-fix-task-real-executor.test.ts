@@ -280,7 +280,7 @@ describe('createReviewerFixTaskRealExecutor', () => {
     assert.strictEqual(statusResult.stdout.trim(), '');
   });
 
-  test('failed push rolls back fix commit to pre-fix HEAD', async () => {
+  test('fix commit is not pushed by the executor; pushing is handled after reviewer acceptance', async () => {
     const { repoPath, baseBranch } = createTempRepo();
     writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
     spawnSync('git', ['add', 'fix.txt'], {
@@ -294,7 +294,7 @@ describe('createReviewerFixTaskRealExecutor', () => {
       shell: false,
     });
 
-    // Set an invalid remote so push fails after commit.
+    // Set an invalid remote. If the executor tried to push, it would fail.
     spawnSync('git', ['remote', 'add', 'origin', '/nonexistent/remote'], {
       cwd: repoPath,
       encoding: 'utf-8',
@@ -324,18 +324,19 @@ describe('createReviewerFixTaskRealExecutor', () => {
     const executor = createReviewerFixTaskRealExecutor({ parentTask });
     const result = await executor(makeInput('Fix the thing'));
 
-    assert.strictEqual(result.status, 'blocked');
-    assert(result.reason.includes('rollback_status='), `Expected rollback info in reason: ${result.reason}`);
+    assert.strictEqual(result.status, 'completed', `Expected completed status despite invalid remote: ${result.reason}`);
+    assert(result.commitSha && result.commitSha.length === 40, 'Expected valid local fix commit');
+    assert.strictEqual(result.baseCommitSha, beforeHead, 'baseCommitSha should be pre-fix HEAD');
 
     const afterHead = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
       cwd: repoPath,
       encoding: 'utf-8',
       shell: false,
     }).stdout.trim();
-    assert.strictEqual(afterHead, beforeHead, 'Rollback should restore pre-fix HEAD');
+    assert.strictEqual(afterHead, result.commitSha, 'Fix commit should be local HEAD');
 
     const content = readFileSync(join(repoPath, 'fix.txt'), 'utf-8');
-    assert.strictEqual(content, 'initial\n');
+    assert.strictEqual(content, 'fixed\n');
 
     const statusResult = spawnSync(
       'git',
@@ -343,5 +344,69 @@ describe('createReviewerFixTaskRealExecutor', () => {
       { cwd: repoPath, encoding: 'utf-8', shell: false }
     );
     assert.strictEqual(statusResult.stdout.trim(), '');
+  });
+
+  test('no working tree changes after fix is a retryable failed attempt, not terminal block', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+
+    const beforeHead = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    }).stdout.trim();
+
+    const checks: Task['checks'] = [
+      {
+        command: 'node',
+        args: ['-e', 'console.log("test"); process.exit(0);'],
+      },
+    ];
+    const parentTask = makeParentTask(repoPath, baseBranch, checks);
+
+    // Kimi returns the same content that is already committed, so the working
+    // tree has no actual changes after apply. This is the same shape of failure
+    // that stopped PR #80: the fix produced no reviewable diff, and the system
+    // treated it as a terminal blocker instead of a retryable failed attempt.
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE',
+      makeFakeResponse('fix.txt', 'initial\n')
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'failed', `Expected retryable failed status, got ${result.status}: ${result.reason}`);
+    assert(result.reason.includes('No working tree changes'), `Expected no-working-tree-changes reason: ${result.reason}`);
+    assert(result.baseCommitSha, 'Result should include the base commit SHA before the fix attempt');
+    assert.strictEqual(result.baseCommitSha, beforeHead, 'baseCommitSha should be the pre-fix HEAD');
+    assert(result.commitSha === undefined || result.commitSha.length === 0, 'No valid fix commit should be produced');
+
+    const afterHead = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    }).stdout.trim();
+    assert.strictEqual(afterHead, beforeHead, 'Pre-fix HEAD should be restored');
+
+    const content = readFileSync(join(repoPath, 'fix.txt'), 'utf-8');
+    assert.strictEqual(content, 'initial\n', 'Original file content should be preserved');
+
+    const statusResult = spawnSync(
+      'git',
+      ['status', '--porcelain', '--untracked-files=all'],
+      { cwd: repoPath, encoding: 'utf-8', shell: false }
+    );
+    assert.strictEqual(statusResult.stdout.trim(), '', 'Working tree should be clean after rollback');
   });
 });

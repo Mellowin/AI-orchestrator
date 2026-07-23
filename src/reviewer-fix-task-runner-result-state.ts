@@ -7,9 +7,10 @@ import type { ReviewerFixTaskDraft } from './reviewer-fix-task-plan.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
 
 export interface PersistedReviewerFixTaskExecutorResult {
-  status: 'completed' | 'blocked';
+  status: 'completed' | 'blocked' | 'failed';
   reason: string;
   commitSha?: string;
+  baseCommitSha?: string;
   changedFiles?: string[];
   blockingIssues?: string[];
   hasRunState: boolean;
@@ -100,6 +101,10 @@ function buildPersistedExecutorResult(
 
   if (value.commitSha !== undefined) {
     result.commitSha = value.commitSha;
+  }
+
+  if (value.baseCommitSha !== undefined) {
+    result.baseCommitSha = value.baseCommitSha;
   }
 
   if (value.changedFiles !== undefined) {

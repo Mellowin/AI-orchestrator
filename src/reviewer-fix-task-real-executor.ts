@@ -400,6 +400,23 @@ export function createReviewerFixTaskRealExecutor(
       return blockResult(`${reason} (${rollbackInfo})`, blockingIssues, checkSummary);
     }
 
+    function failedResult(
+      reason: string,
+      checkSummary?: ReviewerEvidenceInput['checkSummary'],
+      extraBlockingIssues: string[] = []
+    ): ReviewerFixTaskExecutorResult {
+      const rollbackResult = rollbackToCheckpoint(checkpoint);
+      return {
+        status: 'failed',
+        reason: redactSecrets(
+          `${reason} (rollback_status=${rollbackResult.status} attempted=${rollbackResult.attempted} checkpointHead=${rollbackResult.checkpointHead})`
+        ),
+        baseCommitSha: checkpoint.headSha,
+        blockingIssues: extraBlockingIssues.map((i) => redactSecrets(i)),
+        checkSummary,
+      };
+    }
+
     const existingPaths: string[] = [];
     for (const f of kimiOutput.files) {
       const filePath = join(repoPath, f.path);
@@ -444,7 +461,7 @@ export function createReviewerFixTaskRealExecutor(
     }
 
     if (allChanges.length === 0) {
-      return rollbackAndBlock('No working tree changes match the approved apply manifest.');
+      return failedResult('No working tree changes match the approved apply manifest.');
     }
 
     for (const p of allChanges.filter((p) => approvedPaths.has(p))) {
@@ -454,7 +471,7 @@ export function createReviewerFixTaskRealExecutor(
         encoding: 'utf-8',
       });
       if (addResult.status !== 0) {
-        return rollbackAndBlock(`Git add failed for ${p}`);
+        return failedResult(`Git add failed for ${p}`);
       }
     }
 
@@ -469,22 +486,7 @@ export function createReviewerFixTaskRealExecutor(
       }
     );
     if (commitResult.status !== 0) {
-      return rollbackAndBlock(`Git commit failed: ${redactSecrets(commitResult.stderr)}`);
-    }
-
-    if (process.env.ALLOW_REAL_REPO_PUSH === 'true') {
-      const pushResult = spawnSync(
-        'git',
-        ['push', 'origin', currentBranch],
-        {
-          cwd: repoPath,
-          shell: false,
-          encoding: 'utf-8',
-        }
-      );
-      if (pushResult.status !== 0) {
-        return rollbackAndBlock(`Git push failed: ${redactSecrets(pushResult.stderr)}`);
-      }
+      return failedResult(`Git commit failed: ${redactSecrets(commitResult.stderr)}`);
     }
 
     const headResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
@@ -493,15 +495,23 @@ export function createReviewerFixTaskRealExecutor(
       encoding: 'utf-8',
     });
     if (headResult.status !== 0) {
-      return blockResult('Failed to read fix commit SHA.');
+      return failedResult('Failed to read fix commit SHA.');
     }
     const commitSha = headResult.stdout.trim();
+    const VALID_SHA = /^[0-9a-f]{40}$/i;
+    if (!VALID_SHA.test(commitSha)) {
+      return failedResult('Fix commit SHA is not a valid 40-character hex value.');
+    }
     const changedFiles = getCommitChangedFiles(repoPath, commitSha);
+    if (changedFiles.length === 0) {
+      return failedResult('Fix commit has no changed files.');
+    }
 
     return {
       status: 'completed',
       reason: 'Fix task applied and committed.',
       commitSha,
+      baseCommitSha: checkpoint.headSha,
       changedFiles,
       blockingIssues: [],
       checkSummary: fixCheckSummary,
