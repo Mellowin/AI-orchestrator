@@ -4,6 +4,8 @@
  * One config, one command, no manual orchestration.
  */
 
+import type { Check } from '../types.js';
+
 export type MvpRunProvider = 'fake' | 'kimi';
 
 export type MvpRunVerdict =
@@ -27,8 +29,8 @@ export interface MvpRunTaskConfig {
   allowed_files: string[];
   denied_files?: string[];
   tests?: string[];
-  /** Shell commands to run as deterministic checks. Takes precedence over `tests`. */
-  checks?: string[];
+  /** Shell commands or structured checks to run as deterministic verification. Takes precedence over `tests`. */
+  checks?: (string | Check)[];
   max_lines_changed?: number;
   depends_on?: string[];
 }

@@ -535,12 +535,12 @@ function runScenarioF(scenarioDir, taskId) {
     actualStatus === 'skipped' &&
     actualPolicy === expectedPolicy &&
     finalHead !== checkpointSha &&
-    finalHead === finalRemote &&
+    finalHead !== finalRemote &&
     commitCount >= 3 &&
     isWorkingTreeClean(repoPath);
 
   return {
-    name: 'F. Second reviewer blocks after pushed fix',
+    name: 'F. Second reviewer blocks local fix commit (fix not pushed)',
     expectedPolicy,
     actualStatus,
     localHeadStatus: finalHead === checkpointSha ? 'preserved' : 'changed',

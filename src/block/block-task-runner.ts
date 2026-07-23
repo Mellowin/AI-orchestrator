@@ -18,6 +18,7 @@ import { createFakeReviewerProvider, type FakeReviewerOptions } from '../provide
 import { createKimiCoderProvider } from '../providers/kimi/kimi-coder-provider.js';
 import { createKimiReviewerProvider, type KimiReviewerProviderOptions } from '../providers/kimi/kimi-reviewer-provider.js';
 import type { Guardrails, Check } from '../types.js';
+import { parseShellCheckString, validateCheck } from '../runner.js';
 
 const PRODUCT_VISION_PATH = resolve(process.cwd(), 'prompts', 'product-vision-for-kimi.md');
 
@@ -109,14 +110,19 @@ export function buildTaskGuardrailsFromBlockTask(taskDefinition: BlockTaskDefini
   };
 }
 
-export function convertBlockChecks(checks: string[]): Check[] {
+export function convertBlockChecks(checks: (string | Check)[], repoPath: string): Check[] {
   return checks.map((c) => {
-    const trimmed = c.trim();
-    if (!trimmed) {
-      return { command: '', args: [] };
+    if (typeof c === 'string') {
+      return parseShellCheckString(c);
     }
-    const parts = trimmed.split(/\s+/);
-    return { command: parts[0], args: parts.slice(1) };
+    const validation = validateCheck(repoPath, c);
+    if (!validation.ok) {
+      throw new Error(validation.reason ?? 'Invalid structured check');
+    }
+    if (validation.normalizedCwd) {
+      return { ...c, cwd: validation.normalizedCwd };
+    }
+    return c;
   });
 }
 

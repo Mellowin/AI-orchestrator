@@ -277,7 +277,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
       manifest = applyFileUpdates(blockDefinition.repo_path, coderResult.files, runDir);
 
       // Run checks
-      const checks = convertBlockChecks(taskDefinition.checks);
+      const checks = convertBlockChecks(taskDefinition.checks, blockDefinition.repo_path);
       const checkResult = runChecks(blockDefinition.repo_path, checks);
 
       if (!checkResult.success) {

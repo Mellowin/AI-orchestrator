@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBlockDefinition } from './block/block-loader.js';
+import { convertBlockChecks } from './block/block-task-runner.js';
 import type { BlockDefinition, BlockTaskDefinition } from './block/block-types.js';
 import {
   prepareFreshBlockRun,
@@ -131,22 +132,20 @@ function getTaskFakeResponse(
 }
 
 function buildSingleTaskYaml(block: BlockDefinition, task: BlockTaskDefinition): string {
+  const repoPath = resolve(block.repo_path);
   const taskObject = {
     tasks: [
       {
         id: task.task_id,
         title: task.title,
-        repo_path: resolve(block.repo_path).replace(/\\/g, '/'),
+        repo_path: repoPath.replace(/\\/g, '/'),
         base_branch: block.base_branch,
         work_branch: block.work_branch,
         goal: task.goal,
-        context_files: task.allowed_files.filter((file) => existsSync(resolve(block.repo_path, file))),
+        context_files: task.allowed_files.filter((file) => existsSync(resolve(repoPath, file))),
         checks:
           task.checks.length > 0
-            ? task.checks.map((line) => {
-                const parts = line.trim().split(/\s+/);
-                return { command: parts[0], args: parts.slice(1) };
-              })
+            ? convertBlockChecks(task.checks, repoPath)
             : [{ command: 'node', args: ['-e', 'process.exit(0)'] }],
         guardrails: {
           allow_modify: task.allowed_files,

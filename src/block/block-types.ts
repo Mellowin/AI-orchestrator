@@ -1,3 +1,5 @@
+import type { Check } from '../types.js';
+
 export type BlockTaskStatus =
   | 'pending'
   | 'in_progress'
@@ -50,7 +52,7 @@ export interface BlockTaskDefinition {
   allowed_files: string[];
   denied_files: string[];
   max_lines_changed: number;
-  checks: string[];
+  checks: (string | Check)[];
   depends_on?: string[];
 }
 

@@ -4496,7 +4496,7 @@ describe('cli real-repo-run-ai', () => {
       });
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
       assert(result.stderr.includes('max fix attempts reached'), `Should report max attempts reached: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Should create original + two fix commits');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create original task commit and one retained fix commit after reset between attempts');
 
       const state = loadStateFromPath(runsDir, taskId) as Record<string, unknown>;
       const secondReview = state.reviewer_fix_task_second_review as Record<string, unknown>;

@@ -206,9 +206,29 @@ export function loadBlockDefinition(path: string): BlockDefinition {
       throw new Error(`Block definition task ${i} max_lines_changed must be a positive number`);
     }
 
+    function isValidCheckItem(c: unknown): boolean {
+      if (typeof c === 'string') {
+        return true;
+      }
+      if (!c || typeof c !== 'object') {
+        return false;
+      }
+      const o = c as Record<string, unknown>;
+      if (typeof o.command !== 'string' || o.command.length === 0) {
+        return false;
+      }
+      if (!Array.isArray(o.args) || !o.args.every((a) => typeof a === 'string')) {
+        return false;
+      }
+      if (o.cwd !== undefined && typeof o.cwd !== 'string') {
+        return false;
+      }
+      return true;
+    }
+
     const checks = t.checks;
-    if (!Array.isArray(checks) || !checks.every((c) => typeof c === 'string')) {
-      throw new Error(`Block definition task ${i} checks must be an array of strings`);
+    if (!Array.isArray(checks) || !checks.every(isValidCheckItem)) {
+      throw new Error(`Block definition task ${i} checks must be an array of strings or structured checks with command and args`);
     }
   }
 

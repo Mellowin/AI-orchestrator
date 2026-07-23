@@ -1,3 +1,5 @@
+import type { Check } from '../types.js';
+
 /**
  * Autopilot Plan — mission intake: human goal -> generated autopilot config.
  */
@@ -67,7 +69,7 @@ export interface AutopilotPlanTask {
   denied_files?: string[];
   /** @deprecated Use `checks` instead; kept for backward compatibility. */
   tests?: string[];
-  checks?: string[];
+  checks?: (string | Check)[];
   risk: 'low' | 'medium' | 'high';
   depends_on?: string[];
   acceptance_criteria?: string[];

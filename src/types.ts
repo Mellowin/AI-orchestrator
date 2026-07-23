@@ -13,6 +13,7 @@ export interface Task {
 export interface Check {
   command: string;
   args: string[];
+  cwd?: string;
 }
 
 export interface Guardrails {

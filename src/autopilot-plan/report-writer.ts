@@ -219,7 +219,9 @@ export function writePlanArtifacts(
       task.denied_files && task.denied_files.length > 0
         ? `- **Denied files:** ${task.denied_files.join(', ')}`
         : '',
-      task.tests && task.tests.length > 0 ? `- **Checks:** ${task.tests.join(', ')}` : '',
+      task.checks && task.checks.length > 0
+        ? `- **Checks:** ${task.checks.map((c) => (typeof c === 'string' ? c : `${c.command} ${c.args.join(' ')}${c.cwd ? ` (cwd: ${c.cwd})` : ''}`)).join(', ')}`
+        : '',
       '',
     ].join('\n')),
     '',

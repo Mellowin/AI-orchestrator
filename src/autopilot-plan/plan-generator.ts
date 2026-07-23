@@ -1,3 +1,5 @@
+import { parseShellCheckString, validateCheck } from '../runner.js';
+import type { Check } from '../types.js';
 import type {
   AutopilotPlanGeneratedPlan,
   AutopilotPlanMission,
@@ -35,7 +37,42 @@ function isOptionalPositiveInteger(value: unknown): value is number | undefined 
   return value === undefined || (typeof value === 'number' && Number.isInteger(value) && value > 0);
 }
 
-function validateTask(obj: unknown): AutopilotPlanTask {
+function isValidCheckEntry(
+  c: unknown,
+  repoPath: string
+): { ok: boolean; reason?: string } {
+  if (typeof c === 'string') {
+    try {
+      parseShellCheckString(c);
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : 'Invalid check string',
+      };
+    }
+  }
+  if (!c || typeof c !== 'object') {
+    return { ok: false, reason: 'Check entry must be a string or an object' };
+  }
+  const o = c as Record<string, unknown>;
+  if (typeof o.command !== 'string' || o.command.length === 0) {
+    return { ok: false, reason: 'Structured check must have a non-empty command string' };
+  }
+  if (!Array.isArray(o.args) || !o.args.every((a) => typeof a === 'string')) {
+    return { ok: false, reason: 'Structured check args must be an array of strings' };
+  }
+  if (o.cwd !== undefined && typeof o.cwd !== 'string') {
+    return { ok: false, reason: 'Structured check cwd must be a string' };
+  }
+  const validation = validateCheck(repoPath, o as unknown as Check);
+  if (!validation.ok) {
+    return { ok: false, reason: validation.reason };
+  }
+  return { ok: true };
+}
+
+function validateTask(obj: unknown, repoPath: string): AutopilotPlanTask {
   if (!obj || typeof obj !== 'object') {
     throw new ProviderBadOutputError('Task is not an object');
   }
@@ -59,8 +96,24 @@ function validateTask(obj: unknown): AutopilotPlanTask {
   if (raw.tests !== undefined && !isStringArray(raw.tests)) {
     throw new ProviderBadOutputError('Task tests must be an array of strings');
   }
-  if (raw.checks !== undefined && !isStringArray(raw.checks)) {
-    throw new ProviderBadOutputError('Task checks must be an array of strings');
+  if (raw.checks !== undefined) {
+    if (!Array.isArray(raw.checks)) {
+      throw new ProviderBadOutputError(
+        'Task checks must be an array of strings or structured checks with command and args'
+      );
+    }
+    const checkReasons: string[] = [];
+    for (const c of raw.checks) {
+      const validation = isValidCheckEntry(c, repoPath);
+      if (!validation.ok) {
+        checkReasons.push(validation.reason ?? 'Invalid check');
+      }
+    }
+    if (checkReasons.length > 0) {
+      throw new ProviderBadOutputError(
+        `Task checks contain invalid entries: ${checkReasons.join('; ')}`
+      );
+    }
   }
   if (!isValidRisk(raw.risk)) {
     throw new ProviderBadOutputError("Task risk must be 'low', 'medium', or 'high'");
@@ -92,7 +145,7 @@ function validateTask(obj: unknown): AutopilotPlanTask {
     task.tests = raw.tests;
   }
   if (raw.checks) {
-    task.checks = raw.checks;
+    task.checks = raw.checks as (string | Check)[];
   }
   if (raw.depends_on) {
     task.depends_on = raw.depends_on;
@@ -195,7 +248,7 @@ export async function generateProviderPlan(
     '      "allowed_files": ["string"],',
     '      "denied_files": ["string"],',
     '      "tests": ["string"],',
-    '      "checks": ["string"],',
+    '      "checks": ["string" | {"command": "string", "args": ["string"], "cwd": "string?"}],',
     '      "risk": "low" | "medium" | "high",',
     '      "depends_on": ["task_id"],',
     '      "acceptance_criteria": ["string"],',
@@ -209,8 +262,11 @@ export async function generateProviderPlan(
     '  "caveats": ["string"]',
     '}',
     '',
-    'Use `checks` for shell commands; `tests` is accepted for backward compatibility.',
-    'Rules for checks/tests: each entry must be a valid shell command string that can be executed.',
+    'Use `checks` for deterministic verification commands; `tests` is accepted for backward compatibility.',
+    'Each check must be either a simple command string like "npm test" or a structured object: {"command": "npm", "args": ["test"], "cwd": "demo-repo"}.',
+    'Use the structured object form with a relative `cwd` when a check must run inside a subdirectory of the repository (e.g., a demo project inside a nested folder).',
+    'Do NOT use shell operators such as &&, ||, ;, |, >, <, backticks, or $() in checks.',
+    'Do NOT use the `cd` command in a check; set `cwd` instead.',
     'For documentation-only changes with no automated verification, use an empty checks array.',
     'Do not put human-readable instructions or sentences into checks/tests.',
     'Use `depends_on` to build a valid DAG. A task may only depend on tasks listed earlier in the tasks array.',
@@ -242,7 +298,7 @@ export async function generateProviderPlan(
     throw new ProviderBadOutputError('Plan must contain a non-empty tasks array');
   }
 
-  const tasks = obj.tasks.map(validateTask);
+  const tasks = obj.tasks.map((t) => validateTask(t, mission.repo_path));
 
   if (typeof obj.ci_enabled !== 'boolean') {
     throw new ProviderBadOutputError('Plan ci_enabled must be boolean');

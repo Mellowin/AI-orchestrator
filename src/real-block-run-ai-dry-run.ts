@@ -1,3 +1,4 @@
+import type { Check } from './types.js';
 import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition } from './block/block-types.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
@@ -11,7 +12,7 @@ export interface DryRunTaskItem {
   status?: string;
   allowed_files: string[];
   denied_files: string[];
-  checks: string[];
+  checks: (string | Check)[];
   max_lines_changed: number;
   wouldSkip: boolean;
   isNext: boolean;

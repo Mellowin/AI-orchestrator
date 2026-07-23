@@ -1,3 +1,4 @@
+import type { Check } from './types.js';
 import { resolve, normalize } from 'node:path';
 import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition } from './block/block-types.js';
@@ -8,7 +9,7 @@ export interface RealBlockValidateTaskSummary {
   title: string;
   allowed_files: string[];
   denied_files: string[];
-  checks: string[];
+  checks: (string | Check)[];
   max_lines_changed: number;
 }
 
