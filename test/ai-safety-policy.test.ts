@@ -193,6 +193,89 @@ describe('ai-safety-policy', () => {
     assert.ok(result.reasons.some((r) => r.includes('denied list')));
   });
 
+  test('accepts paths matched by glob allowed_files', () => {
+    const repo = makeRepo();
+    const result = validateAiSafetyPolicy({
+      repoPath: repo,
+      allowedFiles: ['demo-repo/**'],
+      deniedFiles: [],
+      files: [
+        { path: 'demo-repo/src/math/add.ts', content: 'export const add = (a: number, b: number) => a + b;\n' },
+        { path: 'demo-repo/src/math/add.test.ts', content: 'test' },
+        { path: 'demo-repo/package.json', content: '{"scripts":{"test":"node --test"}}' },
+      ],
+    });
+    assert.strictEqual(result.ok, true, `Expected glob allowed_files to pass, got: ${result.reasons.join('; ')}`);
+  });
+
+  test('rejects paths outside glob allowed_files', () => {
+    const repo = makeRepo();
+    const result = validateAiSafetyPolicy({
+      repoPath: repo,
+      allowedFiles: ['demo-repo/**'],
+      deniedFiles: [],
+      files: [{ path: 'src/outside.ts', content: 'x' }],
+    });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.reasons.some((r) => r.includes('not in allowed_files')));
+  });
+
+  test('demo-repo prefix does not match demo-repo-other', () => {
+    const repo = makeRepo();
+    const result = validateAiSafetyPolicy({
+      repoPath: repo,
+      allowedFiles: ['demo-repo/**'],
+      deniedFiles: [],
+      files: [{ path: 'demo-repo-other/file.ts', content: 'x' }],
+    });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.reasons.some((r) => r.includes('not in allowed_files')));
+  });
+
+  test('normalizes Windows separators and still applies glob restriction', () => {
+    const repo = makeRepo();
+    const allowed = validateAiSafetyPolicy({
+      repoPath: repo,
+      allowedFiles: ['demo-repo/**'],
+      deniedFiles: [],
+      files: [{ path: 'demo-repo\\src\\math\\add.ts', content: 'x' }],
+    });
+    assert.strictEqual(allowed.ok, true, `Expected Windows path inside glob to pass, got: ${allowed.reasons.join('; ')}`);
+
+    const escape = validateAiSafetyPolicy({
+      repoPath: repo,
+      allowedFiles: ['demo-repo/**'],
+      deniedFiles: [],
+      files: [{ path: 'demo-repo\\..\\outside.ts', content: 'x' }],
+    });
+    assert.strictEqual(escape.ok, false);
+    assert.ok(escape.reasons.some((r) => r.includes('parent directory') || r.includes('escapes repository root')));
+  });
+
+  test('empty allowed_files rejects all files', () => {
+    const repo = makeRepo();
+    const result = validateAiSafetyPolicy({
+      repoPath: repo,
+      allowedFiles: [],
+      deniedFiles: [],
+      files: [{ path: 'demo-repo/src/math/add.ts', content: 'x' }],
+    });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.reasons.some((r) => r.includes('not in allowed_files')));
+  });
+
+  test('invalid allowed_files does not become allow-all', () => {
+    const repo = makeRepo();
+    const result = validateAiSafetyPolicy({
+      repoPath: repo,
+      allowedFiles: 'demo-repo/**' as unknown as string[],
+      deniedFiles: [],
+      files: [{ path: 'demo-repo/src/math/add.ts', content: 'x' }],
+    });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.reasons.some((r) => r.includes('Invalid allowed_files')));
+  });
+
   test('rejects path not in allowed_files', () => {
     const repo = makeRepo();
     const result = validateAiSafetyPolicy({

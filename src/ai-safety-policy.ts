@@ -1,4 +1,5 @@
 import { resolve, normalize, sep, basename, extname } from 'node:path';
+import { matchesPattern } from './guardrails.js';
 
 export interface AiSafetyPolicyFile {
   path: string;
@@ -49,7 +50,7 @@ function isDeniedPath(path: string): boolean {
 
 function isAllowedPath(path: string, allowedFiles: string[]): boolean {
   const normalized = normalizePath(path);
-  return allowedFiles.some((allowed) => normalizePath(allowed) === normalized);
+  return allowedFiles.some((allowed) => matchesPattern(normalized, normalizePath(allowed)));
 }
 
 function isWorkflowFile(path: string): boolean {
@@ -98,7 +99,7 @@ function checkPathEscape(
   if (isDeniedPath(path)) {
     reasons.push(`Path is in denied list: ${path}`);
   }
-  if (allowedFiles !== undefined && allowedFiles.length > 0 && !isAllowedPath(path, allowedFiles)) {
+  if (allowedFiles !== undefined && !isAllowedPath(path, allowedFiles)) {
     reasons.push(`Path is not in allowed_files: ${path}`);
   }
   if (deniedFiles !== undefined && deniedFiles.length > 0 && isAllowedPath(path, deniedFiles)) {
@@ -281,6 +282,9 @@ function checkContentLevelPathOperations(path: string, content: string): string[
 
 export function validateAiSafetyPolicy(input: AiSafetyPolicyInput): AiSafetyPolicyResult {
   const reasons: string[] = [];
+  if (input.allowedFiles !== undefined && !Array.isArray(input.allowedFiles)) {
+    return { ok: false, reasons: ['Invalid allowed_files: must be an array of strings'] };
+  }
   for (const file of input.files) {
     reasons.push(...checkPathEscape(input.repoPath, file.path, input.allowedFiles, input.deniedFiles));
     reasons.push(...checkSecretExfiltration(file.path, file.content));
