@@ -2,7 +2,7 @@
 
 **Branch:** `stage-18-25-one-click-multitask`
 
-**Last verified:** `12c05af7d97b0bbe2467426a67191dd1aad4917f`
+**Last verified:** `8670cf558dc6f6bb945674fcba302d50dbb9106f`
 
 ## Test metrics
 
@@ -13,7 +13,7 @@
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-**Last verified commit:** `12c05af7d97b0bbe2467426a67191dd1aad4917f` (Stage 18.25 Codex follow-up: keep rejected-mission rollback local; roll back on diff collection failure; full per-chunk suite 4032 tests / 276 suites / 0 failures local run; heavy chunk 5 run individually with 600 s timeout)
+**Last verified commit:** `8670cf558dc6f6bb945674fcba302d50dbb9106f` (Stage 18.25 Codex follow-up part 2: no push on blocked/failed rollback; dedupe mission commits; parse quoted diff paths; full per-chunk suite 4033 tests / 277 suites / 1 failure on stale summary lock, 0 product test failures; targeted regression tests green)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Test runner:** `npm test` runs `node scripts/run-test-chunks.mjs` over `test/**/*.test.ts` (no backup files under `runs/**` are executed)
