@@ -1,5 +1,12 @@
 import { config } from '../../config.js';
 import type { FinalReviewCallFn } from './types.js';
+import {
+  createRealProviderCall,
+  buildProviderCallInput,
+  normalizeProviderCallResult,
+  normalizeProviderCallError,
+} from '../../provider-call.js';
+import type { FetchFn } from '../../provider-call.js';
 
 export interface BuildOpenAIReviewCallFnOptions {
   /** OpenAI API key. Defaults to OPENAI_API_KEY from the environment. */
@@ -8,6 +15,21 @@ export interface BuildOpenAIReviewCallFnOptions {
   model?: string;
   /** Fetch implementation. Defaults to globalThis.fetch. */
   fetchFn?: typeof globalThis.fetch;
+  /** If set, the returned function returns this string without making a network call. */
+  fakeResponse?: string;
+}
+
+export interface BuildKimiReviewCallFnOptions {
+  /** Kimi API key. Defaults to KIMI_API_KEY from the environment. */
+  apiKey?: string;
+  /** Kimi base URL. Defaults to KIMI_BASE_URL from the environment (or https://api.moonshot.cn/v1). */
+  baseUrl?: string;
+  /** Chat model. Defaults to KIMI_MODEL from the environment (or kimi-k2.6). */
+  model?: string;
+  /** User-Agent header. Defaults to KIMI_USER_AGENT from the environment. */
+  userAgent?: string;
+  /** Fetch implementation. Defaults to globalThis.fetch. */
+  fetchFn?: FetchFn;
   /** If set, the returned function returns this string without making a network call. */
   fakeResponse?: string;
 }
@@ -96,13 +118,67 @@ export function buildOpenAIReviewCallFn(options: BuildOpenAIReviewCallFnOptions 
   };
 }
 
+export function buildKimiReviewCallFn(options: BuildKimiReviewCallFnOptions = {}): FinalReviewCallFn {
+  if (options.fakeResponse !== undefined) {
+    return async () => options.fakeResponse as string;
+  }
+
+  const apiKey = options.apiKey ?? config.ai.kimiApiKey;
+  const baseUrl = options.baseUrl ?? config.ai.kimiBaseUrl;
+  const model = options.model ?? config.ai.kimiModel ?? 'kimi-k2.6';
+  const userAgent = options.userAgent ?? config.ai.kimiUserAgent;
+
+  if (!apiKey || apiKey.trim().length === 0) {
+    throw new Error('KIMI_API_KEY is required for Kimi multitask final review');
+  }
+  if (!baseUrl || baseUrl.trim().length === 0) {
+    throw new Error('KIMI_BASE_URL is required for Kimi multitask final review');
+  }
+
+  const fetchFn = options.fetchFn ?? (globalThis.fetch as unknown as FetchFn);
+
+  const callFn = createRealProviderCall({
+    provider: 'kimi',
+    apiKey,
+    baseUrl,
+    fetchFn,
+    model,
+    userAgent,
+  });
+
+  return async (prompt: string): Promise<string> => {
+    const providerInput = buildProviderCallInput('reviewer', prompt, 'kimi', model);
+    try {
+      const result = await callFn(providerInput);
+      const normalized = normalizeProviderCallResult(result);
+      return normalized.text;
+    } catch (err) {
+      const info = normalizeProviderCallError(err);
+      throw new Error(`Kimi final review request failed: ${info.message}`);
+    }
+  };
+}
+
 export function buildProductionFinalReviewCallFn(
-  options?: BuildOpenAIReviewCallFnOptions
+  openAIOptions?: BuildOpenAIReviewCallFnOptions,
+  kimiOptions?: BuildKimiReviewCallFnOptions
 ): FinalReviewCallFn {
+  const openAIErrors: string[] = [];
   try {
-    return buildOpenAIReviewCallFn(options);
+    return buildOpenAIReviewCallFn(openAIOptions);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    openAIErrors.push(err instanceof Error ? err.message : String(err));
+  }
+
+  try {
+    const resolvedKimiOptions: BuildKimiReviewCallFnOptions = { ...kimiOptions };
+    if (openAIOptions?.fetchFn !== undefined && resolvedKimiOptions.fetchFn === undefined) {
+      resolvedKimiOptions.fetchFn = openAIOptions.fetchFn as unknown as FetchFn;
+    }
+    return buildKimiReviewCallFn(resolvedKimiOptions);
+  } catch (err) {
+    const kimiMessage = err instanceof Error ? err.message : String(err);
+    const message = `OpenAI: ${openAIErrors.join('; ')}; Kimi: ${kimiMessage}`;
     throw new Error(`Final reviewer is not available: ${redactSecrets(message)}`);
   }
 }

@@ -15,7 +15,7 @@ import { validateGeneratedPlan } from '../src/autopilot-one-click/multitask/plan
 import { scheduleTasks, filterRunnableTasks, allRequiredTasksAccepted } from '../src/autopilot-one-click/multitask/scheduler.js';
 import { runMissionFinalReview } from '../src/autopilot-one-click/multitask/final-review.js';
 import { collectUnauthorizedFiles, collectAcceptanceGaps } from '../src/autopilot-one-click/multitask/final-review.js';
-import { buildOpenAIReviewCallFn, buildProductionFinalReviewCallFn } from '../src/autopilot-one-click/multitask/reviewer-provider.js';
+import { buildOpenAIReviewCallFn, buildKimiReviewCallFn, buildProductionFinalReviewCallFn } from '../src/autopilot-one-click/multitask/reviewer-provider.js';
 import { validateFileList } from '../src/guardrails.js';
 import { branchExists, getCurrentBranch, type GitExecFn } from '../src/autopilot-one-click/multitask/git-helpers.js';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanTask } from '../src/autopilot-plan/types.js';
@@ -2273,6 +2273,68 @@ describe('production final reviewer and PR gating', () => {
         },
       },
     });
+  });
+
+  test('buildKimiReviewCallFn returns fake response without network call', async () => {
+    const fn = buildKimiReviewCallFn({
+      fakeResponse: '{"verdict":"approved","summary":"ok","caveats":[]}',
+    });
+    const result = await fn('prompt');
+    assert.strictEqual(result, '{"verdict":"approved","summary":"ok","caveats":[]}');
+  });
+
+  test('buildKimiReviewCallFn throws when API key is missing', () => {
+    assert.throws(() => buildKimiReviewCallFn({ apiKey: '' }), /KIMI_API_KEY is required/);
+  });
+
+  test('buildKimiReviewCallFn calls Kimi API and returns content', async () => {
+    const fetchCalls: Array<{ url: string; init: { method?: string; headers?: Record<string, string>; body?: string } }> = [];
+    const fetchFn = async (url: string, init: { method?: string; headers?: Record<string, string>; body?: string }) => {
+      fetchCalls.push({ url, init });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '{"verdict":"approved","summary":"ok","caveats":[],"unauthorized_files":[],"acceptance_gaps":[]}' } }],
+        }),
+      } as unknown as Response;
+    };
+
+    const fn = buildKimiReviewCallFn({ apiKey: 'sk-kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k2.6', fetchFn });
+    const result = await fn('review prompt');
+    assert.strictEqual(result, '{"verdict":"approved","summary":"ok","caveats":[],"unauthorized_files":[],"acceptance_gaps":[]}');
+    assert.strictEqual(fetchCalls.length, 1);
+    const call = fetchCalls[0];
+    assert.ok(call.url.includes('moonshot.cn'));
+    const body = JSON.parse(call.init.body ?? '{}');
+    assert.strictEqual(body.model, 'kimi-k2.6');
+    assert.strictEqual(body.messages[0].content, 'review prompt');
+  });
+
+  test('buildProductionFinalReviewCallFn falls back to Kimi when OpenAI is unavailable', async () => {
+    let kimiCalled = false;
+    const fetchFn = async (url: string, init: { method?: string; headers?: Record<string, string>; body?: string }) => {
+      kimiCalled = true;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '{"verdict":"approved","summary":"ok via kimii","caveats":[]}' } }],
+        }),
+      } as unknown as Response;
+    };
+
+    const fn = buildProductionFinalReviewCallFn({ apiKey: '' }, { apiKey: 'sk-kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k2.6', fetchFn });
+    const result = await fn('prompt');
+    assert.ok(kimiCalled, 'Kimi fallback should have been called');
+    assert.strictEqual(result, '{"verdict":"approved","summary":"ok via kimii","caveats":[]}');
+  });
+
+  test('buildProductionFinalReviewCallFn throws when both providers are unavailable', () => {
+    assert.throws(
+      () => buildProductionFinalReviewCallFn({ apiKey: '' }, { apiKey: '' }),
+      /Final reviewer is not available/
+    );
   });
 
   test('final review rejection prevents PR creation', async () => {
