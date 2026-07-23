@@ -7,7 +7,9 @@ import type {
   AutopilotPlanGeneratedPlan,
   AutopilotPlanMission,
   AutopilotPlanPreflightInfo,
+  AutopilotPlanTask,
 } from './types.js';
+import { topologicalSortTasks } from './dag.js';
 
 export interface AutopilotPlanArtifacts {
   run_dir: string;
@@ -28,12 +30,36 @@ export function ensureRunDir(runDir: string): void {
   mkdirSync(runDir, { recursive: true });
 }
 
+function taskToMvpTask(task: AutopilotPlanTask): import('../mvp-run/types.js').MvpRunTaskConfig {
+  const mvpTask: import('../mvp-run/types.js').MvpRunTaskConfig = {
+    id: task.id,
+    title: task.title,
+    goal: task.goal,
+    allowed_files: task.allowed_files,
+    denied_files: task.denied_files ?? ['.env', 'node_modules/**'],
+    tests: task.tests ?? [],
+    max_lines_changed: task.max_lines_changed,
+  };
+  // Preserve legacy tests when checks are absent. Omitting the field lets
+  // block-builder fall back to `tests`; an explicit empty array still overrides.
+  if (task.checks !== undefined) {
+    mvpTask.checks = task.checks;
+  }
+  if (task.depends_on !== undefined && task.depends_on.length > 0) {
+    mvpTask.depends_on = task.depends_on;
+  }
+  return mvpTask;
+}
+
 export function buildMvpRunConfig(
   mission: AutopilotPlanMission,
   plan: AutopilotPlanGeneratedPlan,
   runDir: string
 ): MvpRunConfig {
   const provider = mission.mode === 'fake' || !mission.capabilities.allow_real_provider ? 'fake' : 'kimi';
+
+  const hasDependencies = plan.tasks.some((t) => (t.depends_on ?? []).length > 0);
+  const sortedTasks = hasDependencies ? topologicalSortTasks(plan.tasks).tasks : plan.tasks;
 
   return {
     provider,
@@ -47,16 +73,13 @@ export function buildMvpRunConfig(
     allow_real_repo_commit: mission.capabilities.allow_repo_commit,
     allow_real_repo_push: mission.capabilities.allow_repo_push,
     allow_github_pr_create: mission.capabilities.allow_pr_create,
-    tasks: plan.tasks.map((task) => ({
-      id: task.id,
-      title: task.title,
-      goal: task.goal,
-      allowed_files: task.allowed_files,
-      denied_files: task.denied_files ?? ['.env', 'node_modules/**'],
-      tests: task.tests ?? [],
-    })),
+    tasks: sortedTasks.map(taskToMvpTask),
     report_dir: join(runDir, 'mvp-run-reports'),
-    on_blocked_task: 'continue',
+    // With dependencies the block runner already skips only descendants of
+    // failed/blocked tasks. For plans without dependencies, a blocked task must stop
+    // the run so that a rejected task is not reported as passed_with_caveats and
+    // potentially published as a PR.
+    on_blocked_task: hasDependencies ? 'continue' : 'stop',
   };
 }
 
@@ -93,6 +116,9 @@ export function buildAutopilotRunConfig(
       allow_apply: mission.capabilities.allow_repo_apply,
       allow_commit: mission.capabilities.allow_repo_commit,
       allow_push: mission.capabilities.allow_repo_push,
+      allowed_files: Array.from(
+        new Set([...(mission.allowed_files ?? []), ...plan.tasks.flatMap((t) => t.allowed_files)])
+      ),
       denied_files: ['.env', 'node_modules/**', 'tmp/**', 'reports/**'],
     },
     github: {

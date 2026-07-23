@@ -156,7 +156,7 @@ interface TempBlockEnv {
   cleanup: () => void;
 }
 
-function createTempBlockEnv(): TempBlockEnv {
+function createTempBlockEnv(customTasks?: Record<string, unknown>[]): TempBlockEnv {
   const id = `${Date.now()}-${counter++}`;
   const blockId = `block-${id}`;
   const tmpBase = join(process.cwd(), 'tmp');
@@ -232,7 +232,7 @@ function createTempBlockEnv(): TempBlockEnv {
       max_fix_attempts: 1,
       reviewer_mode: 'single' as const,
     },
-    tasks: [
+    tasks: customTasks ?? [
       {
         task_id: 'task-one',
         title: 'Update README',
@@ -2619,6 +2619,218 @@ describe('cli real-block-run-ai', () => {
       const blockDir = join(runsDir, 'block', blockId);
       const tmpFiles = readdirSync(blockDir).filter((name) => name.includes('.tmp.'));
       assert.strictEqual(tmpFiles.length, 0, `Expected no temp files, found: ${tmpFiles.join(', ')}`);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+
+describe('dependency-aware block execution', () => {
+  test('failed task blocks only descendants; unrelated tasks continue and are accepted', () => {
+    const tasks = [
+      {
+        task_id: 'task-a',
+        title: 'Task A',
+        goal: 'Update A',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+      },
+      {
+        task_id: 'task-b',
+        title: 'Task B',
+        goal: 'Update B',
+        allowed_files: ['b.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+        depends_on: ['task-a'],
+      },
+      {
+        task_id: 'task-c',
+        title: 'Task C',
+        goal: 'Update C',
+        allowed_files: ['c.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+      },
+    ];
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv(tasks);
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          'not-valid-json', // task-a fails
+          buildFakeKimiOutput([{ path: 'b.txt', content: 'b content\n' }]), // task-b would run if no deps
+          buildFakeKimiOutput([{ path: 'c.txt', content: 'c content\n' }]), // task-c succeeds
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          null,
+          null,
+          buildAcceptReview('Task C good'),
+        ]),
+      }));
+
+      const output = result.stdout + result.stderr;
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null, `Expected block state; output: ${output}`);
+      assert.strictEqual(state.status, 'failed', `Expected failed block status: ${output}`);
+
+      const taskResults = state.taskResults as Array<Record<string, unknown>>;
+      assert.strictEqual(taskResults.length, 3);
+
+      const taskA = taskResults.find((t) => t.taskId === 'task-a');
+      const taskB = taskResults.find((t) => t.taskId === 'task-b');
+      const taskC = taskResults.find((t) => t.taskId === 'task-c');
+
+      assert.ok(taskA, 'task-a result must exist');
+      assert.ok(taskB, 'task-b result must exist');
+      assert.ok(taskC, 'task-c result must exist');
+
+      assert.strictEqual(taskA.status, 'failed', 'task-a must be failed');
+      assert.strictEqual(taskB.status, 'blocked_skipped', 'task-b must be skipped because task-a failed');
+      assert.strictEqual(taskC.status, 'accepted', 'task-c must be accepted independently');
+
+      // Task C's commit should be present; task A and B should not add successful commits.
+      const afterLogCount = getGitLogCount(repoPath);
+      assert.strictEqual(afterLogCount, beforeLogCount + 1, 'Only task-c should create a commit');
+
+      // The summary should reflect one completed independent task and one skipped dependent task.
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.acceptedTasks, 1);
+      assert.strictEqual(summary.skippedBlockedTasks, 1);
+      assert.strictEqual(summary.completedTasks, 2);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('blocked_skipped status propagates to transitive descendants', () => {
+    const tasks = [
+      {
+        task_id: 'task-a',
+        title: 'Task A',
+        goal: 'Update A',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+      },
+      {
+        task_id: 'task-b',
+        title: 'Task B',
+        goal: 'Update B',
+        allowed_files: ['b.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+        depends_on: ['task-a'],
+      },
+      {
+        task_id: 'task-c',
+        title: 'Task C',
+        goal: 'Update C',
+        allowed_files: ['c.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+        depends_on: ['task-b'],
+      },
+    ];
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv(tasks);
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          'not-valid-json', // task-a fails
+          buildFakeKimiOutput([{ path: 'b.txt', content: 'b content\n' }]),
+          buildFakeKimiOutput([{ path: 'c.txt', content: 'c content\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([null, null, null]),
+      }));
+
+      const output = result.stdout + result.stderr;
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null, `Expected block state; output: ${output}`);
+      assert.strictEqual(state.status, 'failed', `Expected failed block status: ${output}`);
+
+      const taskResults = state.taskResults as Array<Record<string, unknown>>;
+      assert.strictEqual(taskResults.length, 3);
+
+      const taskA = taskResults.find((t) => t.taskId === 'task-a');
+      const taskB = taskResults.find((t) => t.taskId === 'task-b');
+      const taskC = taskResults.find((t) => t.taskId === 'task-c');
+
+      assert.strictEqual(taskA?.status, 'failed');
+      assert.strictEqual(taskB?.status, 'blocked_skipped');
+      assert.strictEqual(taskC?.status, 'blocked_skipped', 'task-c must be skipped because task-b was skipped');
+
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('unresolved dependency blocks task as skipped before execution', () => {
+    const tasks = [
+      {
+        task_id: 'task-a',
+        title: 'Task A',
+        goal: 'Update A',
+        allowed_files: ['a.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+      },
+      {
+        task_id: 'task-b',
+        title: 'Task B',
+        goal: 'Update B',
+        allowed_files: ['b.txt'],
+        denied_files: [],
+        max_lines_changed: 150,
+        checks: [],
+        depends_on: ['nonexistent-dep'],
+      },
+    ];
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv(tasks);
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'a.txt', content: 'a content\n' }]),
+          buildFakeKimiOutput([{ path: 'b.txt', content: 'b content\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task A good'),
+          buildAcceptReview('Task B good'),
+        ]),
+      }));
+
+      const output = result.stdout + result.stderr;
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null, `Expected block state; output: ${output}`);
+      assert.strictEqual(state.status, 'completed_with_caveats', `Expected caveated completion: ${output}`);
+
+      const taskResults = state.taskResults as Array<Record<string, unknown>>;
+      assert.strictEqual(taskResults.length, 2);
+
+      const taskA = taskResults.find((t) => t.taskId === 'task-a');
+      const taskB = taskResults.find((t) => t.taskId === 'task-b');
+
+      assert.strictEqual(taskA?.status, 'accepted', 'task-a must be accepted');
+      assert.strictEqual(taskB?.status, 'blocked_skipped', 'task-b must be skipped because its dependency is unresolved');
+
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Only task-a should create a commit');
     } finally {
       cleanup();
     }

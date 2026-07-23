@@ -65,8 +65,14 @@ export interface AutopilotPlanTask {
   goal: string;
   allowed_files: string[];
   denied_files?: string[];
+  /** @deprecated Use `checks` instead; kept for backward compatibility. */
   tests?: string[];
+  checks?: string[];
   risk: 'low' | 'medium' | 'high';
+  depends_on?: string[];
+  acceptance_criteria?: string[];
+  expected_result?: string;
+  max_lines_changed?: number;
 }
 
 export interface AutopilotPlanGeneratedPlan {

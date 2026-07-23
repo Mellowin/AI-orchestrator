@@ -107,4 +107,6 @@ export interface AutopilotRunOptions {
   fetchFn?: typeof globalThis.fetch;
   /** Command string to record in the report. */
   command?: string;
+  /** Resume an existing MVP run instead of starting from scratch. */
+  resume?: boolean;
 }

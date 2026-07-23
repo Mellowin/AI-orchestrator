@@ -51,6 +51,7 @@ export interface BlockTaskDefinition {
   denied_files: string[];
   max_lines_changed: number;
   checks: string[];
+  depends_on?: string[];
 }
 
 export interface BlockDefinition {

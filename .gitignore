@@ -32,6 +32,7 @@ Thumbs.db
 
 # Testing
 coverage/
+rel-fake-*/
 
 # Fixture git repos
 fixtures/**/.git/

@@ -328,8 +328,8 @@ export async function runMvpRun(
     return result;
   }
 
-  if (!config.allow_real_repo_commit || !config.allow_real_repo_push) {
-    const reason = 'Current engine requires commit and push to be enabled when apply is enabled.';
+  if (!config.allow_real_repo_commit) {
+    const reason = 'Current engine requires commit to be enabled when apply is enabled.';
     console.error(`[mvp-run] ${reason}`);
     const result: MvpRunResult = {
       config,
@@ -354,7 +354,7 @@ export async function runMvpRun(
       pushed: false,
       caveats: [],
       failure_classification: 'CONFIG_ERROR',
-      next_human_action: 'Enable allow_real_repo_commit and allow_real_repo_push, or disable apply for a safe dry run.',
+      next_human_action: 'Enable allow_real_repo_commit, or disable apply for a safe dry run.',
       report_dir: reportDir,
     };
     writeMvpRunReports(result);
@@ -490,7 +490,10 @@ export async function runMvpRun(
   }
 
   let prResult: MvpRunResult['pr'] | undefined;
-  if (config.allow_github_pr_create && blockState?.status !== 'failed') {
+  const isPassingVerdict =
+    verdictResult.verdict === 'MVP_RUN_PASSED' ||
+    verdictResult.verdict === 'MVP_RUN_PASSED_WITH_CAVEATS';
+  if (config.allow_github_pr_create && isPassingVerdict) {
     const reportSummary = `${verdictResult.verdict}: ${verdictResult.reason}`;
     prResult = await createMvpRunPr(config, process.env.GITHUB_TOKEN ?? '', reportSummary);
     if (!prResult.created && prResult.classification) {
@@ -498,6 +501,11 @@ export async function runMvpRun(
     }
   } else if (!config.allow_github_pr_create) {
     prResult = { created: false, reason: 'PR creation not attempted' };
+  } else {
+    prResult = {
+      created: false,
+      reason: `PR creation not attempted because the block verdict is ${verdictResult.verdict}`,
+    };
   }
 
   const passed = taskReports.filter((t) => t.status === 'passed').length;

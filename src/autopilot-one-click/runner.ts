@@ -4,6 +4,7 @@ import { loadMissionConfig } from '../autopilot-plan/config-loader.js';
 import { runAutopilotPlan } from '../autopilot-plan/runner.js';
 import type { AutopilotPlanMission, AutopilotPlanResult } from '../autopilot-plan/types.js';
 import { loadAutopilotRunConfig, runAutopilotRun } from '../autopilot-run/index.js';
+import { runMultitaskMission } from './multitask/runner.js';
 import { buildMissionFromGoal, MissionBuilderError } from './mission-builder.js';
 import { writeOneClickReport } from './report-writer.js';
 import type {
@@ -82,6 +83,94 @@ export async function runAutopilotOneClick(
     reason = planResult.reason || 'Plan step failed';
     exitCode = 1;
   } else {
+    const presetFromMission = mission.constraints
+      ?.find((c) => c.startsWith('Preset: '))
+      ?.slice('Preset: '.length)
+      .trim();
+    const isMultitaskMission =
+      options.preset === 'real-multitask' ||
+      options.preset === 'multitask-safe' ||
+      presetFromMission === 'real-multitask' ||
+      presetFromMission === 'multitask-safe';
+
+    if (isMultitaskMission) {
+      const runMultitaskMissionFn = options.runMultitaskMissionFn ?? runMultitaskMission;
+      let multitaskResult;
+      try {
+        multitaskResult = await runMultitaskMissionFn(mission, planResult, { command, resume: options.resume });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const finishedAt = new Date().toISOString();
+        const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+        const reportPaths = writeOneClickReport(
+          runDirBase,
+          {
+            raw_goal: rawGoal,
+            mission_path: missionPath,
+            mission,
+            plan_result: planResult,
+            run_dir: runDirBase,
+            verdict: 'MULTITASK_MISSION_FAILED',
+            reason: `Multitask runner failed: ${message}`,
+            exit_code: 1,
+            generated_paths: planResult.generated_files,
+          },
+          startedAt,
+          finishedAt,
+          durationMs
+        );
+        return {
+          raw_goal: rawGoal,
+          mission_path: missionPath,
+          mission,
+          plan_result: planResult,
+          run_dir: runDirBase,
+          verdict: 'MULTITASK_MISSION_FAILED',
+          reason: `Multitask runner failed: ${message}`,
+          exit_code: 1,
+          generated_paths: [...planResult.generated_files, reportPaths.mdPath, reportPaths.jsonPath],
+        };
+      }
+
+      const finishedAt = new Date().toISOString();
+      const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+
+      const reportPaths = writeOneClickReport(
+        runDirBase,
+        {
+          raw_goal: rawGoal,
+          mission_path: missionPath,
+          mission,
+          plan_result: planResult,
+          autopilot_result: multitaskResult.autopilot_result,
+          run_dir: runDirBase,
+          verdict: multitaskResult.verdict as AutopilotOneClickVerdict,
+          reason: multitaskResult.reason,
+          exit_code: multitaskResult.exit_code,
+          generated_paths: planResult.generated_files,
+          next_human_action: multitaskResult.next_human_action,
+        },
+        startedAt,
+        finishedAt,
+        durationMs
+      );
+
+      return {
+        raw_goal: rawGoal,
+        mission_path: missionPath,
+        mission,
+        plan_result: planResult,
+        autopilot_result: multitaskResult.autopilot_result,
+        run_dir: runDirBase,
+        verdict: multitaskResult.verdict as AutopilotOneClickVerdict,
+        reason: multitaskResult.reason,
+        exit_code: multitaskResult.exit_code,
+        generated_paths: [...planResult.generated_files, reportPaths.mdPath, reportPaths.jsonPath],
+        next_human_action: multitaskResult.next_human_action,
+        multitask_result: multitaskResult,
+      };
+    }
+
     const autopilotConfigPath = planResult.generated_files.find((p) =>
       p.endsWith('autopilot.config.json')
     );

@@ -49,6 +49,18 @@ function applyPreset(preset: AutopilotOneClickPreset) {
       caps.allow_actions_read = true;
       caps.allow_repair = true;
       break;
+    case 'real-multitask':
+      caps.allow_real_provider = true;
+      caps.allow_repo_apply = true;
+      caps.allow_repo_commit = true;
+      caps.allow_repo_push = false;
+      caps.allow_pr_create = false;
+      caps.allow_pr_update = false;
+      caps.allow_actions_read = false;
+      caps.allow_repair = true;
+      break;
+    case 'multitask-safe':
+      break;
   }
 
   return caps;
@@ -59,10 +71,14 @@ export function buildMissionFromGoal(
   options: AutopilotOneClickOptions
 ): AutopilotPlanMission {
   const preset = options.preset ?? 'safe';
-  const mode = options.mode ?? (preset === 'safe' ? 'fake' : 'github');
+  const mode = options.mode ?? (preset === 'safe' || preset === 'multitask-safe' ? 'fake' : 'github');
 
-  if (preset === 'safe' && mode !== 'fake') {
-    throw new MissionBuilderError("preset 'safe' requires mode 'fake'");
+  if ((preset === 'safe' || preset === 'multitask-safe') && mode !== 'fake') {
+    throw new MissionBuilderError(`preset '${preset}' requires mode 'fake'`);
+  }
+
+  if (preset === 'real-multitask' && mode !== 'github') {
+    throw new MissionBuilderError("preset 'real-multitask' requires mode 'github'");
   }
 
   if (options.run_id && isPathTraversal(options.run_id)) {
@@ -135,7 +151,7 @@ export function buildMissionFromGoal(
       timeout_seconds: 900,
     };
     mission.repair = {
-      max_attempts: preset === 'real-repair' ? 2 : 1,
+      max_attempts: preset === 'real-repair' || preset === 'real-multitask' ? 2 : 1,
     };
   }
 
