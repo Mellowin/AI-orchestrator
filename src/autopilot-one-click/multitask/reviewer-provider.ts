@@ -123,10 +123,10 @@ export function buildKimiReviewCallFn(options: BuildKimiReviewCallFnOptions = {}
     return async () => options.fakeResponse as string;
   }
 
-  const apiKey = options.apiKey ?? config.ai.kimiApiKey;
-  const baseUrl = options.baseUrl ?? config.ai.kimiBaseUrl;
-  const model = options.model ?? config.ai.kimiModel ?? 'kimi-k2.6';
-  const userAgent = options.userAgent ?? config.ai.kimiUserAgent;
+  const apiKey = options.apiKey ?? config.ai.kimiApiKey ?? process.env.KIMI_API_KEY?.trim();
+  const baseUrl = options.baseUrl ?? config.ai.kimiBaseUrl ?? process.env.KIMI_BASE_URL?.trim() ?? 'https://api.moonshot.ai/v1';
+  const model = options.model ?? config.ai.kimiModel ?? process.env.KIMI_MODEL?.trim() ?? 'kimi-k2.6';
+  const userAgent = options.userAgent ?? config.ai.kimiUserAgent ?? process.env.KIMI_USER_AGENT?.trim();
 
   if (!apiKey || apiKey.trim().length === 0) {
     throw new Error('KIMI_API_KEY is required for Kimi multitask final review');
