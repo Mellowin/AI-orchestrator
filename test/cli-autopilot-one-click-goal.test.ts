@@ -84,6 +84,7 @@ describe('cli autopilot-one-click raw goal', () => {
       'github',
       '--repo-slug',
       'owner/repo',
+      '--yes',
     ]);
     assert.notStrictEqual(result.status, 0);
     assert(

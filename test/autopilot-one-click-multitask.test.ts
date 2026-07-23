@@ -1,10 +1,11 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildMissionFromGoal, MissionBuilderError } from '../src/autopilot-one-click/mission-builder.js';
 import { runAutopilotPlan } from '../src/autopilot-plan/runner.js';
+import { buildMvpRunConfig, buildAutopilotRunConfig } from '../src/autopilot-plan/report-writer.js';
 import { runMultitaskMission, loadMissionState } from '../src/autopilot-one-click/multitask/runner.js';
 import { runAutopilotOneClick } from '../src/autopilot-one-click/runner.js';
 import type { AutopilotRunResult } from '../src/autopilot-run/types.js';
@@ -55,18 +56,100 @@ describe('autopilot-one-click multitask presets', () => {
     assert.strictEqual(mission.capabilities.allow_repair, false);
   });
 
-  test('real-multitask preset enables local mutation and repair but disables remote publish/CI', () => {
+  test('real-multitask preset enables full autonomous real path including remote publish and CI', () => {
     const mission = buildMissionFromGoal('Implement multi-task feature', { preset: 'real-multitask' });
     assert.strictEqual(mission.mode, 'github');
     assert.strictEqual(mission.capabilities.allow_real_provider, true);
     assert.strictEqual(mission.capabilities.allow_repo_apply, true);
     assert.strictEqual(mission.capabilities.allow_repo_commit, true);
-    assert.strictEqual(mission.capabilities.allow_repo_push, false);
-    assert.strictEqual(mission.capabilities.allow_pr_create, false);
-    assert.strictEqual(mission.capabilities.allow_pr_update, false);
-    assert.strictEqual(mission.capabilities.allow_actions_read, false);
+    assert.strictEqual(mission.capabilities.allow_repo_push, true);
+    assert.strictEqual(mission.capabilities.allow_pr_create, true);
+    assert.strictEqual(mission.capabilities.allow_pr_update, true);
+    assert.strictEqual(mission.capabilities.allow_actions_read, true);
     assert.strictEqual(mission.capabilities.allow_repair, true);
     assert.strictEqual(mission.repair?.max_attempts, 2);
+  });
+
+  test('real-multitask without --yes refuses remote writes', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'multi-'));
+    const runId = `multitask-confirm-${Date.now()}`;
+    const result = await runAutopilotOneClick('Implement multi-task feature', {
+      preset: 'real-multitask',
+      output_dir: tmpDir,
+      run_id: runId,
+    }, 'test');
+
+    assert.strictEqual(result.verdict, 'ONE_CLICK_NEEDS_CONFIRMATION');
+    assert.notStrictEqual(result.exit_code, 0);
+    assert.ok(result.reason.includes('--yes'), `Expected --yes prompt: ${result.reason}`);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('real-multitask generated work branch is not main', () => {
+    const mission = buildMissionFromGoal('Implement multi-task feature', {
+      preset: 'real-multitask',
+      base_branch: 'stage-18-26',
+    });
+    assert.notStrictEqual(mission.base_branch, 'main');
+    assert.notStrictEqual(mission.run_id, 'main');
+  });
+
+  test('real-multitask does not allow automatic merge', () => {
+    const sourcePath = join(process.cwd(), 'src', 'autopilot-one-click', 'runner.ts');
+    const source = readFileSync(sourcePath, 'utf-8');
+    assert(!source.includes('github.merge'), 'Source must not mention github.merge');
+    assert(!source.includes('force_push'), 'Source must not mention force_push');
+    assert(!source.includes('rerun'), 'Source must not mention rerun');
+    assert(!source.includes('delete_branch'), 'Source must not mention delete_branch');
+  });
+
+  test('real-multitask config carries remote write capabilities', () => {
+    const mission = buildMissionFromGoal('Implement multi-task feature', {
+      preset: 'real-multitask',
+      yes: true,
+      repo_slug: 'owner/repo',
+      base_branch: 'stage-18-26',
+    });
+    const plan: import('../src/autopilot-plan/types.js').AutopilotPlanGeneratedPlan = {
+      goal: mission.goal,
+      mode: mission.mode,
+      tasks: [
+        {
+          id: 'task-1',
+          title: 'Step 1',
+          goal: 'Create step 1',
+          allowed_files: ['docs/proofs/step1.md'],
+          denied_files: ['.env', 'node_modules/**'],
+          depends_on: [],
+          checks: [],
+          tests: [],
+          max_lines_changed: 150,
+          acceptance_criteria: ['file exists'],
+          expected_result: 'file created',
+          risk: 'low',
+        },
+      ],
+      ci_enabled: mission.capabilities.allow_actions_read,
+      repair_enabled: mission.capabilities.allow_repair,
+      risk_level: 'low',
+      caveats: [],
+    };
+    const mvpConfig = buildMvpRunConfig(mission, plan, mission.output_dir);
+    assert.strictEqual(mvpConfig.allow_real_repo_push, true);
+    assert.strictEqual(mvpConfig.allow_github_pr_create, true);
+    assert.strictEqual(mvpConfig.work_branch, `mission-${mission.run_id}`);
+    assert.notStrictEqual(mvpConfig.work_branch, 'main');
+
+    const autopilotConfig = buildAutopilotRunConfig(
+      mission,
+      plan,
+      'mvp-run.config.json'
+    );
+    assert.strictEqual(autopilotConfig.github.allow_pr_create, true);
+    assert.strictEqual(autopilotConfig.github.allow_pr_update, true);
+    assert.strictEqual(autopilotConfig.github.allow_actions_read, true);
+    assert.strictEqual(autopilotConfig.github.allow_write, false);
+    assert.strictEqual(autopilotConfig.ci.enabled, true);
   });
 
   test('multitask-safe rejects github mode', () => {

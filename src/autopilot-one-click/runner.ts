@@ -32,6 +32,16 @@ function makeFailureResult(
   };
 }
 
+function requiresConfirmation(mission: AutopilotPlanMission): boolean {
+  const caps = mission.capabilities;
+  return (
+    caps.allow_repo_push ||
+    caps.allow_pr_create ||
+    caps.allow_pr_update ||
+    caps.allow_actions_read
+  );
+}
+
 export async function runAutopilotOneClick(
   input: string,
   options: AutopilotOneClickOptions,
@@ -59,6 +69,14 @@ export async function runAutopilotOneClick(
   }
 
   const runDirBase = resolve(mission.output_dir, mission.run_id);
+
+  if (requiresConfirmation(mission) && !options.yes) {
+    return makeFailureResult(
+      'ONE_CLICK_NEEDS_CONFIRMATION',
+      'Remote writes (push, PR, CI read) require explicit confirmation. Rerun with --yes.',
+      mission
+    );
+  }
 
   const planResult = await runAutopilotPlan(mission, { command });
 
