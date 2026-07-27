@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type {
   AutopilotPlanCapabilities,
   AutopilotPlanMission,
@@ -197,5 +197,19 @@ export function buildWorkBranch(runId: string): string {
 
 export function resolveRepoPath(repoPath: string, configPath: string): string {
   const base = configPath ? resolve(configPath, '..') : process.cwd();
-  return resolve(base, repoPath);
+  // Normalize Windows-style separators to forward slashes so missions created on
+  // Windows resolve correctly on Linux/macOS runners, and vice versa.
+  const normalizedRepoPath = repoPath.replace(/\\/g, '/');
+  if (isAbsolute(normalizedRepoPath)) {
+    return resolve(normalizedRepoPath);
+  }
+  const resolved = resolve(base, normalizedRepoPath);
+  // Prevent directory traversal above the mission config directory.
+  const relativeToBase = relative(base, resolved);
+  if (relativeToBase.startsWith('..')) {
+    throw new Error(
+      `repo_path escapes mission config directory: ${repoPath} (resolved: ${resolved})`
+    );
+  }
+  return resolved;
 }
