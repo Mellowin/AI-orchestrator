@@ -181,7 +181,19 @@ describe('ai-safety-policy', () => {
     assert.ok(read.reasons.some((r) => r.includes('Reading .env file')));
   });
 
-  test('rejects .env path', () => {
+  test('denied_files wins over allowed_files when patterns overlap', () => {
+    const repo = makeRepo();
+    const result = validateAiSafetyPolicy({
+      repoPath: repo,
+      allowedFiles: ['src/**'],
+      deniedFiles: ['**/*'],
+      files: [{ path: 'src/foo.ts', content: 'x' }],
+    });
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.reasons.some((r) => r.includes('denied_files')));
+  });
+
+  test('denied hardcoded .env wins even when explicitly allowed', () => {
     const repo = makeRepo();
     const result = validateAiSafetyPolicy({
       repoPath: repo,

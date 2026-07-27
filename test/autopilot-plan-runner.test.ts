@@ -113,6 +113,9 @@ describe('autopilot-plan runner', () => {
           denied_files: ['.env'],
           tests: ['npm run typecheck'],
           risk: 'medium',
+          acceptance_criteria: ['Feature compiles and passes tests'],
+          expected_result: 'src/feature.ts updated',
+          max_lines_changed: 100,
         }],
         ci_enabled: true,
         repair_enabled: true,
@@ -162,7 +165,7 @@ describe('autopilot-plan runner', () => {
     assert.notStrictEqual(result.exit_code, 0);
   });
 
-  test('provider bad output is rejected', async () => {
+  test('provider bad output is rejected and records attempts', async () => {
     const outDir = join(process.cwd(), 'tmp', `plan-out-${Date.now()}`);
     const mission = makeMission({
       mode: 'github',
@@ -177,20 +180,29 @@ describe('autopilot-plan runner', () => {
         allow_actions_read: false,
         allow_repair: false,
       },
-      provider: { name: 'kimi', token_env: 'TEST_KIMI_API_KEY_PLAN_BAD' },
+      provider: { name: 'kimi', token_env: 'TEST_KIMI_API_KEY_PLAN_BAD_ATTEMPTS' },
     });
 
-    process.env.TEST_KIMI_API_KEY_PLAN_BAD = 'sk-fake';
+    process.env.TEST_KIMI_API_KEY_PLAN_BAD_ATTEMPTS = 'sk-fake';
 
+    let call = 0;
     const result = await runAutopilotPlan(mission, {
       command: 'test',
-      providerCallFn: async () => 'not valid json',
+      providerCallFn: async () => {
+        call += 1;
+        if (call === 1) {
+          return 'not valid json';
+        }
+        return 'still not valid json';
+      },
     });
 
     assert.strictEqual(result.verdict, 'AUTOPILOT_PLAN_PROVIDER_BAD_OUTPUT');
     assert.notStrictEqual(result.exit_code, 0);
+    assert.ok(existsSync(join(result.run_dir, 'plan-provider-attempts.json')));
 
-    delete process.env.TEST_KIMI_API_KEY_PLAN_BAD;
+    delete process.env.TEST_KIMI_API_KEY_PLAN_BAD_ATTEMPTS;
+    rmSync(outDir, { recursive: true, force: true });
   });
 
   test('generated task plan validates allowed files and checks', async () => {
@@ -240,6 +252,10 @@ describe('autopilot-plan runner', () => {
           goal: 'Make a safe change',
           allowed_files: ['src/feature.ts'],
           risk: 'low',
+          acceptance_criteria: ['Change is safe'],
+          expected_result: 'src/feature.ts updated',
+          max_lines_changed: 50,
+          checks: [],
         }],
         ci_enabled: false,
         repair_enabled: false,

@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import { validateTaskDAG } from '../../autopilot-plan/dag.js';
 import { matchesPattern } from '../../guardrails.js';
+import { patternsOverlap, validateTaskScope } from '../../task-scope-validator.js';
 
 export interface PlanValidationIssue {
   field: string;
@@ -85,106 +86,10 @@ function validateTask(task: AutopilotPlanTask, index: number, issues: PlanValida
   if (task.max_lines_changed === undefined || typeof task.max_lines_changed !== 'number' || task.max_lines_changed <= 0 || !Number.isInteger(task.max_lines_changed)) {
     issues.push({ field: `${prefix}.max_lines_changed`, message: 'Task max_lines_changed is required and must be a positive integer' });
   }
-}
-
-function segmentToRegex(segment: string): RegExp {
-  let regex = '';
-  for (let i = 0; i < segment.length; i++) {
-    const c = segment[i];
-    if (c === '*') {
-      regex += '[^/]*';
-    } else if (/[.+^${}()|[\]\\]/.test(c)) {
-      regex += '\\' + c;
-    } else {
-      regex += c;
-    }
+  const scopeIssues = validateTaskScope(task, prefix);
+  for (const issue of scopeIssues) {
+    issues.push({ field: issue.field, message: issue.message });
   }
-  return new RegExp(`^${regex}$`);
-}
-
-function generateSegmentWitnesses(pattern: string, replacements: string[]): string[] {
-  const parts = pattern.split('*');
-  if (parts.length === 1) return [pattern];
-  const results: string[] = [];
-  function build(index: number, current: string) {
-    if (index === parts.length - 1) {
-      results.push(current + parts[index]);
-      return;
-    }
-    for (const replacement of replacements) {
-      build(index + 1, current + parts[index] + replacement);
-    }
-  }
-  build(0, '');
-  return results;
-}
-
-function segmentMatches(a: string, b: string): boolean {
-  if (a === '*' || b === '*') return true;
-  const aHasWild = a.includes('*');
-  const bHasWild = b.includes('*');
-  if (!aHasWild && !bHasWild) return a === b;
-  if (!aHasWild) return segmentToRegex(b).test(a);
-  if (!bHasWild) return segmentToRegex(a).test(b);
-
-  // Both segments contain wildcards. Try to construct a concrete witness that
-  // matches both patterns, using each pattern's literal fragments plus a small
-  // set of generic fillers for every wildcard position.
-  const candidates = new Set(['', 'x', 'xy', '1', '12']);
-  for (const fragment of a.split('*')) {
-    if (fragment) candidates.add(fragment);
-  }
-  for (const fragment of b.split('*')) {
-    if (fragment) candidates.add(fragment);
-  }
-  const replacements = Array.from(candidates);
-
-  let checked = 0;
-  const maxWitnesses = 200;
-
-  for (const witness of generateSegmentWitnesses(a, replacements)) {
-    if (segmentToRegex(b).test(witness)) return true;
-    if (++checked >= maxWitnesses) break;
-  }
-  for (const witness of generateSegmentWitnesses(b, replacements)) {
-    if (segmentToRegex(a).test(witness)) return true;
-    if (++checked >= maxWitnesses) break;
-  }
-  return false;
-}
-
-function patternsOverlap(a: string, b: string): boolean {
-  const aParts = a.split('/');
-  const bParts = b.split('/');
-  const dp: boolean[][] = Array(aParts.length + 1)
-    .fill(null)
-    .map(() => Array(bParts.length + 1).fill(false));
-  dp[0][0] = true;
-
-  for (let i = 0; i <= aParts.length; i += 1) {
-    for (let j = 0; j <= bParts.length; j += 1) {
-      if (!dp[i][j]) continue;
-
-      // `**` matches zero or more segments in the other pattern.
-      if (i < aParts.length && aParts[i] === '**') {
-        for (let k = 0; k <= bParts.length - j; k += 1) {
-          dp[i + 1][j + k] = true;
-        }
-      }
-      if (j < bParts.length && bParts[j] === '**') {
-        for (let k = 0; k <= aParts.length - i; k += 1) {
-          dp[i + k][j + 1] = true;
-        }
-      }
-
-      // Single-segment wildcards and literals advance one segment each.
-      if (i < aParts.length && j < bParts.length && segmentMatches(aParts[i], bParts[j])) {
-        dp[i + 1][j + 1] = true;
-      }
-    }
-  }
-
-  return dp[aParts.length][bParts.length];
 }
 
 function buildReachability(tasks: AutopilotPlanTask[]): Map<string, Set<string>> {

@@ -52,6 +52,12 @@ export function validateFileList(
       };
     }
 
+    for (const pattern of guardrails.deny_modify) {
+      if (matchesPattern(file, pattern)) {
+        return { ok: false, reason: `Forbidden file touched: ${file}` };
+      }
+    }
+
     if (guardrails.allow_modify !== undefined) {
       let allowed = false;
       for (const pattern of guardrails.allow_modify) {
@@ -63,15 +69,6 @@ export function validateFileList(
       if (allowed) {
         continue;
       }
-    }
-
-    for (const pattern of guardrails.deny_modify) {
-      if (matchesPattern(file, pattern)) {
-        return { ok: false, reason: `Forbidden file touched: ${file}` };
-      }
-    }
-
-    if (guardrails.allow_modify !== undefined) {
       return { ok: false, reason: `File is outside allow_modify: ${file}` };
     }
   }

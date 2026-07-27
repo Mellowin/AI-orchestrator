@@ -99,11 +99,11 @@ function checkPathEscape(
   if (isDeniedPath(path)) {
     reasons.push(`Path is in denied list: ${path}`);
   }
-  if (allowedFiles !== undefined && !isAllowedPath(path, allowedFiles)) {
-    reasons.push(`Path is not in allowed_files: ${path}`);
-  }
   if (deniedFiles !== undefined && deniedFiles.length > 0 && isAllowedPath(path, deniedFiles)) {
     reasons.push(`Path is in denied_files: ${path}`);
+  }
+  if (allowedFiles !== undefined && !isAllowedPath(path, allowedFiles)) {
+    reasons.push(`Path is not in allowed_files: ${path}`);
   }
   return reasons;
 }

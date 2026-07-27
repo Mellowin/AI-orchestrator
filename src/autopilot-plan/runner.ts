@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
 import { createAIClient } from '../ai-client-factory.js';
 import { config as aiConfig } from '../config.js';
 import type { AIClient } from '../ai-client.js';
@@ -8,9 +8,10 @@ import {
   checkTokenPresence,
   deriveCaveats,
 } from './env-validator.js';
-import { generateFakePlan, generateProviderPlan, ProviderBadOutputError } from './plan-generator.js';
+import { generateFakePlan, generateProviderPlan, ProviderBadOutputError, type PlannerAttempt } from './plan-generator.js';
 import { getPlanRunDir, writePlanArtifacts } from './report-writer.js';
 import type {
+  AutopilotPlanGeneratedPlan,
   AutopilotPlanMission,
   AutopilotPlanPreflightInfo,
   AutopilotPlanResult,
@@ -119,16 +120,31 @@ export async function runAutopilotPlan(
       }
     }
 
-    let plan;
+    let plan: AutopilotPlanGeneratedPlan;
+    let plannerAttempts: PlannerAttempt[] = [];
     try {
       if (mission.mode === 'fake' || !mission.capabilities.allow_real_provider) {
         plan = generateFakePlan(mission);
       } else {
         const providerCall = options.providerCallFn ?? defaultProviderCallFn();
-        plan = await generateProviderPlan(mission, providerCall);
+        const generated = await generateProviderPlan(mission, providerCall);
+        plan = generated.plan;
+        plannerAttempts = generated.attempts;
       }
     } catch (err) {
       if (err instanceof ProviderBadOutputError) {
+        if (err.attempts && err.attempts.length > 0) {
+          try {
+            mkdirSync(runDir, { recursive: true });
+            writeFileSync(
+              join(runDir, 'plan-provider-attempts.json'),
+              JSON.stringify(err.attempts, null, 2),
+              'utf-8'
+            );
+          } catch {
+            // Best-effort evidence capture; do not mask the original failure.
+          }
+        }
         return buildFailureResult(
           mission,
           'AUTOPILOT_PLAN_PROVIDER_BAD_OUTPUT',

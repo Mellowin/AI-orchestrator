@@ -378,6 +378,53 @@ describe('plan validation', () => {
     assert.strictEqual(result.ok, true);
   });
 
+  test('rejects contradictory allowed and denied guardrails', () => {
+    const plan = makePlan([
+      makeTask('a', {
+        allowed_files: ['docs/proofs/STAGE_18_26_PROOF6_*.md'],
+        denied_files: ['**/*'],
+      }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('overlaps denied')));
+    assert.ok(result.issues.some((i) => i.message.includes('no writable scope')));
+  });
+
+  test('rejects task where every allowed pattern is denied', () => {
+    const plan = makePlan([
+      makeTask('a', {
+        allowed_files: ['docs/**/*.md'],
+        denied_files: ['docs/**/*.md'],
+      }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('no writable scope')));
+  });
+
+  test('rejects denied_files that is not an array', () => {
+    const plan = makePlan([
+      makeTask('a', {
+        denied_files: '**/*' as unknown as string[],
+      }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((i) => i.message.includes('array of strings')));
+  });
+
+  test('allows non-overlapping allowed and denied patterns', () => {
+    const plan = makePlan([
+      makeTask('a', {
+        allowed_files: ['docs/**/*.md'],
+        denied_files: ['src/**', '.env'],
+      }),
+    ]);
+    const result = validateGeneratedPlan(plan, baseMission);
+    assert.strictEqual(result.ok, true);
+  });
+
 });
 
 describe('final review helpers', () => {

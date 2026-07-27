@@ -5,13 +5,31 @@ import type {
   AutopilotPlanMission,
   AutopilotPlanTask,
 } from './types.js';
+import { validateGeneratedPlan } from '../autopilot-one-click/multitask/plan-validator.js';
+import type { PlanValidationIssue } from '../autopilot-one-click/multitask/plan-validator.js';
+import { validateTaskScope } from '../task-scope-validator.js';
+
+export interface PlannerAttempt {
+  attempt: number;
+  raw_response_length: number;
+  raw_response_excerpt: string;
+  validation_error?: string;
+  conflicting_task_id?: string;
+  allowed_pattern?: string;
+  denied_pattern?: string;
+  decision: 'retry' | 'accept' | 'fail';
+}
 
 export class ProviderBadOutputError extends Error {
-  constructor(message: string) {
+  attempts?: PlannerAttempt[];
+  constructor(message: string, attempts?: PlannerAttempt[]) {
     super(message);
     this.name = 'ProviderBadOutputError';
+    this.attempts = attempts;
   }
 }
+
+const MAX_PLAN_ATTEMPTS = 3;
 
 function isString(value: unknown): value is string {
   return typeof value === 'string';
@@ -205,14 +223,21 @@ function extractJsonBlock(text: string): string {
   return text.trim();
 }
 
-export async function generateProviderPlan(
-  mission: AutopilotPlanMission,
-  providerCallFn: (prompt: string, system?: string) => Promise<unknown>
-): Promise<AutopilotPlanGeneratedPlan> {
-  const system =
-    'You are a safe software planning assistant. Respond with a single JSON object inside a markdown code block. Do not include explanations outside the JSON block.';
+function extractConflictPatterns(message: string): { allowed?: string; denied?: string } {
+  const match = message.match(/allowed pattern "([^"]+)" overlaps denied pattern "([^"]+)"/);
+  if (match) {
+    return { allowed: match[1], denied: match[2] };
+  }
+  return {};
+}
 
-  const prompt = [
+function extractTaskIdFromField(field: string): string | undefined {
+  const match = field.match(/tasks\[(\d+)\]/);
+  return match ? match[1] : undefined;
+}
+
+function buildPlanPrompt(mission: AutopilotPlanMission): string {
+  return [
     'Generate a concise task plan for the following mission.',
     '',
     `Repository: ${mission.repo_slug}`,
@@ -277,53 +302,210 @@ export async function generateProviderPlan(
     'For a newly created file the limit applies to the full file length, not just the diff against an empty file.',
     'Choose a realistic budget that is large enough to satisfy the acceptance criteria, but never invent an arbitrary small limit that cannot hold the required content.',
     'The coder must produce output that fits within this budget; if the task cannot be completed within the limit, the mission will fail.',
+    'Task guardrail rules:',
+    '- `denied_files` must never overlap `allowed_files`.',
+    '- Never return `denied_files: ["**/*"]` when `allowed_files` is non-empty.',
+    '- Use an empty `denied_files` array when no additional exclusions are needed.',
+    '- Built-in sensitive-file protection (`.env`, `.git`, `node_modules`, traversal, absolute paths) is already applied by the system.',
+    '- Every task must have at least one achievable writable scope.',
   ]
     .filter(Boolean)
     .join('\n');
+}
 
-  const rawResponse = await providerCallFn(prompt, system);
-  const text = typeof rawResponse === 'string' ? rawResponse : JSON.stringify(rawResponse);
-  const jsonText = extractJsonBlock(text);
+function formatIssuesForCorrection(issues: PlanValidationIssue[]): string {
+  return issues.map((i) => `- ${i.field}: ${i.message}`).join('\n');
+}
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch (err) {
-    throw new ProviderBadOutputError('Provider response is not valid JSON');
+export async function generateProviderPlan(
+  mission: AutopilotPlanMission,
+  providerCallFn: (prompt: string, system?: string) => Promise<unknown>
+): Promise<{ plan: AutopilotPlanGeneratedPlan; attempts: PlannerAttempt[] }> {
+  const system =
+    'You are a safe software planning assistant. Respond with a single JSON object inside a markdown code block. Do not include explanations outside the JSON block.';
+
+  const basePrompt = buildPlanPrompt(mission);
+  const attempts: PlannerAttempt[] = [];
+  let lastIssues: PlanValidationIssue[] = [];
+
+  for (let attempt = 1; attempt <= MAX_PLAN_ATTEMPTS; attempt += 1) {
+    const prompt =
+      lastIssues.length > 0
+        ? `${basePrompt}\n\nThe previous plan attempt was invalid. Fix the following validation errors and return the corrected full plan JSON in the same schema:\n${formatIssuesForCorrection(lastIssues)}\n\nDo not explain; return only the JSON code block.`
+        : basePrompt;
+
+    const rawResponse = await providerCallFn(prompt, system);
+    const text = typeof rawResponse === 'string' ? rawResponse : JSON.stringify(rawResponse);
+    const jsonText = extractJsonBlock(text);
+    const excerpt = text.slice(0, 200);
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (err) {
+      const validationError = `Provider response is not valid JSON: ${err instanceof Error ? err.message : String(err)}`;
+      attempts.push({
+        attempt,
+        raw_response_length: text.length,
+        raw_response_excerpt: excerpt,
+        validation_error: validationError,
+        decision: 'retry',
+      });
+      lastIssues = [{ field: 'response', message: validationError }];
+      continue;
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      const validationError = 'Provider response is not a JSON object';
+      attempts.push({
+        attempt,
+        raw_response_length: text.length,
+        raw_response_excerpt: excerpt,
+        validation_error: validationError,
+        decision: 'retry',
+      });
+      lastIssues = [{ field: 'response', message: validationError }];
+      continue;
+    }
+
+    const obj = parsed as Record<string, unknown>;
+
+    if (!Array.isArray(obj.tasks) || obj.tasks.length === 0) {
+      const validationError = 'Plan must contain a non-empty tasks array';
+      attempts.push({
+        attempt,
+        raw_response_length: text.length,
+        raw_response_excerpt: excerpt,
+        validation_error: validationError,
+        decision: 'retry',
+      });
+      lastIssues = [{ field: 'tasks', message: validationError }];
+      continue;
+    }
+
+    let tasks: AutopilotPlanTask[] = [];
+    try {
+      tasks = obj.tasks.map((t) => validateTask(t, mission.repo_path));
+      // Also run the lightweight task-scope validator to capture pattern-level
+      // contradictions with rich metadata before the full plan validation pass.
+      for (const task of tasks) {
+        const scopeIssues = validateTaskScope(task);
+        if (scopeIssues.length > 0) {
+          const first = scopeIssues[0];
+          throw new Error(
+            `Task ${task.id} has invalid scope: ${first.message}`
+          );
+        }
+      }
+    } catch (err) {
+      const validationError = err instanceof Error ? err.message : String(err);
+      const conflict = extractConflictPatterns(validationError);
+      attempts.push({
+        attempt,
+        raw_response_length: text.length,
+        raw_response_excerpt: excerpt,
+        validation_error: validationError,
+        conflicting_task_id: extractTaskIdFromField(validationError),
+        allowed_pattern: conflict.allowed,
+        denied_pattern: conflict.denied,
+        decision: 'retry',
+      });
+      lastIssues = [{ field: 'tasks', message: validationError }];
+      continue;
+    }
+
+    if (typeof obj.ci_enabled !== 'boolean') {
+      const validationError = 'Plan ci_enabled must be boolean';
+      attempts.push({
+        attempt,
+        raw_response_length: text.length,
+        raw_response_excerpt: excerpt,
+        validation_error: validationError,
+        decision: 'retry',
+      });
+      lastIssues = [{ field: 'ci_enabled', message: validationError }];
+      continue;
+    }
+    if (typeof obj.repair_enabled !== 'boolean') {
+      const validationError = 'Plan repair_enabled must be boolean';
+      attempts.push({
+        attempt,
+        raw_response_length: text.length,
+        raw_response_excerpt: excerpt,
+        validation_error: validationError,
+        decision: 'retry',
+      });
+      lastIssues = [{ field: 'repair_enabled', message: validationError }];
+      continue;
+    }
+    if (!isValidRisk(obj.risk_level)) {
+      const validationError = "Plan risk_level must be 'low', 'medium', or 'high'";
+      attempts.push({
+        attempt,
+        raw_response_length: text.length,
+        raw_response_excerpt: excerpt,
+        validation_error: validationError,
+        decision: 'retry',
+      });
+      lastIssues = [{ field: 'risk_level', message: validationError }];
+      continue;
+    }
+    if (!isStringArray(obj.caveats)) {
+      const validationError = 'Plan caveats must be an array of strings';
+      attempts.push({
+        attempt,
+        raw_response_length: text.length,
+        raw_response_excerpt: excerpt,
+        validation_error: validationError,
+        decision: 'retry',
+      });
+      lastIssues = [{ field: 'caveats', message: validationError }];
+      continue;
+    }
+
+    const candidatePlan: AutopilotPlanGeneratedPlan = {
+      goal: mission.goal,
+      mode: mission.mode,
+      tasks,
+      ci_enabled: obj.ci_enabled,
+      repair_enabled: obj.repair_enabled,
+      risk_level: obj.risk_level,
+      caveats: obj.caveats,
+    };
+
+    const planValidation = validateGeneratedPlan(candidatePlan, mission);
+    if (!planValidation.ok) {
+      const firstIssue = planValidation.issues[0];
+      const conflictIssue =
+        planValidation.issues.find((i) => i.message.includes('overlap') || i.message.includes('contradictory')) ??
+        firstIssue;
+      const conflict = extractConflictPatterns(conflictIssue.message);
+      attempts.push({
+        attempt,
+        raw_response_length: text.length,
+        raw_response_excerpt: excerpt,
+        validation_error: planValidation.issues.map((i) => `${i.field}: ${i.message}`).join('; '),
+        conflicting_task_id: extractTaskIdFromField(conflictIssue.field),
+        allowed_pattern: conflict.allowed,
+        denied_pattern: conflict.denied,
+        decision: 'retry',
+      });
+      lastIssues = planValidation.issues;
+      continue;
+    }
+
+    attempts.push({
+      attempt,
+      raw_response_length: text.length,
+      raw_response_excerpt: excerpt,
+      decision: 'accept',
+    });
+
+    return { plan: candidatePlan, attempts };
   }
 
-  if (!parsed || typeof parsed !== 'object') {
-    throw new ProviderBadOutputError('Provider response is not a JSON object');
-  }
-
-  const obj = parsed as Record<string, unknown>;
-
-  if (!Array.isArray(obj.tasks) || obj.tasks.length === 0) {
-    throw new ProviderBadOutputError('Plan must contain a non-empty tasks array');
-  }
-
-  const tasks = obj.tasks.map((t) => validateTask(t, mission.repo_path));
-
-  if (typeof obj.ci_enabled !== 'boolean') {
-    throw new ProviderBadOutputError('Plan ci_enabled must be boolean');
-  }
-  if (typeof obj.repair_enabled !== 'boolean') {
-    throw new ProviderBadOutputError('Plan repair_enabled must be boolean');
-  }
-  if (!isValidRisk(obj.risk_level)) {
-    throw new ProviderBadOutputError("Plan risk_level must be 'low', 'medium', or 'high'");
-  }
-  if (!isStringArray(obj.caveats)) {
-    throw new ProviderBadOutputError('Plan caveats must be an array of strings');
-  }
-
-  return {
-    goal: mission.goal,
-    mode: mission.mode,
-    tasks,
-    ci_enabled: obj.ci_enabled,
-    repair_enabled: obj.repair_enabled,
-    risk_level: obj.risk_level,
-    caveats: obj.caveats,
-  };
+  throw new ProviderBadOutputError(
+    `Failed to generate a valid plan after ${MAX_PLAN_ATTEMPTS} attempts: ${lastIssues.map((i) => `${i.field}: ${i.message}`).join('; ')}`,
+    attempts
+  );
 }

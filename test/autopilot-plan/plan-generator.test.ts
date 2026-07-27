@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { generateProviderPlan } from '../../src/autopilot-plan/plan-generator.js';
+import { generateProviderPlan, ProviderBadOutputError } from '../../src/autopilot-plan/plan-generator.js';
 import type { AutopilotPlanMission } from '../../src/autopilot-plan/types.js';
 
 function buildMission(repoPath: string): AutopilotPlanMission {
@@ -29,26 +29,31 @@ function buildMission(repoPath: string): AutopilotPlanMission {
   };
 }
 
+function validTask() {
+  return {
+    id: 'task-1',
+    title: 'Update demo project',
+    goal: 'Update the demo project',
+    allowed_files: ['demo-repo/src/add.ts'],
+    denied_files: ['.env'],
+    checks: [
+      { command: 'npm', args: ['install'], cwd: 'demo-repo' },
+      { command: 'npm', args: ['test'], cwd: 'demo-repo' },
+    ],
+    risk: 'low',
+    acceptance_criteria: ['Dependencies install and tests pass'],
+    expected_result: 'demo-repo tests pass',
+    max_lines_changed: 100,
+  };
+}
+
 describe('autopilot-plan checks validation', () => {
   test('generateProviderPlan accepts structured checks with cwd', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'plan-checks-ok-'));
     try {
-      const plan = await generateProviderPlan(buildMission(tmpDir), async () =>
+      const { plan } = await generateProviderPlan(buildMission(tmpDir), async () =>
         JSON.stringify({
-          tasks: [
-            {
-              id: 'task-1',
-              title: 'Update demo project',
-              goal: 'Update the demo project',
-              allowed_files: ['demo-repo/src/add.ts'],
-              denied_files: ['.env'],
-              checks: [
-                { command: 'npm', args: ['install'], cwd: 'demo-repo' },
-                { command: 'npm', args: ['test'], cwd: 'demo-repo' },
-              ],
-              risk: 'low',
-            },
-          ],
+          tasks: [validTask()],
           ci_enabled: true,
           repair_enabled: true,
           risk_level: 'low',
@@ -75,13 +80,8 @@ describe('autopilot-plan checks validation', () => {
             JSON.stringify({
               tasks: [
                 {
-                  id: 'task-1',
-                  title: 'Update demo project',
-                  goal: 'Update the demo project',
-                  allowed_files: ['demo-repo/src/add.ts'],
-                  denied_files: ['.env'],
+                  ...validTask(),
                   checks: ['cd demo-repo && npm install && npm test'],
-                  risk: 'low',
                 },
               ],
               ci_enabled: true,
@@ -106,13 +106,8 @@ describe('autopilot-plan checks validation', () => {
             JSON.stringify({
               tasks: [
                 {
-                  id: 'task-1',
-                  title: 'Update demo project',
-                  goal: 'Update the demo project',
-                  allowed_files: ['demo-repo/src/add.ts'],
-                  denied_files: ['.env'],
+                  ...validTask(),
                   checks: [{ command: 'npm', args: ['test'], cwd: '../outside' }],
-                  risk: 'low',
                 },
               ],
               ci_enabled: true,
@@ -121,8 +116,111 @@ describe('autopilot-plan checks validation', () => {
               caveats: [],
             })
           ),
-        /repository root|\.\./
+        /repository root|\.\.|"\.\." segments/
       );
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('autopilot-plan planner correction retry', () => {
+  test('recovers from contradictory guardrails on second attempt', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'plan-correction-'));
+    let call = 0;
+    try {
+      const { plan, attempts } = await generateProviderPlan(buildMission(tmpDir), async () => {
+        call += 1;
+        if (call === 1) {
+          return JSON.stringify({
+            tasks: [
+              {
+                ...validTask(),
+                allowed_files: ['docs/proofs/STAGE_18_26_PROOF6_*.md'],
+                denied_files: ['**/*'],
+              },
+            ],
+            ci_enabled: true,
+            repair_enabled: true,
+            risk_level: 'low',
+            caveats: [],
+          });
+        }
+        return JSON.stringify({
+          tasks: [validTask()],
+          ci_enabled: true,
+          repair_enabled: true,
+          risk_level: 'low',
+          caveats: [],
+        });
+      });
+      assert.strictEqual(call, 2);
+      assert.strictEqual(plan.tasks.length, 1);
+      assert.strictEqual(attempts.length, 2);
+      assert.strictEqual(attempts[0].decision, 'retry');
+      assert.ok(attempts[0].validation_error?.includes('overlaps denied'));
+      assert.strictEqual(attempts[1].decision, 'accept');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('exhausts retry budget and returns attempts on persistent contradiction', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'plan-exhaust-'));
+    try {
+      await assert.rejects(
+        () =>
+          generateProviderPlan(buildMission(tmpDir), async () =>
+            JSON.stringify({
+              tasks: [
+                {
+                  ...validTask(),
+                  allowed_files: ['docs/proofs/STAGE_18_26_PROOF6_*.md'],
+                  denied_files: ['**/*'],
+                },
+              ],
+              ci_enabled: true,
+              repair_enabled: true,
+              risk_level: 'low',
+              caveats: [],
+            })
+          ),
+        (err: Error) => {
+          assert.ok(err instanceof ProviderBadOutputError, `expected ProviderBadOutputError, got ${err.name}`);
+          assert.ok(err.attempts && err.attempts.length === 3, `expected 3 attempts, got ${err.attempts?.length}`);
+          assert.ok(err.attempts.every((a) => a.decision === 'retry'));
+          assert.ok(err.attempts[0].validation_error?.includes('overlaps denied'));
+          return true;
+        }
+      );
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('recovers from malformed JSON on second attempt', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'plan-json-correction-'));
+    let call = 0;
+    try {
+      const { plan, attempts } = await generateProviderPlan(buildMission(tmpDir), async () => {
+        call += 1;
+        if (call === 1) {
+          return 'not valid json';
+        }
+        return JSON.stringify({
+          tasks: [validTask()],
+          ci_enabled: true,
+          repair_enabled: true,
+          risk_level: 'low',
+          caveats: [],
+        });
+      });
+      assert.strictEqual(call, 2);
+      assert.strictEqual(plan.tasks.length, 1);
+      assert.strictEqual(attempts.length, 2);
+      assert.strictEqual(attempts[0].decision, 'retry');
+      assert.ok(attempts[0].validation_error?.includes('valid JSON'));
+      assert.strictEqual(attempts[1].decision, 'accept');
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
