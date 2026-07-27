@@ -166,24 +166,51 @@ function buildRepairPrompt(
     ? `${checkResult.failedStep.command} ${checkResult.failedStep.args.join(' ')}`
     : 'unknown';
   const previousPaths = previousFiles.map((f) => f.path).join(', ');
+  const maxLines = task.guardrails.max_lines_changed;
 
-  return (
-    `# Task (Repair Attempt)\n\n` +
-    `Task ID: ${task.id}\n` +
-    `Branch: ${branch}\n` +
-    `Title: ${task.title}\n` +
-    `Goal: ${task.goal}\n\n` +
-    `# Previous Attempt Failed\n\n` +
-    `Failed check command: ${failedCommand}\n\n` +
-    `Check output summary:\n${checkResult.logs}\n\n` +
-    `Previously proposed files: ${previousPaths}\n\n` +
-    `# Instructions\n\n` +
-    `Fix the issue that caused the check to fail. ` +
-    `Return ONLY valid JSON using the file_update schema. ` +
-    `Return full file content, not diffs. ` +
-    `Do not include markdown outside JSON. ` +
-    `Do not modify files outside allowed scope.`
+  const lines: string[] = [
+    '# Task (Repair Attempt)',
+    '',
+    `Task ID: ${task.id}`,
+    `Branch: ${branch}`,
+    `Title: ${task.title}`,
+    `Goal: ${task.goal}`,
+    '',
+    '# Previous Attempt Failed',
+    '',
+    `Failed check command: ${failedCommand}`,
+    '',
+    'Check output summary:',
+    checkResult.logs,
+    '',
+    `Previously proposed files: ${previousPaths}`,
+  ];
+
+  if (maxLines !== undefined) {
+    lines.push(
+      '',
+      `# Line change budget`,
+      ``,
+      `HARD UPPER BOUND: no single file may change by more than ${maxLines} lines. ` +
+        `For a newly created file this means the full file content must be ${maxLines} lines or fewer. ` +
+        `Keep the fix minimal so it still passes the check without exceeding the limit.`,
+      `If the fix cannot fit, return empty files with a note.`
+    );
+  }
+
+  lines.push(
+    '',
+    '# Instructions',
+    '',
+    'Fix the issue that caused the check to fail.',
+    'Return ONLY valid JSON using the file_update schema.',
+    'Return full file content, not diffs.',
+    'Do not include markdown outside JSON.',
+    'Do not modify files outside allowed scope.',
+    'Any response without a valid "files" array will be rejected.'
   );
+
+  return lines.join('\n');
 }
 
 function buildGuardrailsRecoveryPrompt(
@@ -193,24 +220,103 @@ function buildGuardrailsRecoveryPrompt(
 ): string {
   const allowedFiles = task.guardrails.allow_modify?.join(', ') ?? 'none';
   const previousPaths = previousFiles.map((f) => f.path).join(', ');
+  const maxLines = task.guardrails.max_lines_changed;
 
-  return (
-    `# Task (Guardrails Recovery Attempt)\n\n` +
-    `Task ID: ${task.id}\n` +
-    `Title: ${task.title}\n` +
-    `Goal: ${task.goal}\n\n` +
-    `# Guardrails Rejection\n\n` +
-    `Reason: ${guardrailsReason}\n\n` +
-    `Previously proposed files: ${previousPaths}\n\n` +
-    `# Allowed Files\n\n` +
-    `You are ONLY allowed to create or modify these files: ${allowedFiles}\n\n` +
-    `# Instructions\n\n` +
-    `Return ONLY valid JSON using the file_update schema. ` +
-    `Return full file content, not diffs. ` +
-    `Do not include markdown outside JSON. ` +
-    `Do not create or modify any file outside the allowed list above. ` +
-    `Do not rename files to similar names (for example, do not use feature_note.md when only feature.txt is allowed).`
+  const lines: string[] = [
+    '# Task (Guardrails Recovery Attempt)',
+    '',
+    `Task ID: ${task.id}`,
+    `Title: ${task.title}`,
+    `Goal: ${task.goal}`,
+    '',
+    '# Guardrails Rejection',
+    '',
+    `Reason: ${guardrailsReason}`,
+    '',
+    `Previously proposed files: ${previousPaths}`,
+    '',
+    '# Allowed Files',
+    '',
+    `You are ONLY allowed to create or modify these files: ${allowedFiles}`,
+  ];
+
+  if (maxLines !== undefined) {
+    const previousPreview = previousFiles
+      .map((f) => `  ${f.path}: ${f.content.split('\n').length} lines`)
+      .join('\n');
+    lines.push(
+      '',
+      '# Line Change Budget',
+      '',
+      `HARD UPPER BOUND: no single file may change by more than ${maxLines} lines. ` +
+        `For a newly created file this means the full file content must be ${maxLines} lines or fewer.`,
+      '',
+      'Previously proposed file sizes:',
+      previousPreview,
+      '',
+      'Reduce the proposed change so it fits within the budget while still satisfying the task goal.',
+      'If the goal cannot be met within this budget, return empty files with a note explaining why.'
+    );
+  }
+
+  lines.push(
+    '',
+    '# Instructions',
+    '',
+    'Return ONLY valid JSON using the file_update schema.',
+    'Return full file content, not diffs.',
+    'Do not include markdown outside JSON.',
+    `Do not create or modify any file outside the allowed list above.`,
+    'Do not rename files to similar names (for example, do not use feature_note.md when only feature.txt is allowed).',
+    'Any response without a valid "files" array will be rejected.'
   );
+
+  return lines.join('\n');
+}
+
+function buildSchemaCorrectionPrompt(basePrompt: string, parseError: string): string {
+  const safeError = parseError.replace(/sk-[^\s]*/g, '[REDACTED]').replace(/Bearer\s+[^\s]*/gi, 'Bearer [REDACTED]');
+  return [
+    'Your previous response was not valid JSON or did not match the required schema.',
+    `Schema error: ${safeError}`,
+    '',
+    'Return ONLY a single valid JSON object.',
+    'Do not use Markdown fences.',
+    'Do not include prose or explanations.',
+    'Use exactly this schema:',
+    '',
+    '{',
+    '  "mode": "file_update",',
+    '  "files": [',
+    '    {',
+    '      "path": "relative/path/from/repo",',
+    '      "content": "full file content after changes"',
+    '    }',
+    '  ],',
+    '  "notes": "short optional note"',
+    '}',
+    '',
+    'The "files" field is REQUIRED and must be an array.',
+    'Every element in "files" must be an object with non-empty "path" and "content" strings.',
+    'If you cannot produce a valid change, return empty files with a note.',
+    '',
+    basePrompt,
+  ].join('\n');
+}
+
+function selectRecoveryPrompt(basePrompt: string, lastError: string): string {
+  const lower = lastError.toLowerCase();
+  const isSchemaError =
+    lower.includes('kimioutput') ||
+    lower.includes('files must be an array') ||
+    lower.includes('invalid kimi json') ||
+    lower.includes('fenced block') ||
+    lower.includes('json parse error') ||
+    lower.includes('invalid json');
+  if (isSchemaError) {
+    return buildSchemaCorrectionPrompt(basePrompt, lastError);
+  }
+  return buildRecoveryPrompt(basePrompt, lastError);
 }
 
 function getTasksFilePath(): string {
@@ -1303,6 +1409,14 @@ if (command === 'real-repo-run-ai') {
     let repairSucceeded = false;
     let finalKimiOutput: KimiOutput | undefined;
     let repairPrompt: string | undefined;
+    let allProviderAttempts: ProviderAttempt[] = [];
+    let nextProviderAttemptNumber = 1;
+
+    function accumulateProviderAttempts(attempts: ProviderAttempt[]): void {
+      for (const pa of attempts) {
+        allProviderAttempts.push({ ...pa, attempt: nextProviderAttemptNumber++ });
+      }
+    }
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const isRepair = attempt > 1;
@@ -1336,7 +1450,7 @@ if (command === 'real-repo-run-ai') {
           provider: 'kimi',
           model,
           basePrompt: currentPrompt,
-          buildRecoveryPrompt,
+          buildRecoveryPrompt: selectRecoveryPrompt,
           parseOutput: parseKimiOutputJson,
           taskId,
           config: retryConfig,
@@ -1344,12 +1458,14 @@ if (command === 'real-repo-run-ai') {
         rawProviderText = retryResult.text;
         providerAttempts = retryResult.providerAttempts;
         kimiOutput = retryResult.output!;
+        accumulateProviderAttempts(providerAttempts);
       } catch (providerErr) {
         // Extract provider attempts from a structured retry failure so they are
         // preserved even when the wrapper exhausts all retries.
         if (providerErr instanceof ProviderCallFailedError) {
           providerAttempts = providerErr.providerAttempts;
         }
+        accumulateProviderAttempts(providerAttempts);
 
         const info = normalizeProviderCallError(providerErr);
         const message = info.message;
@@ -1372,7 +1488,7 @@ if (command === 'real-repo-run-ai') {
           repo_path: task.repo_path,
           created_at: existingState?.created_at ?? now,
           updated_at: now,
-          provider_attempts: providerAttempts,
+          provider_attempts: allProviderAttempts,
           safety_note: `Provider failed after retry: ${message}`,
         };
         try {
@@ -1433,7 +1549,7 @@ if (command === 'real-repo-run-ai') {
           repo_path: task.repo_path,
           created_at: existingGuardrailsState?.created_at ?? guardrailsFailedNow,
           updated_at: guardrailsFailedNow,
-          provider_attempts: providerAttempts,
+          provider_attempts: allProviderAttempts,
           safety_note: `Guardrails failed: ${guardrailsFailureReason}`,
           safety_policy_reasons: [guardrailsFailureReason],
         };
@@ -1486,7 +1602,7 @@ if (command === 'real-repo-run-ai') {
             repo_path: task.repo_path,
             created_at: existingGuardrailsState?.created_at ?? guardrailsFailedNow,
             updated_at: guardrailsFailedNow,
-            provider_attempts: providerAttempts,
+            provider_attempts: allProviderAttempts,
             safety_note: `Guardrails failed: ${deltaMessage}`,
             safety_policy_reasons: [deltaMessage],
           };
@@ -1830,7 +1946,7 @@ if (command === 'real-repo-run-ai') {
         pushed_remote: 'origin',
         pushed_ref: currentBranch,
         commit_sha: headSha,
-        provider_attempts: providerAttempts,
+        provider_attempts: allProviderAttempts,
         safety_note: 'Push completed; merge not performed; human review required before merge',
       };
 

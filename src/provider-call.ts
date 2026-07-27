@@ -111,6 +111,19 @@ export function normalizeProviderCallError(error: unknown): ProviderCallErrorInf
   const isServerError = httpStatus !== undefined && httpStatus >= 500 && httpStatus < 600;
   const isRateLimit = httpStatus === 429 || lower.includes('rate limit') || lower.includes('too many requests');
 
+  const isSchemaValidationError =
+    lower.includes('kimioutput.files must be an array') ||
+    lower.includes('kimioutput must be an object') ||
+    lower.includes('kimioutput.files[') ||
+    lower.includes('invalid kimi json output') ||
+    lower.includes('invalid kimioutput') ||
+    lower.includes('fenced block not closed') ||
+    lower.includes('empty fenced block') ||
+    lower.includes('malformed fenced block') ||
+    lower.includes('unsupported fenced block') ||
+    lower.includes('invalid reviewer json output') ||
+    lower.includes('reviewverdict');
+
   const isRetryable =
     isRateLimit ||
     isServerError ||
@@ -124,7 +137,8 @@ export function normalizeProviderCallError(error: unknown): ProviderCallErrorInf
     lower.includes('invalid reviewer json output') ||
     lower.includes('malformed fenced block') ||
     lower.includes('fenced block not closed') ||
-    lower.includes('empty fenced block');
+    lower.includes('empty fenced block') ||
+    isSchemaValidationError;
 
   // 4xx errors (except rate limit 429) are not retryable
   const isNonRetryableClientError = isClientError && !isRateLimit;
@@ -248,7 +262,20 @@ export function buildRecoveryPrompt(basePrompt: string, parseError: string): str
     'Do not use Markdown fences.',
     'Do not include prose, explanations, or comments.',
     'Do not truncate the output.',
-    'Use exactly the expected schema.',
+    'Use exactly this schema:',
+    '',
+    '{',
+    '  "mode": "file_update",',
+    '  "files": [',
+    '    {',
+    '      "path": "relative/path/from/repo",',
+    '      "content": "full file content after changes"',
+    '    }',
+    '  ],',
+    '  "notes": "short optional note"',
+    '}',
+    '',
+    'Any response that is not a valid JSON object with a "files" array will be rejected.',
     'Keep changes minimal and precise.',
     'If the required output would be too large to return safely, return empty files with a note explaining why instead of partial JSON.',
     '',

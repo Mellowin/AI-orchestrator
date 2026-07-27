@@ -23,17 +23,28 @@ export function buildContext(task: Task): ContextPackage {
       ? `Allowed files (you may create or modify): ${allowedFiles.join(', ')}`
       : 'No allowed files specified';
 
+  const constraints = [
+    allowedFilesConstraint,
+    'If an allowed file does not exist yet, create it with full content.',
+    'Do not modify files outside guardrails.allow_modify',
+    'Do not modify files matching guardrails.deny_modify',
+    'Do not push, merge, or touch main',
+  ];
+
+  if (task.guardrails.max_lines_changed !== undefined) {
+    constraints.push(
+      `HARD LIMIT: the total line delta for any single file must not exceed ${task.guardrails.max_lines_changed} lines. ` +
+        'For a newly created file the limit applies to the full file length. ' +
+        'If your proposed change would exceed this limit, reduce the scope or return empty files with a note.'
+    );
+  }
+
   return {
     task_summary: `${task.id}: ${task.title}`,
     goal: task.goal,
-    constraints: [
-      allowedFilesConstraint,
-      'If an allowed file does not exist yet, create it with full content.',
-      'Do not modify files outside guardrails.allow_modify',
-      'Do not modify files matching guardrails.deny_modify',
-      'Do not push, merge, or touch main',
-    ],
+    constraints,
     files,
+    max_lines_changed: task.guardrails.max_lines_changed,
   };
 }
 

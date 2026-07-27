@@ -121,7 +121,8 @@ function buildFakeKimiOutput(
 
 function createTempEnv(
   checks: string[] = [],
-  allowModify: string[] = ['README.md']
+  allowModify: string[] = ['README.md'],
+  maxLinesChanged: number = 100
 ): {
   taskId: string;
   tasksFilePath: string;
@@ -218,7 +219,7 @@ ${allowModify.map((f) => `        - "${f}"`).join('\n')}
         - ".env.*"
         - ".git/**"
         - "node_modules/**"
-      max_lines_changed: 100
+      max_lines_changed: ${maxLinesChanged}
       auto_commit: false
       auto_push: false
       auto_merge: false
@@ -666,6 +667,210 @@ describe('cli real-repo-run-ai retry', () => {
       const state = JSON.parse(readFileSync(statePath, 'utf-8'));
       assert.strictEqual(state.status, 'failed_guardrails');
       assert.ok(state.safety_note.includes('feature_note.md'), 'state should record rejected path');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('oversized file guardrail rejects then repair fits limit and pushes', () => {
+    const { taskId, tasksFilePath, repoPath, originPath, runsDir, cleanup } = createTempEnv(
+      [],
+      ['README.md'],
+      25
+    );
+    try {
+      const oversizedContent = Array.from({ length: 49 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+      const compactContent = '# compact\n';
+
+      const env: Record<string, string> = {
+        TASKS_FILE: tasksFilePath,
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.invalid',
+        KIMI_MODEL: 'kimi-k2.6',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: oversizedContent }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: compactContent }]),
+        ]),
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        REAL_PROVIDER_MAX_ATTEMPTS: '2',
+        REAL_PROVIDER_RETRY_BASE_MS: '0',
+        REAL_PROVIDER_RETRY_MAX_MS: '0',
+      };
+
+      const result = runCli(['real-repo-run-ai', taskId], env);
+      assert.strictEqual(result.status, 0, `expected success, got stderr:\n${result.stderr}`);
+      assert(result.stderr.includes('Guardrails failed'), 'should log initial guardrail rejection');
+      assert(result.stderr.includes('Guardrails recovery attempt'), 'should log guardrail recovery');
+
+      const readme = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(readme, compactContent, 'README should contain the compact repaired content');
+
+      const statePath = join(runsDir, taskId, 'state.json');
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      assert.strictEqual(state.status, 'pushed');
+      assert(typeof state.commit_sha === 'string' && state.commit_sha.length === 40, 'should record commit');
+
+      // Rejected oversized candidate must not be in local history or remote.
+      const localLog = spawnSync('git', ['log', '--format=%s'], { cwd: repoPath, shell: false, encoding: 'utf-8' }).stdout;
+      assert(!localLog.includes('line 49'), 'oversized rejected content must not appear in git history');
+      const remoteLog = spawnSync('git', ['ls-remote', '--heads', originPath, `ai/${taskId}`], {
+        cwd: repoPath,
+        shell: false,
+        encoding: 'utf-8',
+      }).stdout;
+      assert(remoteLog.includes(`ai/${taskId}`), 'work branch should be pushed to remote');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('malformed repair output triggers schema correction and then succeeds', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv(
+      [],
+      ['README.md'],
+      25
+    );
+    try {
+      const oversizedContent = Array.from({ length: 49 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+      const compactContent = '# compact after schema correction\n';
+
+      const env: Record<string, string> = {
+        TASKS_FILE: tasksFilePath,
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.invalid',
+        KIMI_MODEL: 'kimi-k2.6',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: oversizedContent }]),
+          '{"summary": "missing files"}', // malformed: no files array
+          buildFakeKimiOutput([{ path: 'README.md', content: compactContent }]),
+        ]),
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        REAL_PROVIDER_MAX_ATTEMPTS: '3',
+        REAL_PROVIDER_RETRY_BASE_MS: '0',
+        REAL_PROVIDER_RETRY_MAX_MS: '0',
+      };
+
+      const result = runCli(['real-repo-run-ai', taskId], env);
+      assert.strictEqual(result.status, 0, `expected success, got stderr:\n${result.stderr}`);
+      assert(result.stderr.includes('KimiOutput.files must be an array') || result.stderr.includes('schema'), 'should log schema error');
+
+      const readme = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert.strictEqual(readme, compactContent, 'README should contain corrected content');
+
+      const statePath = join(runsDir, taskId, 'state.json');
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      assert.strictEqual(state.status, 'pushed');
+      assert(Array.isArray(state.provider_attempts));
+      assert(state.provider_attempts.length >= 3, 'should record initial attempt plus schema-correction retries');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('exhausted schema correction retries end as failed_max_attempts', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv(
+      [],
+      ['README.md'],
+      25
+    );
+    try {
+      const oversizedContent = Array.from({ length: 49 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+
+      const env: Record<string, string> = {
+        TASKS_FILE: tasksFilePath,
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.invalid',
+        KIMI_MODEL: 'kimi-k2.6',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: oversizedContent }]),
+          '{"summary": "missing files 1"}',
+          '{"summary": "missing files 2"}',
+        ]),
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        REAL_PROVIDER_MAX_ATTEMPTS: '2',
+        REAL_PROVIDER_RETRY_BASE_MS: '0',
+        REAL_PROVIDER_RETRY_MAX_MS: '0',
+      };
+
+      const result = runCli(['real-repo-run-ai', taskId], env);
+      assert.notStrictEqual(result.status, 0, 'expected failure');
+      assert(result.stderr.includes('KimiOutput.files must be an array'), 'should log schema error');
+      assert(result.stderr.includes('No push was performed'), 'should explicitly log that no push was performed');
+
+      const readme = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert(!readme.includes('line 49'), 'oversized content must not be applied');
+
+      const statePath = join(runsDir, taskId, 'state.json');
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      assert.strictEqual(state.status, 'failed_max_attempts');
+      assert(state.pushed !== true, 'failed state must not be marked as pushed');
+      assert(state.provider_attempts.length >= 3, 'should have initial + exhausted schema retries');
+
+      const localLog = spawnSync('git', ['log', '--format=%s'], { cwd: repoPath, shell: false, encoding: 'utf-8' }).stdout;
+      assert(!localLog.includes('line 49'), 'rejected content must not be in git history');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('guardrail line limit still enforced on repair attempt', () => {
+    const { taskId, tasksFilePath, repoPath, runsDir, cleanup } = createTempEnv(
+      [],
+      ['README.md'],
+      25
+    );
+    try {
+      const oversizedContent = Array.from({ length: 49 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+      const stillOversized = Array.from({ length: 30 }, (_, i) => `still ${i + 1}`).join('\n') + '\n';
+
+      const env: Record<string, string> = {
+        TASKS_FILE: tasksFilePath,
+        RUNS_DIR: runsDir,
+        ALLOW_REAL_PROVIDER: 'true',
+        ALLOW_REAL_REPO_APPLY: 'true',
+        ALLOW_REAL_REPO_COMMIT: 'true',
+        ALLOW_REAL_REPO_PUSH: 'true',
+        KIMI_API_KEY: 'sk-test',
+        KIMI_BASE_URL: 'https://api.invalid',
+        KIMI_MODEL: 'kimi-k2.6',
+        KIMI_FAKE_RESPONSES: JSON.stringify([
+          buildFakeKimiOutput([{ path: 'README.md', content: oversizedContent }]),
+          buildFakeKimiOutput([{ path: 'README.md', content: stillOversized }]),
+        ]),
+        REAL_REPO_AI_MAX_ATTEMPTS: '2',
+        REAL_PROVIDER_MAX_ATTEMPTS: '2',
+        REAL_PROVIDER_RETRY_BASE_MS: '0',
+        REAL_PROVIDER_RETRY_MAX_MS: '0',
+      };
+
+      const result = runCli(['real-repo-run-ai', taskId], env);
+      assert.notStrictEqual(result.status, 0, 'expected failure');
+      assert(result.stderr.includes('Guardrails failed'), 'should log guardrail rejection on both attempts');
+      assert(result.stderr.includes('Guardrails recovery attempt'), 'should log recovery attempt');
+
+      const readme = readFileSync(join(repoPath, 'README.md'), 'utf-8');
+      assert(!readme.includes('line 49'), 'first oversized content must not be applied');
+      assert(!readme.includes('still 30'), 'second oversized content must not be applied');
+
+      const statePath = join(runsDir, taskId, 'state.json');
+      const state = JSON.parse(readFileSync(statePath, 'utf-8'));
+      assert.strictEqual(state.status, 'failed_guardrails');
+      assert.ok(state.safety_note.includes('README.md'), 'state should record violating file');
     } finally {
       cleanup();
     }

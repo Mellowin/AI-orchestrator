@@ -110,6 +110,7 @@ export interface ContextPackage {
   goal: string;
   constraints: string[];
   files: { path: string; content: string }[];
+  max_lines_changed?: number;
 }
 
 export interface ValidationResult {

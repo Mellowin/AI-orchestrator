@@ -185,20 +185,45 @@ describe('context-builder', () => {
     }
   });
 
-  test('buildContext is deterministic across repeated calls', () => {
+  test('buildContext includes max_lines_changed constraint and field when set', () => {
     const repo = mkdtempSync(join(tmpdir(), 'ctx-repo-'));
     try {
-      writeFileSync(join(repo, 'f1.txt'), 'one', 'utf-8');
-      writeFileSync(join(repo, 'f2.txt'), 'two', 'utf-8');
-
+      writeFileSync(join(repo, 'x.txt'), 'X', 'utf-8');
       const task = makeTask({
         repo_path: repo,
-        context_files: ['f1.txt', 'f2.txt'],
+        context_files: ['x.txt'],
+        guardrails: {
+          deny_modify: ['.env'],
+          auto_commit: false,
+          auto_push: false,
+          auto_merge: false,
+          max_lines_changed: 25,
+        },
       });
 
-      const ctx1 = buildContext(task);
-      const ctx2 = buildContext(task);
-      assert.deepStrictEqual(ctx1, ctx2);
+      const ctx = buildContext(task);
+      assert.strictEqual(ctx.max_lines_changed, 25);
+      const constraint = ctx.constraints.find((c) => c.includes('HARD LIMIT'));
+      assert.ok(constraint, 'expected HARD LIMIT constraint');
+      assert.ok(constraint.includes('25'), 'constraint must include the limit value');
+      assert.ok(constraint.includes('newly created file'), 'constraint must mention new files');
+    } finally {
+      rmSync(repo, { recursive: true });
+    }
+  });
+
+  test('buildContext leaves max_lines_changed undefined when not set', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'ctx-repo-'));
+    try {
+      writeFileSync(join(repo, 'x.txt'), 'X', 'utf-8');
+      const task = makeTask({
+        repo_path: repo,
+        context_files: ['x.txt'],
+      });
+
+      const ctx = buildContext(task);
+      assert.strictEqual(ctx.max_lines_changed, undefined);
+      assert.ok(!ctx.constraints.some((c) => c.includes('HARD LIMIT')));
     } finally {
       rmSync(repo, { recursive: true });
     }

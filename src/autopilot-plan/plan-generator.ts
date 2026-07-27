@@ -273,6 +273,10 @@ export async function generateProviderPlan(
     'Generate the smallest number of tasks that achieves the goal.',
     'Do not create separate tasks for commit, push, PR creation, or CI observation; the autopilot runner handles those automatically.',
     'Each task should describe a concrete file or code change, not a git or GitHub operation.',
+    '`max_lines_changed` is a HARD UPPER BOUND on the absolute line delta for any single file in the task.',
+    'For a newly created file the limit applies to the full file length, not just the diff against an empty file.',
+    'Choose a realistic budget that is large enough to satisfy the acceptance criteria, but never invent an arbitrary small limit that cannot hold the required content.',
+    'The coder must produce output that fits within this budget; if the task cannot be completed within the limit, the mission will fail.',
   ]
     .filter(Boolean)
     .join('\n');
