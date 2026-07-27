@@ -181,7 +181,13 @@ export function loadMissionConfig(configPath: string): AutopilotPlanMission {
     throw new Error(`Failed to parse mission config: ${message}`);
   }
 
-  return validateMissionConfig(parsed);
+  const mission = validateMissionConfig(parsed);
+  const originalRepoPath = mission.repo_path;
+  mission.repo_path = resolveRepoPath(originalRepoPath, resolved);
+  if (!existsSync(mission.repo_path)) {
+    throw new Error(`repo_path does not exist: ${mission.repo_path} (original: ${originalRepoPath})`);
+  }
+  return mission;
 }
 
 export function buildWorkBranch(runId: string): string {
