@@ -1,0 +1,1 @@
+Stage 18.26 aims to validate the core transaction ordering and proof-generation pipeline with a concise, verifiable summary.
