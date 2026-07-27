@@ -2,12 +2,21 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanTask } from '../../autopilot-plan/types.js';
-import type { MultitaskMissionResult, MultitaskMissionTaskState } from './types.js';
+import type { AutopilotRunResult } from '../../autopilot-run/types.js';
+import type { MultitaskMissionResult, MultitaskMissionTaskState, MultitaskMissionFinalReview } from './types.js';
 
 export interface PersistedMissionState {
   version: 1;
   run_id: string;
-  stage: 'planning' | 'running' | 'reviewing' | 'completed';
+  stage:
+    | 'planning'
+    | 'executing_tasks'
+    | 'running'
+    | 'mission_review'
+    | 'creating_pr'
+    | 'awaiting_ci'
+    | 'ci_repair'
+    | 'completed';
   plan_hash: string;
   base_sha: string;
   work_branch: string;
@@ -17,6 +26,15 @@ export interface PersistedMissionState {
   last_error?: string;
   rolled_back_commits?: string[];
   mission_commits?: string[];
+  autopilot_result?: AutopilotRunResult;
+  final_review?: MultitaskMissionFinalReview;
+  ci_outcome?: {
+    verdict: AutopilotRunResult['verdict'];
+    reason: string;
+    ci_run_id?: number;
+    ci_conclusion?: string | null;
+    repair_attempts: number;
+  };
 }
 
 export function getMissionRunDir(outputDir: string, runId: string): string {

@@ -30,6 +30,8 @@ export interface RunAutopilotRunInternalOptions extends AutopilotRunOptions {
   spawnFn?: typeof spawnSync;
   /** When true, the autopilot run executes the MVP loop but does not create a GitHub PR. */
   skipPrCreation?: boolean;
+  /** When true, the autopilot run executes the MVP loop but defers CI observation and repair to the caller. */
+  deferRemoteFinalization?: boolean;
 }
 
 function nowIso(): string {
@@ -135,6 +137,7 @@ function computeExitCode(verdict: AutopilotRunVerdict): number {
   switch (verdict) {
     case 'AUTOPILOT_GREEN':
     case 'AUTOPILOT_MVP_DONE_CI_NOT_OBSERVED':
+    case 'AUTOPILOT_MVP_DEFERRED':
     case 'AUTOPILOT_CI_RED_DIAGNOSED':
       return 0;
     default:
@@ -287,14 +290,78 @@ export async function runAutopilotRun(
     return finalize(buildResult('AUTOPILOT_MVP_DONE_CI_NOT_OBSERVED', reason, mvpResult));
   }
 
-  addTimelineEvent(timeline, 'ci_wait_started');
+  if (options.deferRemoteFinalization) {
+    const reason = 'MVP completed; remote finalization deferred to caller';
+    return finalize(buildResult('AUTOPILOT_MVP_DEFERRED', reason, mvpResult));
+  }
+
+  const remoteResult = await runAutopilotRemoteFinalization(config, mvpConfig, {
+    fetchFn,
+    spawnFn,
+    runDiagnoseCiFn: options.runDiagnoseCiFn,
+    createAIClientFn: options.createAIClientFn,
+    timeline,
+  });
+  return finalize(
+    buildResult(
+      remoteResult.verdict,
+      remoteResult.reason,
+      mvpResult,
+      remoteResult.ci_run_id,
+      remoteResult.ci_conclusion,
+      remoteResult.diagnosis,
+      remoteResult.repair_attempts
+    )
+  );
+}
+
+export interface RunAutopilotRemoteFinalizationOptions {
+  fetchFn?: typeof globalThis.fetch;
+  spawnFn?: typeof spawnSync;
+  runDiagnoseCiFn?: typeof runDiagnoseCi;
+  createAIClientFn?: typeof createAIClient;
+  timeline?: AutopilotRunTimelineEvent[];
+}
+
+export interface AutopilotRemoteFinalizationResult {
+  verdict: AutopilotRunVerdict;
+  reason: string;
+  ci_run_id?: number;
+  ci_conclusion?: string | null;
+  diagnosis?: DiagnoseCiResult;
+  repair_attempts: number;
+}
+
+export async function runAutopilotRemoteFinalization(
+  config: AutopilotRunConfig,
+  mvpConfig: MvpRunConfig,
+  options: RunAutopilotRemoteFinalizationOptions = {}
+): Promise<AutopilotRemoteFinalizationResult> {
+  const fetchFn = options.fetchFn ?? globalThis.fetch;
+  const spawnFn = options.spawnFn ?? spawnSync;
+  const runDiagnoseCiFn = options.runDiagnoseCiFn ?? runDiagnoseCi;
+  const reportDir = getAutopilotReportDir(config.report_dir, config.run_id);
   const repoPath = resolve(mvpConfig.repo_path);
+  const timeline = options.timeline;
+  const envCheck = validateAutopilotEnv(config);
+
+  function emit(event: string, payload?: Record<string, unknown>): void {
+    if (timeline) {
+      addTimelineEvent(timeline, event, payload);
+    }
+  }
+
+  emit('ci_wait_started');
   let headSha: string;
   try {
     headSha = getHeadSha(repoPath, config.work_branch, spawnFn);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    return finalize(buildResult('AUTOPILOT_FAILED', `Failed to determine head SHA: ${reason}`, mvpResult));
+    return {
+      verdict: 'AUTOPILOT_FAILED',
+      reason: `Failed to determine head SHA: ${reason}`,
+      repair_attempts: 0,
+    };
   }
 
   let runId: number;
@@ -302,11 +369,11 @@ export async function runAutopilotRun(
     runId = await resolveAutopilotWorkflowRunId(config, headSha, fetchFn);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    return finalize(buildResult(mapGithubError(err), reason, mvpResult));
+    return { verdict: mapGithubError(err), reason, repair_attempts: 0 };
   }
 
   const pollResult = await pollAutopilotWorkflowRun(config, runId, fetchFn);
-  addTimelineEvent(timeline, 'ci_completed', {
+  emit('ci_completed', {
     run_id: runId,
     status: pollResult.status,
     conclusion: pollResult.run?.conclusion ?? null,
@@ -314,17 +381,16 @@ export async function runAutopilotRun(
 
   if (pollResult.status === 'timeout') {
     const reason = `CI workflow ${runId} timed out after ${config.ci.timeout_seconds}s`;
-    return finalize(buildResult('AUTOPILOT_CI_TIMEOUT', reason, mvpResult, runId, null));
+    return { verdict: 'AUTOPILOT_CI_TIMEOUT', reason, ci_run_id: runId, ci_conclusion: null, repair_attempts: 0 };
   }
 
   const conclusion = pollResult.run?.conclusion ?? null;
   if (conclusion === 'success') {
     const reason = `CI workflow ${runId} completed successfully`;
-    return finalize(buildResult('AUTOPILOT_GREEN', reason, mvpResult, runId, conclusion));
+    return { verdict: 'AUTOPILOT_GREEN', reason, ci_run_id: runId, ci_conclusion: conclusion, repair_attempts: 0 };
   }
 
-  addTimelineEvent(timeline, 'diagnosis_started', { run_id: runId });
-
+  emit('diagnosis_started', { run_id: runId });
   let diagnosis: DiagnoseCiResult;
   if (config.mode === 'github' && !envCheck.token_present) {
     diagnosis = {
@@ -337,11 +403,7 @@ export async function runAutopilotRun(
     };
   } else {
     const diagnoseConfig = buildDiagnoseConfig(config, runId, reportDir);
-    const runDiagnoseCiFn = options.runDiagnoseCiFn ?? runDiagnoseCi;
-    const diagnoseOptions: DiagnoseCiOptions = {
-      fetchFn,
-      command: `${command} → diagnose-ci`,
-    };
+    const diagnoseOptions: DiagnoseCiOptions = { fetchFn, command: 'autopilot-run → diagnose-ci' };
     try {
       diagnosis = await runDiagnoseCiFn(diagnoseConfig, diagnoseOptions);
     } catch (err) {
@@ -356,16 +418,22 @@ export async function runAutopilotRun(
       };
     }
   }
-
   writeLatestDiagnosisAndFixTask(reportDir, diagnosis);
-  addTimelineEvent(timeline, 'diagnosis_completed', {
+  emit('diagnosis_completed', {
     verdict: diagnosis.verdict,
     classification: diagnosis.classification,
   });
 
   if (!config.repair.enabled) {
     const reason = `CI workflow ${runId} is red; repair disabled`;
-    return finalize(buildResult('AUTOPILOT_CI_RED_DIAGNOSED', reason, mvpResult, runId, conclusion, diagnosis));
+    return {
+      verdict: 'AUTOPILOT_CI_RED_DIAGNOSED',
+      reason,
+      ci_run_id: runId,
+      ci_conclusion: conclusion,
+      diagnosis,
+      repair_attempts: 0,
+    };
   }
 
   const fixTaskMd = readFixTaskMarkdown(reportDir);
@@ -374,7 +442,7 @@ export async function runAutopilotRun(
 
   while (attempts < maxAttempts) {
     attempts += 1;
-    addTimelineEvent(timeline, 'repair_attempt_started', { attempt: attempts });
+    emit('repair_attempt_started', { attempt: attempts });
 
     const repairResult = await runRepairAttempt(
       config,
@@ -385,13 +453,10 @@ export async function runAutopilotRun(
         reportDir,
         attempt: attempts,
       },
-      {
-        createAIClientFn: options.createAIClientFn,
-        spawnFn,
-      }
+      { createAIClientFn: options.createAIClientFn, spawnFn }
     );
 
-    addTimelineEvent(timeline, 'repair_attempt_completed', {
+    emit('repair_attempt_completed', {
       attempt: attempts,
       ok: repairResult.ok,
       pushed: repairResult.pushed,
@@ -400,18 +465,20 @@ export async function runAutopilotRun(
     if (!repairResult.ok) {
       if (attempts >= maxAttempts) {
         const reason = `Repair failed: ${repairResult.reason}`;
-        return finalize(
-          buildResult('AUTOPILOT_REPAIR_FAILED', reason, mvpResult, runId, conclusion, diagnosis, attempts)
-        );
+        return {
+          verdict: 'AUTOPILOT_REPAIR_FAILED',
+          reason,
+          ci_run_id: runId,
+          ci_conclusion: conclusion,
+          diagnosis,
+          repair_attempts: attempts,
+        };
       }
       continue;
     }
 
     if (repairResult.pushed) {
-      addTimelineEvent(timeline, 'push_completed', {
-        attempt: attempts,
-        files: repairResult.files,
-      });
+      emit('push_completed', { attempt: attempts, files: repairResult.files });
     }
 
     let newHeadSha: string;
@@ -419,9 +486,14 @@ export async function runAutopilotRun(
       newHeadSha = getHeadSha(repoPath, config.work_branch, spawnFn);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      return finalize(
-        buildResult('AUTOPILOT_FAILED', `Failed to determine new head SHA: ${reason}`, mvpResult, runId, conclusion, diagnosis, attempts)
-      );
+      return {
+        verdict: 'AUTOPILOT_FAILED',
+        reason: `Failed to determine new head SHA: ${reason}`,
+        ci_run_id: runId,
+        ci_conclusion: conclusion,
+        diagnosis,
+        repair_attempts: attempts,
+      };
     }
 
     let newRunId: number;
@@ -429,11 +501,18 @@ export async function runAutopilotRun(
       newRunId = await resolveAutopilotWorkflowRunId(config, newHeadSha, fetchFn);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      return finalize(buildResult(mapGithubError(err), reason, mvpResult, runId, conclusion, diagnosis, attempts));
+      return {
+        verdict: mapGithubError(err),
+        reason,
+        ci_run_id: runId,
+        ci_conclusion: conclusion,
+        diagnosis,
+        repair_attempts: attempts,
+      };
     }
 
     const newPoll = await pollAutopilotWorkflowRun(config, newRunId, fetchFn);
-    addTimelineEvent(timeline, 'ci_completed', {
+    emit('ci_completed', {
       run_id: newRunId,
       status: newPoll.status,
       conclusion: newPoll.run?.conclusion ?? null,
@@ -441,27 +520,36 @@ export async function runAutopilotRun(
 
     if (newPoll.status === 'timeout') {
       const reason = `Follow-up CI workflow ${newRunId} timed out after ${config.ci.timeout_seconds}s`;
-      return finalize(
-        buildResult('AUTOPILOT_CI_TIMEOUT', reason, mvpResult, newRunId, null, diagnosis, attempts)
-      );
+      return {
+        verdict: 'AUTOPILOT_CI_TIMEOUT',
+        reason,
+        ci_run_id: newRunId,
+        ci_conclusion: null,
+        diagnosis,
+        repair_attempts: attempts,
+      };
     }
 
     if (newPoll.run?.conclusion === 'success') {
       const reason = `CI workflow ${newRunId} green after repair attempt ${attempts}`;
-      return finalize(
-        buildResult('AUTOPILOT_GREEN', reason, mvpResult, newRunId, 'success', diagnosis, attempts)
-      );
+      return {
+        verdict: 'AUTOPILOT_GREEN',
+        reason,
+        ci_run_id: newRunId,
+        ci_conclusion: 'success',
+        diagnosis,
+        repair_attempts: attempts,
+      };
     }
 
-    const runDiagnoseCiFn = options.runDiagnoseCiFn ?? runDiagnoseCi;
     try {
       const updatedDiagnosis = await runDiagnoseCiFn(
         buildDiagnoseConfig(config, newRunId, reportDir),
-        { fetchFn, command: `${command} → diagnose-ci` }
+        { fetchFn, command: 'autopilot-run → diagnose-ci' }
       );
       diagnosis = updatedDiagnosis;
       writeLatestDiagnosisAndFixTask(reportDir, diagnosis);
-      addTimelineEvent(timeline, 'diagnosis_completed', {
+      emit('diagnosis_completed', {
         verdict: diagnosis.verdict,
         classification: diagnosis.classification,
       });
@@ -471,7 +559,12 @@ export async function runAutopilotRun(
   }
 
   const reason = `Repair loop exhausted after ${attempts} attempts`;
-  return finalize(
-    buildResult('AUTOPILOT_REPAIR_EXHAUSTED', reason, mvpResult, runId, conclusion, diagnosis, attempts)
-  );
+  return {
+    verdict: 'AUTOPILOT_REPAIR_EXHAUSTED',
+    reason,
+    ci_run_id: runId,
+    ci_conclusion: conclusion,
+    diagnosis,
+    repair_attempts: attempts,
+  };
 }

@@ -1274,8 +1274,8 @@ describe('real-multitask production branch preparation', () => {
       allow_repo_push: false,
       allow_pr_create: false,
       allow_pr_update: false,
-      allow_actions_read: true,
-      allow_repair: true,
+      allow_actions_read: false,
+      allow_repair: false,
     };
 
     const planResult = await runAutopilotPlan(mission, { command: 'test' });

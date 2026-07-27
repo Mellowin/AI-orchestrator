@@ -1,12 +1,12 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadAutopilotRunConfig, runAutopilotRun } from '../../autopilot-run/index.js';
+import { loadAutopilotRunConfig, runAutopilotRun, runAutopilotRemoteFinalization } from '../../autopilot-run/index.js';
 import { loadMvpRunConfig } from '../../mvp-run/index.js';
 import { createMvpRunPr } from '../../mvp-run/pr-creator.js';
 import type { MvpRunConfig, MvpRunPrResult } from '../../mvp-run/types.js';
 import { buildProductionFinalReviewCallFn } from './reviewer-provider.js';
 import type { AutopilotPlanMission, AutopilotPlanResult, AutopilotPlanTask } from '../../autopilot-plan/types.js';
-import type { AutopilotRunResult } from '../../autopilot-run/types.js';
+import type { AutopilotRunResult, AutopilotRunVerdict, AutopilotRemoteFinalizationResult } from '../../autopilot-run/index.js';
 import { runMissionFinalReview } from './final-review.js';
 import {
   computePlanHash,
@@ -143,6 +143,34 @@ function markDescendantsSkipped(
   });
 }
 
+function mapAutopilotFailureToMissionVerdict(
+  autopilot: AutopilotRunResult
+): { verdict: MultitaskMissionVerdict; reason: string } {
+  if (autopilot.verdict === 'AUTOPILOT_CI_TIMEOUT') {
+    return { verdict: 'MULTITASK_MISSION_EXTERNAL_BLOCKER', reason: autopilot.reason };
+  }
+  if (autopilot.verdict === 'AUTOPILOT_NEEDS_TOKEN' || autopilot.verdict === 'AUTOPILOT_ACCESS_ERROR') {
+    return { verdict: 'MULTITASK_MISSION_NEEDS_HUMAN', reason: autopilot.reason };
+  }
+  return { verdict: 'MULTITASK_MISSION_FAILED', reason: autopilot.reason };
+}
+
+function mapCiVerdictToMissionVerdict(
+  ciResult: AutopilotRemoteFinalizationResult
+): { verdict: MultitaskMissionVerdict; reason: string } {
+  switch (ciResult.verdict) {
+    case 'AUTOPILOT_GREEN':
+      return { verdict: 'MULTITASK_MISSION_DONE', reason: ciResult.reason };
+    case 'AUTOPILOT_CI_TIMEOUT':
+      return { verdict: 'MULTITASK_MISSION_EXTERNAL_BLOCKER', reason: ciResult.reason };
+    case 'AUTOPILOT_NEEDS_TOKEN':
+    case 'AUTOPILOT_ACCESS_ERROR':
+      return { verdict: 'MULTITASK_MISSION_NEEDS_HUMAN', reason: ciResult.reason };
+    default:
+      return { verdict: 'MULTITASK_MISSION_FAILED', reason: ciResult.reason };
+  }
+}
+
 function mapAutopilotVerdict(
   autopilot: AutopilotRunResult,
   finalReview: MultitaskMissionFinalReview,
@@ -270,35 +298,52 @@ function buildFailureResult(
   startedAt: string,
   startTime: number
 ): MultitaskMissionResult {
-  return buildVerdictResult(
+  return buildMissionResult(
     mission,
     planResult,
     runDir,
     reason,
     'MULTITASK_MISSION_FAILED',
     startedAt,
-    startTime
+    startTime,
+    []
   );
 }
 
-function buildVerdictResult(
+function buildMissionResult(
   mission: AutopilotPlanMission,
   planResult: AutopilotPlanResult,
   runDir: string,
   reason: string,
   verdict: MultitaskMissionVerdict,
   startedAt: string,
-  startTime: number
+  startTime: number,
+  taskStates: MultitaskMissionTaskState[] = [],
+  extra: Partial<MultitaskMissionResult> = {}
 ): MultitaskMissionResult {
+  const taskResults: MultitaskMissionTaskResult[] = taskStates
+    .filter((s): s is MultitaskMissionTaskState & { status: MultitaskMissionTaskResult['status'] } =>
+      s.status !== 'pending' && s.status !== 'running'
+    )
+    .map((s) => ({
+      task_id: s.task_id,
+      title: planResult.plan.tasks.find((t) => t.id === s.task_id)?.title ?? s.task_id,
+      status: s.status,
+      commit_sha: s.commit_sha,
+      fix_commit_sha: s.fix_commit_sha,
+      reason: s.reason,
+    }));
   return {
     mission,
     plan: planResult.plan,
     plan_result: planResult,
-    task_results: [],
+    task_results: taskResults,
+    task_states: taskStates,
     verdict,
     reason,
     run_dir: runDir,
-    exit_code: 1,
+    exit_code: verdict === 'MULTITASK_MISSION_DONE' || verdict === 'MULTITASK_MISSION_DONE_WITH_CAVEATS' ? 0 : 1,
+    ...extra,
   };
 }
 
@@ -397,18 +442,6 @@ async function closeMissionPr(
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[multitask] Failed to close mission PR #${prNumber}: ${message}`);
   }
-}
-
-function buildMissionResult(
-  mission: AutopilotPlanMission,
-  planResult: AutopilotPlanResult,
-  runDir: string,
-  reason: string,
-  verdict: MultitaskMissionVerdict,
-  startedAt: string,
-  startTime: number
-): MultitaskMissionResult {
-  return buildVerdictResult(mission, planResult, runDir, reason, verdict, startedAt, startTime);
 }
 
 function buildSafeModeResult(
@@ -544,7 +577,16 @@ export async function runMultitaskMission(
       return state.result;
     }
 
-    if (isRepoMutationAllowed(mission)) {
+    if (
+      isRepoMutationAllowed(mission) &&
+      (state.stage === 'planning' ||
+        state.stage === 'executing_tasks' ||
+        state.stage === 'running' ||
+        (state.stage === 'completed' &&
+          state.result &&
+          (state.result.verdict === 'MULTITASK_MISSION_DONE' ||
+            state.result.verdict === 'MULTITASK_MISSION_DONE_WITH_CAVEATS')))
+    ) {
       const requiredCommits: { sha: string; task_id: string; kind: string }[] = [];
       const absent: { task_id: string; kind: string }[] = [];
       for (const s of state.tasks) {
@@ -617,9 +659,6 @@ export async function runMultitaskMission(
     }
   }
 
-  state.stage = 'running';
-  saveMissionState(runDir, state, options.writeStateFn);
-
   const autopilotConfigPath = planResult.generated_files.find((p) => p.endsWith('autopilot.config.json'));
   if (!autopilotConfigPath || !existsSync(autopilotConfigPath)) {
     const reason = 'Generated autopilot config not found';
@@ -630,31 +669,48 @@ export async function runMultitaskMission(
   }
 
   const autopilotConfig = loadAutopilotRunConfig(autopilotConfigPath);
+
+  const shouldSkipAutopilot =
+    resume &&
+    state.autopilot_result &&
+    state.stage !== 'planning' &&
+    state.stage !== 'executing_tasks' &&
+    state.stage !== 'running';
+
   let autopilotResult: AutopilotRunResult;
-  try {
-    autopilotResult = await runAutopilotRunFn(autopilotConfig, autopilotConfigPath, {
-      command: `npx tsx src/cli.ts autopilot-run ${autopilotConfigPath}`,
-      resume,
-      skipPrCreation: true,
-    });
-    if (mutationAllowed) {
-      const afterHead = getCurrentHead(mission.repo_path, gitExec);
-      // Track only commits introduced on top of the mission base. When the
-      // caller started from a branch other than base_branch, the inner MVP runner
-      // will have checked out base_branch and created the work branch from
-      // baseSha; comparing against the pre-run HEAD would include base-branch
-      // commits that are not part of this mission.
-      if (afterHead && isAncestor(mission.repo_path, baseSha, afterHead, gitExec)) {
-        const newCommits = getCommitsBetween(mission.repo_path, baseSha, afterHead, gitExec);
-        state.mission_commits = Array.from(new Set([...(state.mission_commits ?? []), ...newCommits]));
-      }
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    state.last_error = message;
+  if (shouldSkipAutopilot) {
+    autopilotResult = state.autopilot_result!;
+  } else {
+    state.stage = 'executing_tasks';
     saveMissionState(runDir, state, options.writeStateFn);
-    return buildFailureResult(mission, planResult, runDir, `Autopilot run failed: ${message}`, startedAt, startTime);
+    try {
+      autopilotResult = await runAutopilotRunFn(autopilotConfig, autopilotConfigPath, {
+        command: `npx tsx src/cli.ts autopilot-run ${autopilotConfigPath}`,
+        resume,
+        skipPrCreation: true,
+        deferRemoteFinalization: true,
+      });
+      if (mutationAllowed) {
+        const afterHead = getCurrentHead(mission.repo_path, gitExec);
+        // Track only commits introduced on top of the mission base. When the
+        // caller started from a branch other than base_branch, the inner MVP runner
+        // will have checked out base_branch and created the work branch from
+        // baseSha; comparing against the pre-run HEAD would include base-branch
+        // commits that are not part of this mission.
+        if (afterHead && isAncestor(mission.repo_path, baseSha, afterHead, gitExec)) {
+          const newCommits = getCommitsBetween(mission.repo_path, baseSha, afterHead, gitExec);
+          state.mission_commits = Array.from(new Set([...(state.mission_commits ?? []), ...newCommits]));
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      state.last_error = message;
+      saveMissionState(runDir, state, options.writeStateFn);
+      return buildFailureResult(mission, planResult, runDir, `Autopilot run failed: ${message}`, startedAt, startTime);
+    }
   }
+
+  state.autopilot_result = autopilotResult;
 
   // Reconcile task states.
   const latestStates = mapAutopilotResultToTaskStates(autopilotResult);
@@ -693,38 +749,17 @@ export async function runMultitaskMission(
     }
   }
 
-  state.stage = 'reviewing';
-  saveMissionState(runDir, state, options.writeStateFn);
-
   const allRequiredAccepted = allRequiredTasksAccepted(planResult.plan.tasks, state.tasks);
-  let integratedDiff: string;
-  try {
-    integratedDiff = isRepoMutationAllowed(mission)
-      ? options.collectDiffFn
-        ? options.collectDiffFn(mission.repo_path, mission.base_branch, workBranch)
-        : collectDiff(mission.repo_path, mission.base_branch, workBranch)
-      : '';
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const reason = `Integrated diff collection failed: ${message}`;
-    // If diff collection fails after task commits have been made, rollback the
-    // local mission branch so rejected work is not left behind without a result.
-    if (mutationAllowed) {
-      const rollback = performMissionRollback(
-        mission.repo_path,
-        workBranch,
-        state.mission_commits ?? [],
-        state.rolled_back_commits ?? [],
-        false,
-        gitExec
-      );
-      if (rollback.ok) {
-        state.rolled_back_commits = rollback.rolledBack;
-      } else {
-        state.rolled_back_commits = rollback.rolledBack;
-      }
-    }
-    const result = buildFailureResult(mission, planResult, runDir, reason, startedAt, startTime);
+  if (
+    autopilotResult.verdict !== 'AUTOPILOT_GREEN' &&
+    autopilotResult.verdict !== 'AUTOPILOT_MVP_DONE_CI_NOT_OBSERVED' &&
+    autopilotResult.verdict !== 'AUTOPILOT_MVP_DEFERRED'
+  ) {
+    const { verdict, reason } = mapAutopilotFailureToMissionVerdict(autopilotResult);
+    const result = buildMissionResult(mission, planResult, runDir, reason, verdict, startedAt, startTime, state.tasks, {
+      autopilot_result: autopilotResult,
+      work_branch: workBranch,
+    });
     state.stage = 'completed';
     state.last_error = reason;
     state.result = result;
@@ -735,84 +770,142 @@ export async function runMultitaskMission(
     return result;
   }
 
-  const finalReviewInput = {
-    mission,
-    plan: planResult.plan,
-    autopilotResult: autopilotResult,
-    integratedDiff,
-    taskStates: state.tasks,
-  };
+  if (!allRequiredAccepted) {
+    const reason = 'Not all required tasks were accepted; final mission review cannot approve';
+    const result = buildMissionResult(
+      mission,
+      planResult,
+      runDir,
+      reason,
+      'MULTITASK_MISSION_FAILED',
+      startedAt,
+      startTime,
+      state.tasks,
+      { autopilot_result: autopilotResult, work_branch: workBranch }
+    );
+    state.stage = 'completed';
+    state.last_error = reason;
+    state.result = result;
+    saveMissionState(runDir, state, options.writeStateFn);
+    const finishedAt = nowIso();
+    const durationMs = Date.now() - startTime;
+    writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+    return result;
+  }
 
-  let finalReview: MultitaskMissionFinalReview;
-  try {
-    if (options.runFinalReviewFn) {
-      finalReview = await options.runFinalReviewFn(finalReviewInput);
-    } else if (mission.mode === 'fake') {
-      // Fake mode missions (tests / dry runs) use the deterministic fallback so
-      // they can exercise the rest of the pipeline without an OpenAI token.
-      finalReview = await runMissionFinalReview(finalReviewInput);
-    } else {
-      const reviewCallFn = options.reviewCallFn ?? buildProductionFinalReviewCallFn();
-      finalReview = await runMissionFinalReview(finalReviewInput, reviewCallFn);
+  // Final review: run only if not already persisted.
+  if (!state.final_review) {
+    state.stage = 'mission_review';
+    saveMissionState(runDir, state, options.writeStateFn);
+
+    let integratedDiff: string;
+    try {
+      integratedDiff = isRepoMutationAllowed(mission)
+        ? options.collectDiffFn
+          ? options.collectDiffFn(mission.repo_path, mission.base_branch, workBranch)
+          : collectDiff(mission.repo_path, mission.base_branch, workBranch)
+        : '';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const reason = `Integrated diff collection failed: ${message}`;
+      if (mutationAllowed) {
+        const rollback = performMissionRollback(
+          mission.repo_path,
+          workBranch,
+          state.mission_commits ?? [],
+          state.rolled_back_commits ?? [],
+          false,
+          gitExec
+        );
+        if (rollback.ok) {
+          state.rolled_back_commits = rollback.rolledBack;
+        } else {
+          state.rolled_back_commits = rollback.rolledBack;
+        }
+      }
+      const result = buildMissionResult(
+        mission,
+        planResult,
+        runDir,
+        reason,
+        'MULTITASK_MISSION_FAILED',
+        startedAt,
+        startTime,
+        state.tasks,
+        { autopilot_result: autopilotResult, work_branch: workBranch }
+      );
+      state.stage = 'completed';
+      state.last_error = reason;
+      state.result = result;
+      saveMissionState(runDir, state, options.writeStateFn);
+      const finishedAt = nowIso();
+      const durationMs = Date.now() - startTime;
+      writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+      return result;
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const verdict: MultitaskMissionVerdict =
-      message.includes('OPENAI_API_KEY') || message.includes('Final reviewer is not available')
-        ? 'MULTITASK_MISSION_NEEDS_HUMAN'
-        : 'MULTITASK_MISSION_EXTERNAL_BLOCKER';
-    const reason =
-      verdict === 'MULTITASK_MISSION_NEEDS_HUMAN'
-        ? `Final reviewer is not available: ${message}`
-        : `Final reviewer failed: ${message}`;
 
-    const taskResults: MultitaskMissionTaskResult[] = state.tasks
-      .filter((s): s is MultitaskMissionTaskState & { status: MultitaskMissionTaskResult['status'] } =>
-        s.status !== 'pending' && s.status !== 'running'
-      )
-      .map((s) => ({
-        task_id: s.task_id,
-        title: planResult.plan.tasks.find((t) => t.id === s.task_id)?.title ?? s.task_id,
-        status: s.status,
-        commit_sha: s.commit_sha,
-        fix_commit_sha: s.fix_commit_sha,
-        reason: s.reason,
-      }));
-
-    const result: MultitaskMissionResult = {
+    const finalReviewInput = {
       mission,
       plan: planResult.plan,
-      plan_result: planResult,
-      autopilot_result: autopilotResult,
-      task_results: taskResults,
-      task_states: state.tasks,
-      verdict,
-      reason,
-      run_dir: runDir,
-      exit_code: 1,
-      next_human_action: buildNextHumanAction(verdict, autopilotResult),
-      work_branch: workBranch,
+      autopilotResult,
+      integratedDiff,
+      taskStates: state.tasks,
     };
 
-    state.stage = 'completed';
-    state.last_error = reason;
-    state.result = result;
-    saveMissionState(runDir, state, options.writeStateFn);
+    try {
+      let finalReview: MultitaskMissionFinalReview;
+      if (options.runFinalReviewFn) {
+        finalReview = await options.runFinalReviewFn(finalReviewInput);
+      } else if (mission.mode === 'fake') {
+        // Fake mode missions (tests / dry runs) use the deterministic fallback so
+        // they can exercise the rest of the pipeline without an OpenAI token.
+        finalReview = await runMissionFinalReview(finalReviewInput);
+      } else {
+        const reviewCallFn = options.reviewCallFn ?? buildProductionFinalReviewCallFn();
+        finalReview = await runMissionFinalReview(finalReviewInput, reviewCallFn);
+      }
+      state.final_review = finalReview;
+      saveMissionState(runDir, state, options.writeStateFn);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const verdict: MultitaskMissionVerdict =
+        message.includes('OPENAI_API_KEY') || message.includes('Final reviewer is not available')
+          ? 'MULTITASK_MISSION_NEEDS_HUMAN'
+          : 'MULTITASK_MISSION_EXTERNAL_BLOCKER';
+      const reason =
+        verdict === 'MULTITASK_MISSION_NEEDS_HUMAN'
+          ? `Final reviewer is not available: ${message}`
+          : `Final reviewer failed: ${message}`;
 
-    const finishedAt = nowIso();
-    const durationMs = Date.now() - startTime;
-    writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+      const result = buildMissionResult(
+        mission,
+        planResult,
+        runDir,
+        reason,
+        verdict,
+        startedAt,
+        startTime,
+        state.tasks,
+        { autopilot_result: autopilotResult, work_branch: workBranch }
+      );
 
-    return result;
+      state.stage = 'completed';
+      state.last_error = reason;
+      state.result = result;
+      saveMissionState(runDir, state, options.writeStateFn);
+
+      const finishedAt = nowIso();
+      const durationMs = Date.now() - startTime;
+      writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+
+      return result;
+    }
   }
 
-  let { verdict, reason } = mapAutopilotVerdict(autopilotResult, finalReview, allRequiredAccepted);
-  let rollbackError: string | undefined;
+  const finalReview = state.final_review!;
 
-  // When the final mission gate rejects the work, revert the mission-owned commits
-  // on the local work branch. Per AGENTS.md, the orchestrator never pushes; the
-  // human operator decides whether to push the cleaned-up branch.
-  if (mutationAllowed && verdict !== 'MULTITASK_MISSION_DONE' && verdict !== 'MULTITASK_MISSION_DONE_WITH_CAVEATS') {
+  // Reject mission if final review is not an approval.
+  if (finalReview.verdict !== 'approved' && finalReview.verdict !== 'approved_with_caveats') {
     const rollback = performMissionRollback(
       mission.repo_path,
       workBranch,
@@ -824,63 +917,136 @@ export async function runMultitaskMission(
     if (rollback.ok) {
       state.rolled_back_commits = rollback.rolledBack;
     } else {
-      rollbackError = rollback.error;
       state.rolled_back_commits = rollback.rolledBack;
-      verdict = 'MULTITASK_MISSION_FAILED';
-      reason = `Mission rollback failed: ${rollback.error}`;
+    }
+
+    const reason =
+      finalReview.verdict === 'rejected'
+        ? `Mission-level final review rejected: ${finalReview.summary}`
+        : `Mission-level final review requested changes: ${finalReview.summary}`;
+    const result = buildMissionResult(
+      mission,
+      planResult,
+      runDir,
+      reason,
+      'MULTITASK_MISSION_FAILED',
+      startedAt,
+      startTime,
+      state.tasks,
+      { autopilot_result: autopilotResult, final_review: finalReview, work_branch: workBranch }
+    );
+    state.stage = 'completed';
+    state.last_error = reason;
+    state.result = result;
+    saveMissionState(runDir, state, options.writeStateFn);
+    const finishedAt = nowIso();
+    const durationMs = Date.now() - startTime;
+    writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+    return result;
+  }
+
+  // Create or reuse the mission PR.
+  state.stage = 'creating_pr';
+  saveMissionState(runDir, state, options.writeStateFn);
+  let pr = state.pr;
+  if (!pr && mission.capabilities.allow_pr_create) {
+    pr = await createMissionPr(autopilotConfigPath, autopilotResult, finalReview.summary, options);
+    if (pr) {
+      state.pr = pr;
+      saveMissionState(runDir, state, options.writeStateFn);
     }
   }
 
-  const exitCode =
-    autopilotResult.exit_code === 0 &&
-    (verdict === 'MULTITASK_MISSION_DONE' || verdict === 'MULTITASK_MISSION_DONE_WITH_CAVEATS')
-      ? 0
-      : 1;
-
-  const taskResults: MultitaskMissionTaskResult[] = state.tasks
-    .filter((s): s is MultitaskMissionTaskState & { status: MultitaskMissionTaskResult['status'] } =>
-      s.status !== 'pending' && s.status !== 'running'
-    )
-    .map((s) => ({
-      task_id: s.task_id,
-      title: planResult.plan.tasks.find((t) => t.id === s.task_id)?.title ?? s.task_id,
-      status: s.status,
-      commit_sha: s.commit_sha,
-      fix_commit_sha: s.fix_commit_sha,
-      reason: s.reason,
-    }));
-
-  let pr: { number: number; url: string } | undefined;
-  if (verdict === 'MULTITASK_MISSION_DONE' || verdict === 'MULTITASK_MISSION_DONE_WITH_CAVEATS') {
-    if (mission.capabilities.allow_pr_create) {
-      pr = await createMissionPr(autopilotConfigPath, autopilotResult, reason, options);
+  // Observe CI only after the PR exists. For plans where CI is disabled, the
+  // autopilot run already returned MVP_DONE_CI_NOT_OBSERVED and we skip this phase.
+  let ciOutcome: AutopilotRemoteFinalizationResult | undefined = state.ci_outcome;
+  if (
+    autopilotResult.verdict === 'AUTOPILOT_MVP_DEFERRED' &&
+    autopilotConfig.ci.enabled &&
+    autopilotConfig.ci.wait_for_ci
+  ) {
+    if (!ciOutcome) {
+      state.stage = 'awaiting_ci';
+      saveMissionState(runDir, state, options.writeStateFn);
+      const mvpConfigForCi = buildMvpConfigForMissionPr(autopilotConfigPath, autopilotResult);
+      const runAutopilotRemoteFinalizationFn = options.runAutopilotRemoteFinalizationFn ?? runAutopilotRemoteFinalization;
+      try {
+        ciOutcome = await runAutopilotRemoteFinalizationFn(autopilotConfig, mvpConfigForCi, {});
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        ciOutcome = {
+          verdict: 'AUTOPILOT_FAILED',
+          reason: `CI observation failed: ${message}`,
+          repair_attempts: 0,
+        };
+      }
+      state.ci_outcome = ciOutcome;
+      state.stage = ciOutcome.verdict === 'AUTOPILOT_GREEN' ? 'completed' : 'ci_repair';
+      saveMissionState(runDir, state, options.writeStateFn);
     }
-  } else if (state.pr) {
-    await closeMissionPr(mission.repo_slug, state.pr.number, options);
+    if (ciOutcome.verdict !== 'AUTOPILOT_GREEN') {
+      const { verdict, reason } = mapCiVerdictToMissionVerdict(ciOutcome);
+      const result = buildMissionResult(
+        mission,
+        planResult,
+        runDir,
+        reason,
+        verdict,
+        startedAt,
+        startTime,
+        state.tasks,
+        {
+          autopilot_result: autopilotResult,
+          final_review: finalReview,
+          pr,
+          work_branch: workBranch,
+          ci_run_id: ciOutcome.ci_run_id,
+          ci_conclusion: ciOutcome.ci_conclusion,
+          diagnosis: ciOutcome.diagnosis,
+          repair_attempts: ciOutcome.repair_attempts,
+        }
+      );
+      state.stage = 'completed';
+      state.last_error = reason;
+      state.result = result;
+      saveMissionState(runDir, state, options.writeStateFn);
+      const finishedAt = nowIso();
+      const durationMs = Date.now() - startTime;
+      writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+      return result;
+    }
   }
 
-  const result: MultitaskMissionResult = {
-    mission,
-    plan: planResult.plan,
-    plan_result: planResult,
-    autopilot_result: autopilotResult,
-    final_review: finalReview,
-    task_results: taskResults,
-    task_states: state.tasks,
-    verdict,
-    reason,
-    run_dir: runDir,
-    exit_code: exitCode,
-    next_human_action: buildNextHumanAction(verdict, autopilotResult),
-    work_branch: workBranch,
-    pr: pr ?? state.pr,
-  };
-
+  // Mission approved.
   state.stage = 'completed';
+  const missionVerdict: MultitaskMissionVerdict =
+    finalReview.verdict === 'approved_with_caveats' ? 'MULTITASK_MISSION_DONE_WITH_CAVEATS' : 'MULTITASK_MISSION_DONE';
+  const missionReason =
+    ciOutcome?.reason ??
+    (autopilotResult.verdict === 'AUTOPILOT_MVP_DONE_CI_NOT_OBSERVED'
+      ? 'Mission approved; CI observation disabled'
+      : 'Mission approved');
+  const result = buildMissionResult(
+    mission,
+    planResult,
+    runDir,
+    missionReason,
+    missionVerdict,
+    startedAt,
+    startTime,
+    state.tasks,
+    {
+      autopilot_result: autopilotResult,
+      final_review: finalReview,
+      pr,
+      work_branch: workBranch,
+      ci_run_id: ciOutcome?.ci_run_id,
+      ci_conclusion: ciOutcome?.ci_conclusion,
+      diagnosis: ciOutcome?.diagnosis,
+      repair_attempts: ciOutcome?.repair_attempts,
+    }
+  );
   state.result = result;
-  if (result.pr) {
-    state.pr = result.pr;
-  }
   saveMissionState(runDir, state, options.writeStateFn);
 
   const finishedAt = nowIso();

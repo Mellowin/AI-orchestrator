@@ -1,5 +1,7 @@
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanResult, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import type { AutopilotRunResult } from '../../autopilot-run/types.js';
+import type { AutopilotRemoteFinalizationResult } from '../../autopilot-run/runner.js';
+import type { DiagnoseCiResult } from '../../diagnose-ci/types.js';
 
 import type { MvpRunPrResult } from '../../mvp-run/types.js';
 
@@ -65,6 +67,11 @@ export interface MultitaskMissionResult {
   work_branch?: string;
   /** PR opened for the mission, if any. */
   pr?: { number: number; url: string };
+  /** CI run observed for the mission, if any. */
+  ci_run_id?: number;
+  ci_conclusion?: string | null;
+  diagnosis?: DiagnoseCiResult;
+  repair_attempts?: number;
 }
 
 export interface RunMultitaskMissionOptions {
@@ -79,6 +86,12 @@ export interface RunMultitaskMissionOptions {
   writeStateFn?: (path: string, data: string) => void;
   readStateFn?: (path: string) => string;
   gitExecFn?: (args: string[], options?: { cwd?: string }) => { status: number | null; stdout: string; stderr: string };
+  /** Override the CI observation and repair phase for tests. */
+  runAutopilotRemoteFinalizationFn?: (
+    config: import('../../autopilot-run/types.js').AutopilotRunConfig,
+    mvpConfig: import('../../mvp-run/types.js').MvpRunConfig,
+    options: { fetchFn?: typeof globalThis.fetch; spawnFn?: typeof import('node:child_process').spawnSync }
+  ) => Promise<AutopilotRemoteFinalizationResult>;
   /** Override PR creation for tests. */
   createMvpRunPrFn?: (config: import('../../mvp-run/types.js').MvpRunConfig, token: string, summary: string) => Promise<MvpRunPrResult>;
   /** Override PR close for tests. */

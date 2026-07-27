@@ -7,7 +7,7 @@ import type { AutopilotRunConfig, AutopilotRunOptions, AutopilotRunResult } from
 
 export { loadAutopilotRunConfig, validateAutopilotRunConfig } from './config-loader.js';
 export { validateAutopilotEnv, buildCapabilitySummary } from './env-validator.js';
-export { runAutopilotRun, type RunAutopilotRunInternalOptions } from './runner.js';
+export { runAutopilotRun, runAutopilotRemoteFinalization, type RunAutopilotRunInternalOptions, type RunAutopilotRemoteFinalizationOptions, type AutopilotRemoteFinalizationResult } from './runner.js';
 export {
   writeAutopilotReports,
   getAutopilotReportDir,
