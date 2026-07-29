@@ -34,6 +34,11 @@ export interface RealBlockRunTaskResult {
   rollbackReason?: string;
   childStateTaskId: string;
   providerAttempts?: ProviderAttempt[];
+  timeoutEvidence?: {
+    totalElapsedMs: number;
+    timeoutMs: number;
+    continuationCount: number;
+  };
 }
 
 export interface RealBlockRunSummary {

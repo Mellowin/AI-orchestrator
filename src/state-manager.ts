@@ -23,6 +23,29 @@ const VALID_STATUSES: RunStatus[] = [
   'blocked',
 ];
 
+const VALID_TASK_PHASES: import('./types.js').TaskRunPhase[] = [
+  'generating',
+  'checking',
+  'repairing',
+  'committed',
+  'pushed',
+  'reviewer_pending',
+  'reviewer_fix_pending',
+  'fix_pushed',
+  'second_review_pending',
+  'accepted',
+  'blocked',
+  'failed',
+];
+
+const VALID_PROVIDER_ATTEMPT_TYPES: import('./types.js').ProviderAttemptType[] = [
+  'initial_coder',
+  'sandbox_repair',
+  'reviewer',
+  'reviewer_fix_coder',
+  'second_reviewer',
+];
+
 function validateTaskId(taskId: string): void {
   if (!taskId || taskId.length === 0) {
     throw new Error('taskId must not be empty');
@@ -57,6 +80,35 @@ function validateRunState(state: unknown): void {
     throw new Error(
       `Invalid state.json: unknown status "${String(state.status)}"`
     );
+  }
+
+  if (
+    state.task_phase !== undefined &&
+    !VALID_TASK_PHASES.includes(state.task_phase as import('./types.js').TaskRunPhase)
+  ) {
+    throw new Error(
+      `Invalid state.json: unknown task_phase "${String(state.task_phase)}"`
+    );
+  }
+
+  if (state.provider_attempts !== undefined) {
+    if (!Array.isArray(state.provider_attempts)) {
+      throw new Error('Invalid state.json: provider_attempts must be an array');
+    }
+    for (let i = 0; i < state.provider_attempts.length; i++) {
+      const pa = state.provider_attempts[i];
+      if (!isObject(pa)) {
+        throw new Error(`Invalid state.json: provider_attempts[${i}] is not an object`);
+      }
+      if (
+        pa.type !== undefined &&
+        !VALID_PROVIDER_ATTEMPT_TYPES.includes(pa.type as import('./types.js').ProviderAttemptType)
+      ) {
+        throw new Error(
+          `Invalid state.json: unknown provider_attempts[${i}].type "${String(pa.type)}"`
+        );
+      }
+    }
   }
 
   if (

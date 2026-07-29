@@ -1,23 +1,38 @@
 import type { BlockDefinition } from './block/block-types.js';
 
 const DEFAULT_TASK_TIMEOUT_MS = 120000;
-const MIN_TASK_TIMEOUT_MS = 30000;
+const REAL_PROVIDER_TASK_TIMEOUT_MS = 600000;
+const MIN_TASK_TIMEOUT_MS = 500;
 const MAX_TASK_TIMEOUT_MS = 900000;
 
-export function validateTaskTimeoutMs(value: unknown): number {
+function isRealProviderBlock(block: BlockDefinition): boolean {
+  const coderProvider = block.providers?.coder?.provider;
+  // Treat 'kimi' and any other non-fake remote providers as real.
+  return coderProvider !== undefined && coderProvider !== 'fake';
+}
+
+export function getDefaultTaskTimeoutMs(block?: BlockDefinition): number {
+  if (block && isRealProviderBlock(block)) {
+    return REAL_PROVIDER_TASK_TIMEOUT_MS;
+  }
+  return DEFAULT_TASK_TIMEOUT_MS;
+}
+
+export function validateTaskTimeoutMs(value: unknown, block?: BlockDefinition): number {
+  const defaultMs = getDefaultTaskTimeoutMs(block);
   if (value === undefined || value === null) {
-    return DEFAULT_TASK_TIMEOUT_MS;
+    return defaultMs;
   }
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (trimmed === '') {
-      return DEFAULT_TASK_TIMEOUT_MS;
+      return defaultMs;
     }
     const num = Number(trimmed);
     if (!Number.isInteger(num)) {
       throw new Error(`Invalid task timeout "${value}": must be an integer`);
     }
-    return validateTaskTimeoutMs(num);
+    return validateTaskTimeoutMs(num, block);
   }
 
   if (typeof value !== 'number' || !Number.isInteger(value)) {
@@ -36,15 +51,15 @@ export function validateTaskTimeoutMs(value: unknown): number {
 export function resolveTaskTimeoutMs(block: BlockDefinition): number {
   const fromBlock = block.review_policy?.task_timeout_ms;
   if (fromBlock !== undefined) {
-    return validateTaskTimeoutMs(fromBlock);
+    return validateTaskTimeoutMs(fromBlock, block);
   }
 
   const fromEnv = process.env.REAL_BLOCK_TASK_TIMEOUT_MS;
   if (fromEnv !== undefined && fromEnv.trim() !== '') {
-    return validateTaskTimeoutMs(fromEnv);
+    return validateTaskTimeoutMs(fromEnv, block);
   }
 
-  return DEFAULT_TASK_TIMEOUT_MS;
+  return getDefaultTaskTimeoutMs(block);
 }
 
 const DEFAULT_REVIEWER_PARSE_RETRIES = 2;

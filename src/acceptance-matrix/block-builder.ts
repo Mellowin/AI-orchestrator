@@ -27,7 +27,6 @@ function buildBaseBlock(
       require_deterministic_checks: false,
       max_fix_attempts: 2,
       reviewer_mode: 'single',
-      task_timeout_ms: 120000,
       reviewer_parse_retries: 2,
       on_blocked_task: scenario.type === 'blocked_continue' ? 'continue' : 'stop',
     },

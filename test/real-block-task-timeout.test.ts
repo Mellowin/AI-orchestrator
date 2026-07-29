@@ -13,7 +13,9 @@ function buildBlock(overrides: {
   taskTimeoutMs?: number;
   reviewerParseRetries?: number;
   onBlockedTask?: 'stop' | 'continue' | 'skip';
+  coderProvider?: string;
 } = {}): BlockDefinition {
+  const coderProvider = overrides.coderProvider ?? 'kimi';
   return {
     block_id: 'test-block',
     title: 'Test',
@@ -21,8 +23,8 @@ function buildBlock(overrides: {
     base_branch: 'main',
     work_branch: 'ai/test',
     providers: {
-      coder: { provider: 'kimi', model: 'kimi-k2.6' },
-      reviewer: { provider: 'kimi', model: 'kimi-k2.6' },
+      coder: { provider: coderProvider, model: 'kimi-k2.6' },
+      reviewer: { provider: coderProvider, model: 'kimi-k2.6' },
     },
     review_policy: {
       require_deterministic_checks: false,
@@ -38,24 +40,36 @@ function buildBlock(overrides: {
 
 describe('real-block-task-timeout', () => {
   describe('validateTaskTimeoutMs', () => {
-    test('default is 120000', () => {
+    test('default is 120000 without block', () => {
       assert.strictEqual(validateTaskTimeoutMs(undefined), 120000);
     });
 
+    test('default is 120000 for fake provider block', () => {
+      const fakeBlock = buildBlock({ coderProvider: 'fake' });
+      assert.strictEqual(validateTaskTimeoutMs(undefined, fakeBlock), 120000);
+    });
+
+    test('default is 600000 for real provider block', () => {
+      const realBlock = buildBlock({ coderProvider: 'kimi' });
+      assert.strictEqual(validateTaskTimeoutMs(undefined, realBlock), 600000);
+    });
+
     test('block value overrides default', () => {
-      assert.strictEqual(validateTaskTimeoutMs(300000), 300000);
+      const realBlock = buildBlock({ coderProvider: 'kimi' });
+      assert.strictEqual(validateTaskTimeoutMs(300000, realBlock), 300000);
     });
 
     test('env string overrides default when block value absent', () => {
-      assert.strictEqual(validateTaskTimeoutMs('300000'), 300000);
+      const realBlock = buildBlock({ coderProvider: 'kimi' });
+      assert.strictEqual(validateTaskTimeoutMs('300000', realBlock), 300000);
     });
 
     test('invalid low value fails', () => {
-      assert.throws(() => validateTaskTimeoutMs(29999), /between 30000 and 900000/);
+      assert.throws(() => validateTaskTimeoutMs(499), /between 500 and 900000/);
     });
 
     test('invalid high value fails', () => {
-      assert.throws(() => validateTaskTimeoutMs(900001), /between 30000 and 900000/);
+      assert.throws(() => validateTaskTimeoutMs(900001), /between 500 and 900000/);
     });
 
     test('non-number value fails', () => {
@@ -76,6 +90,18 @@ describe('real-block-task-timeout', () => {
       process.env.REAL_BLOCK_TASK_TIMEOUT_MS = '450000';
       const block = buildBlock({});
       assert.strictEqual(resolveTaskTimeoutMs(block), 450000);
+    });
+
+    test('fake provider default is 120000 when env absent', () => {
+      delete process.env.REAL_BLOCK_TASK_TIMEOUT_MS;
+      const block = buildBlock({ coderProvider: 'fake' });
+      assert.strictEqual(resolveTaskTimeoutMs(block), 120000);
+    });
+
+    test('real provider default is 600000 when env absent', () => {
+      delete process.env.REAL_BLOCK_TASK_TIMEOUT_MS;
+      const block = buildBlock({ coderProvider: 'kimi' });
+      assert.strictEqual(resolveTaskTimeoutMs(block), 600000);
     });
 
     test.after(() => {

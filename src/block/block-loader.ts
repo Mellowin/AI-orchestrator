@@ -138,8 +138,8 @@ export function loadBlockDefinition(path: string): BlockDefinition {
 
   const taskTimeoutMs = reviewPolicyObj.task_timeout_ms;
   if (taskTimeoutMs !== undefined) {
-    if (typeof taskTimeoutMs !== 'number' || !Number.isInteger(taskTimeoutMs) || taskTimeoutMs < 30000 || taskTimeoutMs > 900000) {
-      throw new Error('Block definition review_policy.task_timeout_ms must be an integer between 30000 and 900000');
+    if (typeof taskTimeoutMs !== 'number' || !Number.isInteger(taskTimeoutMs) || taskTimeoutMs < 500 || taskTimeoutMs > 900000) {
+      throw new Error('Block definition review_policy.task_timeout_ms must be an integer between 500 and 900000');
     }
   }
 

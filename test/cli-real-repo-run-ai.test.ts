@@ -724,7 +724,8 @@ describe('cli real-repo-run-ai', () => {
       const after = getBareRefs(originPath);
       assert.deepStrictEqual(after, before, `Bare remote should not change on apply failure`);
       const state = loadStateFromPath(runsDir, taskId);
-      assert.strictEqual(state, null, `State should not be written on apply failure`);
+      assert.notStrictEqual(state, null, `State should capture pre-apply progress`);
+      assert.strictEqual(state?.task_phase, 'checking', `State should reflect checking phase, not pushed: ${JSON.stringify(state)}`);
     } finally {
       cleanup();
     }
@@ -753,7 +754,8 @@ describe('cli real-repo-run-ai', () => {
       const after = getBareRefs(originPath);
       assert.deepStrictEqual(after, before, `Bare remote should not change on check failure`);
       const state = loadStateFromPath(runsDir, taskId);
-      assert.strictEqual(state, null, `State should not be written on check failure`);
+      assert.notStrictEqual(state, null, `State should capture pre-commit progress`);
+      assert.strictEqual(state?.task_phase, 'checking', `State should reflect checking phase, not pushed: ${JSON.stringify(state)}`);
     } finally {
       cleanup();
     }
@@ -1598,7 +1600,9 @@ describe('cli real-repo-run-ai', () => {
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0);
-      assert.strictEqual(loadStateFromPath(runsDir, taskId), null, `No state should be written`);
+      const state = loadStateFromPath(runsDir, taskId);
+      assert.notStrictEqual(state, null, `State should capture failure progress`);
+      assert.strictEqual(state?.task_phase, 'checking', `State should reflect checking phase: ${JSON.stringify(state)}`);
     } finally {
       cleanup();
     }
@@ -2610,9 +2614,10 @@ describe('cli real-repo-run-ai', () => {
       // No push
       const after = getBareRefs(originPath);
       assert.deepStrictEqual(after, before, `Should not push when repair also fails`);
-      // No state
+      // State is written during phase saving, but it must not be pushed.
       const state = loadStateFromPath(runsDir, taskId);
-      assert.strictEqual(state, null, `State should not be written`);
+      assert.notStrictEqual(state, null, `State should capture failure progress`);
+      assert.notStrictEqual(state?.status, 'pushed', `State should not be pushed: ${JSON.stringify(state)}`);
     } finally {
       cleanup();
     }
@@ -3623,7 +3628,9 @@ describe('cli real-repo-run-ai', () => {
       const after = getBareRefs(originPath);
       assert.deepStrictEqual(after, before, 'Should not push when apply fails');
       const state = loadStateFromPath(runsDir, taskId);
-      assert.strictEqual(state, null, `State should not be written when apply fails`);
+      assert.notStrictEqual(state, null, `State should capture pre-apply progress`);
+      assert.strictEqual(state?.task_phase, 'checking', `State should reflect checking phase: ${JSON.stringify(state)}`);
+      assert.strictEqual((state as Record<string, unknown>)?.reviewer_gate, undefined, `Reviewer gate should not be set when apply fails`);
     } finally {
       cleanup();
     }

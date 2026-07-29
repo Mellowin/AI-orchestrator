@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBlockDefinition } from './block/block-loader.js';
@@ -18,7 +18,7 @@ import {
   resolveOnBlockedTask,
 } from './real-block-task-timeout.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
-import type { ProviderAttempt } from './types.js';
+import type { ProviderAttempt, TaskRunPhase } from './types.js';
 import type {
   RealBlockRunState,
   RealBlockRunSummary,
@@ -37,12 +37,24 @@ import {
   formatRunLockError,
   releaseRunLock,
   RunLockError,
+  getRepoRunLockPath,
 } from './run-lock.js';
 import { writeJsonAtomic } from './state-atomic-write.js';
 import { runGitHealthPreflight, formatGitHealthPreflightError } from './git-health-preflight.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, '..');
+
+// Continuation budget for a single task run. A task may be re-spawned up to
+// MAX_TASK_CONTINUATIONS times, but the cumulative wall time must stay under
+// TOTAL_TASK_CEILING_MS.
+const MAX_TASK_CONTINUATIONS = 2;
+const TOTAL_TASK_CEILING_MS = 900000;
+
+type RunSingleTaskResult =
+  | { kind: 'completed'; exitCode: number; state: Record<string, unknown> | null }
+  | { kind: 'timeout'; state: Record<string, unknown> | null; elapsedMs: number }
+  | { kind: 'error'; error: string; state: Record<string, unknown> | null };
 
 interface FakeResponseArrays {
   kimi?: (string | undefined)[];
@@ -214,19 +226,22 @@ function runSingleTask(
   task: BlockTaskDefinition,
   index: number,
   arrays: FakeResponseArrays,
-  timeoutMs: number
-): { exitCode: number; state: Record<string, unknown> | null } {
+  timeoutMs: number,
+  resume = false
+): RunSingleTaskResult {
   const runsDir = getRunsDir();
   const blockRunDir = getBlockRunDir(block);
   const childRunsDir = getChildRunsDir(runsDir);
 
   // Child real-repo-run-ai writes state to runs/tasks/<task_id>/state.json.
-  // If a previous block used the same task_id, stale state would be reused.
-  // Clean the per-task run directory under the child namespace before each
-  // task so every block run is fresh without touching runs/block/**.
-  const staleTaskRunDir = join(childRunsDir, task.task_id);
-  if (existsSync(staleTaskRunDir)) {
-    rmSync(staleTaskRunDir, { recursive: true, force: true });
+  // Only remove stale child state when starting a fresh task run. Resume and
+  // continuation passes must reuse the existing child state so the child CLI can
+  // pick up where it left off.
+  if (!resume) {
+    const staleTaskRunDir = join(childRunsDir, task.task_id);
+    if (existsSync(staleTaskRunDir)) {
+      rmSync(staleTaskRunDir, { recursive: true, force: true });
+    }
   }
 
   const tasksFilePath = join(blockRunDir, `${task.task_id}.tasks.yaml`);
@@ -236,6 +251,11 @@ function runSingleTask(
   env.TASKS_FILE = tasksFilePath;
   env.RUNS_DIR = childRunsDir;
   env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP = '1';
+
+  if (resume) {
+    env.REAL_REPO_RUN_RESUME = '1';
+    env.REAL_REPO_RUN_RESUME_TIMEOUT_MS = String(timeoutMs);
+  }
 
   const blockMaxFixAttempts =
     typeof block.review_policy?.max_fix_attempts === 'number' &&
@@ -285,6 +305,22 @@ function runSingleTask(
     }
   }
 
+  // If a previous child process was killed (e.g. by timeout) it could not
+  // release its repo run lock. The parent controls task execution order, so it
+  // is safe to remove any leftover lock for this task before spawning again.
+  const repoRunLockPath = getRepoRunLockPath(
+    resolve(block.repo_path),
+    block.work_branch,
+    childRunsDir
+  );
+  if (existsSync(repoRunLockPath)) {
+    try {
+      unlinkSync(repoRunLockPath);
+    } catch {
+      // ignore
+    }
+  }
+
   const cliPath = join(projectRoot, 'src', 'cli.ts');
   const tsxCliPath = join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const result = spawnSync(
@@ -299,6 +335,24 @@ function runSingleTask(
     }
   );
 
+  const childLoad = loadChildState(task.task_id, runsDir);
+  const state = childLoad.kind === 'loaded' ? childLoad.state : null;
+
+  if (result.error) {
+    const err = result.error as NodeJS.ErrnoException;
+    const isTimeout = err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT');
+    if (isTimeout) {
+      const elapsedMs =
+        typeof state?.total_elapsed_ms === 'number' && typeof state?.timeout_ms === 'number'
+          ? state.total_elapsed_ms + state.timeout_ms
+          : timeoutMs;
+      console.error(`[real-block-run-ai] Task ${task.task_id} runner timed out after ${timeoutMs} ms`);
+      return { kind: 'timeout', state, elapsedMs };
+    }
+    console.error(`[real-block-run-ai] Task ${task.task_id} runner spawn error: ${redactSecrets(err.message ?? String(result.error))}`);
+    return { kind: 'error', error: err.message ?? String(result.error), state };
+  }
+
   if (result.status !== 0) {
     const output = (result.stderr || result.stdout || '').trim();
     console.error(`[real-block-run-ai] Task ${task.task_id} runner exited with code ${result.status}`);
@@ -308,9 +362,56 @@ function runSingleTask(
     }
   }
 
-  const childLoad = loadChildState(task.task_id, runsDir);
-  const state = childLoad.kind === 'loaded' ? childLoad.state : null;
-  return { exitCode: result.status ?? 1, state };
+  return { kind: 'completed', exitCode: result.status ?? 1, state };
+}
+
+function executeTaskWithContinuations(
+  block: BlockDefinition,
+  task: BlockTaskDefinition,
+  index: number,
+  arrays: FakeResponseArrays,
+  timeoutMs: number,
+  resumeChild: boolean
+): { exitCode: number; state: Record<string, unknown> | null; timedOut: boolean } {
+  let totalElapsedMs = 0;
+  let continuationCount = 0;
+  let currentResume = resumeChild;
+
+  while (true) {
+    const run = runSingleTask(block, task, index, arrays, timeoutMs, currentResume);
+
+    if (run.kind === 'timeout') {
+      const elapsedThisPass = run.elapsedMs ?? timeoutMs;
+      totalElapsedMs += elapsedThisPass;
+
+      if (continuationCount >= MAX_TASK_CONTINUATIONS) {
+        console.error(
+          `[real-block-run-ai] Task ${task.task_id} exceeded max continuations (${MAX_TASK_CONTINUATIONS}); treating as failed.`
+        );
+        return { exitCode: 1, state: run.state, timedOut: true };
+      }
+
+      if (totalElapsedMs >= TOTAL_TASK_CEILING_MS) {
+        console.error(
+          `[real-block-run-ai] Task ${task.task_id} exceeded total time ceiling (${TOTAL_TASK_CEILING_MS}ms); treating as failed.`
+        );
+        return { exitCode: 1, state: run.state, timedOut: true };
+      }
+
+      continuationCount += 1;
+      currentResume = true;
+      console.error(
+        `[real-block-run-ai] Task ${task.task_id} timed out; continuation ${continuationCount}/${MAX_TASK_CONTINUATIONS} (${totalElapsedMs}ms elapsed)`
+      );
+      continue;
+    }
+
+    if (run.kind === 'error') {
+      return { exitCode: 1, state: run.state, timedOut: false };
+    }
+
+    return { exitCode: run.exitCode, state: run.state, timedOut: false };
+  }
 }
 
 function getStateString(
@@ -480,7 +581,7 @@ function isBlockingStatus(status: string): boolean {
 
 function deriveTaskResult(
   task: BlockTaskDefinition,
-  run: { exitCode: number; state: Record<string, unknown> | null }
+  run: { exitCode: number; state: Record<string, unknown> | null; timedOut?: boolean }
 ): RealBlockRunTaskResult {
   const base: RealBlockRunTaskResult = {
     taskId: task.task_id,
@@ -725,15 +826,42 @@ function deriveTaskResult(
   }
 
   if (runStatus === 'pushed' && run.exitCode === 0) {
-    base.status = 'accepted';
-    base.finalStatus = 'accepted';
-    base.nextAction = 'continue';
-    base.checksResult = 'pass';
-    base.reason = 'Task pushed without reviewer gate.';
-    return base;
+    const phase = state.task_phase as TaskRunPhase | undefined;
+    // A pushed commit is only final acceptance when the child has reached the
+    // accepted phase, when there is no persisted phase information (legacy
+    // state), or when no reviewer gate was configured at all.
+    const isAcceptedPhase = phase === 'accepted' || phase === undefined || phase === null;
+    const hasReviewerGate = reviewerGate !== undefined;
+    const noReviewerFinalPush = !hasReviewerGate && phase === 'pushed';
+    if (isAcceptedPhase || noReviewerFinalPush) {
+      base.status = 'accepted';
+      base.finalStatus = 'accepted';
+      base.nextAction = 'continue';
+      base.checksResult = 'pass';
+      base.reason = 'Task pushed without reviewer gate.';
+      return base;
+    }
   }
 
   base.checksResult = run.exitCode === 0 ? 'pass' : 'fail';
+
+  if (run.timedOut) {
+    const timeoutMs = typeof state.timeout_ms === 'number' ? state.timeout_ms : 0;
+    const totalElapsedMs =
+      typeof state.total_elapsed_ms === 'number' ? state.total_elapsed_ms : 0;
+    const continuationCount =
+      typeof state.continuation_count === 'number' ? state.continuation_count : 0;
+    base.timeoutEvidence = {
+      totalElapsedMs,
+      timeoutMs,
+      continuationCount,
+    };
+    base.reason = redactSecrets(
+      `Task timed out after ${totalElapsedMs}ms (timeout_ms=${timeoutMs}, continuation_count=${continuationCount}).`
+    );
+    return base;
+  }
+
   base.reason = redactSecrets(
     `Task ended with status ${String(runStatus)} and exit code ${run.exitCode}.`
   );
@@ -1047,12 +1175,7 @@ export async function runRealBlockRunAI(
     }
 
     let taskResult: RealBlockRunTaskResult;
-    const hasStaleIncompleteResult =
-      existingResult !== undefined && !isCompletedTaskStatus(existingResult.status);
-    const childLoad =
-      resume && !hasStaleIncompleteResult
-        ? loadChildState(task.task_id, getRunsDir())
-        : { kind: 'missing' as const };
+    const childLoad = resume ? loadChildState(task.task_id, getRunsDir()) : { kind: 'missing' as const };
 
     if (childLoad.kind === 'corrupted') {
       return blockResumeFailure(
@@ -1070,23 +1193,32 @@ export async function runRealBlockRunAI(
       }
 
       const derived = deriveTaskResult(task, { exitCode: 0, state: validation.state });
-      if (!isCompletedTaskStatus(derived.status)) {
-        return blockResumeFailure(
+      if (isCompletedTaskStatus(derived.status)) {
+        const shaError = validateCompletedChildResult(derived, block.repo_path);
+        if (shaError) {
+          return blockResumeFailure(block, blockState, task.task_id, shaError);
+        }
+        taskResult = derived;
+      } else {
+        const run = executeTaskWithContinuations(
           block,
-          blockState,
-          task.task_id,
-          `Task ${task.task_id} has incomplete child state (${derived.status}); resume cannot continue safely.`
+          task,
+          i,
+          arrays,
+          resolveTaskTimeoutMs(block),
+          true
         );
+        taskResult = deriveTaskResult(task, run);
       }
-
-      const shaError = validateCompletedChildResult(derived, block.repo_path);
-      if (shaError) {
-        return blockResumeFailure(block, blockState, task.task_id, shaError);
-      }
-
-      taskResult = derived;
     } else {
-      const run = runSingleTask(block, task, i, arrays, resolveTaskTimeoutMs(block));
+      const run = executeTaskWithContinuations(
+        block,
+        task,
+        i,
+        arrays,
+        resolveTaskTimeoutMs(block),
+        false
+      );
       taskResult = deriveTaskResult(task, run);
     }
 

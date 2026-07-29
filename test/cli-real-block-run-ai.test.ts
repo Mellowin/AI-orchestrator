@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { createServer } from 'node:net';
 
 let counter = 0;
 
@@ -346,6 +347,25 @@ function createCommit(repoPath: string, message: string, files: Record<string, s
     throw new Error(`git rev-parse failed: ${revResult.stderr}`);
   }
   return revResult.stdout.trim();
+}
+
+function startHangingServer(): Promise<{ url: string; close: () => Promise<void> }> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((socket) => {
+      socket.setTimeout(0);
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (address === null || typeof address === 'string') {
+        server.close(() => reject(new Error('Failed to get server address')));
+        return;
+      }
+      resolve({
+        url: `http://127.0.0.1:${address.port}`,
+        close: () => new Promise((res) => server.close(() => res())),
+      });
+    });
+  });
 }
 
 function getBlockState(runsDir: string, blockId: string): Record<string, unknown> | null {
@@ -1251,35 +1271,50 @@ describe('cli real-block-run-ai', () => {
     }
   });
 
-  test('resume completes after partial failure without duplicating task 1', () => {
+  test('resume completes after partial timeout without duplicating task 1', async () => {
+    const server = await startHangingServer();
     const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
     try {
       const beforeLogCount = getGitLogCount(repoPath);
 
-      // First run: task1 accepted, task2 fails before commit due to invalid Kimi response.
+      // First run: task-one is accepted. task-two pushes its original commit and
+      // then times out while waiting for the reviewer gate (hanging server).
       const firstResult = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
         RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_TIMEOUT_MS: '2000',
+        KIMI_BASE_URL: server.url,
         REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
           buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
-          'not-valid-json',
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
         ]),
         REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
           buildAcceptReview('Looks good'),
           null,
         ]),
       }));
-      assert.notStrictEqual(firstResult.status, 0, `Expected first run failure: ${firstResult.stderr}`);
+      assert.notStrictEqual(firstResult.status, 0, `Expected first run timeout: ${firstResult.stderr}`);
+      assert(
+        firstResult.stderr.includes('timed out'),
+        `Expected parent timeout detection: ${firstResult.stderr}`
+      );
       const afterFirstLogCount = getGitLogCount(repoPath);
-      assert.strictEqual(afterFirstLogCount, beforeLogCount + 1, 'First run should create only task 1 commit');
+      assert.strictEqual(afterFirstLogCount, beforeLogCount + 2, 'First run should create task 1 and task 2 original commits');
 
       const firstState = getBlockState(runsDir, blockId);
       assert(firstState !== null);
       assert.strictEqual(firstState.status, 'failed');
       const firstTaskOneSha = (firstState.taskResults[0] as Record<string, unknown>).originalCommitSha as string;
+      const taskTwoResult = firstState.taskResults[1] as Record<string, unknown>;
+      assert.strictEqual(taskTwoResult.status, 'failed');
+      assert((taskTwoResult.timeoutEvidence as Record<string, unknown>) !== undefined, 'Task two should record timeout evidence');
+      const taskTwoOriginalSha = taskTwoResult.originalCommitSha as string;
 
-      // Resume: task2 now succeeds via fix-loop accepted.
+      // Resume: task-two continues from the reviewer gate, gets rejected, fixes,
+      // pushes a fix commit, and is accepted by the second reviewer.
       const resumeResult = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({
         RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_TIMEOUT_MS: '2000',
+        KIMI_BASE_URL: 'http://localhost:9999',
         REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
           buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
           buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
@@ -1298,7 +1333,7 @@ describe('cli real-block-run-ai', () => {
         ]),
       }));
       assert.strictEqual(resumeResult.status, 0, `Expected resume success: ${resumeResult.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Resume should add task2 original+fix, not duplicate task1');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Resume should add only task 2 fix commit');
 
       const resumedState = getBlockState(runsDir, blockId);
       assert(resumedState !== null);
@@ -1318,25 +1353,36 @@ describe('cli real-block-run-ai', () => {
       assert.strictEqual(taskResults[0].status, 'accepted');
       assert.strictEqual(taskResults[0].originalCommitSha, firstTaskOneSha, 'Task 1 SHA should be preserved');
       assert.strictEqual(taskResults[1].status, 'fixed_and_accepted');
+      assert.strictEqual(taskResults[1].originalCommitSha, taskTwoOriginalSha, 'Task 2 original SHA should be preserved');
 
       const output = resumeResult.stdout + resumeResult.stderr;
       assert(output.includes('Resume mode enabled'), `Output should mention resume mode: ${output}`);
       assert(output.includes('Skipped tasks: task-one'), `Output should list skipped task: ${output}`);
       assert(output.includes('Next task: task-two'), `Output should list next task: ${output}`);
+      assert(
+        taskResults[1].originalCommitSha === taskTwoOriginalSha,
+        'Resume must preserve the original task-two commit and not re-run the initial coder/apply/commit/push'
+      );
     } finally {
+      await server.close();
       cleanup();
     }
   });
 
-  test('REAL_BLOCK_RUN_RESUME=1 env flag enables resume', () => {
+  test('REAL_BLOCK_RUN_RESUME=1 env flag enables resume after timeout', async () => {
+    const server = await startHangingServer();
     const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
     try {
       const beforeLogCount = getGitLogCount(repoPath);
+
+      // First run accepts task-one and times out task-two after its original push.
       runCli(['real-block-run-ai', blockPath], baseBlockEnv({
         RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_TIMEOUT_MS: '2000',
+        KIMI_BASE_URL: server.url,
         REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
           buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
-          'not-valid-json',
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
         ]),
         REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
           buildAcceptReview('Looks good'),
@@ -1344,9 +1390,11 @@ describe('cli real-block-run-ai', () => {
         ]),
       }));
 
+      // Resume via env flag completes the reviewer gate for task-two.
       const resumeResult = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
         RUNS_DIR: runsDir,
         REAL_BLOCK_RUN_RESUME: '1',
+        REAL_BLOCK_TASK_TIMEOUT_MS: '2000',
         REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
           buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
           buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
@@ -1357,8 +1405,18 @@ describe('cli real-block-run-ai', () => {
         ]),
       }));
       assert.strictEqual(resumeResult.status, 0, `Expected resume success: ${resumeResult.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Resume should create task2 commit only');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Task-one and task-two original commits should exist; resume must not duplicate');
+
+      const resumedState = getBlockState(runsDir, blockId);
+      assert(resumedState !== null);
+      assert.strictEqual(resumedState.status, 'completed');
+      assert.strictEqual(resumedState.resumed, true);
+      const taskResults = resumedState.taskResults as Record<string, unknown>[];
+      assert.strictEqual(taskResults.length, 2);
+      assert.strictEqual(taskResults[0].status, 'accepted');
+      assert.strictEqual(taskResults[1].status, 'accepted');
     } finally {
+      await server.close();
       cleanup();
     }
   });
@@ -1941,7 +1999,10 @@ describe('cli real-block-run-ai', () => {
       const summary = state.summary as Record<string, unknown>;
       assert.strictEqual(summary.blockedTaskId, 'task-two');
       const output = result.stdout + result.stderr;
-      assert(output.includes('incomplete child state'), `Expected incomplete child state message: ${output}`);
+      assert(
+        output.includes('Resume validation failed') || output.includes('is not HEAD or an ancestor'),
+        `Expected resume validation failure message: ${output}`
+      );
       assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
     } finally {
       cleanup();

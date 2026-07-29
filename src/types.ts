@@ -1,3 +1,5 @@
+import type { PersistedReviewerGate } from './reviewer-task-outcome.js';
+
 export interface Task {
   id: string;
   title: string;
@@ -36,8 +38,30 @@ export type RunStatus =
   | 'rejected'
   | 'failed_guardrails'
   | 'failed_max_attempts'
+  | 'failed'
   | 'pushed'
   | 'blocked';
+
+export type TaskRunPhase =
+  | 'generating'
+  | 'checking'
+  | 'repairing'
+  | 'committed'
+  | 'pushed'
+  | 'reviewer_pending'
+  | 'reviewer_fix_pending'
+  | 'fix_pushed'
+  | 'second_review_pending'
+  | 'accepted'
+  | 'blocked'
+  | 'failed';
+
+export type ProviderAttemptType =
+  | 'initial_coder'
+  | 'sandbox_repair'
+  | 'reviewer'
+  | 'reviewer_fix_coder'
+  | 'second_reviewer';
 
 export type RollbackPolicy =
   | 'pre_push_failure'
@@ -61,11 +85,40 @@ export interface ProviderAttempt {
   retryable?: boolean;
   recovery_prompt?: boolean;
   raw_text_length?: number;
+  type?: ProviderAttemptType;
+}
+
+export interface ReviewerPhaseEvidence {
+  reviewer_started_at?: string;
+  reviewer_result?: {
+    status: string;
+    source: string;
+    nextAction: string;
+    blockingIssues: string[];
+    nonBlockingIssues: string[];
+    reviewSummary: string;
+    fixTask?: string;
+  };
+  fix_task_created?: boolean;
+  fix_started_at?: string;
+  fix_commit_sha?: string;
+  fix_pushed_at?: string;
+  second_review_started_at?: string;
+  second_review_result?: {
+    status: string;
+    source: string;
+    nextAction: string;
+    blockingIssues: string[];
+    nonBlockingIssues: string[];
+    reviewSummary: string;
+    fixTask?: string;
+  };
 }
 
 export interface RunState {
   task_id: string;
   status: RunStatus;
+  task_phase?: TaskRunPhase;
   current_attempt: number;
   branch: string;
   repo_path: string;
@@ -85,6 +138,16 @@ export interface RunState {
   pushed?: boolean;
   safety_policy_reasons?: string[];
   provider_attempts?: ProviderAttempt[];
+  // Timeout / continuation budget evidence (all optional for backward compatibility).
+  task_started_at?: string;
+  phase_started_at?: string;
+  continuation_count?: number;
+  total_elapsed_ms?: number;
+  timeout_ms?: number;
+  next_timeout_ms?: number;
+  child_pid?: number;
+  reviewer_phase_evidence?: ReviewerPhaseEvidence;
+  reviewer_gate?: PersistedReviewerGate;
 }
 
 export interface KimiOutput {
