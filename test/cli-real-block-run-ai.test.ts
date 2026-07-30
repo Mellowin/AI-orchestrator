@@ -876,11 +876,11 @@ describe('cli real-block-run-ai', () => {
           buildAcceptReview('Task one looks good'),
           buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
         ]),
-        // The block-level fix Kimi response for task-two is an array of two
-        // fake responses: the first produces no actual diff (same content as
-        // the already-committed file), so the real executor must treat it as a
-        // retryable failed attempt. The second adds the missing fix.txt and is
-        // accepted by the second reviewer.
+        // The block-level fix Kimi response for task-two contains two responses.
+        // The first response is structurally valid but proposes the already-existing
+        // content of feature.txt, so the executor must classify it as ALL_IDENTICAL
+        // and retry internally. The second response creates fix.txt and is accepted
+        // by the second reviewer.
         REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
           null,
           [
@@ -923,12 +923,17 @@ describe('cli real-block-run-ai', () => {
 
       const attempts = (state as Record<string, unknown>).reviewer_fix_attempts as Record<string, unknown>[] | undefined;
       assert(attempts, 'Block state should record fix attempt evidence');
-      assert.strictEqual(attempts.length, 2, 'Both failed no-op and accepted fix attempts should be recorded');
-      assert.strictEqual(attempts[0].decision, 'retry');
+      assert.strictEqual(attempts.length, 1, 'Internal no-op retry should collapse into a single accepted outer fix attempt');
+      assert.strictEqual(attempts[0].decision, 'accept');
       assert.strictEqual(attempts[0].attempt, 1);
-      assert((attempts[0].reason as string).includes('No working tree changes'), `Expected retry reason: ${attempts[0].reason}`);
-      assert.strictEqual(attempts[1].decision, 'accept');
-      assert.strictEqual(attempts[1].attempt, 2);
+
+      const providerAttempts = (taskTwo.providerAttempts ?? []) as Array<Record<string, unknown>>;
+      const fixCoderAttempts = providerAttempts.filter((a) => a.type === 'reviewer_fix_coder');
+      assert(fixCoderAttempts.length >= 2, `Expected at least two reviewer_fix_coder provider attempts, got ${fixCoderAttempts.length}`);
+      const noOpAttempt = fixCoderAttempts.find((a) => a.classification === 'ALL_IDENTICAL' || a.classification === 'EMPTY_FILE_LIST');
+      assert(noOpAttempt, 'One reviewer_fix_coder attempt should be classified as a no-op output');
+      const effectiveAttempt = fixCoderAttempts.find((a) => a.classification === 'EFFECTIVE_CHANGES');
+      assert(effectiveAttempt, 'One reviewer_fix_coder attempt should be classified as effective changes');
     } finally {
       cleanup();
     }
@@ -2832,7 +2837,7 @@ describe('cli real-block-run-ai', () => {
   test('no-op fix attempts exhaust retry budget and block the task', () => {
     const base = createTempBlockEnv();
     const definition = JSON.parse(readFileSync(base.blockPath, 'utf-8')) as Record<string, unknown>;
-    (definition.review_policy as Record<string, unknown>).max_fix_attempts = 2;
+    (definition.review_policy as Record<string, unknown>).max_fix_attempts = 1;
     writeFileSync(base.blockPath, JSON.stringify(definition, null, 2), 'utf-8');
     const { blockId, blockPath, repoPath, runsDir, cleanup } = base;
     try {
@@ -2849,10 +2854,10 @@ describe('cli real-block-run-ai', () => {
         ]),
         REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
           null,
+          // The only fix-coder response is structurally valid but proposes the
+          // already-existing content of feature.txt, so the executor classifies it
+          // as ALL_IDENTICAL and exhausts the one fix attempt without creating a commit.
           [
-            // Both fix attempts produce the same content as the already-committed
-            // feature.txt, so each is a no-op and the retry budget is consumed.
-            buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
             buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
           ],
         ]),
@@ -2870,10 +2875,9 @@ describe('cli real-block-run-ai', () => {
 
       const attempts = (state as Record<string, unknown>).reviewer_fix_attempts as Record<string, unknown>[] | undefined;
       assert(attempts, 'Block state should record failed fix attempts');
-      assert.strictEqual(attempts.length, 2, 'Both no-op attempts should be recorded');
+      assert.strictEqual(attempts.length, 1, 'One blocked fix attempt should be recorded');
       assert.strictEqual(attempts[0].decision, 'retry');
-      assert.strictEqual(attempts[1].decision, 'retry');
-      assert((attempts[1].reason as string).includes('working tree changes') || (attempts[1].reason as string).includes('No working tree changes'), `Expected retry reason: ${attempts[1].reason}`);
+      assert((attempts[0].reason as string).includes('PROVIDER_NO_EFFECT_OUTPUT') || (attempts[0].reason as string).includes('ALL_IDENTICAL') || (attempts[0].reason as string).includes('No working tree changes'), `Expected no-effect reason: ${attempts[0].reason}`);
     } finally {
       cleanup();
     }
@@ -3010,9 +3014,8 @@ describe('cli real-block-run-ai', () => {
       assert(state !== null);
       const attempts = (state as Record<string, unknown>).reviewer_fix_attempts as Record<string, unknown>[] | undefined;
       assert(attempts, 'Rejected no-op attempt should be recorded');
-      assert.strictEqual(attempts.length, 2);
-      assert.strictEqual(attempts[0].decision, 'retry');
-      assert.strictEqual(attempts[1].decision, 'accept');
+      assert.strictEqual(attempts.length, 1, 'Internal no-op retry should collapse into a single accepted outer fix attempt');
+      assert.strictEqual(attempts[0].decision, 'accept');
     } finally {
       cleanup();
     }

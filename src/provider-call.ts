@@ -105,7 +105,9 @@ export function normalizeProviderCallError(error: unknown): ProviderCallErrorInf
     lower.includes('unauthorized') ||
     lower.includes('authentication') ||
     lower.includes('forbidden') ||
-    lower.includes('access denied');
+    lower.includes('access denied') ||
+    httpStatus === 401 ||
+    httpStatus === 403;
 
   const isClientError = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500;
   const isServerError = httpStatus !== undefined && httpStatus >= 500 && httpStatus < 600;
@@ -231,6 +233,18 @@ export function resolveProviderRetryConfig(): ProviderRetryConfig {
   };
 }
 
+export interface ProviderAttemptCallbackInfo<T = unknown> {
+  attempt: number;
+  prompt: string;
+  rawText?: string;
+  parsed?: T;
+  error?: unknown;
+}
+
+export type ProviderAttemptCallback<T = unknown> = (
+  info: ProviderAttemptCallbackInfo<T>
+) => void | Promise<void>;
+
 export type RecoveryPromptBuilder = (basePrompt: string, lastError: string) => string;
 
 export interface CallProviderWithRetryOptions<T = string> {
@@ -244,6 +258,7 @@ export interface CallProviderWithRetryOptions<T = string> {
   config?: Partial<ProviderRetryConfig>;
   logPrefix?: string;
   sleepFn?: (ms: number) => Promise<void>;
+  onAttempt?: ProviderAttemptCallback<T>;
 }
 
 export interface CallProviderWithRetryResult<T = string> {
@@ -283,6 +298,51 @@ export function buildRecoveryPrompt(basePrompt: string, parseError: string): str
   ].join('\n');
 }
 
+export function buildSchemaCorrectionPrompt(basePrompt: string, parseError: string): string {
+  const safeError = parseError.replace(/sk-[^\s]*/g, '[REDACTED]').replace(/Bearer\s+[^\s]*/gi, 'Bearer [REDACTED]');
+  return [
+    'Your previous response was not valid JSON or did not match the required schema.',
+    `Schema error: ${safeError}`,
+    '',
+    'Return ONLY a single valid JSON object.',
+    'Do not use Markdown fences.',
+    'Do not include prose or explanations.',
+    'Use exactly this schema:',
+    '',
+    '{',
+    '  "mode": "file_update",',
+    '  "files": [',
+    '    {',
+    '      "path": "relative/path/from/repo",',
+    '      "content": "full file content after changes"',
+    '    }',
+    '  ],',
+    '  "notes": "short optional note"',
+    '}',
+    '',
+    'The "files" field is REQUIRED and must be an array.',
+    'Every element in "files" must be an object with non-empty "path" and "content" strings.',
+    'If you cannot produce a valid change, return empty files with a note.',
+    '',
+    basePrompt,
+  ].join('\n');
+}
+
+export function selectRecoveryPrompt(basePrompt: string, lastError: string): string {
+  const lower = lastError.toLowerCase();
+  const isSchemaError =
+    lower.includes('kimioutput') ||
+    lower.includes('files must be an array') ||
+    lower.includes('invalid kimi json') ||
+    lower.includes('fenced block') ||
+    lower.includes('json parse error') ||
+    lower.includes('invalid json');
+  if (isSchemaError) {
+    return buildSchemaCorrectionPrompt(basePrompt, lastError);
+  }
+  return buildRecoveryPrompt(basePrompt, lastError);
+}
+
 export class ProviderCallFailedError extends Error {
   constructor(
     message: string,
@@ -307,6 +367,7 @@ export async function callProviderWithRetry<T = string>(
     config: customConfig,
     logPrefix = '[real-repo-run-ai]',
     sleepFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    onAttempt,
   } = options;
 
   const resolvedConfig: ProviderRetryConfig = {
@@ -332,10 +393,11 @@ export async function callProviderWithRetry<T = string>(
   for (let attempt = 1; attempt <= resolvedConfig.maxAttempts; attempt++) {
     const useRecoveryPrompt = attempt > 1;
     const prompt = useRecoveryPrompt ? buildRecovery(basePrompt, lastErrorMessage) : basePrompt;
+    let normalized: ProviderCallResult | undefined;
 
     try {
       const result = await providerCall(buildProviderCallInput('coder', prompt, provider, model));
-      const normalized = normalizeProviderCallResult(result);
+      normalized = normalizeProviderCallResult(result);
       if (parseOutput !== undefined) {
         const parsed = parseOutput(normalized.text);
         providerAttempts.push({
@@ -344,6 +406,9 @@ export async function callProviderWithRetry<T = string>(
           recovery_prompt: useRecoveryPrompt,
           raw_text_length: normalized.text.length,
         });
+        if (onAttempt) {
+          await onAttempt({ attempt, prompt, rawText: normalized.text, parsed });
+        }
         return { text: normalized.text, output: parsed, providerAttempts };
       }
       providerAttempts.push({
@@ -352,6 +417,9 @@ export async function callProviderWithRetry<T = string>(
         recovery_prompt: useRecoveryPrompt,
         raw_text_length: normalized.text.length,
       });
+      if (onAttempt) {
+        await onAttempt({ attempt, prompt, rawText: normalized.text });
+      }
       return { text: normalized.text, providerAttempts };
     } catch (err) {
       const info = normalizeProviderCallError(err);
@@ -364,6 +432,15 @@ export async function callProviderWithRetry<T = string>(
         retryable: info.isRetryable,
         recovery_prompt: useRecoveryPrompt,
       });
+
+      if (onAttempt) {
+        await onAttempt({
+          attempt,
+          prompt,
+          rawText: normalized?.text,
+          error: err,
+        });
+      }
 
       const decision = getProviderRetryDecision(info, attempt, resolvedConfig.maxAttempts);
       if (decision.shouldRetry) {

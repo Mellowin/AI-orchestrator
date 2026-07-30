@@ -288,19 +288,23 @@ function runSingleTask(
   }
 
   const fixKimiResponse = getTaskFakeResponse(arrays, 'fixKimi', index);
-  if (typeof fixKimiResponse === 'string') {
-    if (looksLikeJsonArrayString(fixKimiResponse)) {
+  if (fixKimiResponse !== undefined) {
+    if (Array.isArray(fixKimiResponse)) {
+      env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES = JSON.stringify(fixKimiResponse);
+    } else if (typeof fixKimiResponse === 'string' && looksLikeJsonArrayString(fixKimiResponse)) {
       env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES = fixKimiResponse;
-    } else {
+    } else if (typeof fixKimiResponse === 'string') {
       env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE = fixKimiResponse;
     }
   }
 
   const secondReviewerResponse = getTaskFakeResponse(arrays, 'secondReviewer', index);
-  if (typeof secondReviewerResponse === 'string') {
-    if (looksLikeJsonArrayString(secondReviewerResponse)) {
+  if (secondReviewerResponse !== undefined) {
+    if (Array.isArray(secondReviewerResponse)) {
+      env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSES = JSON.stringify(secondReviewerResponse);
+    } else if (typeof secondReviewerResponse === 'string' && looksLikeJsonArrayString(secondReviewerResponse)) {
       env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSES = secondReviewerResponse;
-    } else {
+    } else if (typeof secondReviewerResponse === 'string') {
       env.REAL_REPO_REVIEWER_SECOND_FAKE_RESPONSE = secondReviewerResponse;
     }
   }

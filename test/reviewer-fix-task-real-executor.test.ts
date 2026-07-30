@@ -375,9 +375,8 @@ describe('createReviewerFixTaskRealExecutor', () => {
     const parentTask = makeParentTask(repoPath, baseBranch, checks);
 
     // Kimi returns the same content that is already committed, so the working
-    // tree has no actual changes after apply. This is the same shape of failure
-    // that stopped PR #80: the fix produced no reviewable diff, and the system
-    // treated it as a terminal blocker instead of a retryable failed attempt.
+    // tree has no actual changes after apply. The new pipeline classifies this
+    // as ALL_IDENTICAL and fails the fix attempt without blocking it.
     setEnv(
       'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE',
       makeFakeResponse('fix.txt', 'initial\n')
@@ -387,7 +386,10 @@ describe('createReviewerFixTaskRealExecutor', () => {
     const result = await executor(makeInput('Fix the thing'));
 
     assert.strictEqual(result.status, 'failed', `Expected retryable failed status, got ${result.status}: ${result.reason}`);
-    assert(result.reason.includes('No working tree changes'), `Expected no-working-tree-changes reason: ${result.reason}`);
+    assert(
+      result.reason.includes('PROVIDER_NO_EFFECT_OUTPUT') || result.reason.includes('ALL_IDENTICAL'),
+      `Expected no-effect classification reason: ${result.reason}`
+    );
     assert(result.baseCommitSha, 'Result should include the base commit SHA before the fix attempt');
     assert.strictEqual(result.baseCommitSha, beforeHead, 'baseCommitSha should be the pre-fix HEAD');
     assert(result.commitSha === undefined || result.commitSha.length === 0, 'No valid fix commit should be produced');
@@ -408,5 +410,158 @@ describe('createReviewerFixTaskRealExecutor', () => {
       { cwd: repoPath, encoding: 'utf-8', shell: false }
     );
     assert.strictEqual(statusResult.stdout.trim(), '', 'Working tree should be clean after rollback');
+  });
+
+  test('malformed JSON response is corrected and then completed', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    const parentTask = makeParentTask(repoPath, baseBranch, []);
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES',
+      JSON.stringify(['not valid json', makeFakeResponse('fix.txt', 'fixed\n')])
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'completed');
+    assert(result.commitSha && result.commitSha.length === 40);
+    assert(result.changedFiles?.includes('fix.txt'));
+
+    const logResult = spawnSync('git', ['log', '--oneline', '--all'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    const commitCount = logResult.stdout.trim().split('\n').length;
+    assert.strictEqual(commitCount, 3, 'Expected init + add fix file + fix commit');
+  });
+
+  test('missing files field is corrected and then completed', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    const parentTask = makeParentTask(repoPath, baseBranch, []);
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES',
+      JSON.stringify([JSON.stringify({ mode: 'file_update' }), makeFakeResponse('fix.txt', 'fixed\n')])
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'completed');
+    assert(result.changedFiles?.includes('fix.txt'));
+  });
+
+  test('non-array files is corrected and then completed', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    const parentTask = makeParentTask(repoPath, baseBranch, []);
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES',
+      JSON.stringify([JSON.stringify({ mode: 'file_update', files: 'not-an-array' }), makeFakeResponse('fix.txt', 'fixed\n')])
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'completed');
+    assert(result.changedFiles?.includes('fix.txt'));
+  });
+
+  test('exhausted malformed responses result in failed, not blocked', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    const parentTask = makeParentTask(repoPath, baseBranch, []);
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES',
+      JSON.stringify(['bad', 'still bad', 'also bad'])
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'failed', `Expected failed, got ${result.status}: ${result.reason}`);
+    assert(!result.commitSha, 'No fix commit should be created');
+  });
+
+  test('no-effect response is corrected and then completed', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    const parentTask = makeParentTask(repoPath, baseBranch, []);
+    setEnv('REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS', '2');
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES',
+      JSON.stringify([makeFakeResponse('fix.txt', 'initial\n'), makeFakeResponse('fix.txt', 'fixed\n')])
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'completed');
+    assert(result.changedFiles?.includes('fix.txt'));
+
+    const logResult = spawnSync('git', ['log', '--oneline', '--all'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    const commitCount = logResult.stdout.trim().split('\n').length;
+    assert.strictEqual(commitCount, 3, 'Expected exactly one fix commit on top of setup');
+  });
+
+  test('auth error is blocked without retry', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    const parentTask = makeParentTask(repoPath, baseBranch, []);
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES',
+      JSON.stringify(['__AUTH_ERROR__'])
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'blocked', `Expected blocked, got ${result.status}: ${result.reason}`);
+    assert(!result.commitSha, 'No fix commit should be created');
+  });
+
+  test('denied file path is blocked without apply', async () => {
+    const { repoPath, baseBranch } = createTempRepo();
+    writeFileSync(join(repoPath, 'fix.txt'), 'initial\n', 'utf-8');
+    spawnSync('git', ['add', 'fix.txt'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'add fix file', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    const parentTask: Task = {
+      ...makeParentTask(repoPath, baseBranch, []),
+      guardrails: {
+        allow_modify: ['fix.txt'],
+        deny_modify: ['denied.txt'],
+        auto_commit: false,
+        auto_push: false,
+        auto_merge: false,
+      },
+    };
+    setEnv(
+      'REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE',
+      makeFakeResponse('denied.txt', 'x')
+    );
+
+    const executor = createReviewerFixTaskRealExecutor({ parentTask });
+    const result = await executor(makeInput('Fix the thing'));
+
+    assert.strictEqual(result.status, 'blocked', `Expected blocked, got ${result.status}: ${result.reason}`);
+    assert(!result.commitSha, 'No fix commit should be created');
+    assert(!existsSync(join(repoPath, 'denied.txt')), 'Denied file should not be created');
   });
 });

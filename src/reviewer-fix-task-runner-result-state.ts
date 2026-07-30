@@ -2,6 +2,7 @@ import type {
   ReviewerFixTaskRunnerResult,
   ReviewerFixTaskExecutorResult,
 } from './reviewer-fix-task-runner.js';
+import type { ProviderAttempt } from './types.js';
 import type { ReviewerFixTaskExecutionRequest } from './reviewer-pending-fix-task-execution-request.js';
 import type { ReviewerFixTaskDraft } from './reviewer-fix-task-plan.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
@@ -24,6 +25,7 @@ export interface PersistedReviewerFixTaskExecutorResult {
       failures?: number;
     };
   };
+  providerAttempts?: ProviderAttempt[];
 }
 
 export interface PersistedReviewerFixTaskRunnerResultState {
@@ -128,6 +130,10 @@ function buildPersistedExecutorResult(
           }
         : undefined,
     };
+  }
+
+  if (Array.isArray(value.providerAttempts)) {
+    result.providerAttempts = value.providerAttempts.map((attempt) => ({ ...attempt }));
   }
 
   return result;

@@ -2685,6 +2685,7 @@ describe('cli real-repo-run-ai', () => {
         ALLOW_REAL_REPO_COMMIT: 'true',
         ALLOW_REAL_REPO_PUSH: 'true',
         REAL_REPO_REVIEWER_NO_DEFAULT: '1',
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '0',
         KIMI_API_KEY: 'fake',
         KIMI_BASE_URL: 'http://localhost:9999',
         KIMI_FAKE_RESPONSE: buildFakeKimiOutput([{ path: 'README.md', content: '# modified\n' }]),
@@ -3358,6 +3359,7 @@ describe('cli real-repo-run-ai', () => {
           fixTask: 'use Bearer fake-reviewer-token',
         }),
         REAL_REPO_REVIEWER_FIX_TASK_FAKE_EXECUTOR_RESPONSE: 'not-json sk-fake-invalid-secret',
+        REAL_REPO_ENABLE_REVIEWER_FIX_LOOP: '0',
         RUNS_DIR: runsDir,
       });
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
@@ -3957,7 +3959,7 @@ describe('cli real-repo-run-ai', () => {
       assert(state !== null);
       const controlledRun = state.reviewer_fix_task_controlled_run as Record<string, unknown>;
       assert(controlledRun !== undefined, 'Should persist controlled run');
-      assert.strictEqual(controlledRun.runnerResultStatus, 'blocked');
+      assert.strictEqual(controlledRun.runnerResultStatus, 'failed_attempt');
 
       const controlledRunRaw = JSON.stringify(controlledRun);
       assert(!controlledRunRaw.includes('sk-fake-fix-invalid'), 'Should not leak invalid JSON secret in controlled run');

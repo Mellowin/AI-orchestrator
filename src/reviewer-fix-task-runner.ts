@@ -48,6 +48,7 @@ export interface ReviewerFixTaskExecutorResult {
       failures?: number;
     };
   };
+  providerAttempts?: import('./types.js').ProviderAttempt[];
 }
 
 export type ReviewerFixTaskExecutor = (
@@ -148,6 +149,10 @@ function cloneExecutorResult(
           }
         : undefined,
     };
+  }
+
+  if (Array.isArray(value.providerAttempts)) {
+    result.providerAttempts = value.providerAttempts.map((attempt) => ({ ...attempt }));
   }
 
   return result;

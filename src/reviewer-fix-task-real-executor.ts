@@ -7,17 +7,11 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { Task, KimiOutput } from './types.js';
-import { buildContext } from './context-builder.js';
-import { buildKimiPrompt } from './prompt-builder.js';
+import type { Task, KimiOutput, ProviderAttempt, PatchManifestEntry } from './types.js';
 import {
   createRealProviderCall,
-  buildProviderCallInput,
-  normalizeProviderCallResult,
-  normalizeProviderCallError,
   type FetchFn,
 } from './provider-call.js';
-import { parseKimiOutputJson } from './kimi-output-validator.js';
 import {
   validateFileList,
   validateProposedFileLineDeltas,
@@ -45,6 +39,12 @@ import type {
   ReviewerFixTaskExecutorResult,
 } from './reviewer-fix-task-runner.js';
 import type { ReviewerEvidenceInput } from './reviewer-evidence.js';
+import {
+  runCoderProviderPipeline,
+  buildReviewerFixAttemptDir,
+  type CoderProviderPipelineSuccess,
+} from './coder-provider-pipeline.js';
+import { writeProviderAttemptEvidence } from './provider-attempt-evidence.js';
 
 export interface CreateReviewerFixTaskRealExecutorOptions {
   parentTask: Task;
@@ -90,6 +90,18 @@ function buildFixCheckSummary(
   return summary;
 }
 
+function resolveReviewerFixMaxAttempts(): number {
+  const raw = process.env.REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS;
+  if (raw === undefined || raw.trim() === '') {
+    return 1;
+  }
+  const num = Number(raw.trim());
+  if (!Number.isInteger(num) || num < 1 || num > 5) {
+    throw new Error(`Invalid REAL_REPO_REVIEWER_MAX_FIX_ATTEMPTS: "${raw}". Must be an integer between 1 and 5.`);
+  }
+  return num;
+}
+
 function buildFixTaskPrompt(
   input: ReviewerFixTaskExecutorInput,
   context: {
@@ -98,6 +110,7 @@ function buildFixTaskPrompt(
     deniedFiles: string[];
     previousChangedFiles: string[];
     checks: Array<{ command: string; args: string[] }>;
+    currentHead: string;
   }
 ): string {
   const blocking = input.blockingIssues.length > 0
@@ -127,7 +140,8 @@ function buildFixTaskPrompt(
     `Attempt: ${input.attempt}\n` +
     `Title: ${input.title}\n` +
     `Fix Task Goal: ${input.goal}\n` +
-    `Original Parent Task Goal: ${context.parentGoal}\n\n` +
+    `Original Parent Task Goal: ${context.parentGoal}\n` +
+    `Current HEAD: ${context.currentHead}\n\n` +
     `# Blocking Issues to Address\n\n${blocking}\n\n` +
     `# Allowed Files\n\n${allowed}\n\n` +
     `# Denied Files\n\n${denied}\n\n` +
@@ -142,6 +156,79 @@ function buildFixTaskPrompt(
   );
 }
 
+function buildFixTaskNoEffectRecoveryPrompt(
+  input: ReviewerFixTaskExecutorInput,
+  parentTask: Task,
+  previousChangedFiles: string[],
+  currentHead: string,
+  classification: import('./kimi-output-classifier.js').KimiOutputClassification,
+  classifiedFiles: import('./kimi-output-classifier.js').ClassifiedProposedFile[],
+  attempt: number
+): string {
+  const previousPaths =
+    classifiedFiles.length > 0
+      ? classifiedFiles.map((f) => `${f.path} (${f.effect})`).join('\n')
+      : '(none)';
+  const allowedFiles = parentTask.guardrails.allow_modify ?? [];
+  const deniedFiles = parentTask.guardrails.deny_modify;
+  const maxLines = parentTask.guardrails.max_lines_changed;
+  const blocking = input.blockingIssues.map((i) => `- ${i}`).join('\n');
+  const previous = previousChangedFiles.map((f) => `- ${f}`).join('\n') || '(none)';
+
+  return [
+    'The previous fix-coder response was structurally valid but produced no actual changes.',
+    `Classification: ${classification}`,
+    `Previously proposed paths:`,
+    previousPaths,
+    '',
+    `Parent Task ID: ${input.parentTaskId}`,
+    `Fix Task ID: ${input.taskId}`,
+    `Fix Attempt: ${attempt}`,
+    `Original Parent Task Goal: ${parentTask.goal}`,
+    `Fix Task Goal: ${input.goal}`,
+    `Current HEAD: ${currentHead}`,
+    '',
+    '# Blocking Issues to Address',
+    blocking,
+    '',
+    '# Allowed Files',
+    allowedFiles.length > 0 ? allowedFiles.map((f) => `- ${f}`).join('\n') : '- No allowed files',
+    '',
+    '# Denied Files',
+    deniedFiles.length > 0 ? deniedFiles.map((f) => `- ${f}`).join('\n') : '- No denied files',
+    '',
+    '# Files Changed by Initial Commit',
+    previous,
+    ...(maxLines !== undefined
+      ? [
+          '',
+          '# Line Change Budget',
+          `HARD UPPER BOUND: no single file may change by more than ${maxLines} lines.`,
+        ]
+      : []),
+    '',
+    'You must return a response that creates or modifies at least one file within the allowed scope.',
+    'A new file with empty content still counts as a real change, but only if the task requires creating that file.',
+    'Do not repeat the same identical content for files that already exist.',
+    'Do not modify files outside the allowed scope.',
+    'Do not modify already-completed dependency artifacts unless the fix task explicitly requires it.',
+    '',
+    'Return ONLY valid JSON matching the file_update schema with at least one effective file update.',
+    'Use exactly this schema:',
+    '',
+    '{',
+    '  "mode": "file_update",',
+    '  "files": [',
+    '    {',
+    '      "path": "exact/allowed/path",',
+    '      "content": "complete corrected file content"',
+    '    }',
+    '  ],',
+    '  "notes": "optional"',
+    '}',
+  ].join('\n');
+}
+
 function buildFetchFnForFixTask(): FetchFn | undefined {
   const fakeResponsesRaw = process.env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSES;
   const fakeResponse = process.env.REAL_REPO_REVIEWER_FIX_TASK_KIMI_FAKE_RESPONSE;
@@ -154,12 +241,16 @@ function buildFetchFnForFixTask(): FetchFn | undefined {
     } catch {
       fakeResponses = [];
     }
+
     let index = 0;
     return async () => {
       const content = fakeResponses[index] ?? '';
       index++;
       if (content === '__FETCH_ERROR__') {
         return { ok: false, status: 500, json: async () => ({}) };
+      }
+      if (content === '__AUTH_ERROR__') {
+        return { ok: false, status: 401, json: async () => ({}) };
       }
       return {
         ok: true,
@@ -196,6 +287,24 @@ function blockResult(
     status: 'blocked',
     reason: redactSecrets(reason),
     blockingIssues: blockingIssues.map((i) => redactSecrets(i)),
+    checkSummary,
+  };
+}
+
+function failedResult(
+  checkpoint: RepoCheckpoint,
+  reason: string,
+  checkSummary?: ReviewerEvidenceInput['checkSummary'],
+  extraBlockingIssues: string[] = []
+): ReviewerFixTaskExecutorResult {
+  const rollbackResult = rollbackToCheckpoint(checkpoint);
+  return {
+    status: 'failed',
+    reason: redactSecrets(
+      `${reason} (rollback_status=${rollbackResult.status} attempted=${rollbackResult.attempted} checkpointHead=${rollbackResult.checkpointHead})`
+    ),
+    baseCommitSha: checkpoint.headSha,
+    blockingIssues: extraBlockingIssues.map((i) => redactSecrets(i)),
     checkSummary,
   };
 }
@@ -295,10 +404,22 @@ export function createReviewerFixTaskRealExecutor(
       previousHeadResult.status === 0
         ? getCommitChangedFiles(repoPath, previousHeadResult.stdout.trim())
         : [];
+    const currentHead = previousHeadResult.status === 0 ? previousHeadResult.stdout.trim() : '';
 
-    let kimiOutput: KimiOutput;
-    let rawProviderText: string;
-    try {
+    const maxFixAttempts = resolveReviewerFixMaxAttempts();
+    let providerAttempts: ProviderAttempt[] = [];
+    let nextGlobalAttemptNumber = 1;
+    let pipelineSuccess: CoderProviderPipelineSuccess | undefined;
+    let currentPrompt = buildFixTaskPrompt(input, {
+      parentGoal: parentTask.goal,
+      allowedFiles: parentTask.guardrails.allow_modify ?? [],
+      deniedFiles: parentTask.guardrails.deny_modify,
+      previousChangedFiles,
+      checks: parentTask.checks,
+      currentHead,
+    });
+
+    for (let fixAttempt = 1; fixAttempt <= maxFixAttempts; fixAttempt++) {
       const realProviderCall = createRealProviderCall({
         provider: 'kimi',
         apiKey,
@@ -307,22 +428,82 @@ export function createReviewerFixTaskRealExecutor(
         model,
         userAgent: process.env.KIMI_USER_AGENT?.trim(),
       });
-      const prompt = buildFixTaskPrompt(input, {
-        parentGoal: parentTask.goal,
-        allowedFiles: parentTask.guardrails.allow_modify ?? [],
-        deniedFiles: parentTask.guardrails.deny_modify,
-        previousChangedFiles,
-        checks: parentTask.checks,
+
+      const pipelineResult = await runCoderProviderPipeline({
+        taskId: input.taskId,
+        repoPath,
+        basePrompt: currentPrompt,
+        providerCall: realProviderCall,
+        provider: 'kimi',
+        model,
+        providerAttemptType: 'reviewer_fix_coder',
+        startingGlobalAttemptNumber: nextGlobalAttemptNumber,
+        logPrefix: '[reviewer-fix-task]',
+        buildAttemptDir: (_global, local) =>
+          buildReviewerFixAttemptDir(parentTask.id, input.attempt, nextGlobalAttemptNumber + local - 1, local),
       });
-      const providerInput = buildProviderCallInput('coder', prompt, 'kimi', model);
-      const result = await realProviderCall(providerInput);
-      const normalized = normalizeProviderCallResult(result);
-      rawProviderText = normalized.text;
-      kimiOutput = parseKimiOutputJson(rawProviderText);
-    } catch (providerErr) {
-      const info = normalizeProviderCallError(providerErr);
-      return blockResult(`Provider call failed: ${info.message}`);
+
+      providerAttempts.push(...pipelineResult.providerAttempts);
+      nextGlobalAttemptNumber = pipelineResult.nextGlobalAttemptNumber;
+
+      if (!pipelineResult.success) {
+        if (pipelineResult.isAuthError) {
+          return blockResult(`Provider authentication failed: ${pipelineResult.reason}`);
+        }
+        return {
+          status: 'failed',
+          reason: redactSecrets(`Provider correction loop failed: ${pipelineResult.reason}`),
+          blockingIssues: [],
+        };
+      }
+
+      const classified = pipelineResult.classified;
+      if (classified.classification === 'EMPTY_FILE_LIST' || classified.classification === 'ALL_IDENTICAL') {
+        const lastAttempt = providerAttempts[providerAttempts.length - 1];
+        if (lastAttempt) {
+          lastAttempt.classification = classified.classification;
+        }
+        if (fixAttempt < maxFixAttempts) {
+          currentPrompt = buildFixTaskNoEffectRecoveryPrompt(
+            input,
+            parentTask,
+            previousChangedFiles,
+            currentHead,
+            classified.classification,
+            classified.files,
+            fixAttempt + 1
+          );
+          continue;
+        }
+        return {
+          status: 'failed',
+          reason: redactSecrets(
+            `PROVIDER_NO_EFFECT_OUTPUT: ${classified.classification} after ${maxFixAttempts} fix attempt(s)`
+          ),
+          baseCommitSha: currentHead,
+          blockingIssues: [],
+        };
+      }
+
+      const lastAttempt = providerAttempts[providerAttempts.length - 1];
+      if (lastAttempt) {
+        lastAttempt.classification = 'EFFECTIVE_CHANGES';
+      }
+      pipelineSuccess = pipelineResult;
+      break;
     }
+
+    if (pipelineSuccess === undefined) {
+      return {
+        status: 'failed',
+        reason: redactSecrets('No effective fix output was produced after all fix attempts.'),
+        blockingIssues: [],
+      };
+    }
+
+    const kimiOutput = pipelineSuccess.kimiOutput;
+    const rawProviderText = pipelineSuccess.rawProviderText;
+    const classified = pipelineSuccess.classified;
 
     const updatePaths = kimiOutput.files.map((f) => f.path);
 
@@ -400,23 +581,6 @@ export function createReviewerFixTaskRealExecutor(
       return blockResult(`${reason} (${rollbackInfo})`, blockingIssues, checkSummary);
     }
 
-    function failedResult(
-      reason: string,
-      checkSummary?: ReviewerEvidenceInput['checkSummary'],
-      extraBlockingIssues: string[] = []
-    ): ReviewerFixTaskExecutorResult {
-      const rollbackResult = rollbackToCheckpoint(checkpoint);
-      return {
-        status: 'failed',
-        reason: redactSecrets(
-          `${reason} (rollback_status=${rollbackResult.status} attempted=${rollbackResult.attempted} checkpointHead=${rollbackResult.checkpointHead})`
-        ),
-        baseCommitSha: checkpoint.headSha,
-        blockingIssues: extraBlockingIssues.map((i) => redactSecrets(i)),
-        checkSummary,
-      };
-    }
-
     const existingPaths: string[] = [];
     for (const f of kimiOutput.files) {
       const filePath = join(repoPath, f.path);
@@ -436,12 +600,25 @@ export function createReviewerFixTaskRealExecutor(
       return blockResult(`Apply plan failed: ${planResult.reason}`);
     }
 
+    let manifest: PatchManifestEntry[] | undefined;
     try {
-      applyFileUpdates(repoPath, kimiOutput.files, planResult.runDir);
+      manifest = applyFileUpdates(repoPath, kimiOutput.files, planResult.runDir);
     } catch (applyErr) {
       const msg = applyErr instanceof Error ? applyErr.message : String(applyErr);
       return rollbackAndBlock(`Apply failed: ${msg}`);
     }
+
+    writeProviderAttemptEvidence({
+      taskId: input.taskId,
+      attempt: nextGlobalAttemptNumber - 1,
+      repoPath,
+      rawText: rawProviderText,
+      kimiOutput,
+      classified,
+      phase: 'post-apply',
+      manifest,
+      attemptDir: pipelineSuccess.effectiveAttemptDir,
+    });
 
     const checkResult = runChecks(repoPath, fixTask.checks);
     const fixCheckSummary = buildFixCheckSummary(fixTask.checks, checkResult.success);
@@ -461,7 +638,10 @@ export function createReviewerFixTaskRealExecutor(
     }
 
     if (allChanges.length === 0) {
-      return failedResult('No working tree changes match the approved apply manifest.');
+      return failedResult(
+        checkpoint,
+        'No working tree changes match the approved apply manifest.'
+      );
     }
 
     for (const p of allChanges.filter((p) => approvedPaths.has(p))) {
@@ -471,7 +651,7 @@ export function createReviewerFixTaskRealExecutor(
         encoding: 'utf-8',
       });
       if (addResult.status !== 0) {
-        return failedResult(`Git add failed for ${p}`);
+        return failedResult(checkpoint, `Git add failed for ${p}`);
       }
     }
 
@@ -486,7 +666,7 @@ export function createReviewerFixTaskRealExecutor(
       }
     );
     if (commitResult.status !== 0) {
-      return failedResult(`Git commit failed: ${redactSecrets(commitResult.stderr)}`);
+      return failedResult(checkpoint, `Git commit failed: ${redactSecrets(commitResult.stderr)}`);
     }
 
     const headResult = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
@@ -495,16 +675,16 @@ export function createReviewerFixTaskRealExecutor(
       encoding: 'utf-8',
     });
     if (headResult.status !== 0) {
-      return failedResult('Failed to read fix commit SHA.');
+      return failedResult(checkpoint, 'Failed to read fix commit SHA.');
     }
     const commitSha = headResult.stdout.trim();
     const VALID_SHA = /^[0-9a-f]{40}$/i;
     if (!VALID_SHA.test(commitSha)) {
-      return failedResult('Fix commit SHA is not a valid 40-character hex value.');
+      return failedResult(checkpoint, 'Fix commit SHA is not a valid 40-character hex value.');
     }
     const changedFiles = getCommitChangedFiles(repoPath, commitSha);
     if (changedFiles.length === 0) {
-      return failedResult('Fix commit has no changed files.');
+      return failedResult(checkpoint, 'Fix commit has no changed files.');
     }
 
     return {
@@ -515,6 +695,7 @@ export function createReviewerFixTaskRealExecutor(
       changedFiles,
       blockingIssues: [],
       checkSummary: fixCheckSummary,
+      providerAttempts,
     };
   };
 }
