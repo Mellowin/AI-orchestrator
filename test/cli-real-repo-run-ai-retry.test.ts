@@ -274,10 +274,14 @@ describe('cli real-repo-run-ai retry', () => {
       assert(existsSync(statePath), 'state.json should exist');
       const state = JSON.parse(readFileSync(statePath, 'utf-8'));
       assert(Array.isArray(state.provider_attempts), 'state should have provider_attempts');
-      assert.strictEqual(state.provider_attempts.length, 2);
-      assert.strictEqual(state.provider_attempts[0].ok, false);
-      assert.strictEqual(state.provider_attempts[1].ok, true);
-      assert.strictEqual(state.provider_attempts[1].recovery_prompt, true);
+      const coderAttempts = state.provider_attempts.filter((a: any) => a.type === 'initial_coder');
+      assert.strictEqual(coderAttempts.length, 2, `expected 2 initial_coder attempts, got ${state.provider_attempts.map((a: any) => a.type).join(', ')}`);
+      assert.strictEqual(coderAttempts[0].ok, false);
+      assert.strictEqual(coderAttempts[1].ok, true);
+      assert.strictEqual(coderAttempts[1].recovery_prompt, true);
+      const reviewerAttempt = state.provider_attempts.find((a: any) => a.type === 'reviewer');
+      assert(reviewerAttempt, 'expected a reviewer attempt');
+      assert.strictEqual(reviewerAttempt.ok, true);
 
       const readme = readFileSync(join(repoPath, 'README.md'), 'utf-8');
       assert(readme.includes('updated'));
@@ -314,11 +318,15 @@ describe('cli real-repo-run-ai retry', () => {
 
       const statePath = join(runsDir, taskId, 'state.json');
       const state = JSON.parse(readFileSync(statePath, 'utf-8'));
-      assert.strictEqual(state.provider_attempts.length, 2);
-      assert.strictEqual(state.provider_attempts[0].ok, false);
-      assert.strictEqual(state.provider_attempts[0].retryable, true);
-      assert.strictEqual(state.provider_attempts[1].ok, true);
-      assert.strictEqual(state.provider_attempts[1].recovery_prompt, true);
+      const coderAttempts = state.provider_attempts.filter((a: any) => a.type === 'initial_coder');
+      assert.strictEqual(coderAttempts.length, 2, `expected 2 initial_coder attempts, got ${state.provider_attempts.map((a: any) => a.type).join(', ')}`);
+      assert.strictEqual(coderAttempts[0].ok, false);
+      assert.strictEqual(coderAttempts[0].retryable, true);
+      assert.strictEqual(coderAttempts[1].ok, true);
+      assert.strictEqual(coderAttempts[1].recovery_prompt, true);
+      const reviewerAttempt = state.provider_attempts.find((a: any) => a.type === 'reviewer');
+      assert(reviewerAttempt, 'expected a reviewer attempt');
+      assert.strictEqual(reviewerAttempt.ok, true);
 
       const readme = readFileSync(join(repoPath, 'README.md'), 'utf-8');
       assert(readme.includes('fixed'));
@@ -469,10 +477,14 @@ describe('cli real-repo-run-ai retry', () => {
       const state = JSON.parse(readFileSync(statePath, 'utf-8'));
       assert.strictEqual(state.status, 'pushed');
       assert(Array.isArray(state.provider_attempts));
-      assert.strictEqual(state.provider_attempts.length, 2);
-      assert.strictEqual(state.provider_attempts[0].ok, false);
-      assert.strictEqual(state.provider_attempts[1].ok, true);
-      assert.strictEqual(state.provider_attempts[1].recovery_prompt, true);
+      const coderAttempts = state.provider_attempts.filter((a: any) => a.type === 'initial_coder');
+      assert.strictEqual(coderAttempts.length, 2, `expected 2 initial_coder attempts, got ${state.provider_attempts.map((a: any) => a.type).join(', ')}`);
+      assert.strictEqual(coderAttempts[0].ok, false);
+      assert.strictEqual(coderAttempts[1].ok, true);
+      assert.strictEqual(coderAttempts[1].recovery_prompt, true);
+      const reviewerAttempt = state.provider_attempts.find((a: any) => a.type === 'reviewer');
+      assert(reviewerAttempt, 'expected a reviewer attempt');
+      assert.strictEqual(reviewerAttempt.ok, true);
     } finally {
       cleanup();
     }
