@@ -2,7 +2,7 @@
 
 **Branch:** `stage-18-26-autonomous-multitask-completion`
 
-**Last verified:** `8ab6ef7554c072a42e7fa937ccf7dfc6888fffad`
+**Last verified:** `dde28afd3684962928cba98a70b3992158c403d5`
 
 ## Test metrics
 
@@ -13,7 +13,7 @@
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-**Last verified commit:** `8ab6ef7554c072a42e7fa937ccf7dfc6888fffad` (Stage 18.26: resume timed-out real tasks from persisted phase; add `TaskRunPhase`, `ProviderAttemptType`, and `ReviewerPhaseEvidence` to `RunState`; persist phase, child PID, timeout budget, and provider attempt types; distinguish timeout from exit failure in `real-block-run-ai`; bounded continuations from saved phase without duplicating coder/apply/commit/push; real-multitask default task timeout raised to 600000 ms with 900000 ms ceiling; regression tests green; proof-8 failure recorded: original task commit was pushed but reviewer gate timed out before completion, so task acceptance was not finished; Stage 18.26 not complete.)
+**Last verified commit:** `dde28afd3684962928cba98a70b3992158c403d5` (Stage 18.26: resume timed-out real tasks from persisted phase; add `TaskRunPhase`, `ProviderAttemptType`, and `ReviewerPhaseEvidence` to `RunState`; persist phase, child PID, timeout budget, and provider attempt types; distinguish timeout from exit failure in `real-block-run-ai`; bounded continuations from saved phase without duplicating coder/apply/commit/push; real-multitask default task timeout raised to 600000 ms with 900000 ms ceiling; post-push reviewer gate now recorded as a separate `reviewer` provider attempt; retry test assertions updated to filter by `initial_coder`/`reviewer` types; regression tests green; proof-8 failure recorded: original task commit was pushed but reviewer gate timed out before completion, so task acceptance was not finished; Stage 18.26 not complete.)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Stage 18.26 local verification (before push):**
@@ -96,6 +96,7 @@
   - `test/cli-real-repo-run-ai-timeout-resume.test.ts` — 10/10 pass (resume from `pushed`, `reviewer_fix_pending`, `fix_pushed`; validation failures are fail-closed)
   - `test/cli-real-block-run-ai.test.ts` — 73/73 pass (resume after partial timeout preserves task-one commit and task-two original commit, completes reviewer fix-loop, adds only fix commit)
   - `test/cli-real-repo-run-ai.test.ts` — 154/154 pass (reviewer gate, fix loop, post-push rollback, lock scoping)
+  - `test/cli-real-repo-run-ai-retry.test.ts` — 16/16 pass (fetch/retry metadata; post-push reviewer gate recorded as separate `reviewer` provider attempt)
   - `npm run typecheck` — OK
   - `npm run build` — OK
   - `npm run verify:summary` — OK
