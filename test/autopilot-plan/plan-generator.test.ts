@@ -226,3 +226,98 @@ describe('autopilot-plan planner correction retry', () => {
     }
   });
 });
+
+describe('autopilot-plan task scope narrowing', () => {
+  function missionWithAllowedFiles(repoPath: string, allowedFiles: string[]): AutopilotPlanMission {
+    return {
+      ...buildMission(repoPath),
+      allowed_files: allowedFiles,
+    };
+  }
+
+  test('accepts task-specific exact file path within mission wildcard scope', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'plan-scope-exact-'));
+    try {
+      const { plan } = await generateProviderPlan(
+        missionWithAllowedFiles(tmpDir, ['docs/proofs/STAGE_18_26_PROOF10_*.md']),
+        async () =>
+          JSON.stringify({
+            tasks: [
+              {
+                ...validTask(),
+                id: 'part3',
+                goal: 'Create docs/proofs/STAGE_18_26_PROOF10_PART3.md',
+                allowed_files: ['docs/proofs/STAGE_18_26_PROOF10_PART3.md'],
+                denied_files: [],
+                checks: [],
+              },
+            ],
+            ci_enabled: true,
+            repair_enabled: true,
+            risk_level: 'low',
+            caveats: [],
+          })
+      );
+      assert.strictEqual(plan.tasks[0].allowed_files[0], 'docs/proofs/STAGE_18_26_PROOF10_PART3.md');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects task allowed_files outside mission scope', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'plan-scope-outside-'));
+    try {
+      await assert.rejects(
+        () =>
+          generateProviderPlan(
+            missionWithAllowedFiles(tmpDir, ['docs/proofs/STAGE_18_26_PROOF10_*.md']),
+            async () =>
+              JSON.stringify({
+                tasks: [
+                  {
+                    ...validTask(),
+                    allowed_files: ['src/unsafe.ts'],
+                    denied_files: [],
+                    checks: [],
+                  },
+                ],
+                ci_enabled: true,
+                repair_enabled: true,
+                risk_level: 'low',
+                caveats: [],
+              })
+          ),
+        /outside the mission allowlist/
+      );
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('accepts task wildcard that is a subset of mission wildcard', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'plan-scope-subset-'));
+    try {
+      const { plan } = await generateProviderPlan(
+        missionWithAllowedFiles(tmpDir, ['docs/proofs/**']),
+        async () =>
+          JSON.stringify({
+            tasks: [
+              {
+                ...validTask(),
+                allowed_files: ['docs/proofs/STAGE_18_26_PROOF10_PART3.md'],
+                denied_files: [],
+                checks: [],
+              },
+            ],
+            ci_enabled: true,
+            repair_enabled: true,
+            risk_level: 'low',
+            caveats: [],
+          })
+      );
+      assert.strictEqual(plan.tasks[0].allowed_files[0], 'docs/proofs/STAGE_18_26_PROOF10_PART3.md');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});

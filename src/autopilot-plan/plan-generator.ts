@@ -260,7 +260,7 @@ function buildPlanPrompt(mission: AutopilotPlanMission): string {
       ? `Constraints:\n${mission.constraints.map((c) => `- ${c}`).join('\n')}`
       : '',
     mission.allowed_files && mission.allowed_files.length > 0
-      ? `Allowed files (the AI may only modify these files):\n${mission.allowed_files.map((f) => `- ${f}`).join('\n')}\nReturn tasks with allowed_files exactly equal to this list.`
+      ? `Allowed files (the AI may only modify files within this mission scope):\n${mission.allowed_files.map((f) => `- ${f}`).join('\n')}\nEach task must use the narrowest task-specific allowed_files that is a subset of this mission scope. When a task creates a specific file such as docs/proofs/STAGE_18_26_PROOF10_PART3.md, its allowed_files should be exactly that file, not the broader mission wildcard.`
       : '',
     '',
     'Return JSON matching this schema exactly:',
@@ -308,6 +308,8 @@ function buildPlanPrompt(mission: AutopilotPlanMission): string {
     '- Use an empty `denied_files` array when no additional exclusions are needed.',
     '- Built-in sensitive-file protection (`.env`, `.git`, `node_modules`, traversal, absolute paths) is already applied by the system.',
     '- Every task must have at least one achievable writable scope.',
+    '- Task `allowed_files` must be a subset of the mission allowed scope; never expand it.',
+    '- Prefer the narrowest task-specific allowlist. If a task creates a single concrete file, set `allowed_files` to exactly that file.'
   ]
     .filter(Boolean)
     .join('\n');

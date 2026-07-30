@@ -63,6 +63,11 @@ export type ProviderAttemptType =
   | 'reviewer_fix_coder'
   | 'second_reviewer';
 
+export type KimiOutputClassification =
+  | 'EMPTY_FILE_LIST'
+  | 'ALL_IDENTICAL'
+  | 'EFFECTIVE_CHANGES';
+
 export type RollbackPolicy =
   | 'pre_push_failure'
   | 'post_push_preserve_for_human'
@@ -86,6 +91,7 @@ export interface ProviderAttempt {
   recovery_prompt?: boolean;
   raw_text_length?: number;
   type?: ProviderAttemptType;
+  classification?: KimiOutputClassification;
 }
 
 export interface ReviewerPhaseEvidence {

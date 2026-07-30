@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadTask } from './task-loader.js';
-import { loadState, saveState, initState, getRunDir } from './state-manager.js';
+import { loadState, saveState, initState, getRunDir, initAttemptDir } from './state-manager.js';
 import { buildContext } from './context-builder.js';
 import { validateFileList, validateProposedFileLineDeltas } from './guardrails.js';
 import { validateAiSafetyPolicy } from './ai-safety-policy.js';
@@ -18,7 +18,13 @@ import {
   getDiffStat,
 } from './git-manager.js';
 import { parseKimiOutputJson } from './kimi-output-validator.js';
-import type { KimiOutput, RunState, Task, TaskRunPhase, ReviewerPhaseEvidence, ProviderAttemptType } from './types.js';
+import {
+  classifyKimiOutput,
+  classifyProposedFile,
+  type ClassifiedKimiOutput,
+  type ClassifiedProposedFile,
+} from './kimi-output-classifier.js';
+import type { KimiOutput, RunState, Task, TaskRunPhase, ReviewerPhaseEvidence, ProviderAttemptType, KimiOutputClassification } from './types.js';
 import { buildKimiPrompt } from './prompt-builder.js';
 import { runMockApplyFlow } from './mock-apply-flow.js';
 import { runPipelineLoop } from './pipeline-loop.js';
@@ -52,6 +58,7 @@ import {
 import { validateRealRepoApplySafety } from './real-repo-apply-safety.js';
 import { buildRealRepoApplyDryRunSummary } from './real-repo-apply-dry-run.js';
 import { buildRealRepoApplyPlan } from './real-repo-apply-plan.js';
+import { createHash } from 'node:crypto';
 import { ProviderRegistry } from './providers/provider-registry.js';
 import { createFakeCoderProvider } from './providers/fake/fake-coder-provider.js';
 import { createFakeReviewerProvider } from './providers/fake/fake-reviewer-provider.js';
@@ -453,6 +460,119 @@ function getRepoWorkingTreeChanges(repoPath: string): { modified: string[]; stag
 
   const all = [...new Set([...modified, ...staged, ...untracked])];
   return { modified, staged, untracked, all };
+}
+
+interface ProviderAttemptEvidenceOptions {
+  taskId: string;
+  attempt: number;
+  repoPath: string;
+  rawText: string;
+  kimiOutput: KimiOutput;
+  classified: ClassifiedKimiOutput;
+  phase: 'pre-apply' | 'post-apply';
+  manifest?: import('./types.js').PatchManifestEntry[];
+}
+
+function writeProviderAttemptEvidence(options: ProviderAttemptEvidenceOptions): void {
+  const { taskId, attempt, repoPath, rawText, kimiOutput, classified, phase, manifest } = options;
+  const attemptDir = initAttemptDir(taskId, attempt);
+  mkdirSync(attemptDir, { recursive: true });
+
+  const rawHash = createHash('sha256').update(rawText, 'utf-8').digest('hex');
+  writeFileSync(join(attemptDir, 'provider-raw.txt'), rawText, { encoding: 'utf-8', mode: 0o600 });
+  writeFileSync(join(attemptDir, 'provider-raw.sha256'), rawHash, { encoding: 'utf-8', mode: 0o600 });
+  writeFileSync(
+    join(attemptDir, 'parsed-kimi-output.json'),
+    JSON.stringify(kimiOutput, null, 2),
+    { encoding: 'utf-8', mode: 0o600 }
+  );
+  writeFileSync(
+    join(attemptDir, 'proposed-files.json'),
+    JSON.stringify(classified.files, null, 2),
+    { encoding: 'utf-8', mode: 0o600 }
+  );
+  writeFileSync(
+    join(attemptDir, 'apply-plan.json'),
+    JSON.stringify(
+      {
+        phase,
+        classification: classified.classification,
+        summary: classified.summary,
+        file_count: classified.files.length,
+      },
+      null,
+      2
+    ),
+    { encoding: 'utf-8', mode: 0o600 }
+  );
+
+  if (manifest) {
+    writeFileSync(
+      join(attemptDir, 'patch-manifest.json'),
+      JSON.stringify(manifest, null, 2),
+      { encoding: 'utf-8', mode: 0o600 }
+    );
+  }
+
+  const gitStatus = spawnSync('git', ['status', '--short'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  const gitDiffNameOnly = spawnSync('git', ['diff', '--name-only'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  const gitDiffStat = spawnSync('git', ['diff', '--stat'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+
+  writeFileSync(
+    join(attemptDir, 'post-apply-git.json'),
+    JSON.stringify(
+      {
+        phase,
+        git_status_short: gitStatus.status === 0 ? gitStatus.stdout : '',
+        git_diff_name_only: gitDiffNameOnly.status === 0 ? gitDiffNameOnly.stdout : '',
+        git_diff_stat: gitDiffStat.status === 0 ? gitDiffStat.stdout : '',
+      },
+      null,
+      2
+    ),
+    { encoding: 'utf-8', mode: 0o600 }
+  );
+}
+
+function buildNoEffectRecoveryPrompt(
+  task: Task,
+  classification: KimiOutputClassification,
+  classifiedFiles: ClassifiedProposedFile[]
+): string {
+  const previousPaths =
+    classifiedFiles.length > 0
+      ? classifiedFiles.map((f) => `${f.path} (${f.effect})`).join(', ')
+      : '(none)';
+  return [
+    'The previous coder response was structurally valid but produced no actual changes.',
+    `Classification: ${classification}`,
+    `Previously proposed paths: ${previousPaths}`,
+    '',
+    'Task:',
+    `- id: ${task.id}`,
+    `- goal: ${task.goal}`,
+    `- allowed scope: ${(task.guardrails.allow_modify ?? []).join(', ')}`,
+    '',
+    'You must return a response that creates or modifies at least one file within the allowed scope.',
+    'A new file with empty content still counts as a real change, but only if the task requires creating that file.',
+    'Do not repeat the same identical content for files that already exist.',
+    'Do not modify files outside the allowed scope.',
+    'Do not modify already-completed dependency artifacts unless the task explicitly requires it.',
+    '',
+    'Return ONLY valid JSON matching the original schema with at least one effective file update.',
+  ].join('\n');
 }
 
 commandDispatch: {
@@ -1672,6 +1792,7 @@ if (command === 'real-repo-run-ai') {
 
       let kimiOutput: KimiOutput;
       let rawProviderText: string;
+      let classified: ClassifiedKimiOutput;
       let providerAttempts: ProviderAttempt[] = [];
       try {
         const realProviderCall = createRealProviderCall({
@@ -1697,6 +1818,55 @@ if (command === 'real-repo-run-ai') {
         providerAttempts = retryResult.providerAttempts;
         kimiOutput = retryResult.output!;
         accumulateProviderAttempts(providerAttempts, providerAttemptType);
+
+        classified = classifyKimiOutput(task.repo_path, kimiOutput);
+        writeProviderAttemptEvidence({
+          taskId,
+          attempt,
+          repoPath: task.repo_path,
+          rawText: rawProviderText,
+          kimiOutput,
+          classified,
+          phase: 'pre-apply',
+        });
+
+        if (classified.classification === 'EMPTY_FILE_LIST' || classified.classification === 'ALL_IDENTICAL') {
+          const lastProviderAttempt = allProviderAttempts[allProviderAttempts.length - 1];
+          if (lastProviderAttempt) {
+            lastProviderAttempt.classification = classified.classification;
+            state.provider_attempts = allProviderAttempts;
+          }
+
+          console.error(`[real-repo-run-ai] Provider produced no effective changes: ${classified.summary}`);
+
+          if (attempt < maxAttempts) {
+            console.error(`[real-repo-run-ai] Requesting correction (attempt ${attempt + 1}/${maxAttempts})...`);
+            repairPrompt = buildNoEffectRecoveryPrompt(task, classified.classification, classified.files);
+            setPhase('repairing');
+            continue;
+          }
+
+          state.status = 'failed_max_attempts';
+          state.safety_note = `PROVIDER_NO_EFFECT_OUTPUT: ${classified.classification}`;
+          setPhase('failed');
+
+          console.error(`[real-repo-run-ai] Provider produced no effective changes after ${attempt} attempt(s)`);
+          console.error('[real-repo-run-ai] Manual inspection required');
+          console.error('[real-repo-run-ai] No apply was performed');
+          console.error('[real-repo-run-ai] No commit was made');
+          console.error('[real-repo-run-ai] No push was performed');
+          console.error('[real-repo-run-ai] No merge was performed');
+          console.error('[real-repo-run-ai] No checkout was performed');
+          console.error('[real-repo-run-ai] No main touch was performed');
+          process.exitCode = 1;
+          break commandDispatch;
+        }
+
+        const effectiveProviderAttempt = allProviderAttempts[allProviderAttempts.length - 1];
+        if (effectiveProviderAttempt) {
+          effectiveProviderAttempt.classification = 'EFFECTIVE_CHANGES';
+          state.provider_attempts = allProviderAttempts;
+        }
       } catch (providerErr) {
         // Extract provider attempts from a structured retry failure so they are
         // preserved even when the wrapper exhausts all retries.
@@ -1917,6 +2087,42 @@ if (command === 'real-repo-run-ai') {
         console.error(`[real-repo-run-ai] Apply failed: ${applyMessage}`);
         performRollback('Apply failed', 'pre_push_failure');
         console.error('[real-repo-run-ai] Manual inspection required');
+        console.error('[real-repo-run-ai] No merge was performed');
+        console.error('[real-repo-run-ai] No checkout was performed');
+        console.error('[real-repo-run-ai] No main touch was performed');
+        process.exitCode = 1;
+        break commandDispatch;
+      }
+
+      writeProviderAttemptEvidence({
+        taskId,
+        attempt,
+        repoPath: task.repo_path,
+        rawText: rawProviderText,
+        kimiOutput,
+        classified,
+        phase: 'post-apply',
+        manifest,
+      });
+
+      const postApplyChanges = getRepoWorkingTreeChanges(task.repo_path);
+      if (postApplyChanges.all.length === 0) {
+        console.error('[real-repo-run-ai] APPLY_ENGINE_FAILURE: pre-apply classification predicted effective changes but the git working tree has no delta');
+        if (manifest && manifest.length > 0) {
+          try {
+            rollbackFileUpdates(task.repo_path, manifest);
+            console.error('[real-repo-run-ai] Rollback completed');
+          } catch (rollbackErr) {
+            const rollbackMessage = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+            console.error(`[real-repo-run-ai] Rollback failed: ${rollbackMessage}`);
+          }
+        }
+        state.status = 'failed';
+        state.safety_note = 'APPLY_ENGINE_FAILURE: effective changes predicted but no git delta after apply';
+        setPhase('failed');
+        console.error('[real-repo-run-ai] Manual inspection required');
+        console.error('[real-repo-run-ai] No commit was made');
+        console.error('[real-repo-run-ai] No push was performed');
         console.error('[real-repo-run-ai] No merge was performed');
         console.error('[real-repo-run-ai] No checkout was performed');
         console.error('[real-repo-run-ai] No main touch was performed');
