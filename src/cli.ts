@@ -2549,13 +2549,8 @@ if (command === 'real-repo-run-ai') {
               | import('./reviewer-fix-task-controlled-run.js').ReviewerFixTaskControlledRunResult
               | undefined;
 
-            if (realExecutor) {
-              controlledRun = await runReviewerFixTaskControlled({
-                runPlanState,
-                executor: realExecutor,
-              });
-            } else if (fakeExecutorResponse) {
-              const fakeExecutor = async () => {
+            if (fakeExecutorResponse) {
+              const fakeExecutor = async (): Promise<import('./reviewer-fix-task-runner.js').ReviewerFixTaskExecutorResult> => {
                 try {
                   const parsed = JSON.parse(fakeExecutorResponse) as {
                     status: unknown;
@@ -2595,6 +2590,11 @@ if (command === 'real-repo-run-ai') {
               controlledRun = await runReviewerFixTaskControlled({
                 runPlanState,
                 executor: fakeExecutor,
+              });
+            } else if (realExecutor) {
+              controlledRun = await runReviewerFixTaskControlled({
+                runPlanState,
+                executor: realExecutor,
               });
             }
 
