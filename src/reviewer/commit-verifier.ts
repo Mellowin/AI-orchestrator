@@ -14,6 +14,7 @@ export interface CommitEvidenceInput {
 export interface CommitEvidence {
   taskId: string;
   taskGoal: string;
+  repoPath: string;
   allowedFiles: string[];
   deniedFiles: string[];
   maxLinesChanged: number;
@@ -147,6 +148,7 @@ export function buildCommitEvidence(input: CommitEvidenceInput): CommitEvidence 
   return {
     taskId: input.taskId,
     taskGoal: input.taskGoal,
+    repoPath: input.repoPath,
     allowedFiles: [...input.allowedFiles],
     deniedFiles: [...input.deniedFiles],
     maxLinesChanged: input.maxLinesChanged,

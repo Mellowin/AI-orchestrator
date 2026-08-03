@@ -2,6 +2,7 @@ import type { ReviewerProvider, ReviewerDecision, ReviewerNextAction } from '../
 import type { ReviewInput } from './reviewer-types.js';
 import { validateReviewerDecision } from './reviewer-schema.js';
 import { redactReviewerList, redactReviewerText } from './reviewer-redaction.js';
+import { runSummaryChecks } from './summary-checks.js';
 
 export interface ReviewerGateInput {
   reviewer: ReviewerProvider;
@@ -70,6 +71,26 @@ export async function runReviewerGate(input: ReviewerGateInput): Promise<Reviewe
       ),
       reviewerCalled: false,
       safetyFindings,
+    };
+  }
+
+  const summaryCheckResult = runSummaryChecks({
+    repoPath: input.reviewInput.repo_path,
+    commitSha: input.reviewInput.commit_sha,
+    allowedFiles: input.reviewInput.allowed_files,
+    acceptanceCriteria: input.reviewInput.acceptance_criteria,
+    dependencyEvidence: input.reviewInput.dependency_evidence,
+  });
+  if (!summaryCheckResult.ok) {
+    const safeIssues = redactReviewerList(summaryCheckResult.issues);
+    return {
+      decision: buildDeterministicRejectionDecision(
+        safeIssues,
+        [...safetyFindings, 'summary check failed'],
+        'send_fix_to_coder'
+      ),
+      reviewerCalled: false,
+      safetyFindings: [...safetyFindings, 'summary check failed'],
     };
   }
 

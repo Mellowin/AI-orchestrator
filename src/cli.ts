@@ -2252,6 +2252,7 @@ if (command === 'real-repo-run-ai') {
               acceptance_criteria: task.acceptance_criteria,
               allowedFiles: task.guardrails.allow_modify ?? [],
               stateStatus: 'pushed',
+              dependencyEvidence: task.dependency_evidence,
               reviewer: async (input) => {
               const captureFile = process.env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
               if (captureFile) {
@@ -2286,6 +2287,7 @@ if (command === 'real-repo-run-ai') {
               const gitStatus = gitStatusResult.status === 0 ? gitStatusResult.stdout : '';
               const providerInput = buildReviewInput({
                 taskId,
+                repoPath: task.repo_path,
                 taskTitle: task.title,
                 taskGoal: task.goal,
                 allowedFiles: task.guardrails.allow_modify ?? [],
@@ -2300,6 +2302,7 @@ if (command === 'real-repo-run-ai') {
                 testResult: input.checkSummary.test ?? (lastCheckResult?.success ? 'pass' : 'fail'),
                 gitStatus,
                 safetyFindings: [],
+                dependencyEvidence: input.dependency_evidence,
               });
               const decision = await reviewerProvider.reviewCommit(providerInput);
               const nextAction = decision.next_action;
@@ -2792,6 +2795,7 @@ if (command === 'real-repo-run-ai') {
                   acceptance_criteria: task.acceptance_criteria,
                   allowedFiles: task.guardrails.allow_modify ?? [],
                   stateStatus: 'fix_review',
+                  dependencyEvidence: task.dependency_evidence,
                   reviewer: async () => secondReviewerResponse,
                 });
                 const secondGate = secondReviewerResult.reviewerRunnerResult.gateResult;
@@ -2830,6 +2834,7 @@ if (command === 'real-repo-run-ai') {
                   acceptance_criteria: task.acceptance_criteria,
                   allowedFiles: task.guardrails.allow_modify ?? [],
                   stateStatus: 'fix_review',
+                  dependencyEvidence: task.dependency_evidence,
                   reviewer: async (input) => {
                     const captureFile = process.env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
                     if (captureFile) {
@@ -2862,6 +2867,7 @@ if (command === 'real-repo-run-ai') {
                     const gitStatus = gitStatusResult.status === 0 ? gitStatusResult.stdout : '';
                     const providerInput = buildReviewInput({
                       taskId: postRunPlan.taskId ?? 'unknown',
+                      repoPath: task.repo_path,
                       taskTitle: postRunPlan.fixTask?.title ?? task.title,
                       taskGoal: postRunPlan.fixTask?.goal ?? task.goal,
                       allowedFiles: task.guardrails.allow_modify ?? [],
@@ -2876,6 +2882,7 @@ if (command === 'real-repo-run-ai') {
                       testResult: input.checkSummary.test ?? 'pass',
                       gitStatus,
                       safetyFindings: [],
+                      dependencyEvidence: input.dependency_evidence,
                     });
                     const decision = await reviewerProvider.reviewCommit(providerInput);
                     const nextAction = decision.next_action;
@@ -6014,6 +6021,7 @@ if (command === 'reviewer-gate-dry-run') {
     // Build minimal ReviewInput from task
     const reviewInput = {
       task_id: taskId,
+      repo_path: task.repo_path,
       task_title: task.title,
       task_goal: task.goal,
       allowed_files: task.guardrails.allow_modify ?? [],
@@ -6158,6 +6166,7 @@ if (command === 'reviewer-gate-evidence-dry-run') {
     // Build ReviewInput
     const reviewInput = buildReviewInput({
       blockId: undefined,
+      repoPath: evidence.repoPath,
       taskId: evidence.taskId,
       taskTitle: task.title,
       taskGoal: evidence.taskGoal,

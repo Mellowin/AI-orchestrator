@@ -1,9 +1,11 @@
 import type { ReviewInput } from './reviewer-types.js';
+import type { DependencyEvidencePackage } from '../types.js';
 
 const SHA_REGEX = /^[0-9a-fA-F]{40}$/;
 
 export function buildReviewInput(input: {
   blockId?: string;
+  repoPath: string;
   taskId: string;
   taskTitle: string;
   taskGoal: string;
@@ -20,6 +22,7 @@ export function buildReviewInput(input: {
   gitStatus: string;
   safetyFindings: string[];
   previousFailure?: string;
+  dependencyEvidence?: DependencyEvidencePackage;
 }): ReviewInput {
   if (!input.taskId || typeof input.taskId !== 'string') {
     throw new Error('taskId is required and must be a string');
@@ -32,6 +35,9 @@ export function buildReviewInput(input: {
   }
   if (!input.commitSha || !SHA_REGEX.test(input.commitSha)) {
     throw new Error('commitSha must be a full 40-character hex string');
+  }
+  if (!input.repoPath || typeof input.repoPath !== 'string') {
+    throw new Error('repoPath is required and must be a string');
   }
   if (!Array.isArray(input.changedFiles)) {
     throw new Error('changedFiles must be an array');
@@ -52,12 +58,20 @@ export function buildReviewInput(input: {
   ) {
     throw new Error('acceptanceCriteria must be an array of strings when provided');
   }
+  if (
+    input.dependencyEvidence !== undefined &&
+    (!input.dependencyEvidence || typeof input.dependencyEvidence !== 'object' ||
+      !Array.isArray(input.dependencyEvidence.items))
+  ) {
+    throw new Error('dependencyEvidence must be a valid DependencyEvidencePackage');
+  }
 
   return {
     block_id: input.blockId,
     task_id: input.taskId.trim(),
     task_title: input.taskTitle.trim(),
     task_goal: input.taskGoal.trim(),
+    repo_path: input.repoPath,
     allowed_files: input.allowedFiles.map((f) => (typeof f === 'string' ? f.trim() : String(f))),
     denied_files: input.deniedFiles.map((f) => (typeof f === 'string' ? f.trim() : String(f))),
     max_lines_changed: input.maxLinesChanged,
@@ -71,5 +85,6 @@ export function buildReviewInput(input: {
     git_status: input.gitStatus,
     safety_findings: input.safetyFindings.map((f) => (typeof f === 'string' ? f.trim() : String(f))),
     previous_failure: input.previousFailure,
+    dependency_evidence: input.dependencyEvidence,
   };
 }

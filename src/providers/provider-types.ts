@@ -1,3 +1,5 @@
+import type { DependencyEvidencePackage } from '../types.js';
+
 export type ProviderRole = 'coder' | 'reviewer' | 'fixer' | 'planner' | 'summarizer';
 
 export type ProviderId =
@@ -34,6 +36,7 @@ export interface CoderResult {
 
 export interface ReviewInput {
   block_id?: string;
+  repo_path: string;
   task_id: string;
   task_title: string;
   task_goal: string;
@@ -50,6 +53,7 @@ export interface ReviewInput {
   git_status: string;
   safety_findings: string[];
   previous_failure?: string;
+  dependency_evidence?: DependencyEvidencePackage;
 }
 
 export type ReviewerDecisionValue = 'accepted' | 'rejected';

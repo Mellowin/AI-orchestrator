@@ -2,6 +2,7 @@ import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanRes
 import type { AutopilotRunResult } from '../../autopilot-run/types.js';
 import type { AutopilotRemoteFinalizationResult } from '../../autopilot-run/runner.js';
 import type { DiagnoseCiResult } from '../../diagnose-ci/types.js';
+import type { DependencyEvidencePackage } from '../../types.js';
 
 import type { MvpRunPrResult } from '../../mvp-run/types.js';
 
@@ -15,6 +16,8 @@ export interface FinalReviewInput {
   integratedDiff?: string;
   /** Per-task state including acceptance results. */
   taskStates?: MultitaskMissionTaskState[];
+  /** Read-only context from accepted ancestor tasks for summary tasks. */
+  dependency_evidence?: DependencyEvidencePackage;
 }
 
 export type MultitaskMissionVerdict =

@@ -1,4 +1,5 @@
 import type { ReviewerEvidence } from './reviewer-evidence.js';
+import type { DependencyEvidencePackage } from './types.js';
 
 export interface ReviewerInput {
   role: 'reviewer';
@@ -13,6 +14,7 @@ export interface ReviewerInput {
   acceptance_criteria?: string[];
   stateStatus?: string;
   previousFailure?: string;
+  dependency_evidence?: DependencyEvidencePackage;
   safety: ReviewerEvidence['safety'];
   instructions: string[];
   requiredOutputFormat: {
@@ -41,6 +43,7 @@ export function buildReviewerInput(evidence: ReviewerEvidence): ReviewerInput {
     stateStatus: evidence.stateStatus,
     previousFailure: evidence.previousFailure,
     safety: evidence.safety,
+    dependency_evidence: evidence.dependencyEvidence,
     instructions: [
       'Review only the provided factual evidence. Do not assume knowledge outside the evidence.',
       'Do not assume tests passed unless the check summary explicitly says so.',

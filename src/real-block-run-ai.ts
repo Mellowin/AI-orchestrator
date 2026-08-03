@@ -18,6 +18,7 @@ import {
   resolveOnBlockedTask,
 } from './real-block-task-timeout.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
+import { buildDependencyEvidence } from './reviewer/dependency-evidence.js';
 import type { ProviderAttempt, TaskRunPhase } from './types.js';
 import type {
   RealBlockRunState,
@@ -168,6 +169,9 @@ function buildSingleTaskYaml(block: BlockDefinition, task: BlockTaskDefinition):
           auto_push: false,
           auto_merge: false,
         },
+        ...(task.dependency_evidence !== undefined
+          ? { dependency_evidence: task.dependency_evidence }
+          : {}),
       },
     ],
   };
@@ -1176,6 +1180,52 @@ export async function runRealBlockRunAI(
       }
       saveBlockState(block, blockState);
       continue;
+    }
+
+    // Build read-only dependency evidence from accepted ancestor tasks so that
+    // reviewers and fix coders can verify consistency without broadening the
+    // current task's write scope.
+    try {
+      task.dependency_evidence = buildDependencyEvidence({
+        repoPath: block.repo_path,
+        currentTaskId: task.task_id,
+        tasks: block.tasks.map((t) => ({
+          id: t.task_id,
+          depends_on: t.depends_on,
+          allowed_files: t.allowed_files,
+        })),
+        taskStates: blockState.taskResults.map((r) => ({
+          task_id: r.taskId,
+          status: r.status,
+          commit_sha: r.originalCommitSha,
+          fix_commit_sha: r.fixCommitSha,
+        })),
+      });
+    } catch (depErr) {
+      const reason = depErr instanceof Error ? depErr.message : String(depErr);
+      const blockedResult: RealBlockRunTaskResult = {
+        taskId: task.task_id,
+        title: task.title,
+        status: 'blocked',
+        finalStatus: 'blocked',
+        nextAction: 'block',
+        reason: redactSecrets(reason),
+        fixAttempted: false,
+        childStateTaskId: task.task_id,
+        codeApplied: false,
+        pushed: false,
+        checksResult: 'unknown',
+      };
+      if (existingResultIndex >= 0) {
+        blockState.taskResults[existingResultIndex] = blockedResult;
+      } else {
+        blockState.taskResults.push(blockedResult);
+      }
+      saveBlockState(block, blockState);
+      stopped = true;
+      blockState.status = 'blocked';
+      blockState.summary.blockedTaskId = task.task_id;
+      break;
     }
 
     let taskResult: RealBlockRunTaskResult;

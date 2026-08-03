@@ -15,6 +15,26 @@ export function buildReviewerPrompt(input: ReviewInput): string {
       ? input.acceptance_criteria.map((c) => `- ${c}`).join('\n')
       : '- No specific acceptance criteria provided; use the task goal as the acceptance bar';
 
+  const evidence = input.dependency_evidence;
+  const dependencyEvidenceSection =
+    evidence && evidence.items.length > 0
+      ? `## Dependency Evidence (read-only context from accepted ancestor tasks)\n` +
+        `Total size: ${evidence.total_bytes} bytes${evidence.truncated ? ` (truncated; ${evidence.omitted_count} item(s) omitted)` : ''}\n\n` +
+        evidence.items
+          .map(
+            (item) =>
+              `- task: ${item.task_id} (${item.task_status})\n` +
+              `  path: ${item.path}\n` +
+              `  sha256: ${item.content_sha256}\n` +
+              `  bytes: ${item.bytes}, lines: ${item.lines}${item.truncated ? ' [truncated]' : ''}\n` +
+              `  content:\n\`\`\`\n${item.content}\n\`\`\``
+          )
+          .join('\n\n') +
+        '\n\n'
+      : evidence
+        ? '## Dependency Evidence\nNo accepted ancestor artifacts available.\n\n'
+        : '';
+
   return (
     `You are a strict AI code reviewer.\n\n` +
     `You review factual evidence only. You do NOT trust the coder's self-report. You look at actual commits, diffs, and check results.\n\n` +
@@ -27,6 +47,11 @@ export function buildReviewerPrompt(input: ReviewInput): string {
     `# Commit SHA\n${input.commit_sha}\n\n` +
     `# Changed Files\n${input.changed_files.map((f) => `- ${f}`).join('\n') || '- none'}\n\n` +
     `# Diff\n\`\`\`diff\n${input.diff}\n\`\`\`\n\n` +
+    `${dependencyEvidenceSection}` +
+    `# Dependency Evidence Rules\n` +
+    `- The files above are read-only context from previously accepted ancestor tasks.\n` +
+    `- Do NOT request changes to dependency files; the current task scope is the only writable scope.\n` +
+    `- A fix task may modify ONLY the current task allowed_files listed above.\n\n` +
     `# Deterministic Check Results\n` +
     `- Typecheck: ${input.typecheck_result}\n` +
     `- Build: ${input.build_result}\n` +

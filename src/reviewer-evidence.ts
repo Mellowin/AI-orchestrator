@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import type { DependencyEvidencePackage } from './types.js';
 
 export interface ReviewerEvidenceInput {
   repoPath: string;
@@ -20,6 +21,7 @@ export interface ReviewerEvidenceInput {
   allowedFiles?: string[];
   stateStatus?: string;
   previousFailure?: string;
+  dependencyEvidence?: DependencyEvidencePackage;
 }
 
 export interface ReviewerEvidence {
@@ -35,8 +37,9 @@ export interface ReviewerEvidence {
   acceptance_criteria?: string[];
   allowedFiles?: string[];
   stateStatus?: string;
-  checkSummary: ReviewerEvidenceInput['checkSummary'];
   previousFailure?: string;
+  checkSummary: ReviewerEvidenceInput['checkSummary'];
+  dependencyEvidence?: DependencyEvidencePackage;
   safety: {
     commitShaIsFullLength: boolean;
     branchIsNotMain: boolean;
@@ -107,6 +110,7 @@ export function buildReviewerEvidence(
     checkSummary: input.checkSummary,
     acceptance_criteria: input.acceptance_criteria,
     allowedFiles: input.allowedFiles,
+    dependencyEvidence: input.dependencyEvidence,
     safety: {
       commitShaIsFullLength: input.commitSha.length === 40,
       branchIsNotMain: input.branchName !== 'main',

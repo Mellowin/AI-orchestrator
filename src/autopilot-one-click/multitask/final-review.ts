@@ -2,6 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import type { AutopilotRunResult } from '../../autopilot-run/types.js';
 import { matchesPattern } from '../../guardrails.js';
+import { buildMissionDependencyEvidence } from '../../reviewer/dependency-evidence.js';
+import type { DependencyEvidencePackage } from '../../types.js';
 import type { FinalReviewInput, MultitaskMissionFinalReview, MultitaskMissionTaskState, FinalReviewCallFn } from './types.js';
 
 export type { FinalReviewCallFn };
@@ -137,6 +139,26 @@ function buildReviewPrompt(input: FinalReviewInput): string {
   const autopilot = input.autopilotResult;
   const ciInfo = autopilot.ci_run_id !== undefined ? `CI run ${autopilot.ci_run_id}: ${autopilot.ci_conclusion ?? 'unknown'}` : 'CI not observed';
 
+  const dependencyEvidence = input.dependency_evidence;
+  const dependencyEvidenceSection =
+    dependencyEvidence && dependencyEvidence.items.length > 0
+      ? `## Dependency Evidence (read-only context from accepted tasks)\n` +
+        `Total size: ${dependencyEvidence.total_bytes} bytes${dependencyEvidence.truncated ? ` (truncated; ${dependencyEvidence.omitted_count} item(s) omitted)` : ''}\n\n` +
+        dependencyEvidence.items
+          .map(
+            (item) =>
+              `- task: ${item.task_id} (${item.task_status})\n` +
+              `  path: ${item.path}\n` +
+              `  sha256: ${item.content_sha256}\n` +
+              `  bytes: ${item.bytes}, lines: ${item.lines}${item.truncated ? ' [truncated]' : ''}\n` +
+              `  content:\n\`\`\`\n${item.content}\n\`\`\``
+          )
+          .join('\n\n') +
+        '\n\n'
+      : dependencyEvidence
+        ? '## Dependency Evidence\nNo accepted task artifacts available.\n\n'
+        : '';
+
   return [
     'You are a senior code reviewer. Review the completed multi-task mission below.',
     '',
@@ -161,6 +183,11 @@ function buildReviewPrompt(input: FinalReviewInput): string {
     '```diff',
     input.integratedDiff?.slice(0, 8000) ?? '// diff not available',
     '```',
+    '',
+    dependencyEvidenceSection,
+    '## Dependency Evidence Rules',
+    '- The files above are read-only context from previously accepted tasks.',
+    '- Do NOT request changes to dependency files; each task scope is the only writable scope.',
     '',
     'Return ONLY a JSON object inside a markdown code block matching this schema:',
     '{',
@@ -308,11 +335,34 @@ export async function runMissionFinalReview(
 ): Promise<MultitaskMissionFinalReview> {
   const { unauthorized, gaps } = computeMandatoryGaps(input);
 
+  const dependencyEvidence =
+    input.mission.repo_path && input.taskStates && input.taskStates.length > 0
+      ? buildMissionDependencyEvidence({
+          repoPath: input.mission.repo_path,
+          tasks: input.plan.tasks.map((t) => ({
+            id: t.id,
+            allowed_files: t.allowed_files,
+            depends_on: t.depends_on,
+          })),
+          taskStates: input.taskStates.map((s) => ({
+            task_id: s.task_id,
+            status: s.status,
+            commit_sha: s.commit_sha,
+            fix_commit_sha: s.fix_commit_sha,
+          })),
+        })
+      : undefined;
+
+  const inputWithEvidence: FinalReviewInput = {
+    ...input,
+    dependency_evidence: dependencyEvidence,
+  };
+
   if (!reviewerCallFn) {
-    return buildDeterministicReview(input, unauthorized, gaps);
+    return buildDeterministicReview(inputWithEvidence, unauthorized, gaps);
   }
 
-  const prompt = buildReviewPrompt(input);
+  const prompt = buildReviewPrompt(inputWithEvidence);
   const raw = await reviewerCallFn(prompt);
   const parsed = parseReviewJson(raw);
 

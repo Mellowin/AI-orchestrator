@@ -309,7 +309,12 @@ function buildPlanPrompt(mission: AutopilotPlanMission): string {
     '- Built-in sensitive-file protection (`.env`, `.git`, `node_modules`, traversal, absolute paths) is already applied by the system.',
     '- Every task must have at least one achievable writable scope.',
     '- Task `allowed_files` must be a subset of the mission allowed scope; never expand it.',
-    '- Prefer the narrowest task-specific allowlist. If a task creates a single concrete file, set `allowed_files` to exactly that file.'
+    '- Prefer the narrowest task-specific allowlist. If a task creates a single concrete file, set `allowed_files` to exactly that file.',
+    'For summary/aggregation tasks that depend on earlier artifacts (e.g., a PART5 file that references PART1–PART4):',
+    '- Set `allowed_files` to the exact output file path for the summary task, never to the broad dependency files.',
+    '- Use `depends_on` to declare all ancestor tasks that produce the referenced artifacts.',
+    '- Include in `acceptance_criteria` explicit requirements to reference/link to each dependency artifact (e.g., "must reference docs/proofs/PART1.md").',
+    '- The system will provide read-only dependency evidence automatically; do not broaden the write scope to read dependency files.',
   ]
     .filter(Boolean)
     .join('\n');

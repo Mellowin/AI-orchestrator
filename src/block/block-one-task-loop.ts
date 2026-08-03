@@ -375,6 +375,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
   // 11. Build ReviewInput
   const reviewInput = buildReviewInput({
     blockId: input.blockId,
+    repoPath: blockDefinition.repo_path,
     taskId,
     taskTitle: taskDefinition.title,
     taskGoal: taskDefinition.goal,

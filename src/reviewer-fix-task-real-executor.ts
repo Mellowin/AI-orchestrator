@@ -7,7 +7,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { Task, KimiOutput, ProviderAttempt, PatchManifestEntry } from './types.js';
+import type { Task, KimiOutput, ProviderAttempt, PatchManifestEntry, DependencyEvidencePackage } from './types.js';
 import {
   createRealProviderCall,
   type FetchFn,
@@ -111,6 +111,7 @@ function buildFixTaskPrompt(
     previousChangedFiles: string[];
     checks: Array<{ command: string; args: string[] }>;
     currentHead: string;
+    dependencyEvidence?: DependencyEvidencePackage;
   }
 ): string {
   const blocking = input.blockingIssues.length > 0
@@ -133,6 +134,26 @@ function buildFixTaskPrompt(
     ? context.checks.map((c) => `- ${c.command} ${c.args.join(' ')}`).join('\n')
     : '- No checks';
 
+  const dependencyEvidence = context.dependencyEvidence;
+  const dependencySection =
+    dependencyEvidence && dependencyEvidence.items.length > 0
+      ? `# Dependency Evidence (read-only context from accepted ancestor tasks)\n` +
+        `Total size: ${dependencyEvidence.total_bytes} bytes${dependencyEvidence.truncated ? ` (truncated; ${dependencyEvidence.omitted_count} item(s) omitted)` : ''}\n\n` +
+        dependencyEvidence.items
+          .map(
+            (item) =>
+              `- task: ${item.task_id} (${item.task_status})\n` +
+              `  path: ${item.path}\n` +
+              `  sha256: ${item.content_sha256}\n` +
+              `  bytes: ${item.bytes}, lines: ${item.lines}${item.truncated ? ' [truncated]' : ''}\n` +
+              `  content:\n\`\`\`\n${item.content}\n\`\`\``
+          )
+          .join('\n\n') +
+        '\n\n'
+      : dependencyEvidence
+        ? `# Dependency Evidence\nNo accepted ancestor artifacts available.\n\n`
+        : '';
+
   return (
     `# Reviewer Fix Task\n\n` +
     `Task ID: ${input.taskId}\n` +
@@ -145,6 +166,7 @@ function buildFixTaskPrompt(
     `# Blocking Issues to Address\n\n${blocking}\n\n` +
     `# Allowed Files\n\n${allowed}\n\n` +
     `# Denied Files\n\n${denied}\n\n` +
+    `${dependencySection}` +
     `# Previous Changed Files\n\n${previous}\n\n` +
     `# Check Commands\n\n${checks}\n\n` +
     `# Instructions\n\n` +
@@ -417,6 +439,7 @@ export function createReviewerFixTaskRealExecutor(
       previousChangedFiles,
       checks: parentTask.checks,
       currentHead,
+      dependencyEvidence: parentTask.dependency_evidence,
     });
 
     for (let fixAttempt = 1; fixAttempt <= maxFixAttempts; fixAttempt++) {

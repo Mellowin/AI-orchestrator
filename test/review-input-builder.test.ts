@@ -6,6 +6,7 @@ describe('review-input-builder', () => {
   function makeInput(overrides: Record<string, unknown> = {}) {
     return {
       blockId: undefined,
+      repoPath: '/tmp/repo',
       taskId: 'todo-1',
       taskTitle: 'Test Task',
       taskGoal: 'Do something',

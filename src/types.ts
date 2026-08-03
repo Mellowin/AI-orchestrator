@@ -11,6 +11,8 @@ export interface Task {
   checks: Check[];
   guardrails: Guardrails;
   acceptance_criteria?: string[];
+  /** Read-only context from accepted ancestor tasks, passed to reviewers and fix coders. */
+  dependency_evidence?: DependencyEvidencePackage;
 }
 
 export interface Check {
@@ -93,6 +95,26 @@ export interface ProviderAttempt {
   raw_text_length?: number;
   type?: ProviderAttemptType;
   classification?: KimiOutputClassification;
+}
+
+export interface DependencyEvidenceItem {
+  task_id: string;
+  task_status: string;
+  accepted_commit_sha?: string;
+  fix_commit_sha?: string;
+  path: string;
+  content_sha256: string;
+  bytes: number;
+  lines: number;
+  content: string;
+  truncated?: boolean;
+}
+
+export interface DependencyEvidencePackage {
+  items: DependencyEvidenceItem[];
+  total_bytes: number;
+  truncated: boolean;
+  omitted_count: number;
 }
 
 export interface ReviewerPhaseEvidence {

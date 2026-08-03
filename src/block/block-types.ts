@@ -45,6 +45,8 @@ export interface BlockReviewPolicy {
   on_blocked_task?: 'stop' | 'continue' | 'skip';
 }
 
+import type { DependencyEvidencePackage } from '../types.js';
+
 export interface BlockTaskDefinition {
   task_id: string;
   title: string;
@@ -55,6 +57,7 @@ export interface BlockTaskDefinition {
   checks: (string | Check)[];
   depends_on?: string[];
   acceptance_criteria?: string[];
+  dependency_evidence?: DependencyEvidencePackage;
 }
 
 export interface BlockDefinition {
