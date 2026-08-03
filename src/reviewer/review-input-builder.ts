@@ -10,6 +10,7 @@ export function buildReviewInput(input: {
   allowedFiles: string[];
   deniedFiles: string[];
   maxLinesChanged: number;
+  acceptanceCriteria?: string[];
   commitSha: string;
   changedFiles: string[];
   diff: string;
@@ -44,6 +45,13 @@ export function buildReviewInput(input: {
   if (!Array.isArray(input.safetyFindings)) {
     throw new Error('safetyFindings must be an array');
   }
+  if (
+    input.acceptanceCriteria !== undefined &&
+    (!Array.isArray(input.acceptanceCriteria) ||
+      !input.acceptanceCriteria.every((c) => typeof c === 'string'))
+  ) {
+    throw new Error('acceptanceCriteria must be an array of strings when provided');
+  }
 
   return {
     block_id: input.blockId,
@@ -53,6 +61,7 @@ export function buildReviewInput(input: {
     allowed_files: input.allowedFiles.map((f) => (typeof f === 'string' ? f.trim() : String(f))),
     denied_files: input.deniedFiles.map((f) => (typeof f === 'string' ? f.trim() : String(f))),
     max_lines_changed: input.maxLinesChanged,
+    acceptance_criteria: input.acceptanceCriteria?.map((c) => c.trim()),
     commit_sha: input.commitSha.toLowerCase(),
     changed_files: input.changedFiles.map((f) => (typeof f === 'string' ? f.trim() : String(f))),
     diff: input.diff,

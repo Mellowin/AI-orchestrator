@@ -48,6 +48,9 @@ function taskToMvpTask(task: AutopilotPlanTask): import('../mvp-run/types.js').M
   if (task.depends_on !== undefined && task.depends_on.length > 0) {
     mvpTask.depends_on = task.depends_on;
   }
+  if (task.acceptance_criteria !== undefined && task.acceptance_criteria.length > 0) {
+    mvpTask.acceptance_criteria = task.acceptance_criteria;
+  }
   return mvpTask;
 }
 

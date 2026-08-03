@@ -84,6 +84,25 @@ describe('parseTaskObject', () => {
     assert.strictEqual(task.guardrails.require_tests, undefined);
   });
 
+  test('parses acceptance_criteria when provided', () => {
+    const raw = makeValidTask();
+    raw.acceptance_criteria = ['must mention X', 'must end with Y'];
+    const task = parseTaskObject(raw);
+    assert.deepStrictEqual(task.acceptance_criteria, ['must mention X', 'must end with Y']);
+  });
+
+  test('acceptance_criteria remains undefined when omitted', () => {
+    const raw = makeValidTask();
+    const task = parseTaskObject(raw);
+    assert.strictEqual(task.acceptance_criteria, undefined);
+  });
+
+  test('invalid acceptance_criteria shape throws', () => {
+    const raw = makeValidTask();
+    raw.acceptance_criteria = ['valid', 42];
+    assert.throws(() => parseTaskObject(raw), /Expected "acceptance_criteria" to be an array of strings/);
+  });
+
   test('invalid input object throws', () => {
     assert.throws(() => parseTaskObject(null), /Expected task input to be an object/);
     assert.throws(() => parseTaskObject('string'), /Expected task input to be an object/);
@@ -158,6 +177,18 @@ describe('loadTask', () => {
       assert.strictEqual(task.goal, 'Test goal');
       assert.strictEqual(task.base_branch, 'main');
       assert.deepStrictEqual(task.context_files, ['src/index.ts']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('reads acceptance_criteria from tasks.yaml', () => {
+    const { tasksFile, cleanup } = createTempSetup({
+      acceptance_criteria: ['must mention exact string'],
+    });
+    try {
+      const task = loadTask(tasksFile, 'test-task');
+      assert.deepStrictEqual(task.acceptance_criteria, ['must mention exact string']);
     } finally {
       cleanup();
     }

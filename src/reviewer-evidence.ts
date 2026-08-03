@@ -16,6 +16,7 @@ export interface ReviewerEvidenceInput {
       failures?: number;
     };
   };
+  acceptance_criteria?: string[];
   stateStatus?: string;
   previousFailure?: string;
 }
@@ -30,6 +31,7 @@ export interface ReviewerEvidence {
   changedFiles: string[];
   diffStat: string;
   commitExists: boolean;
+  acceptance_criteria?: string[];
   stateStatus?: string;
   checkSummary: ReviewerEvidenceInput['checkSummary'];
   previousFailure?: string;
@@ -101,6 +103,7 @@ export function buildReviewerEvidence(
     stateStatus: input.stateStatus,
     previousFailure: input.previousFailure,
     checkSummary: input.checkSummary,
+    acceptance_criteria: input.acceptance_criteria,
     safety: {
       commitShaIsFullLength: input.commitSha.length === 40,
       branchIsNotMain: input.branchName !== 'main',

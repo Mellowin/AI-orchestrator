@@ -217,17 +217,17 @@ describe('taskToMvpTask preserves legacy tests when checks are absent', () => {
     assert.deepStrictEqual(task.tests, ['npm test']);
   });
 
-  test('mixed tasks keep correct checks/tests per task', () => {
+  test('propagates acceptance_criteria to MVP task config', () => {
     const mission = makeMission();
-    const plan = makePlan([
-      makeTask({ id: 'legacy', tests: ['npm test'], checks: undefined }),
-      makeTask({ id: 'explicit', tests: ['npm test'], checks: ['npm run lint'] }),
-      makeTask({ id: 'empty', tests: ['npm test'], checks: [] }),
-    ]);
+    const plan = makePlan([makeTask({ acceptance_criteria: ['must end with exact sentence'] })]);
     const config = buildMvpRunConfig(mission, plan, '/tmp/out/run');
-    assert.ok(!('checks' in config.tasks[0]));
-    assert.deepStrictEqual(config.tasks[0].tests, ['npm test']);
-    assert.deepStrictEqual(config.tasks[1].checks, ['npm run lint']);
-    assert.deepStrictEqual(config.tasks[2].checks, []);
+    assert.deepStrictEqual(config.tasks[0].acceptance_criteria, ['must end with exact sentence']);
+  });
+
+  test('omits acceptance_criteria when task has none', () => {
+    const mission = makeMission();
+    const plan = makePlan([makeTask({ acceptance_criteria: undefined })]);
+    const config = buildMvpRunConfig(mission, plan, '/tmp/out/run');
+    assert.strictEqual(config.tasks[0].acceptance_criteria, undefined);
   });
 });

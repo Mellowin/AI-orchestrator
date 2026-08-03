@@ -347,6 +347,18 @@ describe('committed task reviewer gate', () => {
     assert.strictEqual(logCount, 1, 'Should not push or create remote refs');
   });
 
+  test('acceptance_criteria is propagated to reviewer input', async () => {
+    const repoPath = createTempRepo();
+    const commitSha = getCommitSha(repoPath);
+    const result = await runCommittedTaskReviewerGate(
+      makeInput(repoPath, commitSha, {
+        acceptance_criteria: ['must mention exact string'],
+      })
+    );
+    assert.deepStrictEqual(result.evidence.acceptance_criteria, ['must mention exact string']);
+    assert.deepStrictEqual(result.reviewerRunnerResult.reviewerInput.acceptance_criteria, ['must mention exact string']);
+  });
+
   test('helper does not call real provider or network APIs', async () => {
     const repoPath = createTempRepo();
     const commitSha = getCommitSha(repoPath);

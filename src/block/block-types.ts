@@ -54,6 +54,7 @@ export interface BlockTaskDefinition {
   max_lines_changed: number;
   checks: (string | Check)[];
   depends_on?: string[];
+  acceptance_criteria?: string[];
 }
 
 export interface BlockDefinition {

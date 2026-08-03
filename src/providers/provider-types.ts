@@ -40,6 +40,7 @@ export interface ReviewInput {
   allowed_files: string[];
   denied_files: string[];
   max_lines_changed: number;
+  acceptance_criteria?: string[];
   commit_sha: string;
   changed_files: string[];
   diff: string;

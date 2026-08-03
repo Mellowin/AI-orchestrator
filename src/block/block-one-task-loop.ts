@@ -381,6 +381,7 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
     allowedFiles: taskDefinition.allowed_files,
     deniedFiles: taskDefinition.denied_files,
     maxLinesChanged: taskDefinition.max_lines_changed,
+    acceptanceCriteria: taskDefinition.acceptance_criteria,
     commitSha: commitSha!,
     changedFiles: filesApplied,
     diff,

@@ -10,6 +10,11 @@ export function buildReviewerPrompt(input: ReviewInput): string {
     ? `\n# Previous Failure\n${input.previous_failure}\n`
     : '';
 
+  const acceptanceSection =
+    input.acceptance_criteria && input.acceptance_criteria.length > 0
+      ? input.acceptance_criteria.map((c) => `- ${c}`).join('\n')
+      : '- No specific acceptance criteria provided; use the task goal as the acceptance bar';
+
   return (
     `You are a strict AI code reviewer.\n\n` +
     `You review factual evidence only. You do NOT trust the coder's self-report. You look at actual commits, diffs, and check results.\n\n` +
@@ -18,6 +23,7 @@ export function buildReviewerPrompt(input: ReviewInput): string {
     `# Allowed Files\n${input.allowed_files.map((f) => `- ${f}`).join('\n') || '- none specified'}\n\n` +
     `# Denied Files\n${input.denied_files.map((f) => `- ${f}`).join('\n') || '- none specified'}\n\n` +
     `# Max Lines Changed\n${input.max_lines_changed}\n\n` +
+    `# Acceptance Criteria (task-level)\n${acceptanceSection}\n\n` +
     `# Commit SHA\n${input.commit_sha}\n\n` +
     `# Changed Files\n${input.changed_files.map((f) => `- ${f}`).join('\n') || '- none'}\n\n` +
     `# Diff\n\`\`\`diff\n${input.diff}\n\`\`\`\n\n` +
@@ -30,6 +36,7 @@ export function buildReviewerPrompt(input: ReviewInput): string {
     `# Review Rules\n` +
     `You MUST reject if ANY of the following is true:\n` +
     `- Task goal is not satisfied\n` +
+    `- ANY acceptance criterion is not satisfied (if acceptance criteria are provided, treat each as a hard requirement)\n` +
     `- Changed files exceed allowed_files scope\n` +
     `- Denied files were touched\n` +
     `- max_lines_changed exceeded\n` +
@@ -46,6 +53,7 @@ export function buildReviewerPrompt(input: ReviewInput): string {
     `- You cannot determine correctness from the evidence\n\n` +
     `You MUST accept ONLY if ALL of the following are true:\n` +
     `- Task goal is satisfied\n` +
+    `- ALL acceptance criteria are satisfied (if any are provided)\n` +
     `- Deterministic checks passed\n` +
     `- Changed files are within scope\n` +
     `- No safety issue exists\n\n` +

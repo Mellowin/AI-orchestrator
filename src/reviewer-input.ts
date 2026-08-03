@@ -10,6 +10,7 @@ export interface ReviewerInput {
   changedFiles: string[];
   diffStat: string;
   checkSummary: ReviewerEvidence['checkSummary'];
+  acceptance_criteria?: string[];
   stateStatus?: string;
   previousFailure?: string;
   safety: ReviewerEvidence['safety'];
@@ -36,6 +37,7 @@ export function buildReviewerInput(evidence: ReviewerEvidence): ReviewerInput {
     changedFiles: evidence.changedFiles,
     diffStat: evidence.diffStat,
     checkSummary: evidence.checkSummary,
+    acceptance_criteria: evidence.acceptance_criteria,
     stateStatus: evidence.stateStatus,
     previousFailure: evidence.previousFailure,
     safety: evidence.safety,
@@ -45,6 +47,7 @@ export function buildReviewerInput(evidence: ReviewerEvidence): ReviewerInput {
       'Treat missing or empty changed files as a blocking issue.',
       'Treat a non-full-length (not 40 characters) commit SHA as a blocking issue.',
       'Treat the main branch as a blocking issue for autonomous reviewer gate unless explicitly allowed later.',
+      'If acceptance criteria are provided, treat EACH one as a hard requirement; reject if any are not satisfied.',
       'Return a structured decision only; do not include prose outside the required format.',
       'Do not request external provider or API calls.',
       'Do not include secrets, tokens, or API keys in your response.',

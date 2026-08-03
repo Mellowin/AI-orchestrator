@@ -2249,6 +2249,7 @@ if (command === 'real-repo-run-ai') {
               checkSummary: {
                 test: lastCheckResult?.success ? 'pass' : (lastCheckResult ? 'fail' : undefined),
               },
+              acceptance_criteria: task.acceptance_criteria,
               stateStatus: 'pushed',
               reviewer: async (input) => {
               const captureFile = process.env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
@@ -2289,6 +2290,7 @@ if (command === 'real-repo-run-ai') {
                 allowedFiles: task.guardrails.allow_modify ?? [],
                 deniedFiles: task.guardrails.deny_modify,
                 maxLinesChanged: task.guardrails.max_lines_changed ?? Number.MAX_SAFE_INTEGER,
+                acceptanceCriteria: input.acceptance_criteria,
                 commitSha: headSha,
                 changedFiles: input.changedFiles,
                 diff,
@@ -2822,6 +2824,7 @@ if (command === 'real-repo-run-ai') {
                   commitSha: fixCommitSha,
                   maxParseRetries: reviewerParseRetries,
                   checkSummary: postRunPlan.checkSummary ?? { test: 'not_run' },
+                  acceptance_criteria: task.acceptance_criteria,
                   stateStatus: 'fix_review',
                   reviewer: async (input) => {
                     const captureFile = process.env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
@@ -2860,6 +2863,7 @@ if (command === 'real-repo-run-ai') {
                       allowedFiles: task.guardrails.allow_modify ?? [],
                       deniedFiles: task.guardrails.deny_modify,
                       maxLinesChanged: task.guardrails.max_lines_changed ?? Number.MAX_SAFE_INTEGER,
+                      acceptanceCriteria: input.acceptance_criteria,
                       commitSha: fixCommitSha,
                       changedFiles: input.changedFiles,
                       diff,
@@ -6156,6 +6160,7 @@ if (command === 'reviewer-gate-evidence-dry-run') {
       allowedFiles: evidence.allowedFiles,
       deniedFiles: evidence.deniedFiles,
       maxLinesChanged: evidence.maxLinesChanged,
+      acceptanceCriteria: task.acceptance_criteria,
       commitSha: evidence.commitSha,
       changedFiles: evidence.changedFiles,
       diff: evidence.diff,

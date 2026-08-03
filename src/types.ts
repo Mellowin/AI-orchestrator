@@ -10,6 +10,7 @@ export interface Task {
   context_files: string[];
   checks: Check[];
   guardrails: Guardrails;
+  acceptance_criteria?: string[];
 }
 
 export interface Check {

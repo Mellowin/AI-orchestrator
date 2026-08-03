@@ -62,7 +62,22 @@ describe('mvp-run block-builder checks precedence', () => {
     assert.deepStrictEqual(block.tasks[0].checks, ['npm test']);
   });
 
-  test('neither checks nor tests defaults to empty list', () => {
+  test('propagates acceptance_criteria to block task definition', () => {
+    const block = buildMvpRunBlock(
+      makeConfig([
+        {
+          id: 't1',
+          title: 'Feature',
+          goal: 'Add feature',
+          allowed_files: ['src/feature.ts'],
+          acceptance_criteria: ['must end with exact sentence'],
+        },
+      ])
+    );
+    assert.deepStrictEqual(block.tasks[0].acceptance_criteria, ['must end with exact sentence']);
+  });
+
+  test('omits acceptance_criteria when not provided', () => {
     const block = buildMvpRunBlock(
       makeConfig([
         {
@@ -73,6 +88,6 @@ describe('mvp-run block-builder checks precedence', () => {
         },
       ])
     );
-    assert.deepStrictEqual(block.tasks[0].checks, []);
+    assert.strictEqual(block.tasks[0].acceptance_criteria, undefined);
   });
 });

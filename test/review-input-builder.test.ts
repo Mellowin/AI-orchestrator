@@ -84,6 +84,28 @@ describe('review-input-builder', () => {
     assert.throws(() => buildReviewInput(makeInput({ safetyFindings: 'bad' })), /safetyFindings/);
   });
 
+  test('includes acceptance_criteria when provided', () => {
+    const input = makeInput({ acceptanceCriteria: ['criterion one', 'criterion two'] });
+    const result = buildReviewInput(input);
+    assert.deepStrictEqual(result.acceptance_criteria, ['criterion one', 'criterion two']);
+  });
+
+  test('omits acceptance_criteria when not provided', () => {
+    const input = makeInput();
+    const result = buildReviewInput(input);
+    assert.strictEqual(result.acceptance_criteria, undefined);
+  });
+
+  test('rejects non-array acceptanceCriteria', () => {
+    assert.throws(() => buildReviewInput(makeInput({ acceptanceCriteria: 'bad' })), /acceptanceCriteria/);
+  });
+
+  test('trims acceptance_criteria entries', () => {
+    const input = makeInput({ acceptanceCriteria: ['  criterion  '] });
+    const result = buildReviewInput(input);
+    assert.deepStrictEqual(result.acceptance_criteria, ['criterion']);
+  });
+
   test('does not include provider raw output', () => {
     const result = buildReviewInput(makeInput());
     assert(!('provider_raw_output' in result));

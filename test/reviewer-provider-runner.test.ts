@@ -127,6 +127,21 @@ describe('reviewer-provider-runner', () => {
     assert.ok(!result.parseFailure?.rawExcerptMasked.includes(secret));
   });
 
+  test('passes acceptance_criteria to reviewer input when present in evidence', async () => {
+    let receivedInput: ReviewerInput | undefined;
+    await runReviewerGateWithProvider({
+      evidence: buildEvidence({
+        acceptance_criteria: ['must mention X', 'must end with Y'],
+      }),
+      reviewer: async (input: ReviewerInput) => {
+        receivedInput = input;
+        return buildValidResponse();
+      },
+    });
+    assert.ok(receivedInput);
+    assert.deepStrictEqual(receivedInput!.acceptance_criteria, ['must mention X', 'must end with Y']);
+  });
+
   test('maxParseRetries 0 means one attempt', async () => {
     let calls = 0;
     await runReviewerGateWithProvider({

@@ -33,6 +33,7 @@ export interface MvpRunTaskConfig {
   checks?: (string | Check)[];
   max_lines_changed?: number;
   depends_on?: string[];
+  acceptance_criteria?: string[];
 }
 
 export interface MvpRunConfig {

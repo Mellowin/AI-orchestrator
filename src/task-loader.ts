@@ -131,6 +131,10 @@ function parseGuardrails(raw: Record<string, unknown>): Guardrails {
 }
 
 function parseTask(raw: Record<string, unknown>): Task {
+  const acceptance_criteria =
+    raw.acceptance_criteria === undefined
+      ? undefined
+      : expectStringArray(raw, 'acceptance_criteria');
   return {
     id: expectString(raw, 'id'),
     title: expectString(raw, 'title'),
@@ -141,6 +145,7 @@ function parseTask(raw: Record<string, unknown>): Task {
     context_files: expectStringArray(raw, 'context_files'),
     checks: parseChecks(raw.checks),
     guardrails: parseGuardrails(expectObject(raw, 'guardrails')),
+    acceptance_criteria,
   };
 }
 

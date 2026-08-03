@@ -33,6 +33,7 @@ export function buildMvpRunBlock(config: MvpRunConfig): BlockDefinition {
       max_lines_changed: task.max_lines_changed ?? MAX_LINES_CHANGED,
       checks: task.checks !== undefined ? task.checks : task.tests ?? [],
       depends_on: task.depends_on,
+      acceptance_criteria: task.acceptance_criteria,
     })),
   };
 }

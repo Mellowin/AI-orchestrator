@@ -168,6 +168,23 @@ describe('reviewer input builder', () => {
     );
   });
 
+  test('preserves acceptance_criteria when present in evidence', () => {
+    const evidence = makeEvidence({
+      acceptance_criteria: ['must reference X', 'must not touch Y'],
+    });
+    const input = buildReviewerInput(evidence);
+    assert.deepStrictEqual(input.acceptance_criteria, ['must reference X', 'must not touch Y']);
+  });
+
+  test('includes instruction to treat acceptance criteria as hard requirements', () => {
+    const evidence = makeEvidence({ acceptance_criteria: ['must reference X'] });
+    const input = buildReviewerInput(evidence);
+    const found = input.instructions.some((i) =>
+      i.toLowerCase().includes('acceptance criteria') && i.toLowerCase().includes('hard requirement')
+    );
+    assert(found, `Expected instruction about acceptance criteria: ${input.instructions.join(' | ')}`);
+  });
+
   test('does not include full diff field', () => {
     const evidence = makeEvidence();
     const input = buildReviewerInput(evidence);

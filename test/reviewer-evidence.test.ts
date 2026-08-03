@@ -270,6 +270,21 @@ describe('reviewer evidence builder', () => {
     assert.strictEqual(after, before, `Working tree should not be mutated`);
   });
 
+  test('preserves acceptance_criteria', () => {
+    const repoPath = createTempRepo();
+    const commitSha = getCommitSha(repoPath);
+    const evidence = buildReviewerEvidence({
+      repoPath,
+      taskId: 'task-1',
+      taskGoal: 'Test goal',
+      branchName: 'ai/task-1',
+      commitSha,
+      checkSummary: {},
+      acceptance_criteria: ['file must mention X', 'file must end with Y'],
+    });
+    assert.deepStrictEqual(evidence.acceptance_criteria, ['file must mention X', 'file must end with Y']);
+  });
+
   test('does not call provider APIs', () => {
     const repoPath = createTempRepo();
     const commitSha = getCommitSha(repoPath);
