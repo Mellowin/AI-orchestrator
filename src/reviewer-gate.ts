@@ -3,12 +3,14 @@ import { parseReviewerDecision } from './reviewer-decision.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type { ReviewerInput } from './reviewer-input.js';
 import type { ReviewerDecision } from './reviewer-decision.js';
+import { runAcceptanceCriteriaChecks } from './reviewer/acceptance-criteria-check.js';
 
 export type ReviewerGateStatus = 'accepted' | 'fix_required' | 'blocked';
 export type ReviewerGateDecisionSource =
   | 'reviewer'
   | 'parser'
   | 'deterministic_safety'
+  | 'deterministic_acceptance'
   | 'provider';
 
 export interface ReviewerGateInput {
@@ -55,6 +57,30 @@ export function evaluateReviewerGate(
       nonBlockingIssues: [],
       reviewSummary: 'Blocked by deterministic safety checks.',
       nextAction: 'block',
+    };
+  }
+
+  const acceptanceIssues = runAcceptanceCriteriaChecks({
+    repoPath: input.evidence.repoPath,
+    commitSha: input.evidence.commitSha,
+    acceptanceCriteria: input.evidence.acceptance_criteria,
+    allowedFiles: input.evidence.allowedFiles,
+  });
+
+  if (acceptanceIssues.length > 0) {
+    const details = acceptanceIssues.map((i) => i.detail);
+    const fixTask = `Fix the following acceptance criterion issues:\n${acceptanceIssues
+      .map((i) => `- ${i.criterion}: ${i.detail}`)
+      .join('\n')}`;
+    return {
+      status: 'fix_required',
+      source: 'deterministic_acceptance',
+      reviewerInput,
+      blockingIssues: details,
+      nonBlockingIssues: [],
+      reviewSummary: 'Deterministic acceptance criteria not satisfied.',
+      fixTask,
+      nextAction: 'fix',
     };
   }
 

@@ -1,7 +1,61 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { evaluateReviewerGate } from '../src/reviewer-gate.js';
 import type { ReviewerEvidence } from '../src/reviewer-evidence.js';
+
+function createTempRepo(): string {
+  const tmpBase = join(process.cwd(), 'tmp');
+  if (!existsSync(tmpBase)) {
+    mkdirSync(tmpBase);
+  }
+  const repoPath = mkdtempSync(join(tmpBase, 'reviewer-gate-eval-'));
+  spawnSync('git', ['init'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['config', 'user.email', 'test@test.com'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  spawnSync('git', ['config', 'user.name', 'Test'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  writeFileSync(join(repoPath, 'README.md'), '# hello\n', 'utf-8');
+  spawnSync('git', ['add', '.'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['commit', '-m', 'init', '--no-gpg-sign'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  return repoPath;
+}
+
+function getCommitSha(repoPath: string): string {
+  const result = spawnSync('git', ['log', '-1', '--format=%H'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  return result.stdout.trim();
+}
+
+function addCommitFile(repoPath: string, path: string, content: string): void {
+  const fullPath = join(repoPath, path);
+  const dir = join(fullPath, '..');
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(fullPath, content, 'utf-8');
+  spawnSync('git', ['add', path], { cwd: repoPath, encoding: 'utf-8', shell: false });
+  spawnSync('git', ['commit', '-m', `add ${path}`, '--no-gpg-sign'], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+}
 
 function makeEvidence(overrides: Partial<ReviewerEvidence> = {}): ReviewerEvidence {
   return {
@@ -320,5 +374,57 @@ describe('reviewer gate evaluator', () => {
     });
     assert.strictEqual(result.reviewerInput.diffStat, ' README.md | 1 +');
     assert(!('fullDiff' in result.reviewerInput));
+  });
+
+  test('deterministic acceptance criteria override reviewer accept and return fix_required', () => {
+    const repoPath = createTempRepo();
+    try {
+      addCommitFile(repoPath, 'docs/part2.md', 'Wrong content\n');
+      const commitSha = getCommitSha(repoPath);
+      const result = evaluateReviewerGate({
+        evidence: makeEvidence({
+          repoPath,
+          commitSha,
+          changedFiles: ['docs/part2.md'],
+          acceptance_criteria: [
+            `docs/part2.md must end with the exact sentence: "Expected ending."`,
+          ],
+          allowedFiles: ['docs/part2.md'],
+        }),
+        reviewerOutput: makeReviewerOutput(),
+      });
+      assert.strictEqual(result.status, 'fix_required');
+      assert.strictEqual(result.source, 'deterministic_acceptance');
+      assert.strictEqual(result.nextAction, 'fix');
+      assert(result.blockingIssues.some((i) => i.includes('does not end with the exact sentence')));
+      assert.strictEqual(result.reviewerDecision, undefined);
+      assert(result.fixTask && result.fixTask.includes('Expected ending.'));
+    } finally {
+      rmSync(repoPath, { recursive: true, force: true });
+    }
+  });
+
+  test('deterministic acceptance criteria pass and reviewer accept remains accepted', () => {
+    const repoPath = createTempRepo();
+    try {
+      addCommitFile(repoPath, 'docs/part2.md', 'Some content\nExpected ending.\n');
+      const commitSha = getCommitSha(repoPath);
+      const result = evaluateReviewerGate({
+        evidence: makeEvidence({
+          repoPath,
+          commitSha,
+          changedFiles: ['docs/part2.md'],
+          acceptance_criteria: [
+            `docs/part2.md must end with the exact sentence: "Expected ending."`,
+          ],
+          allowedFiles: ['docs/part2.md'],
+        }),
+        reviewerOutput: makeReviewerOutput(),
+      });
+      assert.strictEqual(result.status, 'accepted');
+      assert.strictEqual(result.source, 'reviewer');
+    } finally {
+      rmSync(repoPath, { recursive: true, force: true });
+    }
   });
 });

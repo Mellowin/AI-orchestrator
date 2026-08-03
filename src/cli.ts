@@ -2250,6 +2250,7 @@ if (command === 'real-repo-run-ai') {
                 test: lastCheckResult?.success ? 'pass' : (lastCheckResult ? 'fail' : undefined),
               },
               acceptance_criteria: task.acceptance_criteria,
+              allowedFiles: task.guardrails.allow_modify ?? [],
               stateStatus: 'pushed',
               reviewer: async (input) => {
               const captureFile = process.env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;
@@ -2788,6 +2789,8 @@ if (command === 'real-repo-run-ai') {
                   commitSha: postRunPlan.commitSha,
                   maxParseRetries: reviewerParseRetries,
                   checkSummary: { test: 'pass' },
+                  acceptance_criteria: task.acceptance_criteria,
+                  allowedFiles: task.guardrails.allow_modify ?? [],
                   stateStatus: 'fix_review',
                   reviewer: async () => secondReviewerResponse,
                 });
@@ -2825,6 +2828,7 @@ if (command === 'real-repo-run-ai') {
                   maxParseRetries: reviewerParseRetries,
                   checkSummary: postRunPlan.checkSummary ?? { test: 'not_run' },
                   acceptance_criteria: task.acceptance_criteria,
+                  allowedFiles: task.guardrails.allow_modify ?? [],
                   stateStatus: 'fix_review',
                   reviewer: async (input) => {
                     const captureFile = process.env.REAL_REPO_REVIEWER_CAPTURE_INPUT_FILE;

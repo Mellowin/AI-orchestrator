@@ -9,7 +9,12 @@ export type ReviewerTaskNextAction = 'continue' | 'fix' | 'block' | 'wait';
 
 export interface PersistedReviewerGate {
   status: 'accepted' | 'fix_required' | 'blocked';
-  source: 'reviewer' | 'parser' | 'deterministic_safety' | 'provider';
+  source:
+    | 'reviewer'
+    | 'parser'
+    | 'deterministic_safety'
+    | 'deterministic_acceptance'
+    | 'provider';
   nextAction: 'continue' | 'fix' | 'block';
   blockingIssues: string[];
   nonBlockingIssues: string[];

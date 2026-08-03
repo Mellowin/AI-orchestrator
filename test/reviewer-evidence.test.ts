@@ -285,6 +285,21 @@ describe('reviewer evidence builder', () => {
     assert.deepStrictEqual(evidence.acceptance_criteria, ['file must mention X', 'file must end with Y']);
   });
 
+  test('preserves allowedFiles', () => {
+    const repoPath = createTempRepo();
+    const commitSha = getCommitSha(repoPath);
+    const evidence = buildReviewerEvidence({
+      repoPath,
+      taskId: 'task-1',
+      taskGoal: 'Test goal',
+      branchName: 'ai/task-1',
+      commitSha,
+      checkSummary: {},
+      allowedFiles: ['docs/part2.md'],
+    });
+    assert.deepStrictEqual(evidence.allowedFiles, ['docs/part2.md']);
+  });
+
   test('does not call provider APIs', () => {
     const repoPath = createTempRepo();
     const commitSha = getCommitSha(repoPath);
