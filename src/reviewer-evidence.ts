@@ -84,6 +84,73 @@ function getCommitDiffStat(repoPath: string, commitSha: string): string {
   return runGit(repoPath, ['show', '--stat', '--format=', commitSha]).trim();
 }
 
+export interface CandidateReviewerEvidenceInput {
+  repoPath: string;
+  taskId: string;
+  taskGoal: string;
+  branchName: string;
+  taskBaseSha: string;
+  checkSummary: ReviewerEvidenceInput['checkSummary'];
+  acceptance_criteria?: string[];
+  allowedFiles?: string[];
+  stateStatus?: string;
+  previousFailure?: string;
+  dependencyEvidence?: DependencyEvidencePackage;
+}
+
+function getCandidateChangedFiles(repoPath: string, taskBaseSha: string): string[] {
+  const result = spawnSync('git', ['diff', '--cached', '--name-only', taskBaseSha], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  if (result.status !== 0) return [];
+  return result.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
+function getCandidateDiffStat(repoPath: string, taskBaseSha: string): string {
+  const result = spawnSync('git', ['diff', '--cached', '--stat', taskBaseSha], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  if (result.status !== 0) return '';
+  return result.stdout.trim();
+}
+
+export function buildCandidateReviewerEvidence(
+  input: CandidateReviewerEvidenceInput
+): ReviewerEvidence {
+  const changedFiles = getCandidateChangedFiles(input.repoPath, input.taskBaseSha);
+  const diffStat = getCandidateDiffStat(input.repoPath, input.taskBaseSha);
+  const commitExists = commitExistsInRepo(input.repoPath, input.taskBaseSha);
+
+  return {
+    taskId: input.taskId,
+    taskGoal: input.taskGoal,
+    repoPath: input.repoPath,
+    branchName: input.branchName,
+    commitSha: input.taskBaseSha,
+    shortCommitSha: input.taskBaseSha.slice(0, 7),
+    changedFiles,
+    diffStat,
+    commitExists,
+    stateStatus: input.stateStatus ?? 'candidate_review',
+    previousFailure: input.previousFailure,
+    checkSummary: input.checkSummary,
+    acceptance_criteria: input.acceptance_criteria,
+    allowedFiles: input.allowedFiles,
+    dependencyEvidence: input.dependencyEvidence,
+    safety: {
+      commitShaIsFullLength: input.taskBaseSha.length === 40,
+      branchIsNotMain: input.branchName !== 'main',
+      hasChangedFiles: changedFiles.length > 0,
+    },
+  };
+}
 export function buildReviewerEvidence(
   input: ReviewerEvidenceInput
 ): ReviewerEvidence {

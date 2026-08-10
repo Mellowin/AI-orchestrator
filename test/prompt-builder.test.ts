@@ -42,18 +42,18 @@ describe('prompt-builder', () => {
     );
   });
 
-  test('prompt includes hard line change budget when max_lines_changed is set', () => {
+  test('prompt includes advisory line change budget when max_lines_changed is set', () => {
     const prompt = buildKimiPrompt(makeContext(25));
-    assert(prompt.includes('HARD UPPER BOUND'), 'Expected hard upper bound wording');
+    assert(prompt.includes('Advisory budget'), 'Expected advisory budget wording');
     assert(prompt.includes('25'), 'Expected limit value in prompt');
     assert(
-      prompt.includes('newly created file this means the full file content must be 25 lines or fewer'),
-      'Expected new-file explanation'
+      prompt.includes('newly created file this is a planning estimate'),
+      'Expected new-file advisory explanation'
     );
   });
 
   test('prompt does not invent line budget when max_lines_changed is absent', () => {
     const prompt = buildKimiPrompt(makeContext());
-    assert(!prompt.includes('HARD UPPER BOUND'), 'Should not include hard upper bound without limit');
+    assert(!prompt.includes('Advisory budget'), 'Should not include advisory budget without limit');
   });
 });

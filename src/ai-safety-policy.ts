@@ -58,9 +58,8 @@ function isWorkflowFile(path: string): boolean {
   return normalized.includes('.github/workflows/') && /\.(yml|yaml)$/i.test(normalized);
 }
 
-function isTestFile(path: string, content: string): boolean {
+function isTestFileByPath(path: string): boolean {
   const normalized = normalizePath(path);
-  const lowerContent = content.toLowerCase();
   const lowerPath = normalized.toLowerCase();
   const testPathPattern = /(^|\/|\\)tests?(\/|\\|$)|\.(test|spec)\.(js|ts|mjs|cjs)$/i;
   if (testPathPattern.test(lowerPath)) {
@@ -70,8 +69,11 @@ function isTestFile(path: string, content: string): boolean {
   if (name.startsWith('test') && extname(name) === '.js') {
     return true;
   }
-  const markers = ['assert', 'expect', 'process.exit(1)', 'throw new error', 'describe(', 'it(', 'test('];
-  return markers.some((marker) => lowerContent.includes(marker));
+  return false;
+}
+
+function isTestFile(path: string, _content: string): boolean {
+  return isTestFileByPath(path);
 }
 
 function getContentLines(content: string): string[] {

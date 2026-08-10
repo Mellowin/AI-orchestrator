@@ -102,7 +102,7 @@ function resolveReviewerFixMaxAttempts(): number {
   return num;
 }
 
-function buildFixTaskPrompt(
+export function buildFixTaskPrompt(
   input: ReviewerFixTaskExecutorInput,
   context: {
     parentGoal: string;
@@ -225,7 +225,7 @@ function buildFixTaskNoEffectRecoveryPrompt(
       ? [
           '',
           '# Line Change Budget',
-          `HARD UPPER BOUND: no single file may change by more than ${maxLines} lines.`,
+          `Advisory budget: prefer to keep any single file change under ${maxLines} lines.`,
         ]
       : []),
     '',

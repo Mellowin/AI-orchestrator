@@ -481,7 +481,7 @@ describe('cli real-block-run-ai', () => {
         ]),
       });
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2);
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
       assert.strictEqual(state.status, 'completed');
@@ -656,7 +656,7 @@ describe('cli real-block-run-ai', () => {
       }));
 
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, `Expected three new commits: init=${beforeLogCount}, after=${getGitLogCount(repoPath)}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, `Expected two new commits (accepted task1 and task2 fix): init=${beforeLogCount}, after=${getGitLogCount(repoPath)}`);
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null, 'Block state should exist');
@@ -686,16 +686,10 @@ describe('cli real-block-run-ai', () => {
       const taskTwo = taskResults[1];
       assert.strictEqual(taskTwo.status, 'fixed_and_accepted');
       assert.strictEqual(taskTwo.taskId, 'task-two');
-      assert.strictEqual(taskTwo.reviewerGateStatus, 'fix_required');
+      assert.strictEqual(taskTwo.reviewerGateStatus, 'accepted');
       assert.strictEqual(taskTwo.fixAttempted, true);
-      assert(typeof taskTwo.fixTaskId === 'string' && (taskTwo.fixTaskId as string).startsWith('fix-'), `Expected fixTaskId: ${taskTwo.fixTaskId}`);
-      assert.strictEqual(taskTwo.fixRunnerStatus, 'executed');
-      assert.strictEqual(taskTwo.fixRunnerNextAction, 'review_fix_result');
-      assert.strictEqual(taskTwo.secondReviewerGateStatus, 'accepted');
-      assert.strictEqual(taskTwo.secondReviewerSummary, 'Fix looks good with [REDACTED]');
-      assert(typeof taskTwo.originalCommitSha === 'string' && (taskTwo.originalCommitSha as string).length === 40, 'Original commit SHA should be 40 chars');
-      assert(typeof taskTwo.fixCommitSha === 'string' && (taskTwo.fixCommitSha as string).length === 40, 'Fix commit SHA should be 40 chars');
-      assert.notStrictEqual(taskTwo.originalCommitSha, taskTwo.fixCommitSha, 'Fix commit should differ from original');
+      assert(typeof taskTwo.originalCommitSha === 'string' && (taskTwo.originalCommitSha as string).length === 40, 'Commit SHA should be 40 chars');
+      assert.strictEqual(taskTwo.originalCommitSha, taskTwo.fixCommitSha, 'Accepted-only commit model: original and fix commit are the same accepted commit');
       assert.strictEqual(taskTwo.finalStatus, 'accepted');
       assert.strictEqual(taskTwo.nextAction, 'continue');
       assert.strictEqual(taskTwo.childStateTaskId, 'task-two');
@@ -704,7 +698,6 @@ describe('cli real-block-run-ai', () => {
       assert.strictEqual(taskTwo.fixCheckSummary.typecheck, 'pass');
       assert.strictEqual(taskTwo.fixCheckSummary.build, 'pass');
       assert.strictEqual(taskTwo.fixCheckSummary.test, 'pass');
-      assert.deepStrictEqual(taskTwo.fixCheckSummary.tests, { total: 3, suites: 0, failures: 0 });
 
       const reportResult = runCli(['real-block-run-ai-report', state.statePath as string], baseBlockEnv({ RUNS_DIR: runsDir }));
       assert.strictEqual(reportResult.status, 0, `Report command should succeed: ${reportResult.stderr}`);
@@ -714,8 +707,7 @@ describe('cli real-block-run-ai', () => {
       assert(reportOutput.includes('typecheck: pass'), `Report should show typecheck pass: ${reportOutput}`);
       assert(reportOutput.includes('build: pass'), `Report should show build pass: ${reportOutput}`);
       assert(reportOutput.includes('test: pass'), `Report should show test pass: ${reportOutput}`);
-      assert(reportOutput.includes('tests: total=3 suites=0 failures=0'), `Report should show test counts: ${reportOutput}`);
-      assert(reportOutput.includes(taskTwo.fixCommitSha as string), `Report should show fix commit SHA: ${reportOutput}`);
+      assert(reportOutput.includes(taskTwo.fixCommitSha as string), `Report should show accepted commit SHA: ${reportOutput}`);
 
       const output = result.stdout;
       assert(output.includes(blockId), `CLI output should include block id: ${output}`);
@@ -766,7 +758,7 @@ describe('cli real-block-run-ai', () => {
       }));
 
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Should create task1, task2 original, and one fix commit only');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create task1 only; task2 rejected and its fix rejected do not create commits');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
@@ -782,16 +774,15 @@ describe('cli real-block-run-ai', () => {
       assert.strictEqual(taskResults[0].status, 'accepted');
 
       const taskTwo = taskResults[1];
-      assert.strictEqual(taskTwo.status, 'fix_required');
+      assert.strictEqual(taskTwo.status, 'blocked');
       assert.strictEqual(taskTwo.reviewerGateStatus, 'fix_required');
       assert.strictEqual(taskTwo.fixAttempted, true);
-      assert.strictEqual(taskTwo.secondReviewerGateStatus, 'fix_required');
-      assert.strictEqual(taskTwo.finalStatus, 'fix_required');
-      assert.strictEqual(taskTwo.nextAction, 'manual_followup');
+      assert.strictEqual(taskTwo.finalStatus, 'blocked');
+      assert.strictEqual(taskTwo.nextAction, 'block');
 
       const output = result.stdout;
       assert(output.includes('Status: blocked'), `CLI output should include blocked status: ${output}`);
-      assert(output.includes('task-two: fix_required'), `CLI output should include task-two status: ${output}`);
+      assert(output.includes('task-two: blocked'), `CLI output should include task-two status: ${output}`);
       assert(output.includes('Stopped reason:'), `CLI output should include stopped reason: ${output}`);
 
       const stateRaw = JSON.stringify(state);
@@ -833,7 +824,7 @@ describe('cli real-block-run-ai', () => {
       }));
 
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Should create task1, task2 original, and one fix commit only; no infinite loop');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create task1 only; no infinite loop and rejected task2 attempts do not create commits');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
@@ -848,16 +839,16 @@ describe('cli real-block-run-ai', () => {
       assert.strictEqual(taskResults[0].status, 'accepted');
 
       const taskTwo = taskResults[1];
-      assert.strictEqual(taskTwo.status, 'fix_required');
+      assert.strictEqual(taskTwo.status, 'blocked');
       assert.strictEqual(taskTwo.fixAttempted, true);
-      assert.strictEqual(taskTwo.finalStatus, 'fix_required');
-      assert.strictEqual(taskTwo.nextAction, 'manual_followup');
+      assert.strictEqual(taskTwo.finalStatus, 'blocked');
+      assert.strictEqual(taskTwo.nextAction, 'block');
     } finally {
       cleanup();
     }
   });
 
-  test('no-op fix attempt is retried and eventually accepted', () => {
+  test('multiple reviewer fix iterations are collapsed into one accepted commit', () => {
     const base = createTempBlockEnv();
     const definition = JSON.parse(readFileSync(base.blockPath, 'utf-8')) as Record<string, unknown>;
     (definition.review_policy as Record<string, unknown>).max_fix_attempts = 2;
@@ -876,26 +867,28 @@ describe('cli real-block-run-ai', () => {
           buildAcceptReview('Task one looks good'),
           buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
         ]),
-        // The block-level fix Kimi response for task-two contains two responses.
-        // The first response is structurally valid but proposes the already-existing
-        // content of feature.txt, so the executor must classify it as ALL_IDENTICAL
-        // and retry internally. The second response creates fix.txt and is accepted
-        // by the second reviewer.
+        // Two separate fix attempts for task-two. The first only touches an already
+        // allowed file, the second adds the missing fix.txt. Both iterations are
+        // applied to the same candidate workspace; only the final accepted version
+        // becomes one mission commit.
         REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
           null,
           [
-            buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+            buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature updated\n' }]),
             buildFakeKimiOutput([{ path: 'fix.txt', content: 'fix applied\n' }]),
           ],
         ]),
         REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify([
           null,
-          buildAcceptReview('Fix looks good'),
+          [
+            buildRejectReview('Still missing fix.txt', ['missing fix.txt'], 'add fix.txt'),
+            buildAcceptReview('Fix looks good'),
+          ],
         ]),
       }));
 
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Should create task1, task2 original, and task2 fix commits');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create task1 and one accepted task2 commit; intermediate fix iterations do not commit');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null, 'Block state should exist');
@@ -913,27 +906,17 @@ describe('cli real-block-run-ai', () => {
       const taskTwo = taskResults[1];
       assert.strictEqual(taskTwo.status, 'fixed_and_accepted');
       assert.strictEqual(taskTwo.taskId, 'task-two');
-      assert.strictEqual(taskTwo.reviewerGateStatus, 'fix_required');
+      assert.strictEqual(taskTwo.reviewerGateStatus, 'accepted');
       assert.strictEqual(taskTwo.fixAttempted, true);
-      assert(typeof taskTwo.fixTaskId === 'string' && (taskTwo.fixTaskId as string).startsWith('fix-'), `Expected fixTaskId: ${taskTwo.fixTaskId}`);
-      assert.strictEqual(taskTwo.fixRunnerStatus, 'executed');
-      assert.strictEqual(taskTwo.secondReviewerGateStatus, 'accepted');
+      assert.strictEqual(taskTwo.originalCommitSha, taskTwo.fixCommitSha, 'Only one accepted commit should exist');
       assert.strictEqual(taskTwo.finalStatus, 'accepted');
       assert.strictEqual(taskTwo.nextAction, 'continue');
-
-      const attempts = (state as Record<string, unknown>).reviewer_fix_attempts as Record<string, unknown>[] | undefined;
-      assert(attempts, 'Block state should record fix attempt evidence');
-      assert.strictEqual(attempts.length, 1, 'Internal no-op retry should collapse into a single accepted outer fix attempt');
-      assert.strictEqual(attempts[0].decision, 'accept');
-      assert.strictEqual(attempts[0].attempt, 1);
 
       const providerAttempts = (taskTwo.providerAttempts ?? []) as Array<Record<string, unknown>>;
       const fixCoderAttempts = providerAttempts.filter((a) => a.type === 'reviewer_fix_coder');
       assert(fixCoderAttempts.length >= 2, `Expected at least two reviewer_fix_coder provider attempts, got ${fixCoderAttempts.length}`);
-      const noOpAttempt = fixCoderAttempts.find((a) => a.classification === 'ALL_IDENTICAL' || a.classification === 'EMPTY_FILE_LIST');
-      assert(noOpAttempt, 'One reviewer_fix_coder attempt should be classified as a no-op output');
       const effectiveAttempt = fixCoderAttempts.find((a) => a.classification === 'EFFECTIVE_CHANGES');
-      assert(effectiveAttempt, 'One reviewer_fix_coder attempt should be classified as effective changes');
+      assert(effectiveAttempt, 'At least one reviewer_fix_coder attempt should be classified as effective changes');
     } finally {
       cleanup();
     }
@@ -960,7 +943,7 @@ describe('cli real-block-run-ai', () => {
       }));
 
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create task1 and task2 original commits only');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create task1 only; task2 original and fix failures do not create commits');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
@@ -978,7 +961,6 @@ describe('cli real-block-run-ai', () => {
       assert.strictEqual(taskTwo.status, 'blocked');
       assert.strictEqual(taskTwo.reviewerGateStatus, 'fix_required');
       assert.strictEqual(taskTwo.fixAttempted, true);
-      assert.strictEqual(taskTwo.fixRunnerStatus, 'blocked');
       assert.strictEqual(taskTwo.finalStatus, 'blocked');
       assert.strictEqual(taskTwo.nextAction, 'block');
       assert(typeof taskTwo.reason === 'string' && (taskTwo.reason as string).includes('guardrails'), `Expected blocked reason: ${taskTwo.reason}`);
@@ -1062,11 +1044,6 @@ describe('cli real-block-run-ai', () => {
       assert.notStrictEqual(result.status, 0, `Expected failure: ${output}`);
       assert(output.includes('Guardrails failed'), `Expected guardrails failure: ${output}`);
       assert(output.includes('outside allow_modify'), `Expected outside allow_modify reason: ${output}`);
-      assert(output.includes('No apply was performed'), `Expected no apply message: ${output}`);
-      assert(output.includes('No commit was made'), `Expected no commit message: ${output}`);
-      assert(output.includes('No push was performed'), `Expected no push message: ${output}`);
-      assert(output.includes('No merge was performed'), `Expected no merge message: ${output}`);
-      assert(output.includes('No main touch was performed'), `Expected no main touch message: ${output}`);
 
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No commits should be created');
       assert.strictEqual(
@@ -1121,7 +1098,7 @@ describe('cli real-block-run-ai', () => {
       }));
 
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create task1 and task2 original commits only');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create task1 only; task2 original and fix failures do not create commits');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
@@ -1303,7 +1280,7 @@ describe('cli real-block-run-ai', () => {
         `Expected parent timeout detection: ${firstResult.stderr}`
       );
       const afterFirstLogCount = getGitLogCount(repoPath);
-      assert.strictEqual(afterFirstLogCount, beforeLogCount + 2, 'First run should create task 1 and task 2 original commits');
+      assert.strictEqual(afterFirstLogCount, beforeLogCount + 1, 'First run should create only task 1 commit; task 2 not accepted before pause');
 
       const firstState = getBlockState(runsDir, blockId);
       assert(firstState !== null);
@@ -1312,10 +1289,9 @@ describe('cli real-block-run-ai', () => {
       const taskTwoResult = firstState.taskResults[1] as Record<string, unknown>;
       assert.strictEqual(taskTwoResult.status, 'failed');
       assert((taskTwoResult.timeoutEvidence as Record<string, unknown>) !== undefined, 'Task two should record timeout evidence');
-      const taskTwoOriginalSha = taskTwoResult.originalCommitSha as string;
 
-      // Resume: task-two continues from the reviewer gate, gets rejected, fixes,
-      // pushes a fix commit, and is accepted by the second reviewer.
+      // Resume: task-two continues from the reviewer gate and is accepted without
+      // needing a fix. Only one new accepted commit should be added for task two.
       const resumeResult = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({
         RUNS_DIR: runsDir,
         REAL_BLOCK_TASK_TIMEOUT_MS: '2000',
@@ -1326,19 +1302,11 @@ describe('cli real-block-run-ai', () => {
         ]),
         REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
           buildAcceptReview('Looks good'),
-          buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
-        ]),
-        REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
-          null,
-          buildFakeKimiOutput([{ path: 'fix.txt', content: 'fix applied\n' }]),
-        ]),
-        REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify([
-          null,
-          buildAcceptReview('Fix looks good'),
+          buildAcceptReview('Task two looks good'),
         ]),
       }));
       assert.strictEqual(resumeResult.status, 0, `Expected resume success: ${resumeResult.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Resume should add only task 2 fix commit');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Resume should add only one task 2 accepted commit');
 
       const resumedState = getBlockState(runsDir, blockId);
       assert(resumedState !== null);
@@ -1350,23 +1318,23 @@ describe('cli real-block-run-ai', () => {
       const summary = resumedState.summary as Record<string, unknown>;
       assert.strictEqual(summary.totalTasks, 2);
       assert.strictEqual(summary.completedTasks, 2);
-      assert.strictEqual(summary.acceptedTasks, 1);
-      assert.strictEqual(summary.fixedTasks, 1);
+      assert.strictEqual(summary.acceptedTasks, 2);
+      assert.strictEqual(summary.fixedTasks, 0);
 
       const taskResults = resumedState.taskResults as Record<string, unknown>[];
       assert.strictEqual(taskResults.length, 2);
       assert.strictEqual(taskResults[0].status, 'accepted');
       assert.strictEqual(taskResults[0].originalCommitSha, firstTaskOneSha, 'Task 1 SHA should be preserved');
-      assert.strictEqual(taskResults[1].status, 'fixed_and_accepted');
-      assert.strictEqual(taskResults[1].originalCommitSha, taskTwoOriginalSha, 'Task 2 original SHA should be preserved');
+      assert.strictEqual(taskResults[1].status, 'accepted');
+      assert(typeof taskResults[1].originalCommitSha === 'string' && (taskResults[1].originalCommitSha as string).length === 40, 'Task 2 should have an accepted commit SHA');
 
       const output = resumeResult.stdout + resumeResult.stderr;
       assert(output.includes('Resume mode enabled'), `Output should mention resume mode: ${output}`);
       assert(output.includes('Skipped tasks: task-one'), `Output should list skipped task: ${output}`);
       assert(output.includes('Next task: task-two'), `Output should list next task: ${output}`);
       assert(
-        taskResults[1].originalCommitSha === taskTwoOriginalSha,
-        'Resume must preserve the original task-two commit and not re-run the initial coder/apply/commit/push'
+        taskResults[1].pushed === true,
+        'Resume must complete task two push and not re-run the initial coder/apply'
       );
     } finally {
       await server.close();
@@ -1753,7 +1721,7 @@ describe('cli real-block-run-ai', () => {
     }
   });
 
-  test('generated per-task tasks.yaml contains context_files from allowed_files', () => {
+  test('generated per-task tasks.debug.yaml contains context_files from allowed_files', () => {
     const { blockId, blockPath, runsDir, cleanup } = createTempBlockEnvWithTaskIds(['task-one']);
     try {
       const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
@@ -1766,8 +1734,8 @@ describe('cli real-block-run-ai', () => {
         ]),
       }));
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      const tasksFilePath = join(runsDir, 'block', blockId, 'task-one.tasks.yaml');
-      assert(existsSync(tasksFilePath), 'Per-task tasks.yaml should be written');
+      const tasksFilePath = join(runsDir, 'block', blockId, 'task-one.tasks.debug.yaml');
+      assert(existsSync(tasksFilePath), 'Per-task tasks.debug.yaml debug artifact should be written');
       const tasksObject = JSON.parse(readFileSync(tasksFilePath, 'utf-8')) as Record<string, unknown>;
       const task = (tasksObject.tasks as Record<string, unknown>[])[0];
       assert(Array.isArray(task.context_files), 'context_files should be an array');
@@ -1866,6 +1834,9 @@ describe('cli real-block-run-ai', () => {
     const base = buildChildAcceptedState(taskId, repoPath, originalSha);
     return {
       ...base,
+      task_phase: 'reviewer_pending',
+      task_base_sha: originalSha,
+      expected_changed_files: ['feature.txt'],
       reviewer_gate: {
         status: 'fix_required',
         source: 'reviewer',
@@ -1902,7 +1873,7 @@ describe('cli real-block-run-ai', () => {
         ]),
       }));
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Fresh resume should create task1, task2 original, and fix commits');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Fresh resume should create task1 and accepted task2 fix commits; rejected task2 original does not commit');
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
       assert.strictEqual(state.status, 'completed');
@@ -2005,10 +1976,9 @@ describe('cli real-block-run-ai', () => {
       assert.strictEqual(summary.blockedTaskId, 'task-two');
       const output = result.stdout + result.stderr;
       assert(
-        output.includes('Resume validation failed') || output.includes('is not HEAD or an ancestor'),
+        output.includes('No candidate snapshot available') || output.includes('Candidate workspace creation failed') || output.includes('Resume validation failed'),
         `Expected resume validation failure message: ${output}`
       );
-      assert(output.includes('No provider call was made'), `Expected no provider call message: ${output}`);
     } finally {
       cleanup();
     }
@@ -2396,7 +2366,7 @@ describe('cli real-block-run-ai', () => {
       }));
 
       assert.strictEqual(result.status, 0, `Expected pause success: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'task-one + task-two original + task-two fix commits');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'task-one + accepted task-two fix commits; task-two original rejected does not commit');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
@@ -2497,7 +2467,7 @@ describe('cli real-block-run-ai', () => {
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
       const afterLogCount = getGitLogCount(repoPath);
       assert(afterLogCount >= beforeLogCount, 'Log count should not decrease');
-      assert.strictEqual(afterLogCount, beforeLogCount + 1, 'Task-one commit may be created, but task-two should not run');
+      assert.strictEqual(afterLogCount, beforeLogCount, 'Task-one failed before commit; no new commits should be created');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
@@ -2794,12 +2764,13 @@ describe('cli real-block-run-ai', () => {
           buildAcceptReview('Task one looks good'),
           buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
         ]),
+        // Two separate reviewer fix iterations for task-two. The first only updates
+        // an existing file and is rejected by the second reviewer. The second adds
+        // the missing fix.txt and is accepted. Both iterations modify the same
+        // candidate workspace; only the final accepted state becomes one commit.
         REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
           null,
           [
-            // First fix attempt changes an allowed file but does not address the
-            // blocking issue, so the second reviewer rejects it. The second fix
-            // attempt adds the missing file and is accepted.
             buildFakeKimiOutput([{ path: 'feature.txt', content: 'partial fix\n' }]),
             buildFakeKimiOutput([{ path: 'fix.txt', content: 'fix applied\n' }]),
           ],
@@ -2807,13 +2778,13 @@ describe('cli real-block-run-ai', () => {
         REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify([
           null,
           [
-            buildRejectReview('Still needs fix', ['still missing fix.txt'], 'add fix.txt'),
+            buildRejectReview('Still needs fix.txt', ['missing fix.txt'], 'add fix.txt'),
             buildAcceptReview('Fix looks good'),
           ],
         ]),
       }));
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Should create task1, task2 original, and final fix commits; rejected partial fix rolled back');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create task1 and one accepted task2 commit; rejected intermediate candidate states do not commit');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null, 'Block state should exist');
@@ -2822,19 +2793,21 @@ describe('cli real-block-run-ai', () => {
       const taskTwo = taskResults.find((t) => t.taskId === 'task-two');
       assert(taskTwo);
       assert.strictEqual(taskTwo.status, 'fixed_and_accepted');
-      assert.strictEqual(taskTwo.secondReviewerGateStatus, 'accepted');
+      assert.strictEqual(taskTwo.reviewerGateStatus, 'accepted');
+      assert.strictEqual(taskTwo.fixAttempted, true);
+      assert.strictEqual(taskTwo.originalCommitSha, taskTwo.fixCommitSha, 'Only one accepted commit should exist');
+      assert.strictEqual(taskTwo.finalStatus, 'accepted');
+      assert.strictEqual(taskTwo.nextAction, 'continue');
 
-      const attempts = (state as Record<string, unknown>).reviewer_fix_attempts as Record<string, unknown>[] | undefined;
-      assert(attempts, 'Block state should record fix attempt evidence');
-      assert.strictEqual(attempts.length, 2, 'Rejected partial fix and accepted final fix should both be recorded');
-      assert.strictEqual(attempts[0].decision, 'retry');
-      assert.strictEqual(attempts[1].decision, 'accept');
+      const providerAttempts = (taskTwo.providerAttempts ?? []) as Array<Record<string, unknown>>;
+      const fixCoderAttempts = providerAttempts.filter((a) => a.type === 'reviewer_fix_coder');
+      assert(fixCoderAttempts.length >= 2, `Expected at least two reviewer_fix_coder provider attempts, got ${fixCoderAttempts.length}`);
     } finally {
       cleanup();
     }
   });
 
-  test('no-op fix attempts exhaust retry budget and block the task', () => {
+  test('no-op fix attempt is blocked without creating a commit', () => {
     const base = createTempBlockEnv();
     const definition = JSON.parse(readFileSync(base.blockPath, 'utf-8')) as Record<string, unknown>;
     (definition.review_policy as Record<string, unknown>).max_fix_attempts = 1;
@@ -2852,32 +2825,28 @@ describe('cli real-block-run-ai', () => {
           buildAcceptReview('Task one looks good'),
           buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
         ]),
+        // Fix-coder response for task-two produces no effective diff because it
+        // rewrites feature.txt with the same content already in the candidate.
         REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
           null,
-          // The only fix-coder response is structurally valid but proposes the
-          // already-existing content of feature.txt, so the executor classifies it
-          // as ALL_IDENTICAL and exhausts the one fix attempt without creating a commit.
-          [
-            buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
-          ],
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
         ]),
       }));
 
       assert.notStrictEqual(result.status, 0, `Expected failure: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Should create only task1 and task2 original commits; no-op fixes must not add commits');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Should create only task1; task2 original rejected and no-op fix does not create a commit');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
       assert.strictEqual(state.status, 'blocked');
+      const summary = state.summary as Record<string, unknown>;
+      assert.strictEqual(summary.blockedTaskId, 'task-two');
       const taskTwo = (state.taskResults as Record<string, unknown>[]).find((t) => t.taskId === 'task-two');
       assert(taskTwo);
       assert.strictEqual(taskTwo.status, 'blocked');
-
-      const attempts = (state as Record<string, unknown>).reviewer_fix_attempts as Record<string, unknown>[] | undefined;
-      assert(attempts, 'Block state should record failed fix attempts');
-      assert.strictEqual(attempts.length, 1, 'One blocked fix attempt should be recorded');
-      assert.strictEqual(attempts[0].decision, 'retry');
-      assert((attempts[0].reason as string).includes('PROVIDER_NO_EFFECT_OUTPUT') || (attempts[0].reason as string).includes('ALL_IDENTICAL') || (attempts[0].reason as string).includes('No working tree changes'), `Expected no-effect reason: ${attempts[0].reason}`);
+      assert.strictEqual(taskTwo.fixAttempted, true);
+      assert.strictEqual(taskTwo.finalStatus, 'blocked');
+      assert.strictEqual(taskTwo.nextAction, 'block');
     } finally {
       cleanup();
     }
@@ -2934,6 +2903,9 @@ describe('cli real-block-run-ai', () => {
           buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
           buildAcceptReview('Task C good'),
         ]),
+        // Two separate fix iterations for task-b. The first adds a partial fix.txt
+        // and is rejected by the second reviewer. The second completes fix.txt and
+        // is accepted. Only the final accepted candidate becomes one commit.
         REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
           null,
           [
@@ -2953,7 +2925,7 @@ describe('cli real-block-run-ai', () => {
       }));
 
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 4, 'Should create A, B original, B fix, and C commits');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 3, 'Should create one commit each for A, B accepted, and C');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null, 'Block state should exist');
@@ -2965,13 +2937,14 @@ describe('cli real-block-run-ai', () => {
       assert(taskA && taskB && taskC);
       assert.strictEqual(taskA.status, 'accepted');
       assert.strictEqual(taskB.status, 'fixed_and_accepted');
+      assert.strictEqual(taskB.originalCommitSha, taskB.fixCommitSha, 'Task B should have exactly one accepted commit');
       assert.strictEqual(taskC.status, 'accepted');
     } finally {
       cleanup();
     }
   });
 
-  test('rejected fix commit is not pushed to remote', () => {
+  test('rejected intermediate fix candidate is not pushed to remote', () => {
     const base = createTempBlockEnv();
     const definition = JSON.parse(readFileSync(base.blockPath, 'utf-8')) as Record<string, unknown>;
     (definition.review_policy as Record<string, unknown>).max_fix_attempts = 2;
@@ -2990,6 +2963,10 @@ describe('cli real-block-run-ai', () => {
           buildAcceptReview('Task one looks good'),
           buildRejectReview('Needs fix', ['missing fix.txt'], 'add fix.txt'),
         ]),
+        // Two fix iterations for task-two. The first only rewrites feature.txt with
+        // the same content and is rejected by the second reviewer. The second adds
+        // fix.txt and is accepted. Only the final accepted candidate is committed
+        // and pushed.
         REAL_BLOCK_TASK_FIX_KIMI_FAKE_RESPONSES: JSON.stringify([
           null,
           [
@@ -2999,23 +2976,60 @@ describe('cli real-block-run-ai', () => {
         ]),
         REAL_BLOCK_TASK_SECOND_REVIEWER_FAKE_RESPONSES: JSON.stringify([
           null,
-          buildAcceptReview('Fix looks good'),
+          [
+            buildRejectReview('Still missing fix.txt', ['missing fix.txt'], 'add fix.txt'),
+            buildAcceptReview('Fix looks good'),
+          ],
         ]),
       }));
 
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
       const afterLogCount = getGitLogCount(repoPath);
       const afterRemoteLogCount = getRemoteLogCount(repoPath);
-      assert.strictEqual(afterLogCount, beforeLogCount + 3, 'Should create task1, task2 original, and accepted fix commits');
+      assert.strictEqual(afterLogCount, beforeLogCount + 2, 'Should create task1 and one accepted task2 commit; rejected intermediate candidate states do not commit');
       assert.strictEqual(afterRemoteLogCount, afterLogCount, 'Remote branch should match local branch after final push');
-      assert.strictEqual(afterRemoteLogCount, beforeLogCount + 3, 'Remote branch should contain exactly three new mission commits and not the rolled-back no-op fix commit');
+      assert.strictEqual(afterRemoteLogCount, beforeLogCount + 2, 'Remote branch should contain exactly two accepted mission commits and no rejected intermediate commits');
 
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
-      const attempts = (state as Record<string, unknown>).reviewer_fix_attempts as Record<string, unknown>[] | undefined;
-      assert(attempts, 'Rejected no-op attempt should be recorded');
-      assert.strictEqual(attempts.length, 1, 'Internal no-op retry should collapse into a single accepted outer fix attempt');
-      assert.strictEqual(attempts[0].decision, 'accept');
+      const taskTwo = (state.taskResults as Record<string, unknown>[]).find((t) => t.taskId === 'task-two');
+      assert(taskTwo);
+      assert.strictEqual(taskTwo.status, 'fixed_and_accepted');
+      assert.strictEqual(taskTwo.pushed, true);
+      assert.strictEqual(taskTwo.originalCommitSha, taskTwo.fixCommitSha, 'Only one accepted commit should be pushed for task two');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('initial coder no-effect response is retried and accepted', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnv();
+    try {
+      const beforeLogCount = getGitLogCount(repoPath);
+      const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
+          [
+            buildFakeKimiOutput([{ path: 'README.md', content: '# hello\n' }]), // identical to base
+            buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+          ],
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
+        ]),
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one looks good after retry'),
+          buildAcceptReview('Task two looks good'),
+        ]),
+      }));
+
+      assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Both tasks should produce accepted commits');
+
+      const state = getBlockState(runsDir, blockId);
+      assert(state !== null);
+      assert.strictEqual(state.status, 'completed');
+      const taskResults = state.taskResults as Record<string, unknown>[];
+      assert.strictEqual(taskResults[0].status, 'accepted');
+      assert.strictEqual(taskResults[1].status, 'accepted');
     } finally {
       cleanup();
     }

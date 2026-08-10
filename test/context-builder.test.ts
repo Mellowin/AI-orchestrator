@@ -203,8 +203,8 @@ describe('context-builder', () => {
 
       const ctx = buildContext(task);
       assert.strictEqual(ctx.max_lines_changed, 25);
-      const constraint = ctx.constraints.find((c) => c.includes('HARD LIMIT'));
-      assert.ok(constraint, 'expected HARD LIMIT constraint');
+      const constraint = ctx.constraints.find((c) => c.includes('Advisory budget'));
+      assert.ok(constraint, 'expected advisory budget constraint');
       assert.ok(constraint.includes('25'), 'constraint must include the limit value');
       assert.ok(constraint.includes('newly created file'), 'constraint must mention new files');
     } finally {
@@ -223,7 +223,7 @@ describe('context-builder', () => {
 
       const ctx = buildContext(task);
       assert.strictEqual(ctx.max_lines_changed, undefined);
-      assert.ok(!ctx.constraints.some((c) => c.includes('HARD LIMIT')));
+      assert.ok(!ctx.constraints.some((c) => c.includes('Advisory budget')));
     } finally {
       rmSync(repo, { recursive: true });
     }

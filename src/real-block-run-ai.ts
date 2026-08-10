@@ -1,14 +1,15 @@
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBlockDefinition } from './block/block-loader.js';
-import { convertBlockChecks } from './block/block-task-runner.js';
 import type { BlockDefinition, BlockTaskDefinition } from './block/block-types.js';
 import {
   prepareFreshBlockRun,
   verifyTaskResultHistory,
 } from './block/block-state-consistency.js';
+import { buildSingleTaskYaml, buildTaskExecutorInput } from './task-executor-input.js';
 
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
@@ -45,6 +46,35 @@ import { runGitHealthPreflight, formatGitHealthPreflightError } from './git-heal
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, '..');
+
+export function resolveTaskBaseSha(repoPath: string, workBranch: string, baseBranch: string): string {
+  const candidates = [
+    workBranch,
+    `refs/heads/${workBranch}`,
+    `refs/remotes/origin/${workBranch}`,
+    baseBranch,
+    `refs/heads/${baseBranch}`,
+    `refs/remotes/origin/${baseBranch}`,
+  ];
+  for (const ref of candidates) {
+    const result = spawnSync('git', ['rev-parse', ref], {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+    });
+    if (result.status === 0) {
+      const sha = result.stdout.trim();
+      if (/^[0-9a-f]{40}$/i.test(sha)) {
+        return sha;
+      }
+    }
+  }
+  return '';
+}
+
+export function sanitizeTaskId(taskId: string): string {
+  return taskId.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
 
 // Continuation budget for a single task run. A task may be re-spawned up to
 // MAX_TASK_CONTINUATIONS times, but the cumulative wall time must stay under
@@ -144,40 +174,6 @@ function getTaskFakeResponse(
   return arr[index];
 }
 
-function buildSingleTaskYaml(block: BlockDefinition, task: BlockTaskDefinition): string {
-  const repoPath = resolve(block.repo_path);
-  const taskObject = {
-    tasks: [
-      {
-        id: task.task_id,
-        title: task.title,
-        repo_path: repoPath.replace(/\\/g, '/'),
-        base_branch: block.base_branch,
-        work_branch: block.work_branch,
-        goal: task.goal,
-        context_files: task.allowed_files.filter((file) => existsSync(resolve(repoPath, file))),
-        checks:
-          task.checks.length > 0
-            ? convertBlockChecks(task.checks, repoPath)
-            : [{ command: 'node', args: ['-e', 'process.exit(0)'] }],
-        guardrails: {
-          allow_modify: task.allowed_files,
-          deny_modify: task.denied_files.length > 0 ? task.denied_files : ['.env', '.env.*', 'node_modules/**'],
-          max_lines_changed: task.max_lines_changed,
-          require_tests: false,
-          auto_commit: false,
-          auto_push: false,
-          auto_merge: false,
-        },
-        ...(task.dependency_evidence !== undefined
-          ? { dependency_evidence: task.dependency_evidence }
-          : {}),
-      },
-    ],
-  };
-  return JSON.stringify(taskObject, null, 2);
-}
-
 function saveBlockState(block: BlockDefinition, state: RealBlockRunState): void {
   const dir = getBlockRunDir(block);
   if (!existsSync(dir)) {
@@ -248,11 +244,27 @@ function runSingleTask(
     }
   }
 
-  const tasksFilePath = join(blockRunDir, `${task.task_id}.tasks.yaml`);
-  writeFileSync(tasksFilePath, buildSingleTaskYaml(block, task), 'utf-8');
+  const debugYamlPath = join(blockRunDir, `${task.task_id}.tasks.debug.yaml`);
+  writeFileSync(debugYamlPath, buildSingleTaskYaml(block, task), 'utf-8');
+
+  const taskBaseSha = resolveTaskBaseSha(resolve(block.repo_path), block.work_branch, block.base_branch);
+  const candidatePath = join(blockRunDir, 'workspaces', sanitizeTaskId(task.task_id));
+  const candidateParent = join(blockRunDir, 'workspaces');
+  if (!existsSync(candidateParent)) {
+    mkdirSync(candidateParent, { recursive: true });
+  }
+  const taskExecutorInput = buildTaskExecutorInput(block, task, {
+    taskBaseSha,
+    candidatePath,
+    runId: randomUUID(),
+    attempt: resume ? undefined : undefined,
+  });
 
   const env = buildBaseChildEnv();
-  env.TASKS_FILE = tasksFilePath;
+  // Deprecated: TASKS_FILE is kept for backward compatibility only. The child
+  // process now receives the canonical task configuration via stdin as JSON.
+  env.TASKS_FILE = debugYamlPath;
+  env.REAL_REPO_TASK_EXECUTOR_INPUT_STDIN = '1';
   env.RUNS_DIR = childRunsDir;
   env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP = '1';
 
@@ -340,6 +352,7 @@ function runSingleTask(
       encoding: 'utf-8',
       shell: false,
       timeout: timeoutMs,
+      input: JSON.stringify(taskExecutorInput),
     }
   );
 
@@ -614,6 +627,7 @@ function deriveTaskResult(
   }
 
   const state = run.state;
+  const runStatus = state.status;
   const commitSha = getStateString(state, 'commit_sha');
   base.originalCommitSha = commitSha;
   base.codeApplied = typeof commitSha === 'string' && commitSha.length === 40;
@@ -737,14 +751,46 @@ function deriveTaskResult(
     return base;
   }
 
+  const persistedFixCheckSummary = state.fix_check_summary as Record<string, unknown> | undefined;
+  if (
+    persistedFixCheckSummary !== undefined &&
+    typeof persistedFixCheckSummary === 'object' &&
+    !Array.isArray(persistedFixCheckSummary)
+  ) {
+    base.fixCheckSummary = persistedFixCheckSummary as ReviewerEvidence['checkSummary'];
+  }
+
+  // A child task that reached a reviewer gate but was ultimately blocked (e.g.
+  // max fix attempts reached, guardrails blocked a fix, or no fix loop configured)
+  // reports state.status === 'blocked' while reviewer_gate may still be
+  // 'fix_required'. Respect the terminal child status.
+  if (runStatus === 'blocked') {
+    base.status = 'blocked';
+    base.finalStatus = 'blocked';
+    base.nextAction = 'block';
+    base.checksResult = 'pass';
+    base.fixAttempted = reviewerGate?.status === 'fix_required';
+    base.reason = redactSecrets(
+      typeof state.safety_note === 'string'
+        ? state.safety_note
+        : (getGateSummary(reviewerGate) ?? 'Task blocked during review.')
+    );
+    return base;
+  }
+
   if (reviewerGate !== undefined) {
     const status = reviewerGate.status;
     if (status === 'accepted') {
-      base.status = 'accepted';
+      const isFixed = state.fixed_and_accepted === true;
+      base.status = isFixed ? 'fixed_and_accepted' : 'accepted';
       base.finalStatus = 'accepted';
       base.nextAction = 'continue';
       base.checksResult = 'pass';
       base.reason = getGateSummary(reviewerGate) ?? 'Reviewer gate accepted.';
+      if (isFixed) {
+        base.fixAttempted = true;
+        base.fixCommitSha = commitSha;
+      }
       return base;
     }
 
@@ -796,7 +842,8 @@ function deriveTaskResult(
     return base;
   }
 
-  const runStatus = state.status;
+  // Default fallback: handle terminal state.status values that were not already
+  // processed above.
   if (runStatus === 'failed_guardrails') {
     base.status = 'failed';
     base.finalStatus = 'failed';

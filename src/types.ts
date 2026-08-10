@@ -1,4 +1,5 @@
 import type { PersistedReviewerGate } from './reviewer-task-outcome.js';
+import type { ReviewerEvidence } from './reviewer-evidence.js';
 
 export interface Task {
   id: string;
@@ -151,6 +152,16 @@ export interface RunState {
   current_attempt: number;
   branch: string;
   repo_path: string;
+  /** Immutable base SHA from which this task's diff is measured. */
+  task_base_sha?: string;
+  /** Path to the persistent candidate workspace clone used for this task. */
+  candidate_path?: string;
+  /** Expected set of changed files after the last successful apply/stage. */
+  expected_changed_files?: string[];
+  /** Commit SHA that was accepted and pushed (same as commit_sha when accepted). */
+  accepted_commit_sha?: string;
+  /** True if the task was accepted after one or more reviewer fix iterations. */
+  fixed_and_accepted?: boolean;
   last_kimi_output?: KimiOutput;
   last_review?: ReviewVerdict;
   last_logs?: string;
@@ -175,6 +186,10 @@ export interface RunState {
   timeout_ms?: number;
   next_timeout_ms?: number;
   child_pid?: number;
+  /** Check summary recorded when a fixed task was finally accepted. */
+  fix_check_summary?: ReviewerEvidence['checkSummary'];
+  /** Check summary recorded for the final accepted candidate. */
+  check_summary?: ReviewerEvidence['checkSummary'];
   reviewer_phase_evidence?: ReviewerPhaseEvidence;
   reviewer_gate?: PersistedReviewerGate;
 }
@@ -197,12 +212,21 @@ export interface ReviewVerdict {
   summary_for_human: string;
 }
 
+export interface TaskExecutorInput {
+  task: Task;
+  task_base_sha: string;
+  candidate_path: string;
+  run_id: string;
+  attempt?: number;
+}
+
 export interface ContextPackage {
   task_summary: string;
   goal: string;
   constraints: string[];
   files: { path: string; content: string }[];
   max_lines_changed?: number;
+  dependency_evidence?: DependencyEvidencePackage;
 }
 
 export interface ValidationResult {

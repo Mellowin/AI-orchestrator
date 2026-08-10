@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 export interface AcceptanceCriterionIssue {
   criterion: string;
@@ -174,6 +176,44 @@ function readFileFromCommit(
   return { ok: true, content: result.stdout };
 }
 
+function readFileFromWorkingTree(
+  repoPath: string,
+  path: string
+): { ok: true; content: string } | { ok: false; error: string } {
+  const result = spawnSync('git', ['show', `HEAD:${path}`], {
+    cwd: repoPath,
+    encoding: 'utf-8',
+    shell: false,
+  });
+  if (result.status === 0) {
+    return { ok: true, content: result.stdout };
+  }
+  // File may be new in the working tree; try reading directly.
+  try {
+    const content = readFileSync(resolve(repoPath, path), 'utf-8');
+    return { ok: true, content };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function readFileForAcceptanceCheck(
+  repoPath: string,
+  commitSha: string,
+  path: string
+): { ok: true; content: string } | { ok: false; error: string } {
+  // Prefer working tree content (staged or new files) over the base commit so
+  // candidate workspaces can be reviewed before a commit is created.
+  const workingTree = readFileFromWorkingTree(repoPath, path);
+  if (workingTree.ok) {
+    return workingTree;
+  }
+  return readFileFromCommit(repoPath, commitSha, path);
+}
+
 function checkContent(
   type: CheckType,
   content: string,
@@ -231,7 +271,7 @@ export function runAcceptanceCriteriaChecks(
       continue;
     }
 
-    const readResult = readFileFromCommit(
+    const readResult = readFileForAcceptanceCheck(
       input.repoPath,
       input.commitSha,
       targetPath

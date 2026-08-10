@@ -33,9 +33,17 @@ export function buildContext(task: Task): ContextPackage {
 
   if (task.guardrails.max_lines_changed !== undefined) {
     constraints.push(
-      `HARD LIMIT: the total line delta for any single file must not exceed ${task.guardrails.max_lines_changed} lines. ` +
-        'For a newly created file the limit applies to the full file length. ' +
-        'If your proposed change would exceed this limit, reduce the scope or return empty files with a note.'
+      `Advisory budget: prefer to keep the total line delta for any single file under ${task.guardrails.max_lines_changed} lines. ` +
+        'For a newly created file this is a planning estimate for the full file length. ' +
+        'Do not compromise correctness or safety to fit the budget; if the required change needs more lines, include a note explaining why.'
+    );
+  }
+
+  if (task.dependency_evidence && task.dependency_evidence.items.length > 0) {
+    constraints.push(
+      'Dependency evidence from accepted ancestor tasks is provided in the prompt below. ' +
+        'These files are read-only context. You may NOT modify them. ' +
+        'Your write scope remains the Allowed files listed above.'
     );
   }
 
@@ -45,6 +53,7 @@ export function buildContext(task: Task): ContextPackage {
     constraints,
     files,
     max_lines_changed: task.guardrails.max_lines_changed,
+    dependency_evidence: task.dependency_evidence,
   };
 }
 

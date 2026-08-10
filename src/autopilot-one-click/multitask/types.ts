@@ -32,6 +32,9 @@ export interface MultitaskMissionTaskState {
   status: 'pending' | 'running' | 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human';
   commit_sha?: string;
   fix_commit_sha?: string;
+  accepted_commit_sha?: string;
+  task_base_sha?: string;
+  candidate_path?: string;
   reason?: string;
   attempt?: number;
 }
@@ -42,6 +45,9 @@ export interface MultitaskMissionTaskResult {
   status: 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human';
   commit_sha?: string;
   fix_commit_sha?: string;
+  accepted_commit_sha?: string;
+  task_base_sha?: string;
+  candidate_path?: string;
   reason?: string;
 }
 

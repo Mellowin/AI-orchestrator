@@ -1,7 +1,7 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { resolve, join, isAbsolute, relative } from 'node:path';
 import YAML from 'yaml';
-import type { Task, Check, Guardrails } from './types.js';
+import type { Task, Check, Guardrails, DependencyEvidencePackage } from './types.js';
 
 const DEFAULT_DENY = ['.env', '.env.*', 'node_modules/**', '.git/**'];
 
@@ -94,6 +94,47 @@ function parseChecks(raw: unknown): Check[] {
   });
 }
 
+function expectDependencyEvidenceItem(
+  raw: unknown,
+  index: number
+): import('./types.js').DependencyEvidenceItem {
+  if (!isObject(raw)) {
+    throw new Error(`Expected dependency_evidence.items[${index}] to be an object`);
+  }
+  return {
+    task_id: expectString(raw, 'task_id'),
+    task_status: expectString(raw, 'task_status'),
+    accepted_commit_sha: raw.accepted_commit_sha === undefined ? undefined : expectString(raw, 'accepted_commit_sha'),
+    fix_commit_sha: raw.fix_commit_sha === undefined ? undefined : expectString(raw, 'fix_commit_sha'),
+    path: expectString(raw, 'path'),
+    content_sha256: expectString(raw, 'content_sha256'),
+    bytes: expectNumber(raw, 'bytes'),
+    lines: expectNumber(raw, 'lines'),
+    content: expectString(raw, 'content'),
+    truncated: raw.truncated === undefined ? undefined : expectBoolean(raw, 'truncated'),
+  };
+}
+
+function expectDependencyEvidencePackage(
+  raw: unknown
+): DependencyEvidencePackage | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isObject(raw)) {
+    throw new Error('Expected "dependency_evidence" to be an object');
+  }
+  if (!Array.isArray(raw.items)) {
+    throw new Error('Expected "dependency_evidence.items" to be an array');
+  }
+  return {
+    items: raw.items.map((item, i) => expectDependencyEvidenceItem(item, i)),
+    total_bytes: expectNumber(raw, 'total_bytes'),
+    truncated: expectBoolean(raw, 'truncated', false),
+    omitted_count: expectNumber(raw, 'omitted_count'),
+  };
+}
+
 export function parseTaskObject(input: unknown): Task {
   if (!isObject(input)) {
     throw new Error('Expected task input to be an object');
@@ -135,6 +176,7 @@ function parseTask(raw: Record<string, unknown>): Task {
     raw.acceptance_criteria === undefined
       ? undefined
       : expectStringArray(raw, 'acceptance_criteria');
+  const dependency_evidence = expectDependencyEvidencePackage(raw.dependency_evidence);
   return {
     id: expectString(raw, 'id'),
     title: expectString(raw, 'title'),
@@ -146,6 +188,7 @@ function parseTask(raw: Record<string, unknown>): Task {
     checks: parseChecks(raw.checks),
     guardrails: parseGuardrails(expectObject(raw, 'guardrails')),
     acceptance_criteria,
+    dependency_evidence,
   };
 }
 
@@ -179,7 +222,7 @@ function validateContextFilePath(file: string, repoPath: string): string {
   return resolvedFile;
 }
 
-function validateTask(task: Task): void {
+export function validateTask(task: Task): void {
   const resolvedRepo = resolve(task.repo_path);
   if (!existsSync(resolvedRepo)) {
     throw new Error(`repo_path does not exist: ${task.repo_path}`);
