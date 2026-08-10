@@ -31,12 +31,11 @@ const DEFAULT_CHUNK_TIMEOUT_MS = 300_000;
 // so they do not push mixed chunks over the interactive tool timeout.
 const HEAVY_FILE_NAMES = new Set([
   'cli-real-block-run-ai.test.ts',
-  'cli-real-repo-run-ai.test.ts',
+  'cli-real-repo-run-ai-retry.test.ts',
+  'cli-real-repo-run-ai-no-effect.test.ts',
+  'cli-real-repo-run-ai-timeout-resume.test.ts',
   'cli-real-repo-pr-create.test.ts',
   'cli-real-repo-pr-readiness.test.ts',
-  'block-follow-up-drill.test.ts',
-  'post-push-follow-up-drill.test.ts',
-  'rollback-policy-drill.test.ts',
 ]);
 const TEST_DIR = join(__dirname, '..', 'test');
 const RUNNER_BIN = process.execPath;

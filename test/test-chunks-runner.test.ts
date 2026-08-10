@@ -35,7 +35,7 @@ describe('test:chunks runner script', () => {
     const files = await lib.discoverTestFiles(join(PROJECT_ROOT, 'test'));
     assert.ok(files.length > 50, `expected many test files, got ${files.length}`);
     assert.ok(files.every((f) => f.endsWith('.test.ts')));
-    assert.ok(files.some((f) => f.includes('cli-real-repo-run-ai.test.ts')));
+    assert.ok(files.some((f) => f.includes('cli-real-block-run-ai.test.ts')));
     assert.ok(files.some((f) => f.includes('real-repo-rollback.test.ts')));
   });
 
@@ -324,7 +324,14 @@ describe('test:chunks runner script', () => {
     });
     assert.equal(result.status, 0, `list-chunks failed: ${result.stderr}`);
 
-    const heavyFiles = ['cli-real-block-run-ai.test.ts', 'cli-real-repo-run-ai.test.ts'];
+    const heavyFiles = [
+      'cli-real-block-run-ai.test.ts',
+      'cli-real-repo-run-ai-retry.test.ts',
+      'cli-real-repo-run-ai-no-effect.test.ts',
+      'cli-real-repo-run-ai-timeout-resume.test.ts',
+      'cli-real-repo-pr-create.test.ts',
+      'cli-real-repo-pr-readiness.test.ts',
+    ];
     const lines = result.stdout.split(/\r?\n/);
     const chunkFileCounts = new Map<string, number>();
     let currentChunk: string | null = null;
