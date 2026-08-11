@@ -2,6 +2,14 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AutopilotPlanMission } from '../autopilot-plan/types.js';
+import {
+  getDefaultWorkspaceRoot,
+  makeCandidatePath,
+  makeMissionRepoPath,
+  makeMissionWorkspaceRoot,
+  makeShortRunId,
+  makeShortTaskId,
+} from '../workspace-paths.js';
 import { isPathTraversal, makeGoalSlug, makeRunId } from './goal-parser.js';
 import type { AutopilotOneClickOptions, AutopilotOneClickPreset } from './types.js';
 
@@ -191,15 +199,20 @@ function resolveRepoAndBase(
   outputDir: string,
   runId: string,
   mode: AutopilotPlanMission['mode']
-): { repoPath: string; baseBranch: string; repoSlug: string } {
+): { repoPath: string; baseBranch: string; repoSlug: string; workspaceRoot?: string } {
   if (options.repo) {
     const parsed = parseRepoInput(options.repo);
 
     if (mode === 'github') {
-      const workspacePath = resolve(outputDir, runId, 'mission-repo');
-      cloneMissionRepo(parsed.cloneUrl, workspacePath);
-      const baseBranch = options.base_branch ?? resolveDefaultBaseBranch(workspacePath) ?? 'main';
-      return { repoPath: workspacePath, baseBranch, repoSlug: parsed.repoSlug };
+      // Execution workspace is decoupled from the human-readable report path so
+      // that long run ids do not create Windows MAX_PATH problems during git clone.
+      const topLevelRoot = getDefaultWorkspaceRoot();
+      const shortRunId = makeShortRunId(runId);
+      const workspaceRoot = makeMissionWorkspaceRoot(topLevelRoot, shortRunId);
+      const repoPath = makeMissionRepoPath(workspaceRoot);
+      cloneMissionRepo(parsed.cloneUrl, repoPath);
+      const baseBranch = options.base_branch ?? resolveDefaultBaseBranch(repoPath) ?? 'main';
+      return { repoPath, baseBranch, repoSlug: parsed.repoSlug, workspaceRoot };
     }
 
     // Fake/safe mode: use the source directly (no isolated workspace needed).
@@ -242,7 +255,7 @@ export function buildMissionFromGoal(
     throw new MissionBuilderError('output_dir contains path traversal');
   }
 
-  const { repoPath, baseBranch, repoSlug } = resolveRepoAndBase(options, outputDir, runId, mode);
+  const { repoPath, baseBranch, repoSlug, workspaceRoot } = resolveRepoAndBase(options, outputDir, runId, mode);
 
   if (baseBranch.includes('..') || baseBranch.includes('/') || baseBranch.includes('\\')) {
     throw new MissionBuilderError('base_branch contains unsafe characters');
@@ -286,6 +299,7 @@ export function buildMissionFromGoal(
     output_dir: outputDir,
     constraints: [`Preset: ${preset}`, `Mode: ${mode}`],
     allowed_files: allowedFiles,
+    ...(workspaceRoot ? { workspace_root: workspaceRoot } : {}),
   };
 
   if (mode === 'github') {

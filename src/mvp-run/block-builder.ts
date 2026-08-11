@@ -33,5 +33,6 @@ export function buildMvpRunBlock(config: MvpRunConfig): BlockDefinition {
       depends_on: task.depends_on,
       acceptance_criteria: task.acceptance_criteria,
     })),
+    ...(config.workspace_root ? { workspace_root: config.workspace_root } : {}),
   };
 }

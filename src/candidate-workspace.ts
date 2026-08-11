@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { getGitRemoteUrl, injectGitHubTokenIntoRemoteUrl } from './git-push-auth.js';
 import type { CandidateSnapshot } from './candidate-state.js';
 import { computeFileHash } from './candidate-state.js';
@@ -41,6 +41,33 @@ function validatePath(candidatePath: string): void {
   }
 }
 
+function preflightCandidatePath(candidatePath: string): { ok: boolean; reason?: string } {
+  if (!candidatePath || typeof candidatePath !== 'string') {
+    return { ok: false, reason: 'candidatePath must be a non-empty string' };
+  }
+  if (candidatePath.includes('\0')) {
+    return { ok: false, reason: 'candidatePath contains null byte' };
+  }
+  if (candidatePath.includes('..')) {
+    return { ok: false, reason: 'candidatePath contains path traversal' };
+  }
+  const normalized = candidatePath.replace(/\\/g, '/');
+  if (normalized.split('/').some((segment) => segment === '.git')) {
+    return { ok: false, reason: 'candidatePath must not be inside a .git directory' };
+  }
+  const gitInternalPath = join(candidatePath, '.git', 'objects', 'info', 'commit-graphs', 'commit-graph-chain');
+  if (process.platform === 'win32' && gitInternalPath.length > 240) {
+    return {
+      ok: false,
+      reason: `Generated candidate path is too long for Windows (${gitInternalPath.length} chars): ${candidatePath}`,
+    };
+  }
+  if (candidatePath.length > 260) {
+    return { ok: false, reason: `Generated candidate path is too long (${candidatePath.length} chars): ${candidatePath}` };
+  }
+  return { ok: true };
+}
+
 /**
  * Create or validate a persistent candidate workspace for a task.
  *
@@ -56,6 +83,11 @@ export function createCandidateWorkspace(
   taskId: string
 ): CandidateWorkspaceValidationResult {
   validatePath(candidatePath);
+
+  const preflight = preflightCandidatePath(candidatePath);
+  if (!preflight.ok) {
+    return { ok: false, reason: preflight.reason };
+  }
 
   if (!/^[0-9a-f]{40}$/i.test(taskBaseSha)) {
     return { ok: false, reason: `Invalid task_base_sha: ${taskBaseSha}` };

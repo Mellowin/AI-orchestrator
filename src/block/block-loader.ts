@@ -77,6 +77,11 @@ export function loadBlockDefinition(path: string): BlockDefinition {
     throw new Error('Block definition work_branch must not be "main"');
   }
 
+  const workspaceRoot = obj.workspace_root;
+  if (workspaceRoot !== undefined && typeof workspaceRoot !== 'string') {
+    throw new Error('Block definition workspace_root must be a string when provided');
+  }
+
   // Providers
   const providers = obj.providers;
   if (typeof providers !== 'object' || providers === null || Array.isArray(providers)) {

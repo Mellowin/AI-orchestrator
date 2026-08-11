@@ -59,6 +59,8 @@ export interface AutopilotPlanMission {
   ci?: Partial<AutopilotPlanCiConfig>;
   repair?: Partial<AutopilotPlanRepairConfig>;
   output_dir: string;
+  /** Optional machine-oriented persistent workspace root for execution repos and candidate workspaces. */
+  workspace_root?: string;
 }
 
 export interface AutopilotPlanTask {

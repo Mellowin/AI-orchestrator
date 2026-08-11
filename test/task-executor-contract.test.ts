@@ -186,12 +186,19 @@ describe('task executor contract', () => {
 
   test('real-repo-run-ai accepts TaskExecutorInput via stdin', () => {
     const { repoPath, cleanup } = createTempRepo();
+    let candidatePath = '';
     try {
       const block = makeBlock({ repo_path: repoPath, work_branch: 'ai/task-1' });
       const task = makeBlockTask({ allowed_files: ['README.md'] });
+      const baseSha = spawnSync('git', ['rev-parse', 'HEAD'], {
+        cwd: repoPath,
+        encoding: 'utf-8',
+        shell: false,
+      }).stdout.trim();
+      candidatePath = join(tmpdir(), `task-executor-stdin-candidate-${Date.now()}`);
       const taskExecutorInput = buildTaskExecutorInput(block, task, {
-        taskBaseSha: 'a'.repeat(40),
-        candidatePath: resolve(repoPath),
+        taskBaseSha: baseSha,
+        candidatePath,
         runId: 'stdin-run-1',
       });
 
@@ -225,10 +232,13 @@ describe('task executor contract', () => {
       );
 
       assert.strictEqual(result.status, 0, `Expected success: ${result.stderr}`);
+      // The candidate workspace is cleaned up after push; the committed change
+      // should be present in the mission repo after fast-forward.
       const content = readFileSync(join(repoPath, 'README.md'), 'utf-8').replace(/\r\n/g, '\n');
       assert.strictEqual(content, '# modified via stdin\n');
     } finally {
       cleanup();
+      rmSync(candidatePath, { recursive: true, force: true });
     }
   });
 

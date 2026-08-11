@@ -83,6 +83,7 @@ export function buildMvpRunConfig(
     // the run so that a rejected task is not reported as passed_with_caveats and
     // potentially published as a PR.
     on_blocked_task: hasDependencies ? 'continue' : 'stop',
+    ...(mission.workspace_root ? { workspace_root: mission.workspace_root } : {}),
   };
 }
 

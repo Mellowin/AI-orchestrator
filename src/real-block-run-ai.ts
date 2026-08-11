@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { makeCandidatePath, makeShortTaskId } from './workspace-paths.js';
 import { loadBlockDefinition } from './block/block-loader.js';
 import type { BlockDefinition, BlockTaskDefinition } from './block/block-types.js';
 import {
@@ -248,8 +249,10 @@ function runSingleTask(
   writeFileSync(debugYamlPath, buildSingleTaskYaml(block, task), 'utf-8');
 
   const taskBaseSha = resolveTaskBaseSha(resolve(block.repo_path), block.work_branch, block.base_branch);
-  const candidatePath = join(blockRunDir, 'workspaces', sanitizeTaskId(task.task_id));
-  const candidateParent = join(blockRunDir, 'workspaces');
+  const candidatePath = block.workspace_root
+    ? makeCandidatePath(block.workspace_root, makeShortTaskId(task.task_id))
+    : join(blockRunDir, 'workspaces', sanitizeTaskId(task.task_id));
+  const candidateParent = dirname(candidatePath);
   if (!existsSync(candidateParent)) {
     mkdirSync(candidateParent, { recursive: true });
   }

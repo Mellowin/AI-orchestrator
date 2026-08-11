@@ -69,6 +69,8 @@ export interface BlockDefinition {
   providers: BlockProviderConfig;
   review_policy: BlockReviewPolicy;
   tasks: BlockTaskDefinition[];
+  /** Optional mission-specific workspace root for execution repos and candidate workspaces. */
+  workspace_root?: string;
 }
 
 export interface BlockTaskState {

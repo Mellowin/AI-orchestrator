@@ -297,7 +297,7 @@ function readStdinSync(): string {
   }
 }
 
-function loadTaskFromStdinOrEnv(taskId: string): Task {
+function loadTaskExecutorInputFromStdinOrEnv(taskId: string): TaskExecutorInput | null {
   if (process.env.REAL_REPO_TASK_EXECUTOR_INPUT_STDIN === '1') {
     const stdinData = readStdinSync();
     if (stdinData) {
@@ -314,10 +314,10 @@ function loadTaskFromStdinOrEnv(taskId: string): Task {
         );
       }
       validateTask(input.task);
-      return input.task;
+      return input;
     }
   }
-  return loadTask(getTasksFilePath(), taskId);
+  return null;
 }
 
 function validateKimiOutputForTask(raw: string, taskId: string): KimiOutput {
@@ -1101,7 +1101,8 @@ if (command === 'real-repo-run-ai') {
       break commandDispatch;
     }
 
-    const task = loadTaskFromStdinOrEnv(taskId);
+    const executorInput = loadTaskExecutorInputFromStdinOrEnv(taskId);
+    const task = executorInput?.task ?? loadTask(getTasksFilePath(), taskId);
 
     const gitHealth = runGitHealthPreflight({
       repoPath: task.repo_path,
@@ -1230,7 +1231,11 @@ if (command === 'real-repo-run-ai') {
       break commandDispatch;
     }
 
-    const taskBaseSha = resolveTaskBaseSha(resolve(task.repo_path), task.work_branch, task.base_branch);
+    const VALID_SHA = /^[0-9a-f]{40}$/i;
+    const taskBaseSha =
+      executorInput?.task_base_sha && VALID_SHA.test(executorInput.task_base_sha)
+        ? executorInput.task_base_sha
+        : resolveTaskBaseSha(resolve(task.repo_path), task.work_branch, task.base_branch);
     if (!taskBaseSha) {
       fail('Could not resolve task base SHA from work_branch or base_branch');
       if (repoLockPath) releaseRunLock(repoLockPath);
@@ -1238,7 +1243,7 @@ if (command === 'real-repo-run-ai') {
     }
 
     const runsDir = config.runsDir;
-    const candidatePath = join(runsDir, 'workspaces', sanitizeTaskId(task.id));
+    const candidatePath = executorInput?.candidate_path ?? join(runsDir, 'workspaces', sanitizeTaskId(task.id));
 
     let fetchFn: FetchFn;
     const fakeResponse = process.env.KIMI_FAKE_RESPONSE;

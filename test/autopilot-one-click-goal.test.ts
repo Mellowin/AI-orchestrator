@@ -139,7 +139,7 @@ describe('autopilot-one-click goal parsing', () => {
     assert.strictEqual(mission.capabilities.allow_pr_create, true);
   });
 
-  test('--repo local path in real-multitask clones to isolated mission workspace', () => {
+  test('--repo local path in real-multitask clones to isolated short workspace', () => {
     const tmpDir = makeTmpDir();
     const localRepo = join(tmpDir, 'source-repo');
     initGitRepo(localRepo, 'develop');
@@ -152,9 +152,57 @@ describe('autopilot-one-click goal parsing', () => {
     });
 
     assert.strictEqual(mission.base_branch, 'develop');
-    assert(mission.repo_path.includes('mission-repo'));
+    assert.ok(mission.workspace_root, 'mission should have a workspace_root');
+    assert.strictEqual(resolve(mission.repo_path), resolve(mission.workspace_root!, 'repo'));
     assert.notStrictEqual(resolve(mission.repo_path), resolve(localRepo));
     assert(existsSync(resolve(mission.repo_path, '.git')));
+    rmSync(mission.workspace_root, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('workspace_root is deterministic for the same run_id', () => {
+    const tmpDir = makeTmpDir();
+    const localRepo = join(tmpDir, 'source-repo');
+    initGitRepo(localRepo);
+    const outDir = join(tmpDir, 'output');
+
+    const mission1 = buildMissionFromGoal('Goal one', {
+      repo: localRepo,
+      output_dir: outDir,
+      run_id: 'deterministic-run-id',
+    });
+    const mission2 = buildMissionFromGoal('Goal two', {
+      repo: localRepo,
+      output_dir: outDir,
+      run_id: 'deterministic-run-id',
+    });
+
+    assert.strictEqual(resolve(mission1.workspace_root!), resolve(mission2.workspace_root!));
+    assert.strictEqual(resolve(mission1.repo_path), resolve(mission2.repo_path));
+    rmSync(mission1.workspace_root, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('very long run_id does not make execution workspace path too long', () => {
+    const tmpDir = makeTmpDir();
+    const localRepo = join(tmpDir, 'source-repo');
+    initGitRepo(localRepo);
+    const outDir = join(tmpDir, 'output');
+    const longRunId = `mission-${'a'.repeat(200)}-test`;
+
+    const mission = buildMissionFromGoal('Implement feature', {
+      repo: localRepo,
+      output_dir: outDir,
+      run_id: longRunId,
+    });
+
+    assert.ok(mission.run_id.length > 100, 'run_id should be long');
+    assert.ok(mission.workspace_root!, 'workspace_root should exist');
+    const shortRunIdSegment = mission.workspace_root.split(/[\\/]/).pop();
+    assert.ok(shortRunIdSegment && shortRunIdSegment.length <= 12, `short run id segment too long: ${shortRunIdSegment}`);
+    assert.ok(mission.workspace_root.length < 120, `workspace root too long: ${mission.workspace_root}`);
+    assert.strictEqual(resolve(mission.repo_path), resolve(mission.workspace_root!, 'repo'));
+    rmSync(mission.workspace_root, { recursive: true, force: true });
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

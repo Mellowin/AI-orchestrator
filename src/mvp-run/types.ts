@@ -51,6 +51,8 @@ export interface MvpRunConfig {
   tasks: MvpRunTaskConfig[];
   report_dir: string;
   on_blocked_task?: 'stop' | 'continue';
+  /** Optional mission-specific workspace root for execution repos and candidate workspaces. */
+  workspace_root?: string;
 }
 
 export interface MvpRunPreflightReport {
