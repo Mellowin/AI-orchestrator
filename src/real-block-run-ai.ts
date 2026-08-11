@@ -405,10 +405,24 @@ function executeTaskWithContinuations(
       const elapsedThisPass = run.elapsedMs ?? timeoutMs;
       totalElapsedMs += elapsedThisPass;
 
+      if (run.state !== null) {
+        run.state.total_elapsed_ms = totalElapsedMs;
+        run.state.timeout_ms = timeoutMs;
+      }
+
       if (continuationCount >= MAX_TASK_CONTINUATIONS) {
         console.error(
           `[real-block-run-ai] Task ${task.task_id} exceeded max continuations (${MAX_TASK_CONTINUATIONS}); treating as failed.`
         );
+        if (run.state !== null) {
+          run.state.continuation_count = continuationCount;
+          const childStatePath = join(getRunsDir(), 'tasks', task.task_id, 'state.json');
+          try {
+            writeJsonAtomic(childStatePath, run.state);
+          } catch {
+            // State persistence failure is tolerable here; the block state will still record timeout evidence.
+          }
+        }
         return { exitCode: 1, state: run.state, timedOut: true };
       }
 
@@ -416,10 +430,28 @@ function executeTaskWithContinuations(
         console.error(
           `[real-block-run-ai] Task ${task.task_id} exceeded total time ceiling (${TOTAL_TASK_CEILING_MS}ms); treating as failed.`
         );
+        if (run.state !== null) {
+          run.state.continuation_count = continuationCount;
+          const childStatePath = join(getRunsDir(), 'tasks', task.task_id, 'state.json');
+          try {
+            writeJsonAtomic(childStatePath, run.state);
+          } catch {
+            // Tolerable; block state records the evidence.
+          }
+        }
         return { exitCode: 1, state: run.state, timedOut: true };
       }
 
       continuationCount += 1;
+      if (run.state !== null) {
+        run.state.continuation_count = continuationCount;
+        const childStatePath = join(getRunsDir(), 'tasks', task.task_id, 'state.json');
+        try {
+          writeJsonAtomic(childStatePath, run.state);
+        } catch {
+          // Tolerable; the next continuation will recompute from elapsed time if needed.
+        }
+      }
       currentResume = true;
       console.error(
         `[real-block-run-ai] Task ${task.task_id} timed out; continuation ${continuationCount}/${MAX_TASK_CONTINUATIONS} (${totalElapsedMs}ms elapsed)`

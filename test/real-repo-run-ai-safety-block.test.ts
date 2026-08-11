@@ -100,8 +100,8 @@ describe('real-repo-run-ai safety policy early return', () => {
       `expected safety violation in stderr, got ${result.stderr}`
     );
     assert.ok(
-      (result.stderr || '').includes('Blocked by safety policy before apply'),
-      `expected blocked before apply message, got ${result.stderr}`
+      (result.stderr || '').includes('Safety policy violation'),
+      `expected safety policy violation in stderr, got ${result.stderr}`
     );
 
     const statePath = join(runDir, 'task_safety_block', 'state.json');

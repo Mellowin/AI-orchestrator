@@ -330,7 +330,8 @@ describe('cli real-block-run-ai resume', () => {
         ]),
       }));
       assert.notStrictEqual(result.status, 0, `Expected non-zero exit because a task was blocked/skipped: ${result.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2);
+      // Accepted-only commit model: blocked task does not create a commit; only the accepted task does.
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1);
       const state = getBlockState(runsDir, blockId);
       assert(state !== null);
       assert.strictEqual(state.status, 'completed_with_caveats');
@@ -360,7 +361,8 @@ describe('cli real-block-run-ai resume', () => {
         ]),
       }));
       assert.notStrictEqual(first.status, 0, `Expected first run to exit non-zero: ${first.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2);
+      // Accepted-only commit model: blocked task does not create a commit; only the accepted task does.
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1);
       let state = getBlockState(runsDir, blockId);
       assert.strictEqual(state?.status, 'completed_with_caveats');
 
@@ -371,7 +373,7 @@ describe('cli real-block-run-ai resume', () => {
         REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([]),
       }));
       assert.strictEqual(second.status, 0, `Expected resume no-op to exit 0: ${second.stderr}`);
-      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 2, 'Resume must not create new commits');
+      assert.strictEqual(getGitLogCount(repoPath), beforeLogCount + 1, 'Resume must not create new commits');
       state = getBlockState(runsDir, blockId);
       assert.strictEqual(state?.status, 'completed_with_caveats');
       assert.strictEqual((state?.summary as Record<string, unknown>)?.skippedBlockedTasks, 1);
