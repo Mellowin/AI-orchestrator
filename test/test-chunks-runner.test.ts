@@ -326,9 +326,6 @@ describe('test:chunks runner script', () => {
 
     const heavyFiles = [
       'cli-real-block-run-ai.test.ts',
-      'cli-real-repo-run-ai-retry.test.ts',
-      'cli-real-repo-run-ai-no-effect.test.ts',
-      'cli-real-repo-run-ai-timeout-resume.test.ts',
       'cli-real-repo-pr-create.test.ts',
       'cli-real-repo-pr-readiness.test.ts',
     ];
