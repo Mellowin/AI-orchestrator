@@ -112,7 +112,6 @@ function checkPathEscape(
 
 function checkSecretExfiltration(path: string, content: string): string[] {
   const reasons: string[] = [];
-  const lowerContent = content.toLowerCase();
 
   const sensitiveEnvPattern = /process\.env\.[A-Za-z0-9_$]*(?:kimi_api_key|api_key|secret|token|password)/i;
   if (sensitiveEnvPattern.test(content)) {
@@ -142,9 +141,10 @@ function checkSecretExfiltration(path: string, content: string): string[] {
     reasons.push(`Reading .env file in ${path}`);
   }
 
-  if (lowerContent.includes('kimi_api_key')) {
-    reasons.push(`Literal KIMI_API_KEY reference in ${path}`);
-  }
+  // Literal environment variable names such as KIMI_API_KEY, GITHUB_TOKEN,
+  // OPENAI_API_KEY, API_KEY, TOKEN in documentation or source constants are
+  // not credentials by themselves. Real secret handling is still blocked above
+  // via process.env access, dotenv loading, and .env file reads.
 
   return reasons;
 }

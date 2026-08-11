@@ -178,8 +178,134 @@ function inspectRepoFiles(
   }
 }
 
+// Known file extensions for repo-relative paths that may appear in a natural-language mission goal.
+const LITERAL_PATH_EXTENSIONS = new Set([
+  'cjs',
+  'css',
+  'go',
+  'html',
+  'java',
+  'js',
+  'json',
+  'jsx',
+  'kt',
+  'lock',
+  'md',
+  'mjs',
+  'ps1',
+  'py',
+  'rs',
+  'scss',
+  'sh',
+  'test.ts',
+  'toml',
+  'ts',
+  'tsx',
+  'txt',
+  'vue',
+  'xml',
+  'yaml',
+  'yml',
+]);
+
 function normalizeFilePath(file: string): string {
   return file.replace(/\\/g, '/');
+}
+
+// Domain-like TLDs that should not be treated as repo-relative file paths.
+const DOMAIN_TLDS = new Set([
+  'ai',
+  'app',
+  'cloud',
+  'co',
+  'com',
+  'dev',
+  'github',
+  'io',
+  'net',
+  'org',
+]);
+
+function hasKnownExtension(path: string): boolean {
+  const lower = path.toLowerCase();
+  // Support compound extensions such as foo.test.ts.
+  for (const ext of LITERAL_PATH_EXTENSIONS) {
+    if (lower.endsWith(`.${ext}`)) return true;
+  }
+  return false;
+}
+
+function looksLikeDomain(path: string): boolean {
+  const match = /^[A-Za-z0-9_-]+\.([A-Za-z]+)\b/.exec(path);
+  if (!match) return false;
+  return DOMAIN_TLDS.has(match[1].toLowerCase());
+}
+
+/**
+ * Extract repository-relative file paths explicitly named in the mission goal.
+ *
+ * This is intentionally conservative: it matches literal paths that look like
+ * source/docs/config files and ignores URLs, CLI flags, and ordinary words.
+ */
+export function extractLiteralFilePaths(goal: string): string[] {
+  const results: string[] = [];
+  const seen = new Set<string>();
+  // Match path-like tokens ending with a known extension. Supports both `/` and
+  // `\` separators and allows a leading dot (e.g. .github/workflows/ci.yml).
+  // The lookahead ensures trailing punctuation is not consumed into the path.
+  const regex = /([A-Za-z0-9_.\\-]+(?:[\/\\][A-Za-z0-9_.\\-]+)*\.[A-Za-z0-9_]+)(?=[.,;:!?")\]\s]|$)/g;
+
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(goal)) !== null) {
+    const candidate = normalizeFilePath(match[1]);
+
+    if (candidate.includes('://')) continue;
+    if (candidate.startsWith('/')) continue;
+    if (candidate.startsWith('--')) continue;
+    if (candidate.includes('..')) continue;
+    if (looksLikeDomain(candidate)) continue;
+    if (!hasKnownExtension(candidate)) continue;
+
+    // Ignore standalone version strings such as v1.2.3.
+    if (/^[A-Za-z0-9_.\\-]*\d+\.\d+\.\d+$/.test(candidate) && !candidate.includes('/')) continue;
+
+    if (!seen.has(candidate)) {
+      seen.add(candidate);
+      results.push(candidate);
+    }
+  }
+  return results;
+}
+
+/**
+ * Validate that every explicit target path from the user goal is represented
+ * in the plan by a task whose allowed_files contains that exact path.
+ * Explicit operator targets are immutable requirements; the planner must not
+ * rename, relocate, or substitute them.
+ */
+function validateExplicitTargetPaths(
+  mission: AutopilotPlanMission,
+  tasks: AutopilotPlanTask[],
+  issues: PlanValidationIssue[]
+): void {
+  const targets = extractLiteralFilePaths(mission.goal);
+  if (targets.length === 0) return;
+
+  const taskAllowedPaths = new Set<string>();
+  for (const task of tasks) {
+    for (const pattern of task.allowed_files) {
+      taskAllowedPaths.add(normalizeFilePath(pattern));
+    }
+  }
+
+  for (const target of targets) {
+    if (!taskAllowedPaths.has(target)) {
+      issues.push({
+        field: 'goal',
+        message: `Missing explicit operator target: ${target}`,
+      });
+    }
+  }
 }
 
 function fileMatchesAnyPattern(file: string, patterns: string[]): boolean {
@@ -244,6 +370,8 @@ export function validateGeneratedPlan(
   inspectRepoFiles(mission, plan.tasks, issues);
 
   validateTaskFilesWithinMissionAllowlist(mission, plan.tasks, issues);
+
+  validateExplicitTargetPaths(mission, plan.tasks, issues);
 
   return { ok: issues.length === 0, issues };
 }
