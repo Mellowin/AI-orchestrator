@@ -18,7 +18,7 @@ export interface CoderTaskInput {
   goal: string;
   allowed_files: string[];
   denied_files: string[];
-  max_lines_changed: number;
+  max_lines_changed?: number;
   repo_context: string;
   previous_failure?: string;
 }
@@ -42,7 +42,7 @@ export interface ReviewInput {
   task_goal: string;
   allowed_files: string[];
   denied_files: string[];
-  max_lines_changed: number;
+  max_lines_changed?: number;
   acceptance_criteria?: string[];
   commit_sha: string;
   changed_files: string[];

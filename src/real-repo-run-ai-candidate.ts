@@ -51,10 +51,16 @@ import {
   validateCandidateWorkspace,
   stageCandidateFiles,
   getCandidateDiff,
+  getCandidateHead,
+  getCommitParent,
+  getRemoteBranchHead,
   cleanupCandidateWorkspace,
   configureCandidateRemote,
   pushCandidateCommit,
   fastForwardMissionBranch,
+  reconcileCandidateWorkspace,
+  verifyCommitAgainstSnapshot,
+  type CandidateReconcileResult,
 } from './candidate-workspace.js';
 import {
   saveCandidateSnapshot,
@@ -451,10 +457,10 @@ export async function runRealRepoRunAICandidateFlow(
     }
   }
 
-  const terminalPhases: TaskRunPhase[] = ['accepted', 'blocked', 'failed'];
+  const terminalPhases: TaskRunPhase[] = ['blocked', 'failed', 'pushed'];
   if (state.task_phase !== undefined && terminalPhases.includes(state.task_phase)) {
     log(prefix, `Resume mode: task already in terminal phase ${state.task_phase}`);
-    return { exitCode: state.task_phase === 'accepted' ? 0 : 1, state };
+    return { exitCode: state.task_phase === 'pushed' ? 0 : 1, state };
   }
 
   const candidateTask = makeCandidateTask(task, candidatePath);
@@ -483,7 +489,8 @@ export async function runRealRepoRunAICandidateFlow(
   let workspaceValid = validateCandidateWorkspace(
     candidatePath,
     taskBaseSha,
-    state.expected_changed_files
+    state.expected_changed_files,
+    state.accepted_commit_sha
   ).ok;
 
   if (isResume && !workspaceValid) {
@@ -562,10 +569,10 @@ export async function runRealRepoRunAICandidateFlow(
 
   const skipToCoder = !isResume || state.task_phase === undefined || state.task_phase === 'generating' || state.task_phase === 'repairing';
   const skipToReview = isResume && (state.task_phase === 'reviewer_pending' || state.task_phase === 'reviewer_fix_pending' || state.task_phase === 'second_review_pending');
-  const skipToPush = isResume && (state.task_phase === 'committed' || state.task_phase === 'pushed');
+  const skipToAcceptance = isResume && (state.task_phase === 'accepted' || state.task_phase === 'committed' || state.task_phase === 'pushed');
 
   // Coder / repair loop.
-  if (!skipToReview && !skipToPush) {
+  if (!skipToReview && !skipToAcceptance) {
     let repairPrompt: string | undefined;
     let lastKimiOutput: KimiOutput | undefined;
 
@@ -842,8 +849,8 @@ export async function runRealRepoRunAICandidateFlow(
   // Reviewer gate and optional fix loop.
   let currentReviewerGate: PersistedReviewerGate | undefined = state.reviewer_gate;
 
-  if (skipToPush) {
-    log(prefix, 'Resuming after push; skipping reviewer gate');
+  if (skipToAcceptance) {
+    log(prefix, 'Resuming after acceptance; skipping reviewer gate');
   } else {
     const enableFixLoop = process.env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP !== '0';
 
@@ -897,7 +904,7 @@ export async function runRealRepoRunAICandidateFlow(
               taskGoal: task.goal,
               allowedFiles: task.guardrails.allow_modify ?? [],
               deniedFiles: task.guardrails.deny_modify,
-              maxLinesChanged: task.guardrails.max_lines_changed ?? Number.MAX_SAFE_INTEGER,
+              maxLinesChanged: task.guardrails.max_lines_changed,
               acceptanceCriteria: reviewerInput.acceptance_criteria,
               commitSha: taskBaseSha,
               changedFiles: diffInfo.changedFiles,
@@ -1232,7 +1239,7 @@ export async function runRealRepoRunAICandidateFlow(
     }
   }
 
-  if (currentReviewerGate?.status !== 'accepted') {
+  if (!skipToAcceptance && currentReviewerGate?.status !== 'accepted') {
     log(prefix, `Reviewer gate ended with non-accepted status: ${currentReviewerGate?.status ?? 'unknown'}`);
     setPhase('blocked', {
       status: 'blocked',
@@ -1241,22 +1248,8 @@ export async function runRealRepoRunAICandidateFlow(
     return { exitCode: 1, state };
   }
 
-  // Acceptance: final validation, commit, push, fast-forward, cleanup.
-  setPhase('committed');
-  const finalValidation = validateCandidateWorkspace(
-    candidatePath,
-    taskBaseSha,
-    state.expected_changed_files
-  );
-  if (!finalValidation.ok) {
-    log(prefix, `Final candidate validation failed: ${finalValidation.reason}`);
-    setPhase('blocked', {
-      status: 'blocked',
-      safety_note: `Final candidate validation failed: ${finalValidation.reason}`,
-    });
-    return { exitCode: 1, state };
-  }
-
+  // Acceptance: final checks, persist accepted snapshot, then commit/push with
+  // deterministic reconciliation. This block is idempotent across crashes.
   const finalCheck = runChecks(candidatePath, candidateTask.checks);
   if (!finalCheck.success) {
     log(prefix, `Final checks failed: ${finalCheck.logs}`);
@@ -1267,33 +1260,101 @@ export async function runRealRepoRunAICandidateFlow(
     return { exitCode: 1, state };
   }
 
-  const commitMessage = `ai-orchestrator: ${task.id}`;
-  const commitResult = git(['commit', '-m', commitMessage, '--no-gpg-sign'], candidatePath, true);
-  if (commitResult.status !== 0) {
-    log(prefix, `Commit failed: ${commitResult.stderr.trim()}`);
-    setPhase('failed', {
-      status: 'failed',
-      safety_note: `Commit failed: ${commitResult.stderr.trim()}`,
-    });
+  // Persist the accepted candidate before creating a commit so a crash after the
+  // commit can still be reconciled against the intended content.
+  saveWorkspaceSnapshot(runsDir, task.id, 'accepted', taskBaseSha, state.expected_changed_files ?? [], candidatePath);
+  setPhase('accepted', { status: 'approved' });
+
+  let snapshot = loadLatestCandidateSnapshot(runsDir, task.id);
+  if (!snapshot) {
+    const reason = 'Accepted candidate snapshot missing; cannot reconcile commit/push state';
+    log(prefix, reason);
+    setPhase('failed', { status: 'failed', safety_note: reason });
     return { exitCode: 1, state };
   }
 
-  const headResult = git(['rev-parse', '--verify', 'HEAD'], candidatePath, true);
-  if (headResult.status !== 0) {
-    log(prefix, 'Failed to read commit SHA after commit');
-    setPhase('failed', {
-      status: 'failed',
-      safety_note: 'Failed to read commit SHA after commit',
-    });
+  const reconcileResult = reconcileCandidateWorkspace(candidatePath, taskBaseSha, task.work_branch, snapshot);
+  if (!reconcileResult.ok) {
+    log(prefix, `Reconcile failed: ${reconcileResult.reason}`);
+    setPhase('failed', { status: 'failed', safety_note: `Reconcile failed: ${reconcileResult.reason}` });
     return { exitCode: 1, state };
   }
-  const commitSha = headResult.stdout.trim();
-  if (!VALID_SHA.test(commitSha)) {
-    log(prefix, `Commit SHA is not valid: ${commitSha}`);
-    setPhase('failed', {
-      status: 'failed',
-      safety_note: `Commit SHA is not valid: ${commitSha}`,
-    });
+
+  const commitMessage = `ai-orchestrator: ${task.id}`;
+  let acceptedCommitSha = reconcileResult.acceptedCommitSha;
+
+  if (reconcileResult.commitNeeded) {
+    // Final pre-commit validation: workspace must still be at the immutable task base
+    // with exactly the expected files staged.
+    const finalValidation = validateCandidateWorkspace(
+      candidatePath,
+      taskBaseSha,
+      state.expected_changed_files
+    );
+    if (!finalValidation.ok) {
+      log(prefix, `Final candidate validation failed: ${finalValidation.reason}`);
+      setPhase('blocked', {
+        status: 'blocked',
+        safety_note: `Final candidate validation failed: ${finalValidation.reason}`,
+      });
+      return { exitCode: 1, state };
+    }
+
+    const commitResult = git(['commit', '-m', commitMessage, '--no-gpg-sign'], candidatePath, true);
+    if (commitResult.status !== 0) {
+      log(prefix, `Commit failed: ${commitResult.stderr.trim()}`);
+      setPhase('failed', {
+        status: 'failed',
+        safety_note: `Commit failed: ${commitResult.stderr.trim()}`,
+      });
+      return { exitCode: 1, state };
+    }
+
+    const headResult = git(['rev-parse', '--verify', 'HEAD'], candidatePath, true);
+    if (headResult.status !== 0) {
+      log(prefix, 'Failed to read commit SHA after commit');
+      setPhase('failed', {
+        status: 'failed',
+        safety_note: 'Failed to read commit SHA after commit',
+      });
+      return { exitCode: 1, state };
+    }
+    const commitSha = headResult.stdout.trim();
+    if (!VALID_SHA.test(commitSha)) {
+      log(prefix, `Commit SHA is not valid: ${commitSha}`);
+      setPhase('failed', {
+        status: 'failed',
+        safety_note: `Commit SHA is not valid: ${commitSha}`,
+      });
+      return { exitCode: 1, state };
+    }
+
+    const parent = getCommitParent(candidatePath, commitSha);
+    if (parent !== taskBaseSha) {
+      const reason = `Accepted commit parent ${parent ?? 'unknown'} != task_base_sha ${taskBaseSha}`;
+      log(prefix, reason);
+      setPhase('failed', { status: 'failed', safety_note: reason });
+      return { exitCode: 1, state };
+    }
+
+    const verify = verifyCommitAgainstSnapshot(candidatePath, commitSha, snapshot);
+    if (!verify.ok) {
+      log(prefix, `Committed content does not match accepted snapshot: ${verify.reason}`);
+      setPhase('failed', {
+        status: 'failed',
+        safety_note: `Committed content does not match accepted snapshot: ${verify.reason}`,
+      });
+      return { exitCode: 1, state };
+    }
+
+    acceptedCommitSha = commitSha;
+    setPhase('committed', { accepted_commit_sha: commitSha });
+  }
+
+  if (!acceptedCommitSha) {
+    const reason = 'Reconciliation succeeded but produced no accepted commit SHA';
+    log(prefix, reason);
+    setPhase('failed', { status: 'failed', safety_note: reason });
     return { exitCode: 1, state };
   }
 
@@ -1302,26 +1363,44 @@ export async function runRealRepoRunAICandidateFlow(
     configureCandidateRemote(candidatePath, originUrl);
   }
 
-  const pushResult = pushCandidateCommit(candidatePath, task.work_branch);
-  if (!pushResult.ok) {
-    log(prefix, `Push failed: ${pushResult.reason}`);
-    setPhase('failed', {
-      status: 'failed',
-      committed: true,
-      commit_sha: commitSha,
-      safety_note: `Push failed: ${pushResult.reason}`,
-    });
-    return { exitCode: 1, state };
+  if (reconcileResult.pushNeeded) {
+    const pushResult = pushCandidateCommit(candidatePath, task.work_branch);
+    if (!pushResult.ok) {
+      log(prefix, `Push failed: ${pushResult.reason}`);
+      setPhase('failed', {
+        status: 'failed',
+        committed: true,
+        commit_sha: acceptedCommitSha,
+        accepted_commit_sha: acceptedCommitSha,
+        safety_note: `Push failed: ${pushResult.reason}`,
+      });
+      return { exitCode: 1, state };
+    }
+
+    const remoteHeadAfterPush = getRemoteBranchHead(candidatePath, task.work_branch);
+    if (remoteHeadAfterPush !== acceptedCommitSha) {
+      const reason = `Remote HEAD ${remoteHeadAfterPush ?? 'missing'} does not match accepted commit ${acceptedCommitSha}`;
+      log(prefix, reason);
+      setPhase('failed', {
+        status: 'failed',
+        committed: true,
+        commit_sha: acceptedCommitSha,
+        accepted_commit_sha: acceptedCommitSha,
+        safety_note: reason,
+      });
+      return { exitCode: 1, state };
+    }
   }
 
-  const ffResult = fastForwardMissionBranch(task.repo_path, task.work_branch, commitSha);
+  const ffResult = fastForwardMissionBranch(task.repo_path, task.work_branch, acceptedCommitSha);
   if (!ffResult.ok) {
     log(prefix, `Fast-forward mission branch failed: ${ffResult.reason}`);
     setPhase('failed', {
       status: 'failed',
       committed: true,
-      pushed: true,
-      commit_sha: commitSha,
+      pushed: reconcileResult.pushNeeded || reconcileResult.alreadyPushed,
+      commit_sha: acceptedCommitSha,
+      accepted_commit_sha: acceptedCommitSha,
       safety_note: `Fast-forward mission branch failed: ${ffResult.reason}`,
     });
     return { exitCode: 1, state };
@@ -1329,8 +1408,8 @@ export async function runRealRepoRunAICandidateFlow(
 
   setPhase('pushed', {
     status: 'pushed',
-    commit_sha: commitSha,
-    accepted_commit_sha: commitSha,
+    commit_sha: acceptedCommitSha,
+    accepted_commit_sha: acceptedCommitSha,
     fixed_and_accepted: fixAttempted,
     fix_check_summary: fixAttempted ? buildCheckSummary(candidateTask.checks, lastCheckResult?.success ?? true) : undefined,
     check_summary: buildCheckSummary(candidateTask.checks, lastCheckResult?.success ?? true),
@@ -1344,7 +1423,7 @@ export async function runRealRepoRunAICandidateFlow(
   cleanupCandidateWorkspace(candidatePath);
 
   log(prefix, 'Reviewer gate accepted');
-  log(prefix, `Commit created: ${commitSha}`);
+  log(prefix, `Commit created: ${acceptedCommitSha}`);
   log(prefix, 'Push completed');
   log(prefix, 'State written');
   log(prefix, 'Human review required before merge');

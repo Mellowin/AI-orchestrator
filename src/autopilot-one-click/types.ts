@@ -32,6 +32,8 @@ export interface AutopilotOneClickOptions {
   mode?: 'fake' | 'github';
   preset?: AutopilotOneClickPreset;
   run_id?: string;
+  /** Repository target: owner/repo, GitHub URL, or local path. */
+  repo?: string;
   repo_slug?: string;
   repo_path?: string;
   base_branch?: string;

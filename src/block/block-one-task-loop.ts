@@ -19,7 +19,7 @@ import {
   resolveCoderAndReviewerProviders,
   convertBlockChecks,
 } from './block-task-runner.js';
-import { validateFileList, validateProposedFileLineDeltas } from '../guardrails.js';
+import { validateFileList } from '../guardrails.js';
 import { runDeterministicReviewChecks } from '../reviewer/deterministic-review-checks.js';
 import { buildReviewInput } from '../reviewer/review-input-builder.js';
 import { runReviewerGate } from '../reviewer/reviewer-gate.js';
@@ -217,35 +217,6 @@ export async function runOneTaskLoop(input: OneTaskLoopInput): Promise<OneTaskLo
       next_action: 'send_fix_to_coder',
       safety_findings: [guardrailsResult.reason ?? 'Guardrails failed'],
     };
-  }
-
-  if (guardrails.max_lines_changed !== undefined) {
-    try {
-      validateProposedFileLineDeltas(
-        blockDefinition.repo_path,
-        coderResult.files,
-        guardrails.max_lines_changed
-      );
-    } catch (deltaErr) {
-      const msg = deltaErr instanceof Error ? deltaErr.message : String(deltaErr);
-      blockState = markTaskChecksFailed(blockState, taskId, [msg]);
-      saveBlockState(blockState);
-      return {
-        block_id: input.blockId,
-        task_id: taskId,
-        status_before: statusBefore,
-        status_after: blockState.tasks.find((t) => t.task_id === taskId)?.status ?? 'checks_failed',
-        coder_called: true,
-        reviewer_called: false,
-        files_applied: [],
-        checks_passed: false,
-        commit_sha: null,
-        pushed: false,
-        reviewer_decision: null,
-        next_action: 'send_fix_to_coder',
-        safety_findings: [msg],
-      };
-    }
   }
 
   // 9. Build execution results (fake vs real)

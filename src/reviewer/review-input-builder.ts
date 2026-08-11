@@ -11,7 +11,7 @@ export function buildReviewInput(input: {
   taskGoal: string;
   allowedFiles: string[];
   deniedFiles: string[];
-  maxLinesChanged: number;
+  maxLinesChanged?: number;
   acceptanceCriteria?: string[];
   commitSha: string;
   changedFiles: string[];

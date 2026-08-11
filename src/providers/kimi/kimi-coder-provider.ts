@@ -98,7 +98,7 @@ function buildCoderPrompt(input: CoderTaskInput): string {
     `${repoContextSection}\n` +
     `${allowedSection}\n` +
     `${deniedSection}\n\n` +
-    `Max lines changed: ${input.max_lines_changed}\n\n` +
+    `Max lines changed: ${input.max_lines_changed ?? 'not specified (advisory budget)'}\n\n` +
     `# Instructions\n` +
     `Return ONLY valid JSON using the file_update schema. ` +
     `Return full file content, not diffs. ` +

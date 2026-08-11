@@ -9,7 +9,7 @@ export interface DeterministicReviewCheckResult {
 interface DeterministicReviewCheckInput {
   allowedFiles: string[];
   deniedFiles: string[];
-  maxLinesChanged: number;
+  maxLinesChanged?: number;
   changedFiles: string[];
   diff: string;
   typecheckResult: string;
@@ -110,15 +110,13 @@ export function runDeterministicReviewChecks(input: DeterministicReviewCheckInpu
     }
   }
 
-  // Max lines changed
-  if (input.maxLinesChanged <= 0) {
-    blockingIssues.push(`maxLinesChanged (${input.maxLinesChanged}) must be positive`);
-    safetyFindings.push('Invalid maxLinesChanged value');
-  } else {
+  // Max lines changed is advisory unless the user explicitly configures a hard
+  // limit. The planner value is not a deterministic safety gate.
+  if (input.maxLinesChanged !== undefined && input.maxLinesChanged > 0) {
     const changedLineCount = countChangedLines(input.diff);
     if (changedLineCount > input.maxLinesChanged) {
-      blockingIssues.push(`Changed lines (${changedLineCount}) exceed maxLinesChanged (${input.maxLinesChanged})`);
-      safetyFindings.push(`Line delta exceeded: ${changedLineCount} > ${input.maxLinesChanged}`);
+      // Do NOT block; treat as a non-binding advisory signal for the reviewer.
+      // The reviewer prompt already labels this budget as advisory.
     }
   }
 

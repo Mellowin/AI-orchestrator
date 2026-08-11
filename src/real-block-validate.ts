@@ -10,7 +10,7 @@ export interface RealBlockValidateTaskSummary {
   allowed_files: string[];
   denied_files: string[];
   checks: (string | Check)[];
-  max_lines_changed: number;
+  max_lines_changed?: number;
 }
 
 export interface RealBlockValidateReport {

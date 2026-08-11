@@ -70,18 +70,32 @@ describe('autopilot-one-click multitask presets', () => {
     assert.strictEqual(mission.repair?.max_attempts, 2);
   });
 
-  test('real-multitask without --yes refuses remote writes', async () => {
+  test('real-multitask auto-yes bypasses confirmation gate and invokes multitask runner', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'multi-'));
     const runId = `multitask-confirm-${Date.now()}`;
+    let called = false;
     const result = await runAutopilotOneClick('Implement multi-task feature', {
       preset: 'real-multitask',
       output_dir: tmpDir,
       run_id: runId,
+      runMultitaskMissionFn: async (mission, planResult, _opts) => {
+        called = true;
+        return {
+          mission,
+          plan: planResult.plan,
+          plan_result: planResult,
+          task_results: [],
+          verdict: 'MULTITASK_MISSION_DONE',
+          reason: 'fake multitask done',
+          run_dir: tmpDir,
+          exit_code: 0,
+        } as import('../src/autopilot-one-click/multitask/types.js').MultitaskMissionResult;
+      },
     }, 'test');
 
-    assert.strictEqual(result.verdict, 'ONE_CLICK_NEEDS_CONFIRMATION');
-    assert.notStrictEqual(result.exit_code, 0);
-    assert.ok(result.reason.includes('--yes'), `Expected --yes prompt: ${result.reason}`);
+    assert.strictEqual(called, true);
+    assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
+    assert.strictEqual(result.exit_code, 0);
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -159,11 +173,12 @@ describe('autopilot-one-click multitask presets', () => {
     );
   });
 
-  test('real-multitask rejects fake mode', () => {
-    assert.throws(
-      () => buildMissionFromGoal('x', { preset: 'real-multitask', mode: 'fake' }),
-      MissionBuilderError
-    );
+  test('real-multitask allows explicit fake mode with safety ceiling', () => {
+    const mission = buildMissionFromGoal('x', { preset: 'real-multitask', mode: 'fake' });
+    assert.strictEqual(mission.mode, 'fake');
+    assert.strictEqual(mission.capabilities.allow_real_provider, false);
+    assert.strictEqual(mission.capabilities.allow_repo_push, false);
+    assert.strictEqual(mission.capabilities.allow_pr_create, false);
   });
 });
 

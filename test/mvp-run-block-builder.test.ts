@@ -90,4 +90,33 @@ describe('mvp-run block-builder checks precedence', () => {
     );
     assert.strictEqual(block.tasks[0].acceptance_criteria, undefined);
   });
+
+  test('omits max_lines_changed when not provided (no hard default 100)', () => {
+    const block = buildMvpRunBlock(
+      makeConfig([
+        {
+          id: 't1',
+          title: 'Feature',
+          goal: 'Add feature',
+          allowed_files: ['src/feature.ts'],
+        },
+      ])
+    );
+    assert.strictEqual(block.tasks[0].max_lines_changed, undefined);
+  });
+
+  test('preserves explicit max_lines_changed value', () => {
+    const block = buildMvpRunBlock(
+      makeConfig([
+        {
+          id: 't1',
+          title: 'Feature',
+          goal: 'Add feature',
+          allowed_files: ['src/feature.ts'],
+          max_lines_changed: 250,
+        },
+      ])
+    );
+    assert.strictEqual(block.tasks[0].max_lines_changed, 250);
+  });
 });

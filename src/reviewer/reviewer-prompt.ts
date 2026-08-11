@@ -42,7 +42,7 @@ export function buildReviewerPrompt(input: ReviewInput): string {
     `${previousFailureSection}` +
     `# Allowed Files\n${input.allowed_files.map((f) => `- ${f}`).join('\n') || '- none specified'}\n\n` +
     `# Denied Files\n${input.denied_files.map((f) => `- ${f}`).join('\n') || '- none specified'}\n\n` +
-    `# Max Lines Changed\n${input.max_lines_changed}\n\n` +
+    `# Max Lines Changed (advisory budget)\n${input.max_lines_changed ?? 'not specified'}\n\n` +
     `# Acceptance Criteria (task-level)\n${acceptanceSection}\n\n` +
     `# Commit SHA\n${input.commit_sha}\n\n` +
     `# Changed Files\n${input.changed_files.map((f) => `- ${f}`).join('\n') || '- none'}\n\n` +
@@ -64,7 +64,7 @@ export function buildReviewerPrompt(input: ReviewInput): string {
     `- ANY acceptance criterion is not satisfied (if acceptance criteria are provided, treat each as a hard requirement)\n` +
     `- Changed files exceed allowed_files scope\n` +
     `- Denied files were touched\n` +
-    `- max_lines_changed exceeded\n` +
+    `- max_lines_changed exceeded as a HARD safety rule (only if the user explicitly configured a hard limit)\n` +
     `- Typecheck/build/tests failed\n` +
     `- Commit hash is missing or invalid\n` +
     `- Secrets or API keys appear in changed files\n` +

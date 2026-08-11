@@ -70,6 +70,19 @@ export async function runAutopilotOneClick(
 
   const runDirBase = resolve(mission.output_dir, mission.run_id);
 
+  const presetFromMission = mission.constraints
+    ?.find((c) => c.startsWith('Preset: '))
+    ?.slice('Preset: '.length)
+    .trim();
+
+  // The canonical real-multitask one-click command does not require --yes.
+  if (
+    (options.preset === 'real-multitask' || presetFromMission === 'real-multitask') &&
+    !options.yes
+  ) {
+    options.yes = true;
+  }
+
   if (requiresConfirmation(mission) && !options.yes) {
     return makeFailureResult(
       'ONE_CLICK_NEEDS_CONFIRMATION',

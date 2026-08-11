@@ -201,7 +201,6 @@ export function generateFakePlan(mission: AutopilotPlanMission): AutopilotPlanGe
     risk: 'low',
     acceptance_criteria: ['Mission goal is reflected in allowed files without touching denied files'],
     expected_result: 'Allowed files updated to satisfy the goal',
-    max_lines_changed: 100,
   };
 
   return {

@@ -19,7 +19,9 @@ import {
   configureCandidateRemote,
   pushCandidateCommit,
   fastForwardMissionBranch,
+  reconcileCandidateWorkspace,
 } from '../src/candidate-workspace.js';
+import { computeFileHash, saveCandidateSnapshot } from '../src/candidate-state.js';
 
 let counter = 0;
 
@@ -140,5 +142,139 @@ describe('candidate-workspace', () => {
   test('fastForwardMissionBranch fails for non-ancestor commit', () => {
     const result = fastForwardMissionBranch(repoPath, 'feature', '0'.repeat(40));
     assert.strictEqual(result.ok, false);
+  });
+
+  test('validateCandidateWorkspace accepts accepted commit SHA after commit', () => {
+    const candidatePath = join(tmpDir, 'workspace-committed');
+    createCandidateWorkspace(candidatePath, repoPath, baseSha, 'main', 'task-committed');
+    writeFileSync(join(candidatePath, 'README.md'), '# committed\n', 'utf-8');
+    stageCandidateFiles(candidatePath, ['README.md']);
+    spawnSync('git', ['commit', '-m', 'accepted', '--no-gpg-sign'], { cwd: candidatePath, shell: false, encoding: 'utf-8' });
+    const commitSha = getHeadSha(candidatePath);
+    const result = validateCandidateWorkspace(candidatePath, baseSha, undefined, commitSha);
+    assert.strictEqual(result.ok, true, result.reason);
+  });
+
+  test('reconcileCandidateWorkspace: commit and push needed from base', () => {
+    const originPath = join(tmpDir, 'origin-base.git');
+    spawnSync('git', ['init', '--bare', originPath], { shell: false, encoding: 'utf-8' });
+    if (spawnSync('git', ['remote'], { cwd: repoPath, shell: false, encoding: 'utf-8' }).stdout.trim().includes('origin')) {
+      spawnSync('git', ['remote', 'remove', 'origin'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    }
+    spawnSync('git', ['remote', 'add', 'origin', originPath], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    spawnSync('git', ['push', 'origin', 'main'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+
+    const candidatePath = join(tmpDir, 'workspace-reconcile-base');
+    createCandidateWorkspace(candidatePath, repoPath, baseSha, 'main', 'task-reconcile-base');
+    configureCandidateRemote(candidatePath, originPath);
+    writeFileSync(join(candidatePath, 'README.md'), '# updated\n', 'utf-8');
+    stageCandidateFiles(candidatePath, ['README.md']);
+
+    const content = '# updated\n';
+    saveCandidateSnapshot(tmpDir, 'task-reconcile-base', {
+      attemptId: 'test',
+      phase: 'accepted',
+      taskBaseSha: baseSha,
+      changedFiles: ['README.md'],
+      fileContents: [{ path: 'README.md', content, sha256: computeFileHash(content) }],
+      candidatePackageHash: '',
+    });
+
+    const reconcile = reconcileCandidateWorkspace(candidatePath, baseSha, 'feature', {
+      attemptId: 'test',
+      phase: 'accepted',
+      taskBaseSha: baseSha,
+      changedFiles: ['README.md'],
+      fileContents: [{ path: 'README.md', content, sha256: computeFileHash(content) }],
+      candidatePackageHash: '',
+    });
+    assert.strictEqual(reconcile.ok, true, reconcile.reason);
+    assert.strictEqual(reconcile.commitNeeded, true);
+    assert.strictEqual(reconcile.pushNeeded, true);
+    assert.strictEqual(reconcile.alreadyPushed, false);
+  });
+
+  test('reconcileCandidateWorkspace: already pushed when local head reset to base', () => {
+    const originPath = join(tmpDir, 'origin-reconcile.git');
+    spawnSync('git', ['init', '--bare', originPath], { shell: false, encoding: 'utf-8' });
+    spawnSync('git', ['remote', 'add', 'origin', originPath], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    spawnSync('git', ['push', 'origin', 'main'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+
+    const candidatePath = join(tmpDir, 'workspace-reconcile-remote');
+    createCandidateWorkspace(candidatePath, repoPath, baseSha, 'main', 'task-reconcile-remote');
+    writeFileSync(join(candidatePath, 'README.md'), '# remote-pushed\n', 'utf-8');
+    stageCandidateFiles(candidatePath, ['README.md']);
+    configureCandidateRemote(candidatePath, originPath);
+    spawnSync('git', ['commit', '-m', 'accepted', '--no-gpg-sign'], { cwd: candidatePath, shell: false, encoding: 'utf-8' });
+    const commitSha = getHeadSha(candidatePath);
+    const pushResult = pushCandidateCommit(candidatePath, 'feature');
+    assert.strictEqual(pushResult.ok, true, pushResult.reason);
+
+    // Simulate crash: reset local candidate workspace back to base but keep remote commit.
+    spawnSync('git', ['checkout', '-B', 'candidate/task-reconcile-remote', baseSha], { cwd: candidatePath, shell: false, encoding: 'utf-8' });
+    assert.strictEqual(getHeadSha(candidatePath), baseSha);
+
+    const content = '# remote-pushed\n';
+    const snapshot = {
+      attemptId: 'test',
+      phase: 'accepted',
+      taskBaseSha: baseSha,
+      changedFiles: ['README.md'],
+      fileContents: [{ path: 'README.md', content, sha256: computeFileHash(content) }],
+      candidatePackageHash: '',
+    };
+
+    const reconcile = reconcileCandidateWorkspace(candidatePath, baseSha, 'feature', snapshot);
+    assert.strictEqual(reconcile.ok, true, reconcile.reason);
+    assert.strictEqual(reconcile.commitNeeded, false);
+    assert.strictEqual(reconcile.pushNeeded, false);
+    assert.strictEqual(reconcile.alreadyPushed, true);
+    assert.strictEqual(reconcile.acceptedCommitSha, commitSha);
+  });
+
+  test('reconcileCandidateWorkspace: fail closed on unexpected remote mutation', () => {
+    const originPath = join(tmpDir, 'origin-conflict.git');
+    spawnSync('git', ['init', '--bare', originPath], { shell: false, encoding: 'utf-8' });
+    if (spawnSync('git', ['remote'], { cwd: repoPath, shell: false, encoding: 'utf-8' }).stdout.trim().includes('origin')) {
+      spawnSync('git', ['remote', 'remove', 'origin'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    }
+    spawnSync('git', ['remote', 'add', 'origin', originPath], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+    spawnSync('git', ['push', 'origin', 'main'], { cwd: repoPath, shell: false, encoding: 'utf-8' });
+
+    const candidatePath = join(tmpDir, 'workspace-conflict');
+    createCandidateWorkspace(candidatePath, repoPath, baseSha, 'main', 'task-conflict');
+    writeFileSync(join(candidatePath, 'README.md'), '# candidate\n', 'utf-8');
+    stageCandidateFiles(candidatePath, ['README.md']);
+    configureCandidateRemote(candidatePath, originPath);
+    spawnSync('git', ['commit', '-m', 'accepted', '--no-gpg-sign'], { cwd: candidatePath, shell: false, encoding: 'utf-8' });
+    const pushResult = pushCandidateCommit(candidatePath, 'feature');
+    assert.strictEqual(pushResult.ok, true, pushResult.reason);
+
+    // Concurrent mutation: add a different commit on top of the pushed feature branch.
+    spawnSync('git', ['checkout', '-B', 'feature', 'origin/feature'], { cwd: candidatePath, shell: false, encoding: 'utf-8' });
+    writeFileSync(join(candidatePath, 'other.txt'), 'concurrent\n', 'utf-8');
+    spawnSync('git', ['add', 'other.txt'], { cwd: candidatePath, shell: false, encoding: 'utf-8' });
+    spawnSync('git', ['commit', '-m', 'concurrent', '--no-gpg-sign'], { cwd: candidatePath, shell: false, encoding: 'utf-8' });
+    const conflictPush = pushCandidateCommit(candidatePath, 'feature');
+    assert.strictEqual(conflictPush.ok, true, conflictPush.reason);
+
+    // Reset candidate local head back to base.
+    spawnSync('git', ['checkout', '-B', 'candidate/task-conflict', baseSha], { cwd: candidatePath, shell: false, encoding: 'utf-8' });
+
+    const content = '# candidate\n';
+    const snapshot = {
+      attemptId: 'test',
+      phase: 'accepted',
+      taskBaseSha: baseSha,
+      changedFiles: ['README.md'],
+      fileContents: [{ path: 'README.md', content, sha256: computeFileHash(content) }],
+      candidatePackageHash: '',
+    };
+
+    const reconcile = reconcileCandidateWorkspace(candidatePath, baseSha, 'feature', snapshot);
+    assert.strictEqual(reconcile.ok, false, reconcile.reason);
+    assert.strictEqual(reconcile.commitNeeded, false);
+    assert.strictEqual(reconcile.pushNeeded, false);
+    assert.strictEqual(reconcile.alreadyPushed, false);
   });
 });

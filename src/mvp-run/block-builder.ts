@@ -2,8 +2,6 @@ import { resolve } from 'node:path';
 import type { BlockDefinition } from '../block/block-types.js';
 import type { MvpRunConfig } from './types.js';
 
-const MAX_LINES_CHANGED = 100;
-
 export function buildMvpRunBlock(config: MvpRunConfig): BlockDefinition {
   const provider = config.provider === 'fake' ? 'fake' : 'kimi';
 
@@ -30,7 +28,7 @@ export function buildMvpRunBlock(config: MvpRunConfig): BlockDefinition {
       goal: task.goal,
       allowed_files: task.allowed_files,
       denied_files: task.denied_files?.length ? task.denied_files : ['.env'],
-      max_lines_changed: task.max_lines_changed ?? MAX_LINES_CHANGED,
+      max_lines_changed: task.max_lines_changed,
       checks: task.checks !== undefined ? task.checks : task.tests ?? [],
       depends_on: task.depends_on,
       acceptance_criteria: task.acceptance_criteria,

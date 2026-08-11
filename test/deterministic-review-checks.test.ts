@@ -57,17 +57,18 @@ describe('deterministic-review-checks', () => {
     assert(result.blockingIssues.some((i) => i.includes('allowedFiles is empty')));
   });
 
-  test('rejects maxLinesChanged <= 0', () => {
-    const result = runDeterministicReviewChecks(makeInput({ maxLinesChanged: 0 }));
-    assert.strictEqual(result.ok, false);
-    assert(result.blockingIssues.some((i) => i.includes('maxLinesChanged')));
+  test('does not hard-block when maxLinesChanged is omitted', () => {
+    const diff = Array.from({ length: 200 }, () => '+line').join('\n');
+    const result = runDeterministicReviewChecks(makeInput({ diff, maxLinesChanged: undefined }));
+    assert.strictEqual(result.ok, true);
+    assert(!result.blockingIssues.some((i) => i.includes('maxLinesChanged')));
   });
 
-  test('rejects maxLinesChanged exceeded', () => {
+  test('does not hard-block when maxLinesChanged is exceeded', () => {
     const diff = Array.from({ length: 200 }, () => '+line').join('\n');
     const result = runDeterministicReviewChecks(makeInput({ diff, maxLinesChanged: 10 }));
-    assert.strictEqual(result.ok, false);
-    assert(result.blockingIssues.some((i) => i.includes('exceed maxLinesChanged')));
+    assert.strictEqual(result.ok, true);
+    assert(!result.blockingIssues.some((i) => i.includes('exceed maxLinesChanged')));
   });
 
   test('ignores diff metadata when counting changed lines', () => {

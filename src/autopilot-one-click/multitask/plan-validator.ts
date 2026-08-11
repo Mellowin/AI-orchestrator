@@ -83,8 +83,11 @@ function validateTask(task: AutopilotPlanTask, index: number, issues: PlanValida
   if (!task.expected_result || typeof task.expected_result !== 'string' || task.expected_result.length === 0) {
     issues.push({ field: `${prefix}.expected_result`, message: 'Task expected_result is required and must be a non-empty string' });
   }
-  if (task.max_lines_changed === undefined || typeof task.max_lines_changed !== 'number' || task.max_lines_changed <= 0 || !Number.isInteger(task.max_lines_changed)) {
-    issues.push({ field: `${prefix}.max_lines_changed`, message: 'Task max_lines_changed is required and must be a positive integer' });
+  if (
+    task.max_lines_changed !== undefined &&
+    (typeof task.max_lines_changed !== 'number' || task.max_lines_changed <= 0 || !Number.isInteger(task.max_lines_changed))
+  ) {
+    issues.push({ field: `${prefix}.max_lines_changed`, message: 'Task max_lines_changed must be a positive integer when provided' });
   }
   const scopeIssues = validateTaskScope(task, prefix);
   for (const issue of scopeIssues) {

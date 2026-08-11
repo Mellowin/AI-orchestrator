@@ -202,8 +202,11 @@ export function loadBlockDefinition(path: string): BlockDefinition {
     }
 
     const maxLinesChanged = t.max_lines_changed;
-    if (typeof maxLinesChanged !== 'number' || !Number.isFinite(maxLinesChanged) || maxLinesChanged <= 0) {
-      throw new Error(`Block definition task ${i} max_lines_changed must be a positive number`);
+    if (
+      maxLinesChanged !== undefined &&
+      (typeof maxLinesChanged !== 'number' || !Number.isFinite(maxLinesChanged) || maxLinesChanged <= 0)
+    ) {
+      throw new Error(`Block definition task ${i} max_lines_changed must be a positive number when provided`);
     }
 
     function isValidCheckItem(c: unknown): boolean {

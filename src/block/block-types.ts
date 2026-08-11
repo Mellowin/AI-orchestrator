@@ -53,7 +53,7 @@ export interface BlockTaskDefinition {
   goal: string;
   allowed_files: string[];
   denied_files: string[];
-  max_lines_changed: number;
+  max_lines_changed?: number;
   checks: (string | Check)[];
   depends_on?: string[];
   acceptance_criteria?: string[];

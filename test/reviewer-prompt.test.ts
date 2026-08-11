@@ -55,4 +55,23 @@ describe('reviewer prompt builder', () => {
     assert(prompt.includes('# Acceptance Criteria (task-level)'));
     assert(prompt.includes('No specific acceptance criteria provided'));
   });
+
+  test('labels max_lines_changed as advisory budget, not a hard rule', () => {
+    const prompt = buildReviewerPrompt(makeInput({ max_lines_changed: 100 }));
+    assert(prompt.includes('# Max Lines Changed (advisory budget)'));
+    assert(
+      !prompt.includes('- max_lines_changed exceeded\n'),
+      'Prompt must not instruct unconditional rejection for exceeding the advisory budget'
+    );
+    assert(
+      prompt.includes('HARD safety rule'),
+      'Prompt should explain that hard rejection only applies to explicit user limits'
+    );
+  });
+
+  test('handles unspecified max_lines_changed gracefully', () => {
+    const prompt = buildReviewerPrompt(makeInput({ max_lines_changed: undefined }));
+    assert(prompt.includes('# Max Lines Changed (advisory budget)'));
+    assert(prompt.includes('not specified'));
+  });
 });

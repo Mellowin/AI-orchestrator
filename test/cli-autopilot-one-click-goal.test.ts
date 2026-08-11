@@ -34,7 +34,7 @@ function runCli(args: string[], envOverrides: Record<string, string> = {}) {
 
 describe('cli autopilot-one-click raw goal', () => {
   test('CLI raw goal runs safe fake one-click without tokens', () => {
-    const result = runCli(['autopilot-one-click', 'Add a docs note']);
+    const result = runCli(['autopilot-one-click', 'Add a docs note', '--preset', 'safe']);
     assert.strictEqual(result.status, 0, `Expected exit 0, got: ${result.stderr}`);
     assert(result.stderr.includes('Forbidden:'), `Expected forbidden summary: ${result.stderr}`);
     assert(
@@ -52,7 +52,7 @@ describe('cli autopilot-one-click raw goal', () => {
 
     const result = spawnSync(
       'npm',
-      ['run', 'autopilot:one-click', '--', 'Add a docs note'],
+      ['run', 'autopilot:one-click', '--', 'Add a docs note', '--preset', 'safe'],
       {
         cwd: process.cwd(),
         env,

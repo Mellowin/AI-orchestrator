@@ -34,6 +34,10 @@ function parseArgs(rawArgs: string[]): { input: string; options: AutopilotOneCli
       if (!next) throw new Error('--run-id requires a value');
       options.run_id = next;
       i += 1;
+    } else if (arg === '--repo') {
+      if (!next) throw new Error('--repo requires a value');
+      options.repo = next;
+      i += 1;
     } else if (arg === '--repo-slug') {
       if (!next) throw new Error('--repo-slug requires a value');
       options.repo_slug = next;
@@ -89,7 +93,7 @@ export async function main(rawArgs: string[] = process.argv.slice(2)): Promise<v
   if (rawArgs.length === 0) {
     console.error('[autopilot-one-click] Error: mission config path or raw goal is required');
     console.error('[autopilot-one-click] Usage: npx tsx src/cli.ts autopilot-one-click <mission.json>');
-    console.error('                                     autopilot-one-click "goal text" [--preset safe|read-ci|real-pr|real-repair|real-multitask|multitask-safe] [--resume]');
+    console.error('                                     autopilot-one-click "goal text" [--repo owner/repo|URL|local-path] [--preset safe|read-ci|real-pr|real-repair|real-multitask|multitask-safe] [--resume]');
     process.exitCode = 1;
     return;
   }
