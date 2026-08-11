@@ -167,10 +167,12 @@ describe('autopilot-one-click goal parsing', () => {
     assert(mission.repo_path.includes('github.com'));
   });
 
-  test('real-multitask auto-yes bypasses confirmation gate', async () => {
+  test('real-multitask auto-yes routes to multitask runner in fake mode', async () => {
     const outDir = makeTmpDir();
     let called = false;
     const result = await runAutopilotOneClick('Implement feature', {
+      preset: 'real-multitask',
+      mode: 'fake',
       output_dir: outDir,
       run_id: 'auto-yes-test',
       runMultitaskMissionFn: async (mission, planResult, _opts) => {

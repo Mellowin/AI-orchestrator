@@ -76,6 +76,7 @@ describe('autopilot-one-click multitask presets', () => {
     let called = false;
     const result = await runAutopilotOneClick('Implement multi-task feature', {
       preset: 'real-multitask',
+      mode: 'fake',
       output_dir: tmpDir,
       run_id: runId,
       runMultitaskMissionFn: async (mission, planResult, _opts) => {
