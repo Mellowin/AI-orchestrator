@@ -22,6 +22,7 @@ import {
   reconcileCandidateWorkspace,
 } from '../src/candidate-workspace.js';
 import { computeFileHash, saveCandidateSnapshot } from '../src/candidate-state.js';
+import { getGitRemoteUrl } from '../src/git-push-auth.js';
 
 let counter = 0;
 
@@ -276,5 +277,47 @@ describe('candidate-workspace', () => {
     assert.strictEqual(reconcile.commitNeeded, false);
     assert.strictEqual(reconcile.pushNeeded, false);
     assert.strictEqual(reconcile.alreadyPushed, false);
+  });
+
+  test('configureCandidateRemote injects GitHub token as password with x-access-token username', () => {
+    const candidatePath = join(tmpDir, 'workspace-auth');
+    createCandidateWorkspace(candidatePath, repoPath, baseSha, 'main', 'task-auth');
+    const previousToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'ghp_testtoken123';
+    try {
+      const githubUrl = 'https://github.com/Mellowin/AI-orchestrator.git';
+      const result = configureCandidateRemote(candidatePath, githubUrl);
+      assert.strictEqual(result.ok, true, result.reason);
+      const remoteUrl = getGitRemoteUrl(candidatePath, 'origin');
+      assert.ok(remoteUrl, 'origin URL should be set');
+      const parsed = new URL(remoteUrl!);
+      assert.strictEqual(parsed.username, 'x-access-token');
+      assert.strictEqual(parsed.password, 'ghp_testtoken123');
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousToken;
+      }
+    }
+  });
+
+  test('configureCandidateRemote failure is reported and does not leak token', () => {
+    const notGitPath = join(tmpDir, 'not-git-auth');
+    mkdirSync(notGitPath, { recursive: true });
+    const previousToken = process.env.GITHUB_TOKEN;
+    process.env.GITHUB_TOKEN = 'ghp_supersecrettoken';
+    try {
+      const result = configureCandidateRemote(notGitPath, 'https://github.com/Mellowin/AI-orchestrator.git');
+      assert.strictEqual(result.ok, false);
+      assert.ok(result.reason, 'reason should be present');
+      assert.ok(!result.reason!.includes('ghp_supersecrettoken'), 'failure reason must not contain token');
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = previousToken;
+      }
+    }
   });
 });

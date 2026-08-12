@@ -10,21 +10,27 @@ import {
 } from '../src/git-push-auth.js';
 
 describe('git-push-auth', () => {
-  test('injectGitHubTokenIntoRemoteUrl injects fine-grained PAT as username', () => {
+  test('injectGitHubTokenIntoRemoteUrl injects fine-grained PAT as password with x-access-token username', () => {
     const url = 'https://github.com/Mellowin/AI-orchestrator.git';
     const token = 'github_pat_123abc';
     const result = injectGitHubTokenIntoRemoteUrl(url, token);
-    assert.strictEqual(result, 'https://github_pat_123abc@github.com/Mellowin/AI-orchestrator.git');
+    assert.strictEqual(
+      result,
+      'https://x-access-token:github_pat_123abc@github.com/Mellowin/AI-orchestrator.git'
+    );
   });
 
-  test('injectGitHubTokenIntoRemoteUrl injects classic PAT as username', () => {
+  test('injectGitHubTokenIntoRemoteUrl injects classic PAT as password with x-access-token username', () => {
     const url = 'https://github.com/Mellowin/AI-orchestrator.git';
     const token = 'ghp_123abc';
     const result = injectGitHubTokenIntoRemoteUrl(url, token);
-    assert.strictEqual(result, 'https://ghp_123abc@github.com/Mellowin/AI-orchestrator.git');
+    assert.strictEqual(
+      result,
+      'https://x-access-token:ghp_123abc@github.com/Mellowin/AI-orchestrator.git'
+    );
   });
 
-  test('injectGitHubTokenIntoRemoteUrl uses x-access-token scheme for non-PAT tokens', () => {
+  test('injectGitHubTokenIntoRemoteUrl uses x-access-token scheme for GitHub App installation tokens', () => {
     const url = 'https://github.com/Mellowin/AI-orchestrator.git';
     const token = 'installation_token_123';
     const result = injectGitHubTokenIntoRemoteUrl(url, token);

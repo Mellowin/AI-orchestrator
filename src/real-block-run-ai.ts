@@ -635,7 +635,7 @@ function isBlockingStatus(status: string): boolean {
   return status === 'blocked' || status === 'failed' || status === 'fix_required';
 }
 
-function deriveTaskResult(
+export function deriveTaskResult(
   task: BlockTaskDefinition,
   run: { exitCode: number; state: Record<string, unknown> | null; timedOut?: boolean }
 ): RealBlockRunTaskResult {
@@ -667,6 +667,12 @@ function deriveTaskResult(
   base.originalCommitSha = commitSha;
   base.codeApplied = typeof commitSha === 'string' && commitSha.length === 40;
   base.pushed = state.status === 'pushed' && run.exitCode === 0;
+
+  // Terminal execution precedence: a child runner failure, a missing commit SHA,
+  // or an incomplete push overrides any reviewer acceptance. Task acceptance
+  // requires a successful exit code, a pushed terminal state, and a valid
+  // accepted commit SHA.
+  const executionSucceeded = run.exitCode === 0 && runStatus === 'pushed' && base.pushed;
 
   const providerAttempts = state.provider_attempts;
   if (Array.isArray(providerAttempts)) {
@@ -751,6 +757,18 @@ function deriveTaskResult(
 
     const finalStatus = secondReview.finalStatus;
     if (finalStatus === 'accepted') {
+      if (!executionSucceeded) {
+        base.status = 'failed';
+        base.finalStatus = 'failed';
+        base.nextAction = 'block';
+        base.checksResult = 'pass';
+        base.reason = redactSecrets(
+          typeof state.safety_note === 'string'
+            ? state.safety_note
+            : `Second reviewer accepted the fix commit, but task execution did not complete successfully (status=${String(runStatus)}, exitCode=${run.exitCode}).`
+        );
+        return base;
+      }
       base.status = 'fixed_and_accepted';
       base.finalStatus = 'accepted';
       base.nextAction = 'continue';
@@ -816,6 +834,18 @@ function deriveTaskResult(
   if (reviewerGate !== undefined) {
     const status = reviewerGate.status;
     if (status === 'accepted') {
+      if (!executionSucceeded) {
+        base.status = 'failed';
+        base.finalStatus = 'failed';
+        base.nextAction = 'block';
+        base.checksResult = 'pass';
+        base.reason = redactSecrets(
+          typeof state.safety_note === 'string'
+            ? state.safety_note
+            : `Reviewer gate accepted the task, but execution did not complete successfully (status=${String(runStatus)}, exitCode=${run.exitCode}).`
+        );
+        return base;
+      }
       const isFixed = state.fixed_and_accepted === true;
       base.status = isFixed ? 'fixed_and_accepted' : 'accepted';
       base.finalStatus = 'accepted';

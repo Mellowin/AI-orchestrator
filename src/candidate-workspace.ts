@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { getGitRemoteUrl, injectGitHubTokenIntoRemoteUrl } from './git-push-auth.js';
+import { redactSecrets } from './sandbox-preflight-repair.js';
 import type { CandidateSnapshot } from './candidate-state.js';
 import { computeFileHash } from './candidate-state.js';
 
@@ -571,7 +572,10 @@ export function configureCandidateRemote(
   }
   const result = git(['remote', 'set-url', 'origin', url], candidatePath, true);
   if (result.status !== 0) {
-    return { ok: false, reason: `Failed to configure candidate origin: ${result.stderr.trim()}` };
+    return {
+      ok: false,
+      reason: redactSecrets(`Failed to configure candidate origin: ${result.stderr.trim()}`),
+    };
   }
   return { ok: true };
 }

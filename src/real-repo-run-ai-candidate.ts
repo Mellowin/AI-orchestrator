@@ -1360,7 +1360,19 @@ export async function runRealRepoRunAICandidateFlow(
 
   const originUrl = getGitRemoteUrl(candidatePath, 'origin') ?? getGitRemoteUrl(task.repo_path, 'origin') ?? '';
   if (originUrl) {
-    configureCandidateRemote(candidatePath, originUrl);
+    const remoteConfig = configureCandidateRemote(candidatePath, originUrl);
+    if (!remoteConfig.ok) {
+      const reason = redactSecrets(`Remote configuration failed: ${remoteConfig.reason ?? 'unknown'}`);
+      log(prefix, reason);
+      setPhase('failed', {
+        status: 'failed',
+        committed: true,
+        commit_sha: acceptedCommitSha,
+        accepted_commit_sha: acceptedCommitSha,
+        safety_note: reason,
+      });
+      return { exitCode: 1, state };
+    }
   }
 
   if (reconcileResult.pushNeeded) {

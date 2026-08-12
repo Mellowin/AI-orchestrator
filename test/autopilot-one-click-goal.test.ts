@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { makeGoalSlug, makeRunId, isPathTraversal } from '../src/autopilot-one-click/goal-parser.js';
 import { buildMissionFromGoal, MissionBuilderError } from '../src/autopilot-one-click/mission-builder.js';
 import { runAutopilotOneClick } from '../src/autopilot-one-click/runner.js';
+import { parseArgs } from '../src/autopilot-one-click/index.js';
 
 function makeTmpDir(): string {
   const base = join(process.cwd(), 'tmp');
@@ -241,5 +242,36 @@ describe('autopilot-one-click goal parsing', () => {
     assert.strictEqual(called, true);
     assert.strictEqual(result.verdict, 'MULTITASK_MISSION_DONE');
     rmSync(outDir, { recursive: true, force: true });
+  });
+});
+
+describe('autopilot-one-click parseArgs goal preservation', () => {
+  test('single argv element with multiline Cyrillic goal and exact paths is preserved', () => {
+    const rawGoal = `Создай документы.
+docs/a.md
+ещё строка
+docs/b.md`;
+    const { input, options } = parseArgs([rawGoal]);
+    assert.strictEqual(options.preset, undefined);
+    assert.strictEqual(input, rawGoal);
+    assert.ok(input.includes('docs/a.md'));
+    assert.ok(input.includes('docs/b.md'));
+    assert.ok(input.includes('Создай документы.'));
+    assert.ok(input.includes('ещё строка'));
+  });
+
+  test('multiple positional argv elements preserve all text without truncation', () => {
+    const { input } = parseArgs(['line 1', 'docs/a.md', 'line 3', 'docs/b.md']);
+    assert.ok(input.includes('line 1'));
+    assert.ok(input.includes('docs/a.md'));
+    assert.ok(input.includes('line 3'));
+    assert.ok(input.includes('docs/b.md'));
+    assert.ok(input.includes('docs/a.md line 3 docs/b.md'));
+  });
+
+  test('flags are parsed and remaining positional args form the full goal', () => {
+    const { input, options } = parseArgs(['--preset', 'safe', 'Goal part 1', 'Goal part 2']);
+    assert.strictEqual(options.preset, 'safe');
+    assert.strictEqual(input, 'Goal part 1 Goal part 2');
   });
 });

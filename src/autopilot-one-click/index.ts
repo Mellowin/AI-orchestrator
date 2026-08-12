@@ -10,7 +10,7 @@ function isValidPreset(value: string): value is AutopilotOneClickPreset {
   return ['safe', 'read-ci', 'real-pr', 'real-repair', 'real-multitask', 'multitask-safe'].includes(value);
 }
 
-function parseArgs(rawArgs: string[]): { input: string; options: AutopilotOneClickOptions } {
+export function parseArgs(rawArgs: string[]): { input: string; options: AutopilotOneClickOptions } {
   const options: AutopilotOneClickOptions = {};
   const positional: string[] = [];
 

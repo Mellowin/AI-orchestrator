@@ -15,17 +15,13 @@ export function getGitRemoteUrl(repoPath: string, remote = 'origin'): string | n
   return result.stdout.trim();
 }
 
-function isPersonalAccessToken(token: string): boolean {
-  return token.startsWith('ghp_') || token.startsWith('github_pat_');
-}
-
 /**
  * Inject a GitHub token into an HTTPS GitHub remote URL.
  *
- * Personal access tokens (`ghp_*` / `github_pat_*`) are placed in the URL
- * username with an empty password, which is the format GitHub requires for
- * HTTPS git operations. Other tokens (e.g. GitHub App installation tokens)
- * keep the `x-access-token` username convention.
+ * GitHub HTTPS authentication uses the `x-access-token` username with the
+ * token supplied as the password credential. This format works for classic
+ * PATs (`ghp_*`), fine-grained PATs (`github_pat_*`), and GitHub App
+ * installation tokens.
  *
  * Returns null for non-GitHub remotes or unparsable URLs.
  */
@@ -41,13 +37,8 @@ export function injectGitHubTokenIntoRemoteUrl(remoteUrl: string, token: string)
     if (url.hostname.toLowerCase() !== 'github.com') {
       return null;
     }
-    if (isPersonalAccessToken(token)) {
-      url.username = token;
-      url.password = '';
-    } else {
-      url.username = 'x-access-token';
-      url.password = token;
-    }
+    url.username = 'x-access-token';
+    url.password = token;
     return url.toString();
   } catch {
     return null;
