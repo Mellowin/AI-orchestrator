@@ -1,3 +1,4 @@
+import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanMission, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import { validateTaskDAG } from '../../autopilot-plan/dag.js';
@@ -62,6 +63,15 @@ function validateTask(task: AutopilotPlanTask, index: number, issues: PlanValida
       const normalized = file.replace(/\\/g, '/');
       if (normalized.startsWith('/') || normalized.includes('..') || /\x00/.test(normalized)) {
         issues.push({ field: `${prefix}.denied_files`, message: `Invalid denied file path: ${file}` });
+      }
+    }
+  }
+  if (task.context_files) {
+    if (!Array.isArray(task.context_files)) {
+      issues.push({ field: `${prefix}.context_files`, message: 'Task context_files must be an array of strings' });
+    } else {
+      for (const file of task.context_files) {
+        validatePathSafety(file, `${prefix}.context_files`, issues);
       }
     }
   }
@@ -162,6 +172,17 @@ function detectFileScopeOverlap(tasks: AutopilotPlanTask[]): PlanValidationIssue
   return issues;
 }
 
+function isExistingFile(repoPath: string, file: string): boolean {
+  const filePath = resolve(repoPath, file);
+  if (!filePath.startsWith(repoPath)) return false;
+  if (!existsSync(filePath)) return false;
+  try {
+    return statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function inspectRepoFiles(
   mission: AutopilotPlanMission,
   tasks: AutopilotPlanTask[],
@@ -173,6 +194,16 @@ function inspectRepoFiles(
       const filePath = resolve(repoPath, file);
       if (!filePath.startsWith(repoPath)) {
         issues.push({ field: `${task.id}.allowed_files`, message: `Path escapes repo root: ${file}` });
+      }
+    }
+    for (const file of task.context_files ?? []) {
+      const filePath = resolve(repoPath, file);
+      if (!filePath.startsWith(repoPath)) {
+        issues.push({ field: `${task.id}.context_files`, message: `Path escapes repo root: ${file}` });
+        continue;
+      }
+      if (!isExistingFile(repoPath, file)) {
+        issues.push({ field: `${task.id}.context_files`, message: `context_file must be an existing tracked file: ${file}` });
       }
     }
   }

@@ -53,6 +53,8 @@ export interface BlockTaskDefinition {
   goal: string;
   allowed_files: string[];
   denied_files: string[];
+  /** Read-only repository files supplied to the coder as context. These do NOT grant write permission. */
+  context_files?: string[];
   max_lines_changed?: number;
   checks: (string | Check)[];
   depends_on?: string[];

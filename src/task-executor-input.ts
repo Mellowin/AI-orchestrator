@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { convertBlockChecks } from './block/block-task-runner.js';
 import type { BlockDefinition, BlockTaskDefinition } from './block/block-types.js';
@@ -23,7 +22,7 @@ export function buildSingleTaskYaml(
         base_branch: block.base_branch,
         work_branch: block.work_branch,
         goal: task.goal,
-        context_files: task.allowed_files.filter((file) => existsSync(resolve(repoPath, file))),
+        context_files: task.context_files ?? [],
         checks:
           task.checks.length > 0
             ? convertBlockChecks(task.checks, repoPath)
@@ -68,7 +67,7 @@ export function buildTaskExecutorInput(
     base_branch: block.base_branch,
     work_branch: block.work_branch,
     goal: task.goal,
-    context_files: task.allowed_files.filter((file) => existsSync(resolve(repoPath, file))),
+    context_files: task.context_files ?? [],
     checks:
       task.checks.length > 0
         ? convertBlockChecks(task.checks, repoPath)

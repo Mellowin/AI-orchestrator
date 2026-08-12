@@ -28,6 +28,7 @@ export function buildMvpRunBlock(config: MvpRunConfig): BlockDefinition {
       goal: task.goal,
       allowed_files: task.allowed_files,
       denied_files: task.denied_files?.length ? task.denied_files : ['.env'],
+      context_files: task.context_files,
       max_lines_changed: task.max_lines_changed,
       checks: task.checks !== undefined ? task.checks : task.tests ?? [],
       depends_on: task.depends_on,

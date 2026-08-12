@@ -8,6 +8,7 @@ import type {
 import { validateGeneratedPlan } from '../autopilot-one-click/multitask/plan-validator.js';
 import type { PlanValidationIssue } from '../autopilot-one-click/multitask/plan-validator.js';
 import { validateTaskScope } from '../task-scope-validator.js';
+import { buildRepoInventory, type RepoInventory } from './repo-inventory.js';
 
 export interface PlannerAttempt {
   attempt: number;
@@ -111,6 +112,17 @@ function validateTask(obj: unknown, repoPath: string): AutopilotPlanTask {
   if (raw.denied_files !== undefined && !isStringArray(raw.denied_files)) {
     throw new ProviderBadOutputError('Task denied_files must be an array of strings');
   }
+  if (raw.context_files !== undefined && !isStringArray(raw.context_files)) {
+    throw new ProviderBadOutputError('Task context_files must be an array of strings');
+  }
+  if (raw.context_files !== undefined) {
+    for (const file of raw.context_files) {
+      const normalized = file.replace(/\\/g, '/');
+      if (normalized.startsWith('/') || normalized.includes('..')) {
+        throw new ProviderBadOutputError(`Task context_files contains unsafe path: ${file}`);
+      }
+    }
+  }
   if (raw.tests !== undefined && !isStringArray(raw.tests)) {
     throw new ProviderBadOutputError('Task tests must be an array of strings');
   }
@@ -158,6 +170,9 @@ function validateTask(obj: unknown, repoPath: string): AutopilotPlanTask {
   };
   if (raw.denied_files) {
     task.denied_files = raw.denied_files;
+  }
+  if (raw.context_files) {
+    task.context_files = raw.context_files;
   }
   if (raw.tests) {
     task.tests = raw.tests;
@@ -235,7 +250,17 @@ function extractTaskIdFromField(field: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
-function buildPlanPrompt(mission: AutopilotPlanMission): string {
+function buildPlanPrompt(mission: AutopilotPlanMission, inventory: RepoInventory): string {
+  const inventorySection = inventory.files.length > 0
+    ? [
+        'Repository file inventory (read-only paths available for context selection):',
+        ...inventory.files.map((f) => `- ${f}`),
+        '',
+        inventory.note,
+        '',
+      ].join('\n')
+    : `Repository file inventory: unavailable (${inventory.note})`;
+
   return [
     'Generate a concise task plan for the following mission.',
     '',
@@ -255,6 +280,8 @@ function buildPlanPrompt(mission: AutopilotPlanMission): string {
     `- Read GitHub Actions: ${mission.capabilities.allow_actions_read}`,
     `- Autopilot repair loop: ${mission.capabilities.allow_repair}`,
     '',
+    inventorySection,
+    '',
     mission.constraints && mission.constraints.length > 0
       ? `Constraints:\n${mission.constraints.map((c) => `- ${c}`).join('\n')}`
       : '',
@@ -271,6 +298,7 @@ function buildPlanPrompt(mission: AutopilotPlanMission): string {
     '      "goal": "string",',
     '      "allowed_files": ["string"],',
     '      "denied_files": ["string"],',
+    '      "context_files": ["string"],',
     '      "tests": ["string"],',
     '      "checks": ["string" | {"command": "string", "args": ["string"], "cwd": "string?"}],',
     '      "risk": "low" | "medium" | "high",',
@@ -301,6 +329,14 @@ function buildPlanPrompt(mission: AutopilotPlanMission): string {
     'Preserve every explicit target file path exactly as written. Do not rename it, relocate it, or substitute a different file for it (for example, do not replace docs/autonomous-workflow/README.md with root README.md).',
     "Every explicitly requested target file must appear in some task's `allowed_files` as an exact entry.",
     'If the operator describes ordered or dependent tasks, preserve that ordering and dependency intent in `depends_on`.',
+    'Read-only repository context:',
+    '- Each task may include `context_files`: an array of existing repository-relative file paths the coder is allowed to READ as background context.',
+    '- `context_files` do NOT grant write permission; the coder may only create or modify files listed in `allowed_files`.',
+    '- When a task goal requires understanding existing implementation (e.g., "document the actual one-click command based on the code"), include the smallest sufficient set of existing source/config files in `context_files`.',
+    '- Choose `context_files` only from the repository inventory above. Never invent paths that do not exist.',
+    '- Never add a file to `allowed_files` merely because the coder needs to read it; use `context_files` instead.',
+    '- For tasks that edit an existing file, that file may appear in both `context_files` and `allowed_files`.',
+    '- Dependency artifacts from accepted ancestor tasks are supplied automatically through `depends_on`; do not list them in `context_files` or `allowed_files`.',
     '`max_lines_changed` is an ADVISORY BUDGET for planning the absolute line delta for any single file in the task.',
     'For a newly created file the budget applies to the full file length, not just the diff against an empty file.',
     'Choose a realistic budget that is large enough to satisfy the acceptance criteria, but never invent an arbitrary small limit that cannot hold the required content.',
@@ -334,7 +370,8 @@ export async function generateProviderPlan(
   const system =
     'You are a safe software planning assistant. Respond with a single JSON object inside a markdown code block. Do not include explanations outside the JSON block.';
 
-  const basePrompt = buildPlanPrompt(mission);
+  const inventory = buildRepoInventory(mission.repo_path);
+  const basePrompt = buildPlanPrompt(mission, inventory);
   const attempts: PlannerAttempt[] = [];
   let lastIssues: PlanValidationIssue[] = [];
 

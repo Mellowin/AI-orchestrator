@@ -140,6 +140,55 @@ describe('task executor contract', () => {
     assert.deepStrictEqual(extracted, input.task);
   });
 
+  test('buildTaskExecutorInput uses exact context_files from block task', () => {
+    const block = makeBlock();
+    const task = makeBlockTask({
+      allowed_files: ['docs/new.md'],
+      context_files: ['src/cli.ts', 'src/autopilot-one-click/index.ts'],
+    });
+    const input = buildTaskExecutorInput(block, task, {
+      taskBaseSha: 'base'.padEnd(40, '0'),
+      candidatePath: '/tmp/candidate',
+      runId: 'run-context',
+    });
+
+    assert.deepStrictEqual(input.task.context_files, [
+      'src/cli.ts',
+      'src/autopilot-one-click/index.ts',
+    ]);
+    assert.deepStrictEqual(input.task.guardrails.allow_modify, ['docs/new.md']);
+  });
+
+  test('buildTaskExecutorInput defaults to empty context_files when none provided', () => {
+    const block = makeBlock();
+    const task = makeBlockTask({ allowed_files: ['docs/new.md'] });
+    const input = buildTaskExecutorInput(block, task, {
+      taskBaseSha: 'base'.padEnd(40, '0'),
+      candidatePath: '/tmp/candidate',
+      runId: 'run-empty-context',
+    });
+
+    assert.deepStrictEqual(input.task.context_files, []);
+  });
+
+  test('buildTaskExecutorInput does not derive context_files from allowed_files', () => {
+    const { repoPath, cleanup } = createTempRepo();
+    try {
+      const block = makeBlock({ repo_path: repoPath });
+      const task = makeBlockTask({ allowed_files: ['README.md'] });
+      const input = buildTaskExecutorInput(block, task, {
+        taskBaseSha: 'base'.padEnd(40, '0'),
+        candidatePath: '/tmp/candidate',
+        runId: 'run-not-derived',
+      });
+
+      assert.deepStrictEqual(input.task.context_files, []);
+      assert.deepStrictEqual(input.task.guardrails.allow_modify, ['README.md']);
+    } finally {
+      cleanup();
+    }
+  });
+
   test('TaskExecutorInput survives spawn to child via stdin', () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'task-executor-spawn-'));
     const childScript = join(tmpDir, 'child.mjs');

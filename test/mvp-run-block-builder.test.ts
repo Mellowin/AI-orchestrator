@@ -119,4 +119,36 @@ describe('mvp-run block-builder checks precedence', () => {
     );
     assert.strictEqual(block.tasks[0].max_lines_changed, 250);
   });
+
+  test('propagates context_files to block task definition', () => {
+    const block = buildMvpRunBlock(
+      makeConfig([
+        {
+          id: 't1',
+          title: 'Docs',
+          goal: 'Add docs based on existing code',
+          allowed_files: ['docs/new.md'],
+          context_files: ['src/cli.ts', 'src/autopilot-one-click/runner.ts'],
+        },
+      ])
+    );
+    assert.deepStrictEqual(block.tasks[0].context_files, [
+      'src/cli.ts',
+      'src/autopilot-one-click/runner.ts',
+    ]);
+  });
+
+  test('omits context_files when not provided', () => {
+    const block = buildMvpRunBlock(
+      makeConfig([
+        {
+          id: 't1',
+          title: 'Feature',
+          goal: 'Add feature',
+          allowed_files: ['src/feature.ts'],
+        },
+      ])
+    );
+    assert.strictEqual(block.tasks[0].context_files, undefined);
+  });
 });

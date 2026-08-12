@@ -1721,13 +1721,19 @@ describe('cli real-block-run-ai', () => {
     }
   });
 
-  test('generated per-task tasks.debug.yaml contains context_files from allowed_files', () => {
-    const { blockId, blockPath, runsDir, cleanup } = createTempBlockEnvWithTaskIds(['task-one']);
+  test('generated per-task tasks.debug.yaml preserves explicit context_files separately from allowed_files', () => {
+    const { blockId, blockPath, repoPath, runsDir, cleanup } = createTempBlockEnvWithTaskIds(['task-one']);
     try {
+      const definition = JSON.parse(readFileSync(blockPath, 'utf-8')) as Record<string, unknown>;
+      const tasks = definition.tasks as Record<string, unknown>[];
+      tasks[0].allowed_files = ['feature.txt'];
+      tasks[0].context_files = ['README.md'];
+      writeFileSync(blockPath, JSON.stringify(definition, null, 2), 'utf-8');
+
       const result = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
         RUNS_DIR: runsDir,
         REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
-          buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
+          buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),
         ]),
         REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
           buildAcceptReview('Looks good'),
@@ -1739,8 +1745,11 @@ describe('cli real-block-run-ai', () => {
       const tasksObject = JSON.parse(readFileSync(tasksFilePath, 'utf-8')) as Record<string, unknown>;
       const task = (tasksObject.tasks as Record<string, unknown>[])[0];
       assert(Array.isArray(task.context_files), 'context_files should be an array');
-      assert((task.context_files as string[]).includes('README.md'), 'context_files should include README.md');
-      assert.strictEqual((task.context_files as string[]).length, 1, 'context_files should match allowed_files length');
+      assert((task.context_files as string[]).includes('README.md'), 'context_files should include explicit README.md');
+      assert(!(task.context_files as string[]).includes('feature.txt'), 'context_files should not be derived from allowed_files');
+      assert.strictEqual((task.context_files as string[]).length, 1, 'context_files should match explicit list length');
+      assert.deepStrictEqual((task.guardrails as Record<string, unknown>).allow_modify, ['feature.txt']);
+      assert(existsSync(join(repoPath, 'feature.txt')), 'feature.txt should be created as allowed output');
     } finally {
       cleanup();
     }

@@ -45,6 +45,9 @@ function taskToMvpTask(task: AutopilotPlanTask): import('../mvp-run/types.js').M
   if (task.checks !== undefined) {
     mvpTask.checks = task.checks;
   }
+  if (task.context_files !== undefined && task.context_files.length > 0) {
+    mvpTask.context_files = task.context_files;
+  }
   if (task.depends_on !== undefined && task.depends_on.length > 0) {
     mvpTask.depends_on = task.depends_on;
   }
@@ -219,6 +222,9 @@ export function writePlanArtifacts(
       '',
       `- **Goal:** ${task.goal}`,
       `- **Allowed files:** ${task.allowed_files.join(', ')}`,
+      task.context_files && task.context_files.length > 0
+        ? `- **Context files:** ${task.context_files.join(', ')}`
+        : '',
       `- **Risk:** ${task.risk}`,
       task.denied_files && task.denied_files.length > 0
         ? `- **Denied files:** ${task.denied_files.join(', ')}`

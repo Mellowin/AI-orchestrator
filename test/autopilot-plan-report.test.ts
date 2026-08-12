@@ -230,4 +230,26 @@ describe('taskToMvpTask preserves legacy tests when checks are absent', () => {
     const config = buildMvpRunConfig(mission, plan, '/tmp/out/run');
     assert.strictEqual(config.tasks[0].acceptance_criteria, undefined);
   });
+
+  test('propagates context_files to MVP task config', () => {
+    const mission = makeMission();
+    const plan = makePlan([
+      makeTask({
+        allowed_files: ['docs/new.md'],
+        context_files: ['src/cli.ts', 'src/autopilot-one-click/index.ts'],
+      }),
+    ]);
+    const config = buildMvpRunConfig(mission, plan, '/tmp/out/run');
+    assert.deepStrictEqual(config.tasks[0].context_files, [
+      'src/cli.ts',
+      'src/autopilot-one-click/index.ts',
+    ]);
+  });
+
+  test('omits context_files when task has none', () => {
+    const mission = makeMission();
+    const plan = makePlan([makeTask({ context_files: undefined })]);
+    const config = buildMvpRunConfig(mission, plan, '/tmp/out/run');
+    assert.strictEqual(config.tasks[0].context_files, undefined);
+  });
 });

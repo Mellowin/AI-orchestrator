@@ -228,4 +228,34 @@ describe('context-builder', () => {
       rmSync(repo, { recursive: true });
     }
   });
+
+  test('buildContext reads existing source context while allowed output file is new', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'ctx-repo-'));
+    try {
+      mkdirSync(join(repo, 'src'), { recursive: true });
+      mkdirSync(join(repo, 'docs'), { recursive: true });
+      writeFileSync(join(repo, 'src', 'cli.ts'), 'export const cli = 1;\n', 'utf-8');
+
+      const task = makeTask({
+        repo_path: repo,
+        goal: 'Document the CLI in docs/cli.md',
+        context_files: ['src/cli.ts'],
+        guardrails: {
+          deny_modify: ['.env'],
+          auto_commit: false,
+          auto_push: false,
+          auto_merge: false,
+          allow_modify: ['docs/cli.md'],
+        },
+      });
+
+      const ctx = buildContext(task);
+      assert.strictEqual(ctx.files.length, 1);
+      assert.strictEqual(ctx.files[0].path, 'src/cli.ts');
+      assert.ok(ctx.files[0].content.includes('export const cli'));
+      assert.ok(ctx.constraints.some((c) => c.includes('docs/cli.md')));
+    } finally {
+      rmSync(repo, { recursive: true });
+    }
+  });
 });

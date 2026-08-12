@@ -28,6 +28,8 @@ export interface MvpRunTaskConfig {
   goal: string;
   allowed_files: string[];
   denied_files?: string[];
+  /** Read-only repository files supplied to the coder as context. These do NOT grant write permission. */
+  context_files?: string[];
   tests?: string[];
   /** Shell commands or structured checks to run as deterministic verification. Takes precedence over `tests`. */
   checks?: (string | Check)[];
