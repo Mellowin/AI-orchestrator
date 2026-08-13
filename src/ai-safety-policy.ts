@@ -113,6 +113,10 @@ function checkPathEscape(
 function checkSecretExfiltration(path: string, content: string): string[] {
   const reasons: string[] = [];
 
+  if (isInertDocumentationFile(path)) {
+    return reasons;
+  }
+
   const sensitiveEnvPattern = /process\.env\.[A-Za-z0-9_$]*(?:kimi_api_key|api_key|secret|token|password)/i;
   if (sensitiveEnvPattern.test(content)) {
     reasons.push(`Secret env var access in ${path}`);
@@ -201,6 +205,20 @@ function checkCiWeakening(path: string, content: string): string[] {
     reasons.push(`continue-on-error in workflow ${path}`);
   }
   return reasons;
+}
+
+const INERT_DOCUMENTATION_EXTENSIONS = new Set([
+  '.md',
+  '.markdown',
+  '.rst',
+  '.adoc',
+  '.txt',
+]);
+
+export function isInertDocumentationFile(path: string): boolean {
+  const normalized = normalizePath(path).toLowerCase();
+  const ext = extname(normalized);
+  return INERT_DOCUMENTATION_EXTENSIONS.has(ext);
 }
 
 const CODE_LIKE_EXTENSIONS = new Set(['.js', '.ts', '.mjs', '.cjs', '.sh', '.ps1']);

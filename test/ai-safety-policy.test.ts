@@ -88,6 +88,122 @@ describe('ai-safety-policy test-weakening detection', () => {
 });
 
 describe('ai-safety-policy secret identifier handling', () => {
+  test('Markdown documentation with process.env.KIMI_API_KEY is allowed', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'policy-repo-'));
+    try {
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['docs/safety-model.md'],
+        files: [
+          {
+            path: 'docs/safety-model.md',
+            content: 'The policy blocks code like `process.env.KIMI_API_KEY`.\n',
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, true, `Expected inert doc to pass: ${result.reasons.join('; ')}`);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('Markdown documentation with bracket env access is allowed', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'policy-repo-'));
+    try {
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['docs/safety-model.md'],
+        files: [
+          {
+            path: 'docs/safety-model.md',
+            content: 'Avoid `process.env["KIMI_API_KEY"]` in source code.\n',
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, true, `Expected inert doc to pass: ${result.reasons.join('; ')}`);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('Markdown documentation describing dotenv import is allowed', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'policy-repo-'));
+    try {
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['docs/safety-model.md'],
+        files: [
+          {
+            path: 'docs/safety-model.md',
+            content: 'Source may call `require("dotenv")` or `import "dotenv"` only after review.\n',
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, true, `Expected inert doc to pass: ${result.reasons.join('; ')}`);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('Markdown documentation describing readFileSync(".env") is allowed', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'policy-repo-'));
+    try {
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['docs/safety-model.md'],
+        files: [
+          {
+            path: 'docs/safety-model.md',
+            content: 'Direct `readFileSync(".env")` is blocked by the secret exfiltration rule.\n',
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, true, `Expected inert doc to pass: ${result.reasons.join('; ')}`);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('.mdx is not treated as inert documentation', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'policy-repo-'));
+    try {
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['docs/safety-model.mdx'],
+        files: [
+          {
+            path: 'docs/safety-model.mdx',
+            content: 'export const x = process.env.KIMI_API_KEY;\n',
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false, 'Expected .mdx to be blocked');
+      assert.ok(result.reasons.some((r) => r.includes('Secret env var access')), `Expected secret env reason: ${result.reasons.join('; ')}`);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('.env file modification is still blocked in inert docs by path denylist', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'policy-repo-'));
+    try {
+      const result = validateAiSafetyPolicy({
+        repoPath: repo,
+        allowedFiles: ['docs/.env'],
+        files: [
+          {
+            path: 'docs/.env',
+            content: '# placeholder\n',
+          },
+        ],
+      });
+      assert.strictEqual(result.ok, false, 'Expected .env path to be blocked');
+      assert.ok(result.reasons.some((r) => r.includes('denied list')), `Expected .env denied reason: ${result.reasons.join('; ')}`);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   test('README mention of KIMI_API_KEY and GITHUB_TOKEN is allowed', () => {
     const repo = mkdtempSync(join(tmpdir(), 'policy-repo-'));
     try {

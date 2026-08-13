@@ -318,6 +318,56 @@ function buildGuardrailsRecoveryPrompt(
   return lines.join('\n');
 }
 
+function buildSafetyPolicyRecoveryPrompt(
+  task: Task,
+  safetyPolicyReasons: string[],
+  previousFiles: Array<{ path: string; content: string }>
+): string {
+  const allowedFiles = task.guardrails.allow_modify?.join(', ') ?? 'none';
+  const deniedFiles = (task.guardrails.deny_modify ?? []).join(', ') ?? 'none';
+  const previousPaths = previousFiles.map((f) => f.path).join(', ');
+
+  const lines: string[] = [
+    '# Task (Safety Policy Recovery Attempt)',
+    '',
+    `Task ID: ${task.id}`,
+    `Title: ${task.title}`,
+    `Goal: ${task.goal}`,
+    '',
+    '# Hard Safety Rejection',
+    '',
+    'The previous coder proposal was rejected by the immutable pre-apply hard safety policy.',
+    'It was NOT applied, NOT staged, NOT committed, and NOT pushed.',
+    '',
+    'Violations:',
+    ...safetyPolicyReasons.map((r) => `- ${r}`),
+    '',
+    '# Allowed Files',
+    '',
+    `You may ONLY create or modify: ${allowedFiles}`,
+    '',
+    '# Denied Files',
+    '',
+    `You must NOT touch: ${deniedFiles}`,
+    '',
+    `Previously proposed files: ${previousPaths}`,
+    '',
+    '# Instructions',
+    '',
+    'Produce a NEW safe proposal that satisfies the original task goal.',
+    'The hard safety policy cannot be overridden.',
+    'Do not include operational secret access examples in executable or config files.',
+    'In inert documentation files, describing policy behavior is allowed; do not embed live credentials.',
+    '',
+    'Return ONLY valid JSON using the file_update schema.',
+    'Return full file content, not diffs.',
+    'Do not modify files outside the allowed scope.',
+    'Do not include markdown outside JSON.',
+  ];
+
+  return lines.join('\n');
+}
+
 function makeCandidateTask(task: Task, candidatePath: string): Task {
   return {
     ...task,
@@ -675,6 +725,14 @@ export async function runRealRepoRunAICandidateFlow(
       if (!safetyPolicyResult.ok) {
         const policyMessage = safetyPolicyResult.reasons.join('; ');
         log(prefix, `Safety policy violation: ${policyMessage}`);
+        if (attempt < maxAttempts) {
+          repairPrompt = `${buildSafetyPolicyRecoveryPrompt(
+            task,
+            safetyPolicyResult.reasons,
+            kimiOutput.files
+          )}\n\n${basePrompt}`;
+          continue;
+        }
         setPhase('blocked', {
           status: 'blocked',
           blocked_by: 'safety_policy',
