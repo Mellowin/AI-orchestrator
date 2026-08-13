@@ -74,4 +74,62 @@ describe('reviewer prompt builder', () => {
     assert(prompt.includes('# Max Lines Changed (advisory budget)'));
     assert(prompt.includes('not specified'));
   });
+
+  test('uses commit semantics when candidate_state is absent', () => {
+    const prompt = buildReviewerPrompt(makeInput());
+    assert(prompt.includes('# Commit SHA'));
+    assert(!prompt.includes('# Candidate Base SHA'));
+    assert(prompt.includes('You look at actual commits, diffs, and check results'));
+  });
+
+  test('uses candidate semantics when candidate_state is present', () => {
+    const prompt = buildReviewerPrompt(
+      makeInput({
+        candidate_state: {
+          base_sha: 'b'.repeat(40),
+          package_hash: 'c'.repeat(64),
+          files: [
+            {
+              path: 'docs/new.md',
+              bytes: 12,
+              lines: 2,
+              sha256: 'd'.repeat(64),
+              content: '# New\nfile\n',
+            },
+          ],
+        },
+      })
+    );
+    assert(prompt.includes('# Candidate Base SHA'));
+    assert(prompt.includes('b'.repeat(40)));
+    assert(prompt.includes('# Candidate Package Hash'));
+    assert(prompt.includes('c'.repeat(64)));
+    assert(prompt.includes('pre-commit staged candidate'));
+    assert(!prompt.includes('# Commit SHA\n'));
+    assert(prompt.includes('Candidate File Metadata'));
+    assert(prompt.includes('docs/new.md'));
+  });
+
+  test('includes read-only repository context when provided', () => {
+    const prompt = buildReviewerPrompt(
+      makeInput({
+        read_only_context: {
+          files: [
+            {
+              path: 'src/cli.ts',
+              bytes: 10,
+              lines: 1,
+              sha256: 'e'.repeat(64),
+              content: 'export const cli = 1;',
+            },
+          ],
+          total_bytes: 10,
+          truncated: false,
+        },
+      })
+    );
+    assert(prompt.includes('## Read-Only Repository Context'));
+    assert(prompt.includes('src/cli.ts'));
+    assert(prompt.includes('export const cli = 1;'));
+  });
 });

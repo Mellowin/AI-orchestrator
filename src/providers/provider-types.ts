@@ -54,6 +54,34 @@ export interface ReviewInput {
   safety_findings: string[];
   previous_failure?: string;
   dependency_evidence?: DependencyEvidencePackage;
+  /** Pre-commit candidate review metadata. When present, the reviewer prompt
+   * uses candidate semantics instead of post-commit semantics. */
+  candidate_state?: {
+    base_sha: string;
+    package_hash: string;
+    files: Array<{
+      path: string;
+      bytes: number;
+      lines: number;
+      sha256: string;
+      content: string;
+    }>;
+  };
+  /** Read-only repository context (e.g. source files) supplied to the reviewer
+   * so it can verify the candidate against implementation without granting write
+   * permission. */
+  read_only_context?: {
+    files: Array<{
+      path: string;
+      bytes: number;
+      lines: number;
+      sha256: string;
+      content: string;
+      truncated?: boolean;
+    }>;
+    total_bytes: number;
+    truncated: boolean;
+  };
 }
 
 export type ReviewerDecisionValue = 'accepted' | 'rejected';

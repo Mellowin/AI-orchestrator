@@ -69,6 +69,11 @@ import {
   computeFileHash,
   type CandidateSnapshot,
 } from './candidate-state.js';
+import {
+  buildCandidateReviewPackage,
+  saveCandidateReviewPackage,
+  type CandidateReviewPackage,
+} from './candidate-review-package.js';
 
 export interface RealRepoRunAICandidateFlowInput {
   task: Task;
@@ -856,6 +861,7 @@ export async function runRealRepoRunAICandidateFlow(
 
   // Reviewer gate and optional fix loop.
   let currentReviewerGate: PersistedReviewerGate | undefined = state.reviewer_gate;
+  let acceptedReviewPackage: CandidateReviewPackage | undefined;
 
   if (skipToAcceptance) {
     log(prefix, 'Resuming after acceptance; skipping reviewer gate');
@@ -867,6 +873,15 @@ export async function runRealRepoRunAICandidateFlow(
 
       const diffInfo = getCandidateDiff(candidatePath, taskBaseSha);
       const checkSummary = buildCheckSummary(candidateTask.checks, lastCheckResult?.success ?? true);
+      const reviewPackage = buildCandidateReviewPackage({
+        candidatePath,
+        taskBaseSha,
+        task: candidateTask,
+        checkSummary,
+        dependencyEvidence: task.dependency_evidence,
+      });
+      saveCandidateReviewPackage(runsDir, task.id, reviewPackage);
+
       const evidence = buildCandidateReviewerEvidence({
         repoPath: candidatePath,
         taskId: task.id,
@@ -923,6 +938,16 @@ export async function runRealRepoRunAICandidateFlow(
               gitStatus: '',
               safetyFindings: [],
               dependencyEvidence: reviewerInput.dependency_evidence,
+              candidateState: {
+                base_sha: reviewPackage.task_base_sha,
+                package_hash: reviewPackage.candidate_package_hash,
+                files: reviewPackage.files,
+              },
+              readOnlyContext: {
+                files: reviewPackage.read_only_context,
+                total_bytes: reviewPackage.read_only_context_total_bytes,
+                truncated: reviewPackage.read_only_context_truncated,
+              },
             });
             const decision = await reviewerProvider.reviewCommit(providerInput);
             const mappedDecision =
@@ -1003,6 +1028,7 @@ export async function runRealRepoRunAICandidateFlow(
       };
 
       if (gateResult.status === 'accepted') {
+        acceptedReviewPackage = reviewPackage;
         break;
       }
 
@@ -1079,6 +1105,9 @@ export async function runRealRepoRunAICandidateFlow(
         checks: task.checks,
         currentHead: taskBaseSha,
         dependencyEvidence: task.dependency_evidence,
+        currentCandidateFiles: reviewPackage.files,
+        readOnlyContext: reviewPackage.read_only_context,
+        previousReviewerSummary: gateResult.reviewSummary,
       });
 
       const fixResponseForRound = fixKimiFakeResponses[reviewerRound];
@@ -1266,6 +1295,31 @@ export async function runRealRepoRunAICandidateFlow(
       safety_note: `Final checks failed: ${finalCheck.logs}`,
     });
     return { exitCode: 1, state };
+  }
+
+  // Fail-closed binding: the candidate that is about to be committed must be the
+  // exact candidate the reviewer accepted. Any drift after the review verdict is a
+  // safety violation.
+  if (!skipToAcceptance) {
+    if (!acceptedReviewPackage) {
+      const reason = 'Accepted candidate package is missing; cannot bind commit to reviewer verdict';
+      log(prefix, reason);
+      setPhase('failed', { status: 'failed', safety_note: reason });
+      return { exitCode: 1, state };
+    }
+    const currentPackage = buildCandidateReviewPackage({
+      candidatePath,
+      taskBaseSha,
+      task: candidateTask,
+      checkSummary: buildCheckSummary(candidateTask.checks, finalCheck.success),
+      dependencyEvidence: task.dependency_evidence,
+    });
+    if (currentPackage.candidate_package_hash !== acceptedReviewPackage.candidate_package_hash) {
+      const reason = `Accepted candidate package hash mismatch: expected ${acceptedReviewPackage.candidate_package_hash}, got ${currentPackage.candidate_package_hash}`;
+      log(prefix, reason);
+      setPhase('failed', { status: 'failed', safety_note: reason });
+      return { exitCode: 1, state };
+    }
   }
 
   // Persist the accepted candidate before creating a commit so a crash after the

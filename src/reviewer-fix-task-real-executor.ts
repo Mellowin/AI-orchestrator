@@ -112,6 +112,9 @@ export function buildFixTaskPrompt(
     checks: Array<{ command: string; args: string[] }>;
     currentHead: string;
     dependencyEvidence?: DependencyEvidencePackage;
+    currentCandidateFiles?: Array<{ path: string; bytes: number; lines: number; sha256: string; content: string }>;
+    readOnlyContext?: Array<{ path: string; bytes: number; lines: number; sha256: string; content: string; truncated?: boolean }>;
+    previousReviewerSummary?: string;
   }
 ): string {
   const blocking = input.blockingIssues.length > 0
@@ -154,6 +157,42 @@ export function buildFixTaskPrompt(
         ? `# Dependency Evidence\nNo accepted ancestor artifacts available.\n\n`
         : '';
 
+  const candidateFiles = context.currentCandidateFiles ?? [];
+  const currentCandidateSection =
+    candidateFiles.length > 0
+      ? `# Current Candidate Files\n` +
+        candidateFiles
+          .map(
+            (f) =>
+              `- ${f.path}\n` +
+              `  bytes: ${f.bytes}, lines: ${f.lines}, sha256: ${f.sha256}\n` +
+              `  content:\n\`\`\`\n${f.content}\n\`\`\``
+          )
+          .join('\n\n') +
+        '\n\n'
+      : '# Current Candidate Files\n- No candidate files available\n\n';
+
+  const readOnlyContext = context.readOnlyContext ?? [];
+  const readOnlyContextSection =
+    readOnlyContext.length > 0
+      ? `# Read-Only Repository Context\n` +
+        `These source/reference files are read-only. They may be used to understand the ` +
+        `implementation but must NOT be modified by this fix.\n\n` +
+        readOnlyContext
+          .map(
+            (f) =>
+              `- ${f.path}\n` +
+              `  bytes: ${f.bytes}, lines: ${f.lines}, sha256: ${f.sha256}${f.truncated ? ' [truncated]' : ''}\n` +
+              `  content:\n\`\`\`\n${f.content}\n\`\`\``
+          )
+          .join('\n\n') +
+        '\n\n'
+      : '';
+
+  const previousReviewerSummary = context.previousReviewerSummary
+    ? `\n# Previous Reviewer Summary\n${context.previousReviewerSummary}\n`
+    : '';
+
   return (
     `# Reviewer Fix Task\n\n` +
     `Task ID: ${input.taskId}\n` +
@@ -164,17 +203,21 @@ export function buildFixTaskPrompt(
     `Original Parent Task Goal: ${context.parentGoal}\n` +
     `Current HEAD: ${context.currentHead}\n\n` +
     `# Blocking Issues to Address\n\n${blocking}\n\n` +
+    `${currentCandidateSection}` +
+    `${readOnlyContextSection}` +
     `# Allowed Files\n\n${allowed}\n\n` +
     `# Denied Files\n\n${denied}\n\n` +
     `${dependencySection}` +
     `# Previous Changed Files\n\n${previous}\n\n` +
+    `${previousReviewerSummary}` +
     `# Check Commands\n\n${checks}\n\n` +
     `# Instructions\n\n` +
     `Apply the minimal safe fix to address the blocking issues. ` +
     `Return ONLY valid JSON using the file_update schema. ` +
     `Return full file content, not diffs. ` +
     `Do not include markdown outside JSON. ` +
-    `Do not modify files outside allowed scope.`
+    `Do not modify files outside allowed scope. ` +
+    `Read-only repository context and dependency evidence must NOT be modified.`
   );
 }
 

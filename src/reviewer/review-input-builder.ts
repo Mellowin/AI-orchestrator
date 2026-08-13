@@ -23,6 +23,8 @@ export function buildReviewInput(input: {
   safetyFindings: string[];
   previousFailure?: string;
   dependencyEvidence?: DependencyEvidencePackage;
+  candidateState?: ReviewInput['candidate_state'];
+  readOnlyContext?: ReviewInput['read_only_context'];
 }): ReviewInput {
   if (!input.taskId || typeof input.taskId !== 'string') {
     throw new Error('taskId is required and must be a string');
@@ -86,5 +88,7 @@ export function buildReviewInput(input: {
     safety_findings: input.safetyFindings.map((f) => (typeof f === 'string' ? f.trim() : String(f))),
     previous_failure: input.previousFailure,
     dependency_evidence: input.dependencyEvidence,
+    candidate_state: input.candidateState,
+    read_only_context: input.readOnlyContext,
   };
 }
