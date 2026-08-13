@@ -5,6 +5,10 @@ import {
   buildProviderCallInput,
   normalizeProviderCallResult,
   normalizeProviderCallError,
+  callProviderWithRetry,
+  ProviderCallFailedError,
+  resolveProviderRetryConfig,
+  type ProviderCallFn,
 } from '../../provider-call.js';
 import type { FetchFn } from '../../provider-call.js';
 
@@ -15,6 +19,8 @@ export interface BuildOpenAIReviewCallFnOptions {
   model?: string;
   /** Fetch implementation. Defaults to globalThis.fetch. */
   fetchFn?: typeof globalThis.fetch;
+  /** Single request timeout in milliseconds. Defaults to 180000. */
+  requestTimeoutMs?: number;
   /** If set, the returned function returns this string without making a network call. */
   fakeResponse?: string;
 }
@@ -30,6 +36,8 @@ export interface BuildKimiReviewCallFnOptions {
   userAgent?: string;
   /** Fetch implementation. Defaults to globalThis.fetch. */
   fetchFn?: FetchFn;
+  /** Single request timeout in milliseconds. Defaults to 180000. */
+  requestTimeoutMs?: number;
   /** If set, the returned function returns this string without making a network call. */
   fakeResponse?: string;
 }
@@ -90,31 +98,73 @@ export function buildOpenAIReviewCallFn(options: BuildOpenAIReviewCallFnOptions 
   const fetchFn = options.fetchFn ?? globalThis.fetch;
   const url = 'https://api.openai.com/v1/chat/completions';
 
+  const requestTimeoutMs = options.requestTimeoutMs ?? 180000;
+
+  const providerCall: ProviderCallFn = async (input) => {
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), requestTimeoutMs);
+    try {
+      const response = await fetchFn(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: input.prompt }],
+          temperature: 0,
+          response_format: finalReviewSchema,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenAI final review request failed: status ${response.status}`);
+      }
+
+      const data = (await response.json()) as OpenAIChatResponse;
+      const content = data.choices?.[0]?.message?.content;
+      if (typeof content !== 'string') {
+        throw new Error('OpenAI final review response did not contain content');
+      }
+      return {
+        role: input.role,
+        text: content,
+        provider: 'openai',
+        model: input.model,
+      };
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error(`OpenAI final review request timed out after ${requestTimeoutMs} ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  };
+
   return async (prompt: string): Promise<string> => {
-    const response = await fetchFn(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
+    try {
+      const result = await callProviderWithRetry({
+        providerCall,
+        provider: 'openai',
         model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0,
-        response_format: finalReviewSchema,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI final review request failed: ${response.status}`);
+        basePrompt: prompt,
+        taskId: 'final-review',
+        role: 'reviewer',
+        config: resolveProviderRetryConfig(),
+        buildRecoveryPrompt: (base) => base,
+      });
+      return result.text;
+    } catch (err) {
+      if (err instanceof ProviderCallFailedError) {
+        const info = normalizeProviderCallError(err);
+        throw new Error(`OpenAI final review request failed: ${info.message}`);
+      }
+      const info = normalizeProviderCallError(err);
+      throw new Error(`OpenAI final review request failed: ${info.message}`);
     }
-
-    const data = (await response.json()) as OpenAIChatResponse;
-    const content = data.choices?.[0]?.message?.content;
-    if (typeof content !== 'string') {
-      throw new Error('OpenAI final review response did not contain content');
-    }
-    return content;
   };
 }
 
@@ -144,15 +194,27 @@ export function buildKimiReviewCallFn(options: BuildKimiReviewCallFnOptions = {}
     fetchFn,
     model,
     userAgent,
+    requestTimeoutMs: options.requestTimeoutMs,
   });
 
   return async (prompt: string): Promise<string> => {
-    const providerInput = buildProviderCallInput('reviewer', prompt, 'kimi', model);
     try {
-      const result = await callFn(providerInput);
-      const normalized = normalizeProviderCallResult(result);
-      return normalized.text;
+      const result = await callProviderWithRetry({
+        providerCall: callFn,
+        provider: 'kimi',
+        model,
+        basePrompt: prompt,
+        taskId: 'final-review',
+        role: 'reviewer',
+        config: resolveProviderRetryConfig(),
+        buildRecoveryPrompt: (base) => base,
+      });
+      return result.text;
     } catch (err) {
+      if (err instanceof ProviderCallFailedError) {
+        const info = normalizeProviderCallError(err);
+        throw new Error(`Kimi final review request failed: ${info.message}`);
+      }
       const info = normalizeProviderCallError(err);
       throw new Error(`Kimi final review request failed: ${info.message}`);
     }

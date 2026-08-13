@@ -279,4 +279,90 @@ describe('kimi-reviewer-provider', () => {
     await provider.reviewCommit(buildInput());
     assert.ok(promptContent.includes('Safety Findings'), 'Prompt should include safety findings');
   });
+
+  test('retries transport timeout and succeeds on second reviewer attempt', async () => {
+    let calls = 0;
+    const fakeFetch: FetchFn = async () => {
+      calls++;
+      if (calls === 1) {
+        const err = new Error('The operation was aborted');
+        err.name = 'AbortError';
+        throw err;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: validAcceptedJson } }] }),
+      };
+    };
+
+    const provider = createKimiReviewerProvider(
+      { provider: 'kimi', model: 'kimi-k2.6' },
+      {
+        allowReal: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.example.com',
+        fetchFn: fakeFetch,
+      }
+    );
+
+    const result = await provider.reviewCommit(buildInput());
+    assert.strictEqual(result.decision, 'accepted');
+    assert.strictEqual(calls, 2);
+  });
+
+  test('retries HTTP 500 and succeeds on second reviewer attempt', async () => {
+    let calls = 0;
+    const fakeFetch: FetchFn = async () => {
+      calls++;
+      if (calls === 1) {
+        return { ok: false, status: 503, json: async () => ({ error: 'overloaded' }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: validAcceptedJson } }] }),
+      };
+    };
+
+    const provider = createKimiReviewerProvider(
+      { provider: 'kimi', model: 'kimi-k2.6' },
+      {
+        allowReal: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.example.com',
+        fetchFn: fakeFetch,
+      }
+    );
+
+    const result = await provider.reviewCommit(buildInput());
+    assert.strictEqual(result.decision, 'accepted');
+    assert.strictEqual(calls, 2);
+  });
+
+  test('HTTP 401 does not retry and returns blocked', async () => {
+    const fakeFetch: FetchFn = async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: 'unauthorized' }),
+    });
+
+    const provider = createKimiReviewerProvider(
+      { provider: 'kimi', model: 'kimi-k2.6' },
+      {
+        allowReal: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://api.example.com',
+        fetchFn: fakeFetch,
+      }
+    );
+
+    await assert.rejects(
+      async () => provider.reviewCommit(buildInput()),
+      (err: Error) => {
+        assert(err.message.includes('401'), `message was: ${err.message}`);
+        return true;
+      }
+    );
+  });
 });

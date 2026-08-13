@@ -407,6 +407,7 @@ export async function runRealRepoRunAICandidateFlow(
 
   // Load or initialize state.
   let state: RunState;
+  const passStartMs = Date.now();
   if (isResume) {
     const loaded = loadState(task.id, runsDir);
     if (!loaded) {
@@ -442,11 +443,18 @@ export async function runRealRepoRunAICandidateFlow(
       state.timeout_ms = Number(process.env.REAL_REPO_TASK_TIMEOUT_MS);
     }
   }
+  const previousTotalElapsedMs = state.total_elapsed_ms ?? 0;
+
+  function updateElapsedMs(): void {
+    const elapsedThisPass = Date.now() - passStartMs;
+    state.total_elapsed_ms = previousTotalElapsedMs + elapsedThisPass;
+  }
 
   function setPhase(phase: TaskRunPhase, extra?: Partial<RunState>): void {
     state.task_phase = phase;
     state.phase_started_at = nowIso();
     state.updated_at = nowIso();
+    updateElapsedMs();
     if (extra) {
       Object.assign(state, extra);
     }

@@ -130,6 +130,7 @@ export function normalizeProviderCallError(error: unknown): ProviderCallErrorInf
     isRateLimit ||
     isServerError ||
     lower.includes('timeout') ||
+    lower.includes('timed out') ||
     lower.includes('temporarily unavailable') ||
     lower.includes('econnreset') ||
     lower.includes('etimedout') ||
@@ -259,6 +260,7 @@ export interface CallProviderWithRetryOptions<T = string> {
   logPrefix?: string;
   sleepFn?: (ms: number) => Promise<void>;
   onAttempt?: ProviderAttemptCallback<T>;
+  role?: ProviderRole;
 }
 
 export interface CallProviderWithRetryResult<T = string> {
@@ -368,6 +370,7 @@ export async function callProviderWithRetry<T = string>(
     logPrefix = '[real-repo-run-ai]',
     sleepFn = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     onAttempt,
+    role = 'coder',
   } = options;
 
   const resolvedConfig: ProviderRetryConfig = {
@@ -396,7 +399,7 @@ export async function callProviderWithRetry<T = string>(
     let normalized: ProviderCallResult | undefined;
 
     try {
-      const result = await providerCall(buildProviderCallInput('coder', prompt, provider, model));
+      const result = await providerCall(buildProviderCallInput(role, prompt, provider, model));
       normalized = normalizeProviderCallResult(result);
       if (parseOutput !== undefined) {
         const parsed = parseOutput(normalized.text);
@@ -480,7 +483,7 @@ export function createMockProviderCall(responseText: string): ProviderCallFn {
 
 export type FetchFn = (
   url: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string }
+  init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }
 ) => Promise<{
   ok: boolean;
   status: number;
@@ -494,6 +497,32 @@ export interface CreateRealProviderCallOptions {
   fetchFn: FetchFn;
   model?: string;
   userAgent?: string;
+  requestTimeoutMs?: number;
+}
+
+const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS = 180000;
+const MIN_PROVIDER_REQUEST_TIMEOUT_MS = 5000;
+const MAX_PROVIDER_REQUEST_TIMEOUT_MS = 300000;
+
+function resolveProviderRequestTimeoutMs(requestTimeoutMs?: number): number {
+  const env = process.env.REAL_PROVIDER_REQUEST_TIMEOUT_MS;
+  let value: number;
+  if (requestTimeoutMs !== undefined) {
+    value = requestTimeoutMs;
+  } else if (env !== undefined && env.trim() !== '') {
+    value = Number(env.trim());
+    if (!Number.isInteger(value)) {
+      throw new Error(`REAL_PROVIDER_REQUEST_TIMEOUT_MS must be an integer, got "${env}"`);
+    }
+  } else {
+    value = DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS;
+  }
+  if (value < MIN_PROVIDER_REQUEST_TIMEOUT_MS || value > MAX_PROVIDER_REQUEST_TIMEOUT_MS) {
+    throw new Error(
+      `Provider request timeout must be between ${MIN_PROVIDER_REQUEST_TIMEOUT_MS} and ${MAX_PROVIDER_REQUEST_TIMEOUT_MS} ms, got ${value}`
+    );
+  }
+  return value;
 }
 
 export function createRealProviderCall(options: CreateRealProviderCallOptions): ProviderCallFn {
@@ -516,55 +545,69 @@ export function createRealProviderCall(options: CreateRealProviderCallOptions): 
 
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
 
+  const requestTimeoutMs = resolveProviderRequestTimeoutMs(options.requestTimeoutMs);
+
   return async (input: ProviderCallInput): Promise<ProviderCallResult> => {
-    const response = await options.fetchFn(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${options.apiKey}`,
-        ...(options.userAgent ? { 'User-Agent': options.userAgent } : {}),
-      },
-      body: JSON.stringify({
-        model: options.model || input.model,
-        messages: [{ role: 'user', content: input.prompt }],
-      }),
-    });
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), requestTimeoutMs);
+    try {
+      const response = await options.fetchFn(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${options.apiKey}`,
+          ...(options.userAgent ? { 'User-Agent': options.userAgent } : {}),
+        },
+        body: JSON.stringify({
+          model: options.model || input.model,
+          messages: [{ role: 'user', content: input.prompt }],
+        }),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      throw new Error(`Provider returned status ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Provider returned status ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (typeof data !== 'object' || data === null) {
+        throw new Error('Invalid response: expected object');
+      }
+
+      const d = data as Record<string, unknown>;
+      const choices = d.choices;
+      if (!Array.isArray(choices) || choices.length === 0) {
+        throw new Error('Invalid response: missing choices');
+      }
+
+      const firstChoice = choices[0];
+      if (typeof firstChoice !== 'object' || firstChoice === null) {
+        throw new Error('Invalid response: malformed choice');
+      }
+
+      const message = (firstChoice as Record<string, unknown>).message;
+      if (typeof message !== 'object' || message === null) {
+        throw new Error('Invalid response: missing message');
+      }
+
+      const content = (message as Record<string, unknown>).content;
+      if (typeof content !== 'string') {
+        throw new Error('Invalid response: missing content');
+      }
+
+      return normalizeProviderCallResult({
+        role: input.role,
+        text: content,
+        provider: input.provider,
+        model: input.model,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error(`Provider request timed out after ${requestTimeoutMs} ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutHandle);
     }
-
-    const data = await response.json();
-    if (typeof data !== 'object' || data === null) {
-      throw new Error('Invalid response: expected object');
-    }
-
-    const d = data as Record<string, unknown>;
-    const choices = d.choices;
-    if (!Array.isArray(choices) || choices.length === 0) {
-      throw new Error('Invalid response: missing choices');
-    }
-
-    const firstChoice = choices[0];
-    if (typeof firstChoice !== 'object' || firstChoice === null) {
-      throw new Error('Invalid response: malformed choice');
-    }
-
-    const message = (firstChoice as Record<string, unknown>).message;
-    if (typeof message !== 'object' || message === null) {
-      throw new Error('Invalid response: missing message');
-    }
-
-    const content = (message as Record<string, unknown>).content;
-    if (typeof content !== 'string') {
-      throw new Error('Invalid response: missing content');
-    }
-
-    return normalizeProviderCallResult({
-      role: input.role,
-      text: content,
-      provider: input.provider,
-      model: input.model,
-    });
   };
 }

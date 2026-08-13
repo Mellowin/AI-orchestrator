@@ -10,6 +10,9 @@ import {
   buildProviderCallInput,
   normalizeProviderCallResult,
   normalizeProviderCallError,
+  callProviderWithRetry,
+  ProviderCallFailedError,
+  resolveProviderRetryConfig,
 } from '../../provider-call.js';
 import type { FetchFn } from '../../provider-call.js';
 import { buildReviewerPrompt } from '../../reviewer/reviewer-prompt.js';
@@ -69,13 +72,29 @@ export function createKimiReviewerProvider(
         userAgent,
       });
 
-      const providerInput = buildProviderCallInput('reviewer', prompt, 'kimi', model);
-
       try {
-        const result = await callFn(providerInput);
-        const normalized = normalizeProviderCallResult(result);
+        const retryResult = await callProviderWithRetry<string>({
+          providerCall: callFn,
+          provider: 'kimi',
+          model,
+          basePrompt: prompt,
+          taskId: input.task_id,
+          role: 'reviewer',
+          config: resolveProviderRetryConfig(),
+          buildRecoveryPrompt: (base) => base,
+        });
+        const normalized = normalizeProviderCallResult({
+          role: 'reviewer',
+          text: retryResult.text,
+          provider: 'kimi',
+          model,
+        });
         return parseReviewerDecisionText(normalized.text).decision;
       } catch (err) {
+        if (err instanceof ProviderCallFailedError) {
+          const info = normalizeProviderCallError(err);
+          throw new Error(`Kimi reviewer failed: ${info.message}`);
+        }
         const info = normalizeProviderCallError(err);
         throw new Error(`Kimi reviewer failed: ${info.message}`);
       }

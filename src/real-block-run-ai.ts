@@ -366,11 +366,8 @@ function runSingleTask(
     const err = result.error as NodeJS.ErrnoException;
     const isTimeout = err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT');
     if (isTimeout) {
-      const elapsedMs =
-        typeof state?.total_elapsed_ms === 'number' && typeof state?.timeout_ms === 'number'
-          ? state.total_elapsed_ms + state.timeout_ms
-          : timeoutMs;
-      console.error(`[real-block-run-ai] Task ${task.task_id} runner timed out after ${timeoutMs} ms`);
+      const elapsedMs = typeof state?.total_elapsed_ms === 'number' ? state.total_elapsed_ms : timeoutMs;
+      console.error(`[real-block-run-ai] Task ${task.task_id} runner timed out after ${timeoutMs} ms (cumulative ${elapsedMs}ms)`);
       return { kind: 'timeout', state, elapsedMs };
     }
     console.error(`[real-block-run-ai] Task ${task.task_id} runner spawn error: ${redactSecrets(err.message ?? String(result.error))}`);
@@ -400,17 +397,17 @@ function executeTaskWithContinuations(
   let totalElapsedMs = 0;
   let continuationCount = 0;
   let currentResume = resumeChild;
+  let currentTimeoutMs = timeoutMs;
 
   while (true) {
-    const run = runSingleTask(block, task, index, arrays, timeoutMs, currentResume);
+    const run = runSingleTask(block, task, index, arrays, currentTimeoutMs, currentResume);
 
     if (run.kind === 'timeout') {
-      const elapsedThisPass = run.elapsedMs ?? timeoutMs;
-      totalElapsedMs += elapsedThisPass;
+      totalElapsedMs = run.elapsedMs ?? currentTimeoutMs;
 
       if (run.state !== null) {
         run.state.total_elapsed_ms = totalElapsedMs;
-        run.state.timeout_ms = timeoutMs;
+        run.state.timeout_ms = currentTimeoutMs;
       }
 
       if (continuationCount >= MAX_TASK_CONTINUATIONS) {
@@ -456,8 +453,10 @@ function executeTaskWithContinuations(
         }
       }
       currentResume = true;
+      const remainingMs = Math.max(1000, TOTAL_TASK_CEILING_MS - totalElapsedMs);
+      currentTimeoutMs = Math.min(timeoutMs, remainingMs);
       console.error(
-        `[real-block-run-ai] Task ${task.task_id} timed out; continuation ${continuationCount}/${MAX_TASK_CONTINUATIONS} (${totalElapsedMs}ms elapsed)`
+        `[real-block-run-ai] Task ${task.task_id} timed out; continuation ${continuationCount}/${MAX_TASK_CONTINUATIONS} (${totalElapsedMs}ms elapsed, next timeout ${currentTimeoutMs}ms)`
       );
       continue;
     }
