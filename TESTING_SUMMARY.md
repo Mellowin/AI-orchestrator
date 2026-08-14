@@ -2,20 +2,26 @@
 
 **Branch:** `stage-18-26-autonomous-multitask-completion`
 
-**Last verified:** `b44f1e3df36614baa695e1207ddddd626a8fd23d`
+**Last verified:** `9c91d97eaefc06041ab74f8bf139c1f5f772c848`
 
 ## Test metrics
 
-- **Total tests:** 4078
-- **Total suites:** 303
+- **Total tests:** 4083
+- **Total suites:** 305
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `b44f1e3df36614baa695e1207ddddd626a8fd23d` (Stage 18.26: make pre-apply hard safety context-aware and autonomously recoverable)
+- **Last verified commit:** `9c91d97eaefc06041ab74f8bf139c1f5f772c848` (Stage 18.26a: autonomous integrated repository validation and finalization repair)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
+- **Stage 18.26a integrated validation / finalization repair verification (before push):**
+  - `test/multitask-integrated-validator.test.ts` — 3/3 pass (validation command discovery, REPAIRABLE_REPOSITORY_FAILURE classification, EXTERNAL_BLOCKER classification)
+  - `test/multitask-finalization-repair.test.ts` — 2/2 pass (deterministic TESTING_SUMMARY.md fallback and AI-generated repair candidate)
+  - `test/autopilot-one-click-multitask-pr-ci-order.test.ts` — 6/6 pass (PR creation, resume, CI timeout, final review rejection, CI repair; integrated validation skipped when repo has no configured validator)
+  - `npm run verify:summary` — OK
+  - `npm run verify:product:ci` — OK (4083 tests / 305 suites / 0 failures)
 - **Stage 18.26 local verification (before push):**
   - `test/runner.test.ts` — 28/28 pass (structured checks with cwd, shell-operator rejection, legacy string compatibility)
   - `test/autopilot-plan/plan-generator.test.ts` — 3/3 pass (planner/schema validation for structured checks)
