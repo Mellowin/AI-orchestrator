@@ -43,6 +43,15 @@ export function writeMultitaskMissionReport(
     `- **Reason:** ${result.reason}`,
     result.work_branch ? `- **Work branch:** ${result.work_branch}` : '',
     result.pr ? `- **PR:** #${result.pr.number} (${result.pr.url})` : '',
+    result.validation_failure_classification
+      ? `- **Validation failure classification:** ${result.validation_failure_classification}`
+      : '',
+    result.finalization_repair_attempts !== undefined
+      ? `- **Finalization repair attempts:** ${result.finalization_repair_attempts}`
+      : '',
+    result.finalization_repair_commit_sha
+      ? `- **Finalization repair commit:** ${result.finalization_repair_commit_sha.slice(0, 7)}`
+      : '',
     '',
     '## Tasks',
     '',

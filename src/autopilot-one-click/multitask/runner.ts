@@ -36,6 +36,8 @@ import {
   type GitExecFn,
 } from './git-helpers.js';
 import { collectDiff } from './final-review.js';
+import { runIntegratedValidation, type IntegratedValidationResult } from './integrated-validator.js';
+import { runFinalizationRepair } from './finalization-repair.js';
 import type {
   MultitaskMissionFinalReview,
   MultitaskMissionResult,
@@ -791,6 +793,119 @@ export async function runMultitaskMission(
     const durationMs = Date.now() - startTime;
     writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
     return result;
+  }
+
+  // Integrated repository validation before final review / PR creation.
+  if (isRepoMutationAllowed(mission) && !state.validation_outcome?.ok) {
+    state.stage = 'integrated_validation';
+    saveMissionState(runDir, state, options.writeStateFn);
+    const validationOutcome = runIntegratedValidation(mission.repo_path, { spawnFn: spawnSync });
+    state.validation_outcome = validationOutcome;
+    saveMissionState(runDir, state, options.writeStateFn);
+
+    if (!validationOutcome.ok) {
+      state.validation_failure_classification = validationOutcome.classification as
+        | 'REPAIRABLE_REPOSITORY_FAILURE'
+        | 'EXTERNAL_BLOCKER';
+      saveMissionState(runDir, state, options.writeStateFn);
+
+      if (
+        validationOutcome.classification === 'REPAIRABLE_REPOSITORY_FAILURE' &&
+        mission.capabilities.allow_repair
+      ) {
+        const maxAttempts = mission.repair?.max_attempts ?? 1;
+        let repairResult: Awaited<ReturnType<typeof runFinalizationRepair>> | undefined;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          state.stage = 'finalization_repair';
+          state.finalization_repair_attempts = attempt;
+          saveMissionState(runDir, state, options.writeStateFn);
+
+          repairResult = await runFinalizationRepair({
+            repoPath: mission.repo_path,
+            workBranch,
+            missionGoal: mission.goal,
+            missionAllowedFiles: mission.allowed_files ?? [],
+            missionDeniedFiles: [],
+            validationResult: validationOutcome,
+            reportDir: runDir,
+            attempt,
+            maxAttempts,
+          });
+
+          if (repairResult.ok && repairResult.commitSha) {
+            state.finalization_repair_commit_sha = repairResult.commitSha;
+            state.finalization_repair_attempts = attempt;
+            state.mission_commits = Array.from(
+              new Set([...(state.mission_commits ?? []), repairResult.commitSha])
+            );
+
+            const revalidation = runIntegratedValidation(mission.repo_path, { spawnFn: spawnSync });
+            state.validation_outcome = revalidation;
+            saveMissionState(runDir, state, options.writeStateFn);
+
+            if (revalidation.ok) {
+              break;
+            }
+          }
+        }
+
+        if (!state.validation_outcome?.ok) {
+          const reason = repairResult?.reason ?? validationOutcome.output;
+          const result = buildMissionResult(
+            mission,
+            planResult,
+            runDir,
+            reason,
+            'MULTITASK_MISSION_FAILED',
+            startedAt,
+            startTime,
+            state.tasks,
+            {
+              autopilot_result: autopilotResult,
+              work_branch: workBranch,
+              validation_failure_classification: 'REPAIRABLE_REPOSITORY_FAILURE',
+              finalization_repair_attempts: state.finalization_repair_attempts ?? 0,
+            }
+          );
+          state.stage = 'completed';
+          state.last_error = reason;
+          state.result = result;
+          saveMissionState(runDir, state, options.writeStateFn);
+          const finishedAt = nowIso();
+          const durationMs = Date.now() - startTime;
+          writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+          return result;
+        }
+      } else {
+        const reason = validationOutcome.output;
+        const isExternal = validationOutcome.classification === 'EXTERNAL_BLOCKER';
+        const result = buildMissionResult(
+          mission,
+          planResult,
+          runDir,
+          reason,
+          isExternal ? 'MULTITASK_MISSION_EXTERNAL_BLOCKER' : 'MULTITASK_MISSION_FAILED',
+          startedAt,
+          startTime,
+          state.tasks,
+          {
+            autopilot_result: autopilotResult,
+            work_branch: workBranch,
+            validation_failure_classification: validationOutcome.classification as
+              | 'REPAIRABLE_REPOSITORY_FAILURE'
+              | 'EXTERNAL_BLOCKER',
+          }
+        );
+        state.stage = 'completed';
+        state.last_error = reason;
+        state.result = result;
+        saveMissionState(runDir, state, options.writeStateFn);
+        const finishedAt = nowIso();
+        const durationMs = Date.now() - startTime;
+        writeMultitaskMissionReport(runDir, result, startedAt, finishedAt, durationMs);
+        return result;
+      }
+    }
   }
 
   // Final review: run only if not already persisted.

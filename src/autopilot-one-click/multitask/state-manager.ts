@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import type { AutopilotRunResult } from '../../autopilot-run/types.js';
 import type { MultitaskMissionResult, MultitaskMissionTaskState, MultitaskMissionFinalReview } from './types.js';
+import type { IntegratedValidationResult } from './integrated-validator.js';
 
 export interface PersistedMissionState {
   version: 1;
@@ -12,6 +13,9 @@ export interface PersistedMissionState {
     | 'planning'
     | 'executing_tasks'
     | 'running'
+    | 'integrated_validation'
+    | 'finalization_repair'
+    | 'finalization_review'
     | 'mission_review'
     | 'creating_pr'
     | 'awaiting_ci'
@@ -35,6 +39,10 @@ export interface PersistedMissionState {
     ci_conclusion?: string | null;
     repair_attempts: number;
   };
+  validation_failure_classification?: 'REPAIRABLE_REPOSITORY_FAILURE' | 'EXTERNAL_BLOCKER';
+  finalization_repair_attempts?: number;
+  finalization_repair_commit_sha?: string;
+  validation_outcome?: IntegratedValidationResult;
 }
 
 export function getMissionRunDir(outputDir: string, runId: string): string {

@@ -81,6 +81,12 @@ export interface MultitaskMissionResult {
   ci_conclusion?: string | null;
   diagnosis?: DiagnoseCiResult;
   repair_attempts?: number;
+  /** Classification of the integrated validation failure that triggered finalization repair. */
+  validation_failure_classification?: 'REPAIRABLE_REPOSITORY_FAILURE' | 'EXTERNAL_BLOCKER';
+  /** Number of finalization repair attempts performed. */
+  finalization_repair_attempts?: number;
+  /** Commit SHA of the accepted finalization repair, if one was produced. */
+  finalization_repair_commit_sha?: string;
 }
 
 export interface RunMultitaskMissionOptions {
