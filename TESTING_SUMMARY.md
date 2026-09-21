@@ -2,20 +2,27 @@
 
 **Branch:** `stage-18-26-autonomous-multitask-completion`
 
-**Last verified:** `9c91d97eaefc06041ab74f8bf139c1f5f772c848`
+**Last verified:** `9acccad1c7489273830d6871cd061e0b167becab`
 
 ## Test metrics
 
-- **Total tests:** 4083
-- **Total suites:** 305
+- **Total tests:** 4122
+- **Total suites:** 311
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `9c91d97eaefc06041ab74f8bf139c1f5f772c848` (Stage 18.26a: autonomous integrated repository validation and finalization repair)
+- **Last verified commit:** `9acccad1c7489273830d6871cd061e0b167becab` (Stage 18.26b: preserve and resume missions across provider interruptions)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
+- **Stage 18.26b provider pause/resume verification (before push):**
+  - `test/provider-failure-classification.test.ts` — 27/27 pass (401 AUTH_INVALID, 403 quota/permission/unknown evidence-based classification, 429 retry-then-pause, timeout/500 retry-then-pause, 400 BAD_REQUEST no pause, CONTEXT_LIMIT, redaction, no API key persistence)
+  - `test/provider-pause-resume.test.ts` — 12/12 pass (exact failed-run regression: coder → reviewer fix_required → fix coder → second reviewer 403 quota → paused_provider at second_review_pending; resume with rotated credential re-calls only the second reviewer on the same candidate package hash, then accept/commit/push; tampered candidate fails closed; mission-level pause keeps descendant tasks unstarted (not skipped) and resume completes the mission)
+  - `npm run typecheck` — OK
+  - `npm run build` — OK
+  - `npm run verify:summary` — OK
+  - `npm run verify:product:ci` — OK (4122 tests / 311 suites / 0 failures, exit code 0)
 - **Stage 18.26a integrated validation / finalization repair verification (before push):**
   - `test/multitask-integrated-validator.test.ts` — 3/3 pass (validation command discovery, REPAIRABLE_REPOSITORY_FAILURE classification, EXTERNAL_BLOCKER classification)
   - `test/multitask-finalization-repair.test.ts` — 2/2 pass (deterministic TESTING_SUMMARY.md fallback and AI-generated repair candidate)
