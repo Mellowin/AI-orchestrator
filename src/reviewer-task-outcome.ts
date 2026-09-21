@@ -1,3 +1,5 @@
+import type { StructuredProviderFailure } from './provider-failure.js';
+
 export type ReviewerTaskOutcomeStatus =
   | 'legacy_success'
   | 'accepted'
@@ -20,6 +22,7 @@ export interface PersistedReviewerGate {
   nonBlockingIssues: string[];
   reviewSummary: string;
   fixTask?: string;
+  provider_failure?: StructuredProviderFailure;
 }
 
 export interface ReviewerTaskOutcomeInput {

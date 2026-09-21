@@ -1,5 +1,6 @@
 import type { PersistedReviewerGate } from './reviewer-task-outcome.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
+import type { StructuredProviderFailure } from './provider-failure.js';
 
 export interface Task {
   id: string;
@@ -44,7 +45,8 @@ export type RunStatus =
   | 'failed_max_attempts'
   | 'failed'
   | 'pushed'
-  | 'blocked';
+  | 'blocked'
+  | 'paused_provider';
 
 export type TaskRunPhase =
   | 'generating'
@@ -192,6 +194,16 @@ export interface RunState {
   check_summary?: ReviewerEvidence['checkSummary'];
   reviewer_phase_evidence?: ReviewerPhaseEvidence;
   reviewer_gate?: PersistedReviewerGate;
+  /** Structured evidence when the run is paused on a provider interruption. */
+  provider_failure?: StructuredProviderFailure;
+  /** Env var the provider credential was read from when the pause happened. */
+  credential_source?: string;
+  /** True when a paused run can be continued with resume mode. */
+  resume_supported?: boolean;
+  /** Reviewer loop round (0-based) at which the run paused. */
+  reviewer_round?: number;
+  /** Candidate package hash at pause time; verified fail-closed on resume. */
+  paused_candidate_package_hash?: string;
 }
 
 export interface KimiOutput {

@@ -23,6 +23,7 @@ export function writeOneClickReport(
     generated_paths: result.generated_paths,
     reason: result.reason,
     next_human_action: result.next_human_action,
+    resume_command: result.resume_command,
     started_at: startedAt,
     finished_at: finishedAt,
     duration_ms: durationMs,
@@ -32,6 +33,28 @@ export function writeOneClickReport(
   const jsonPath = join(runDir, 'one-click-report.json');
 
   writeFileSync(jsonPath, JSON.stringify(report, null, 2), 'utf-8');
+
+  const pausedTask =
+    result.verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER'
+      ? result.multitask_result?.autopilot_result?.mvp_result?.task_results.find(
+          (t) => t.status === 'paused_provider'
+        )
+      : undefined;
+  const pausedSection =
+    result.verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER'
+      ? [
+          '',
+          '## Provider pause',
+          '',
+          `- **Verdict:** ${result.verdict}`,
+          `- **Provider:** ${result.multitask_result?.provider_failure?.provider ?? 'kimi'}`,
+          `- **Phase:** ${pausedTask?.task_phase ?? 'unknown'}`,
+          `- **Reason:** ${result.multitask_result?.provider_failure?.sanitized_message ?? result.reason}`,
+          '- **Mission state preserved:** YES',
+          `- **Resume supported:** ${result.multitask_result?.resume_supported === true ? 'YES' : 'NO'}`,
+          `- **Resume command:** \`${result.resume_command ?? 'rerun with --resume'}\``,
+        ]
+      : [];
 
   const md = [
     '# One-Click Autopilot Report',
@@ -45,6 +68,7 @@ export function writeOneClickReport(
     `- **Final verdict:** ${result.verdict}`,
     `- **Reason:** ${result.reason}`,
     result.next_human_action ? `- **Next human action:** ${result.next_human_action}` : '',
+    ...pausedSection,
     '',
     '## Generated paths',
     '',

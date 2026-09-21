@@ -172,7 +172,11 @@ export type RunStatus =
   | 'approved'
   | 'rejected'
   | 'failed_guardrails'
-  | 'failed_max_attempts';
+  | 'failed_max_attempts'
+  | 'failed'
+  | 'pushed'
+  | 'blocked'
+  | 'paused_provider';
 
 export interface KimiOutput {
   mode: 'file_update';
@@ -223,6 +227,18 @@ export interface PatchManifestEntry {
   backupPath: string;
 }
 ```
+
+`paused_provider` — задача поставлена на паузу из-за прерывания провайдера
+(401/403 — сразу; 429/5xx/network/timeout — после исчерпания retry-бюджета).
+В `RunState` сохраняются `provider_failure` (структурированное доказательство),
+`credential_source`, `resume_supported`, `reviewer_round` и
+`paused_candidate_package_hash`. Перезапуск без resume отклоняется; resume
+продолжает с сохранённой фазы reviewer-цикла без повторного вызова coder и с
+fail-closed проверкой хеша кандидат-пакета. На уровне блока задача получает
+статус `paused_provider`, блок останавливается со статусом `paused_provider`
+(потомки не помечаются skipped); далее статус пробрасывается в mvp-run
+(`MVP_RUN_PAUSED_PROVIDER`), autopilot (`AUTOPILOT_PAUSED_PROVIDER`) и
+multitask-миссию (`MULTITASK_MISSION_PAUSED_PROVIDER`).
 
 ### 4.2. `src/config.ts`
 

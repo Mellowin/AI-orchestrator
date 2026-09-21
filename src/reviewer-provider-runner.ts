@@ -1,6 +1,9 @@
 import { buildReviewerInput } from './reviewer-input.js';
 import { evaluateReviewerGate } from './reviewer-gate.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
+import { ProviderCallFailedError } from './provider-call.js';
+import { KimiProviderError } from './providers/kimi/kimi-provider-error.js';
+import type { StructuredProviderFailure } from './provider-failure.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type { ReviewerInput } from './reviewer-input.js';
 import type { ReviewerGateResult } from './reviewer-gate.js';
@@ -154,6 +157,18 @@ function normalizeReviewerOutput(
   return { text: JSON.stringify(raw), source: 'object' };
 }
 
+function extractStructuredProviderFailure(
+  error: unknown
+): StructuredProviderFailure | undefined {
+  if (error instanceof KimiProviderError) {
+    return error.failure;
+  }
+  if (error instanceof ProviderCallFailedError) {
+    return error.failure;
+  }
+  return undefined;
+}
+
 function tryParseReviewerOutput(text: string): {
   decision: GateReviewerDecision;
   method: 'strict' | 'fenced' | 'top_level_object';
@@ -243,6 +258,7 @@ export async function runReviewerGateWithProvider(
         errorMessage.includes('Invalid or missing');
 
       if (!isParseError || attempt >= maxRetries) {
+        const providerFailure = extractStructuredProviderFailure(providerError);
         const gateResult: ReviewerGateResult = {
           status: 'blocked',
           source: isParseError ? 'parser' : 'provider',
@@ -253,6 +269,9 @@ export async function runReviewerGateWithProvider(
             ? 'Blocked due to invalid reviewer output format.'
             : 'Blocked due to reviewer provider failure.',
           nextAction: 'block',
+          ...(providerFailure !== undefined && !isParseError
+            ? { provider_failure: providerFailure }
+            : {}),
         };
 
         if (isParseError) {

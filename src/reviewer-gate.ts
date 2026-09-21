@@ -3,6 +3,7 @@ import { parseReviewerDecision } from './reviewer-decision.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type { ReviewerInput } from './reviewer-input.js';
 import type { ReviewerDecision } from './reviewer-decision.js';
+import type { StructuredProviderFailure } from './provider-failure.js';
 import { runAcceptanceCriteriaChecks } from './reviewer/acceptance-criteria-check.js';
 
 export type ReviewerGateStatus = 'accepted' | 'fix_required' | 'blocked';
@@ -29,6 +30,7 @@ export interface ReviewerGateResult {
   fixTask?: string;
   nextAction: 'continue' | 'fix' | 'block';
   parseAttempts?: number;
+  provider_failure?: StructuredProviderFailure;
 }
 
 export function evaluateReviewerGate(

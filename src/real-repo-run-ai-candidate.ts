@@ -32,6 +32,18 @@ import { runReviewerGateWithProvider } from './reviewer-provider-runner.js';
 import { buildCandidateReviewerEvidence } from './reviewer-evidence.js';
 import { buildReviewInput } from './reviewer/review-input-builder.js';
 import { createKimiReviewerProvider } from './providers/kimi/kimi-reviewer-provider.js';
+import {
+  KimiProviderError,
+  extractKimiProviderFailure,
+} from './providers/kimi/kimi-provider-error.js';
+import {
+  classifyProviderHttpFailure,
+  classifyProviderTransportFailure,
+  extractProviderErrorBody,
+  exhausted,
+  type StructuredProviderFailure,
+} from './provider-failure.js';
+import { parseFakeProviderErrorDirective } from './fake-provider-directive.js';
 import { getGitRemoteUrl } from './git-push-auth.js';
 import { buildFixTaskPrompt } from './reviewer-fix-task-real-executor.js';
 import { loadState, saveState, initState, getRunDir } from './state-manager.js';
@@ -131,6 +143,49 @@ function makeMockFetchFn(response: string): FetchFn {
     status: 200,
     json: async () => ({ choices: [{ message: { content: response } }] }),
   });
+}
+
+// Fake reviewer responses can encode a provider failure via a directive. The
+// resulting error carries an already-exhausted StructuredProviderFailure so the
+// pause classification matches a real provider call that spent its retry budget.
+function buildFakeReviewerProviderError(raw: string): KimiProviderError | null {
+  const directive = parseFakeProviderErrorDirective(raw);
+  if (directive === null) {
+    return null;
+  }
+  if (directive.kind === 'timeout') {
+    const classification = classifyProviderTransportFailure('timeout');
+    const message = 'Simulated provider request timed out (fake)';
+    return new KimiProviderError(
+      message,
+      exhausted({
+        provider: 'kimi',
+        role: 'reviewer',
+        http_status: null,
+        failure_kind: classification.failure_kind,
+        retryable: classification.retryable,
+        pause_recommended: classification.pause_recommended,
+        sanitized_message: message,
+      })
+    );
+  }
+  const errorBody = directive.body.length > 0 ? extractProviderErrorBody(directive.body) : null;
+  const classification = classifyProviderHttpFailure({ status: directive.status, errorBody });
+  const message = `Simulated provider HTTP ${directive.status} (fake)`;
+  return new KimiProviderError(
+    message,
+    exhausted({
+      provider: 'kimi',
+      role: 'reviewer',
+      http_status: directive.status,
+      failure_kind: classification.failure_kind,
+      retryable: classification.retryable,
+      pause_recommended: classification.pause_recommended,
+      sanitized_message: errorBody?.message ?? message,
+      ...(errorBody?.code !== undefined ? { provider_error_code: errorBody.code } : {}),
+      ...(errorBody?.type !== undefined ? { provider_error_type: errorBody.type } : {}),
+    })
+  );
 }
 
 function git(args: string[], cwd: string, allowFailure = false): { status: number; stdout: string; stderr: string } {
@@ -487,6 +542,18 @@ export async function runRealRepoRunAICandidateFlow(
       state.timeout_ms = resumeTimeoutMs;
     }
   } else {
+    // A task paused on a provider interruption must not be silently restarted
+    // from scratch; require explicit resume mode so the paused state survives.
+    let pausedExisting: RunState | null = null;
+    try {
+      pausedExisting = loadState(task.id, runsDir);
+    } catch {
+      pausedExisting = null;
+    }
+    if (pausedExisting?.status === 'paused_provider') {
+      log(prefix, 'Task is paused on a provider interruption; refusing to restart without resume mode');
+      return { exitCode: 1, state: pausedExisting };
+    }
     state = initState(task);
     state.task_base_sha = taskBaseSha;
     state.candidate_path = candidatePath;
@@ -518,6 +585,30 @@ export async function runRealRepoRunAICandidateFlow(
     } catch (err) {
       log(prefix, `Failed to save state at phase ${phase}: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  // Pause instead of failing when the provider interruption is pauseable
+  // (auth/quota/permission immediately, rate-limit/network after retry budget
+  // exhaustion). The run stays resumable at the persisted phase and round.
+  function pauseOnProviderFailure(args: {
+    phase: TaskRunPhase;
+    failure: StructuredProviderFailure;
+    reviewerRound: number;
+    packageHash?: string;
+  }): RealRepoRunAICandidateFlowResult {
+    const note = `Provider paused (${args.failure.failure_kind}): ${args.failure.sanitized_message}`;
+    log(prefix, note);
+    log(prefix, `Run paused at phase ${args.phase} (reviewer round ${args.reviewerRound}); fix credentials/quota and resume`);
+    setPhase(args.phase, {
+      status: 'paused_provider',
+      provider_failure: args.failure,
+      credential_source: 'KIMI_API_KEY',
+      resume_supported: true,
+      reviewer_round: args.reviewerRound,
+      ...(args.packageHash !== undefined ? { paused_candidate_package_hash: args.packageHash } : {}),
+      safety_note: note,
+    });
+    return { exitCode: 1, state };
   }
 
   const terminalPhases: TaskRunPhase[] = ['blocked', 'failed', 'pushed'];
@@ -681,6 +772,13 @@ export async function runRealRepoRunAICandidateFlow(
 
       if (!pipelineResult.success) {
         log(prefix, `Provider pipeline failed: ${pipelineResult.reason}`);
+        if (pipelineResult.failure?.pause_recommended === true) {
+          return pauseOnProviderFailure({
+            phase: 'generating',
+            failure: pipelineResult.failure,
+            reviewerRound: 0,
+          });
+        }
         setPhase('failed', {
           status: 'failed',
           safety_note: `Provider failed after retry: ${pipelineResult.reason}`,
@@ -926,8 +1024,30 @@ export async function runRealRepoRunAICandidateFlow(
   } else {
     const enableFixLoop = process.env.REAL_REPO_ENABLE_REVIEWER_FIX_LOOP !== '0';
 
-    for (let reviewerRound = 0; reviewerRound <= reviewerMaxFixAttempts; reviewerRound++) {
-      setPhase(reviewerRound === 0 ? 'reviewer_pending' : 'reviewer_fix_pending');
+    // Resume from a provider pause: re-enter the reviewer loop at the persisted
+    // round without resetting the candidate, and fail closed if the candidate
+    // package no longer matches the hash captured at pause time.
+    const pausedResume = isResume && state.status === 'paused_provider';
+    const pausedPhase = state.task_phase;
+    const pausedRound = typeof state.reviewer_round === 'number' ? state.reviewer_round : 0;
+    const pausedPackageHash = state.paused_candidate_package_hash;
+    if (pausedResume) {
+      fixAttempted = state.reviewer_phase_evidence?.fix_task_created === true || pausedRound > 0;
+      delete state.provider_failure;
+      delete state.credential_source;
+      delete state.paused_candidate_package_hash;
+    }
+    const startReviewerRound =
+      pausedResume &&
+      (pausedPhase === 'reviewer_fix_pending' || pausedPhase === 'second_review_pending') &&
+      pausedRound > 0
+        ? pausedRound
+        : 0;
+
+    for (let reviewerRound = startReviewerRound; reviewerRound <= reviewerMaxFixAttempts; reviewerRound++) {
+      setPhase(reviewerRound === 0 ? 'reviewer_pending' : 'reviewer_fix_pending', {
+        reviewer_round: reviewerRound,
+      });
 
       const diffInfo = getCandidateDiff(candidatePath, taskBaseSha);
       const checkSummary = buildCheckSummary(candidateTask.checks, lastCheckResult?.success ?? true);
@@ -939,6 +1059,25 @@ export async function runRealRepoRunAICandidateFlow(
         dependencyEvidence: task.dependency_evidence,
       });
       saveCandidateReviewPackage(runsDir, task.id, reviewPackage);
+
+      if (
+        pausedResume &&
+        typeof pausedPackageHash === 'string' &&
+        reviewPackage.candidate_package_hash !== pausedPackageHash
+      ) {
+        const reason =
+          `Candidate package hash changed while paused: expected ${pausedPackageHash}, ` +
+          `got ${reviewPackage.candidate_package_hash}; refusing to resume`;
+        log(prefix, reason);
+        setPhase(pausedPhase ?? (reviewerRound === 0 ? 'reviewer_pending' : 'second_review_pending'), {
+          status: 'paused_provider',
+          resume_supported: true,
+          reviewer_round: reviewerRound,
+          paused_candidate_package_hash: pausedPackageHash,
+          safety_note: reason,
+        });
+        return { exitCode: 1, state };
+      }
 
       const evidence = buildCandidateReviewerEvidence({
         repoPath: candidatePath,
@@ -968,6 +1107,10 @@ export async function runRealRepoRunAICandidateFlow(
           evidence,
           reviewer: async (reviewerInput) => {
             if (reviewerResponse) {
+              const fakeError = buildFakeReviewerProviderError(reviewerResponse);
+              if (fakeError !== null) {
+                throw fakeError;
+              }
               return reviewerResponse;
             }
             const reviewerProvider = createKimiReviewerProvider(
@@ -1041,6 +1184,7 @@ export async function runRealRepoRunAICandidateFlow(
           nonBlockingIssues: gate.nonBlockingIssues.map((i) => redactSecrets(i)),
           reviewSummary: redactSecrets(gate.reviewSummary),
           fixTask: gate.fixTask ? redactSecrets(gate.fixTask) : undefined,
+          ...(gate.provider_failure !== undefined ? { provider_failure: gate.provider_failure } : {}),
         };
         allProviderAttempts.push({
           attempt: nextProviderAttemptNumber++,
@@ -1060,6 +1204,10 @@ export async function runRealRepoRunAICandidateFlow(
           nonBlockingIssues: [],
           reviewSummary: 'Reviewer gate unexpected error.',
         };
+        const providerFailure = extractKimiProviderFailure(reviewerErr, 'reviewer');
+        if (providerFailure !== undefined) {
+          gateResult.provider_failure = providerFailure;
+        }
         allProviderAttempts.push({
           attempt: nextProviderAttemptNumber++,
           ok: false,
@@ -1091,6 +1239,14 @@ export async function runRealRepoRunAICandidateFlow(
       }
 
       if (gateResult.status !== 'fix_required' || !enableFixLoop) {
+        if (gateResult.provider_failure?.pause_recommended === true) {
+          return pauseOnProviderFailure({
+            phase: reviewerRound === 0 ? 'reviewer_pending' : 'second_review_pending',
+            failure: gateResult.provider_failure,
+            reviewerRound,
+            packageHash: reviewPackage.candidate_package_hash,
+          });
+        }
         setPhase('blocked', {
           status: 'blocked',
           safety_note: gateResult.reviewSummary,
@@ -1199,6 +1355,14 @@ export async function runRealRepoRunAICandidateFlow(
 
       if (!fixPipeline.success) {
         log(prefix, `Fix coder pipeline failed: ${fixPipeline.reason}`);
+        if (fixPipeline.failure?.pause_recommended === true) {
+          return pauseOnProviderFailure({
+            phase: 'reviewer_fix_pending',
+            failure: fixPipeline.failure,
+            reviewerRound,
+            packageHash: reviewPackage.candidate_package_hash,
+          });
+        }
         setPhase('blocked', {
           status: 'blocked',
           safety_note: `Fix coder pipeline failed: ${fixPipeline.reason}`,
@@ -1537,6 +1701,13 @@ export async function runRealRepoRunAICandidateFlow(
     });
     return { exitCode: 1, state };
   }
+
+  // A successful finish clears any pause bookkeeping from a previous pause.
+  delete state.provider_failure;
+  delete state.credential_source;
+  delete state.resume_supported;
+  delete state.reviewer_round;
+  delete state.paused_candidate_package_hash;
 
   setPhase('pushed', {
     status: 'pushed',

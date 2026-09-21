@@ -5,6 +5,7 @@
  */
 
 import type { Check } from '../types.js';
+import type { StructuredProviderFailure } from '../provider-failure.js';
 
 export type MvpRunProvider = 'fake' | 'kimi';
 
@@ -12,6 +13,7 @@ export type MvpRunVerdict =
   | 'MVP_RUN_PASSED'
   | 'MVP_RUN_PASSED_WITH_CAVEATS'
   | 'MVP_RUN_NEEDS_HUMAN'
+  | 'MVP_RUN_PAUSED_PROVIDER'
   | 'MVP_RUN_FAILED';
 
 export type MvpRunTaskStatus =
@@ -20,7 +22,8 @@ export type MvpRunTaskStatus =
   | 'failed'
   | 'blocked'
   | 'skipped'
-  | 'needs_human';
+  | 'needs_human'
+  | 'paused_provider';
 
 export interface MvpRunTaskConfig {
   id: string;
@@ -83,6 +86,11 @@ export interface MvpRunTaskReport {
   commit_sha?: string;
   fix_commit_sha?: string;
   files_changed?: string[];
+  /** True when this task paused on a provider interruption and can resume. */
+  resume_supported?: boolean;
+  /** Task phase at which the provider pause occurred. */
+  task_phase?: string;
+  provider_failure?: StructuredProviderFailure;
 }
 
 export interface MvpRunPrResult {
@@ -119,6 +127,8 @@ export interface MvpRunResult {
   caveats: string[];
   failure_classification?: string;
   next_human_action?: string;
+  /** True when the run paused on a provider interruption and --resume continues it. */
+  resume_supported?: boolean;
   report_dir: string;
   block_state_path?: string;
 }

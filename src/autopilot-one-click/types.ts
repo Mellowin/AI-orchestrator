@@ -26,6 +26,7 @@ export type AutopilotOneClickVerdict =
   | 'MULTITASK_MISSION_DONE_WITH_CAVEATS'
   | 'MULTITASK_MISSION_FAILED'
   | 'MULTITASK_MISSION_NEEDS_HUMAN'
+  | 'MULTITASK_MISSION_PAUSED_PROVIDER'
   | 'MULTITASK_MISSION_EXTERNAL_BLOCKER';
 
 export interface AutopilotOneClickOptions {
@@ -61,6 +62,8 @@ export interface AutopilotOneClickResult {
   exit_code: number;
   generated_paths: string[];
   next_human_action?: string;
+  /** Command that resumes a mission paused on a provider interruption. */
+  resume_command?: string;
   /** Present when the multitask mission runner produced a separate mission result. */
   multitask_result?: import('./multitask/types.js').MultitaskMissionResult;
 }
@@ -76,6 +79,8 @@ export interface AutopilotOneClickReport {
   generated_paths: string[];
   reason: string;
   next_human_action?: string;
+  /** Command that resumes a mission paused on a provider interruption. */
+  resume_command?: string;
   started_at: string;
   finished_at: string;
   duration_ms: number;

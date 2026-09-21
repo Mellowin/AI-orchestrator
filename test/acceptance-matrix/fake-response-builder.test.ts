@@ -27,7 +27,7 @@ describe('acceptance-matrix fake-response-builder', () => {
   test('blocked_stop injects unsafe response in allowed file for second task', () => {
     const arrays = buildFakeResponseArrays('blocked_stop');
     assert.strictEqual(arrays.kimi.length, 2);
-    assert.ok(arrays.kimi[1]?.includes('README.md'));
+    assert.ok(arrays.kimi[1]?.includes('unsafe-config.js'));
     assert.ok(arrays.kimi[1]?.includes('process.env.KIMI_API_KEY'));
     assert.strictEqual(arrays.reviewer[1], undefined);
   });
@@ -35,7 +35,7 @@ describe('acceptance-matrix fake-response-builder', () => {
   test('blocked_continue skips unsafe task and completes third task', () => {
     const arrays = buildFakeResponseArrays('blocked_continue');
     assert.strictEqual(arrays.kimi.length, 3);
-    assert.ok(arrays.kimi[1]?.includes('README.md'));
+    assert.ok(arrays.kimi[1]?.includes('unsafe-config.js'));
     assert.ok(arrays.kimi[1]?.includes('process.env.KIMI_API_KEY'));
     assert.ok(arrays.kimi[2]?.includes('feature.txt'));
     assert.strictEqual(arrays.reviewer[1], undefined);

@@ -271,6 +271,16 @@ export async function runAutopilotRun(
   const mvpResult = await runMvpRunFn(mvpConfig, config.mvp_config_path, { resume });
   addTimelineEvent(timeline, 'mvp_completed', { verdict: mvpResult.verdict });
 
+  if (mvpResult.verdict === 'MVP_RUN_PAUSED_PROVIDER') {
+    const paused = buildResult(
+      'AUTOPILOT_PAUSED_PROVIDER',
+      `MVP run paused on provider interruption: ${mvpResult.reason}`,
+      mvpResult
+    );
+    paused.next_human_action = mvpResult.next_human_action;
+    return finalize(paused);
+  }
+
   if (!isMvpSuccess(mvpResult.verdict)) {
     const reason = `MVP run failed: ${mvpResult.verdict} — ${mvpResult.reason}`;
     return finalize(buildResult('AUTOPILOT_MVP_FAILED', reason, mvpResult));

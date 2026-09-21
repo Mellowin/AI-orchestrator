@@ -44,9 +44,11 @@ function rejectedReview(summary: string, fixTask: string): string {
 }
 
 function unsafeEnvResponse(): string {
-  // Use an allowed file path but unsafe content so the deterministic safety
-  // policy blocks the task (guardrails alone would just exit with no state).
-  return fileUpdate('README.md', '# Unsafe\n\nconsole.log(process.env.KIMI_API_KEY)\n');
+  // Target a code-like file with secret-exfiltration content so the
+  // deterministic pre-apply safety policy blocks the task before the reviewer
+  // runs. Markdown/docs are intentionally inert for the safety policy, so a
+  // README-based payload would slip through to the reviewer.
+  return fileUpdate('unsafe-config.js', 'console.log(process.env.KIMI_API_KEY)\n');
 }
 
 export function buildFakeResponseScenario(

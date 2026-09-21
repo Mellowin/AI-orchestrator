@@ -5,11 +5,12 @@ import type { BlockDefinition } from './block/block-types.js';
 import { config } from './config.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type { ProviderAttempt } from './types.js';
+import type { StructuredProviderFailure } from './provider-failure.js';
 
 export interface RealBlockRunTaskResult {
   taskId: string;
   title: string;
-  status: 'accepted' | 'fixed_and_accepted' | 'blocked' | 'fix_required' | 'failed' | 'blocked_skipped';
+  status: 'accepted' | 'fixed_and_accepted' | 'blocked' | 'fix_required' | 'failed' | 'blocked_skipped' | 'paused_provider';
   originalCommitSha?: string;
   fixCommitSha?: string;
   reviewerGateStatus?: string;
@@ -34,6 +35,10 @@ export interface RealBlockRunTaskResult {
   rollbackReason?: string;
   childStateTaskId: string;
   providerAttempts?: ProviderAttempt[];
+  /** Task phase at which a provider pause occurred (paused_provider only). */
+  taskPhase?: string;
+  /** Structured provider failure evidence (paused_provider only). */
+  providerFailure?: StructuredProviderFailure;
   timeoutEvidence?: {
     totalElapsedMs: number;
     timeoutMs: number;
@@ -55,7 +60,7 @@ export interface RealBlockRunSummary {
 export interface RealBlockRunState {
   block_id: string;
   title: string;
-  status: 'completed' | 'completed_with_caveats' | 'blocked' | 'failed' | 'paused';
+  status: 'completed' | 'completed_with_caveats' | 'blocked' | 'failed' | 'paused' | 'paused_provider';
   currentTaskId: string | null;
   statePath: string;
   taskResults: RealBlockRunTaskResult[];
@@ -113,7 +118,7 @@ function validateBlockRunState(
     throw new Error('Existing block state file does not match block_id');
   }
 
-  const validStatuses = ['completed', 'completed_with_caveats', 'blocked', 'failed', 'paused'];
+  const validStatuses = ['completed', 'completed_with_caveats', 'blocked', 'failed', 'paused', 'paused_provider'];
   if (typeof parsed.status !== 'string' || !validStatuses.includes(parsed.status)) {
     throw new Error('Existing block state file has invalid status');
   }
@@ -137,7 +142,7 @@ function validateBlockRunState(
     if (typeof result.status !== 'string') {
       throw new Error(`Existing block state task result ${i} is missing status`);
     }
-    const validTaskStatuses = ['accepted', 'fixed_and_accepted', 'blocked', 'fix_required', 'failed', 'blocked_skipped'];
+    const validTaskStatuses = ['accepted', 'fixed_and_accepted', 'blocked', 'fix_required', 'failed', 'blocked_skipped', 'paused_provider'];
     if (!validTaskStatuses.includes(result.status)) {
       throw new Error(`Existing block state task result ${i} has invalid status`);
     }

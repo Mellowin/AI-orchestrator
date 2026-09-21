@@ -1974,7 +1974,16 @@ describe('cli real-block-run-ai', () => {
 
     try {
       const beforeLogCount = getGitLogCount(repoPath);
-      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({ RUNS_DIR: runsDir }));
+      // The reviewer outcome is pinned to a deterministic block_for_human decision:
+      // without it the child would hit the (unreachable) real provider, which under
+      // provider-pause semantics pauses the block instead of blocking it.
+      const result = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({
+        RUNS_DIR: runsDir,
+        REAL_BLOCK_TASK_REVIEWER_FAKE_RESPONSES: JSON.stringify([
+          buildAcceptReview('Task one looks good'),
+          buildBlockReview('Human review required', ['candidate content missing']),
+        ]),
+      }));
       assert.notStrictEqual(result.status, 0, `Expected safe failure: ${result.stderr}`);
       assert.strictEqual(getGitLogCount(repoPath), beforeLogCount, 'No new commits should be created');
 

@@ -146,6 +146,8 @@ function deriveTaskStatus(taskResult: RealBlockRunTaskResult): MvpRunTaskReport[
       return 'failed';
     case 'blocked_skipped':
       return 'skipped';
+    case 'paused_provider':
+      return 'paused_provider';
     default:
       return 'failed';
   }
@@ -164,6 +166,9 @@ function buildTaskReport(taskResult: RealBlockRunTaskResult): MvpRunTaskReport {
     recovery_attempts: recoveryAttempts,
     commit_sha: taskResult.originalCommitSha,
     fix_commit_sha: taskResult.fixCommitSha,
+    ...(taskResult.status === 'paused_provider' ? { resume_supported: true } : {}),
+    ...(taskResult.taskPhase !== undefined ? { task_phase: taskResult.taskPhase } : {}),
+    ...(taskResult.providerFailure !== undefined ? { provider_failure: taskResult.providerFailure } : {}),
   };
 }
 
@@ -203,6 +208,15 @@ function deriveVerdict(blockState: RealBlockRunState | null): {
   const lastResult = blockState.taskResults[blockState.taskResults.length - 1];
   const lastTaskReason = lastResult?.reason ?? stoppedReason;
   const lastTaskId = lastResult?.taskId ?? 'unknown';
+
+  if (blockState.status === 'paused_provider') {
+    return {
+      verdict: 'MVP_RUN_PAUSED_PROVIDER',
+      classification: 'PROVIDER_PAUSED',
+      reason: `Task ${lastTaskId} paused on provider interruption: ${lastTaskReason}`,
+      nextHumanAction: 'Restore provider access (credentials, quota, or rate limit) and resume with the same command plus --resume.',
+    };
+  }
 
   if (blockState.status === 'blocked') {
     const isProviderBadOutput =
@@ -540,6 +554,7 @@ export async function runMvpRun(
     caveats,
     failure_classification: verdictResult.classification,
     next_human_action: verdictResult.nextHumanAction,
+    ...(verdictResult.verdict === 'MVP_RUN_PAUSED_PROVIDER' ? { resume_supported: true } : {}),
     report_dir: reportDir,
     block_state_path: blockState?.statePath,
   };

@@ -46,6 +46,7 @@ import {
 } from './provider-call.js';
 import type { FetchFn } from './provider-call.js';
 import type { ProviderAttempt } from './types.js';
+import { parseFakeProviderErrorDirective } from './fake-provider-directive.js';
 import { runSandboxApplyFlow } from './sandbox-apply-flow.js';
 import { runRealRepoSandboxPreflight } from './real-repo-sandbox-preflight.js';
 import { buildSandboxPreflightRepairDecision, redactSecrets } from './sandbox-preflight-repair.js';
@@ -1260,8 +1261,17 @@ if (command === 'real-repo-run-ai') {
       fetchFn = async () => {
         const content = fakeResponses[fakeResponseIndex] ?? '';
         fakeResponseIndex++;
-        if (content === '__FETCH_ERROR__') {
-          return { ok: false, status: 500, json: async () => ({}) };
+        const directive = parseFakeProviderErrorDirective(content);
+        if (directive?.kind === 'timeout') {
+          throw new Error('Simulated provider request timed out (fake)');
+        }
+        if (directive?.kind === 'http') {
+          return {
+            ok: false,
+            status: directive.status,
+            json: async () => ({}),
+            text: async () => directive.body,
+          };
         }
         return {
           ok: true,
@@ -1272,13 +1282,27 @@ if (command === 'real-repo-run-ai') {
         };
       };
     } else if (fakeResponse !== undefined) {
-      fetchFn = async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          choices: [{ message: { content: fakeResponse } }],
-        }),
-      });
+      fetchFn = async () => {
+        const directive = parseFakeProviderErrorDirective(fakeResponse);
+        if (directive?.kind === 'timeout') {
+          throw new Error('Simulated provider request timed out (fake)');
+        }
+        if (directive?.kind === 'http') {
+          return {
+            ok: false,
+            status: directive.status,
+            json: async () => ({}),
+            text: async () => directive.body,
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            choices: [{ message: { content: fakeResponse } }],
+          }),
+        };
+      };
     } else {
       if (typeof globalThis.fetch !== 'function') {
         fail('Error: global fetch is not available');

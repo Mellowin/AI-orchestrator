@@ -12,6 +12,7 @@ import {
   normalizeProviderCallError,
 } from '../../provider-call.js';
 import type { FetchFn } from '../../provider-call.js';
+import { KimiProviderError, extractKimiProviderFailure } from './kimi-provider-error.js';
 import { parseKimiOutputJson } from '../../kimi-output-validator.js';
 
 export function createKimiCoderProvider(config: ProviderConfig): CoderProvider {
@@ -67,7 +68,10 @@ async function runKimiCoder(
     };
   } catch (err) {
     const info = normalizeProviderCallError(err);
-    throw new Error(`Kimi coder failed: ${info.message}`);
+    throw new KimiProviderError(
+      `Kimi coder failed: ${info.message}`,
+      extractKimiProviderFailure(err, 'coder')
+    );
   }
 }
 

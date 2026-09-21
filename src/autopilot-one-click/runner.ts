@@ -180,6 +180,8 @@ export async function runAutopilotOneClick(
           exit_code: multitaskResult.exit_code,
           generated_paths: planResult.generated_files,
           next_human_action: multitaskResult.next_human_action,
+          resume_command: multitaskResult.resume_command,
+          multitask_result: multitaskResult,
         },
         startedAt,
         finishedAt,
@@ -198,6 +200,7 @@ export async function runAutopilotOneClick(
         exit_code: multitaskResult.exit_code,
         generated_paths: [...planResult.generated_files, reportPaths.mdPath, reportPaths.jsonPath],
         next_human_action: multitaskResult.next_human_action,
+        resume_command: multitaskResult.resume_command,
         multitask_result: multitaskResult,
       };
     }

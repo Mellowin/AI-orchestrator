@@ -8,6 +8,7 @@ import {
   type ProviderCallFn,
   type ProviderRetryConfig,
 } from './provider-call.js';
+import { exhausted, type StructuredProviderFailure } from './provider-failure.js';
 import { parseKimiOutputJson } from './kimi-output-validator.js';
 import {
   classifyKimiOutput,
@@ -50,6 +51,7 @@ export interface CoderProviderPipelineFailure {
   nextGlobalAttemptNumber: number;
   isAuthError: boolean;
   rawProviderText?: string;
+  failure?: StructuredProviderFailure;
 }
 
 export type CoderProviderPipelineResult =
@@ -202,6 +204,15 @@ export async function runCoderProviderPipeline(
       httpStatus === 401 ||
       httpStatus === 403;
 
+    const failureBase =
+      providerErr instanceof ProviderCallFailedError && providerErr.failure !== undefined
+        ? providerErr.failure
+        : info.failure;
+    const failure =
+      failureBase !== undefined
+        ? exhausted({ ...failureBase, provider, role: 'coder' })
+        : undefined;
+
     return {
       success: false,
       reason: info.message,
@@ -213,6 +224,7 @@ export async function runCoderProviderPipeline(
       nextGlobalAttemptNumber:
         startingGlobalAttemptNumber + localAttempts.length,
       isAuthError,
+      ...(failure !== undefined ? { failure } : {}),
     };
   }
 }

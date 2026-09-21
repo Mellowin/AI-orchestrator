@@ -126,6 +126,18 @@ export async function main(rawArgs: string[] = process.argv.slice(2)): Promise<v
   if (result.next_human_action) {
     console.error(`[autopilot-one-click] Next: ${result.next_human_action}`);
   }
+  if (result.verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER') {
+    const pausedTask = result.multitask_result?.autopilot_result?.mvp_result?.task_results.find(
+      (t) => t.status === 'paused_provider'
+    );
+    console.error('[autopilot-one-click] MULTITASK_MISSION_PAUSED_PROVIDER');
+    console.error(`[autopilot-one-click]   Provider: ${result.multitask_result?.provider_failure?.provider ?? 'kimi'}`);
+    console.error(`[autopilot-one-click]   Phase: ${pausedTask?.task_phase ?? 'unknown'}`);
+    console.error(`[autopilot-one-click]   Reason: ${result.multitask_result?.provider_failure?.sanitized_message ?? result.reason}`);
+    console.error('[autopilot-one-click]   Mission state preserved: YES');
+    console.error('[autopilot-one-click]   Resume supported: YES');
+    console.error(`[autopilot-one-click]   Resume command: ${result.resume_command ?? `${command} --resume`}`);
+  }
 
   process.exitCode = result.exit_code;
 }

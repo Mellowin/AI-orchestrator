@@ -20,6 +20,7 @@ import {
   resolveOnBlockedTask,
 } from './real-block-task-timeout.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
+import type { StructuredProviderFailure } from './provider-failure.js';
 import { buildDependencyEvidence } from './reviewer/dependency-evidence.js';
 import type { ProviderAttempt, TaskRunPhase } from './types.js';
 import type {
@@ -812,6 +813,26 @@ export function deriveTaskResult(
     base.fixCheckSummary = persistedFixCheckSummary as ReviewerEvidence['checkSummary'];
   }
 
+  // A child paused on a pauseable provider interruption is not blocked or failed:
+  // it carries structured failure evidence and stays resumable.
+  if (runStatus === 'paused_provider') {
+    base.status = 'paused_provider';
+    base.finalStatus = 'paused_provider';
+    base.nextAction = 'wait';
+    base.checksResult = 'unknown';
+    base.taskPhase = getStateString(state, 'task_phase');
+    const failure = state.provider_failure;
+    if (isObject(failure)) {
+      base.providerFailure = failure as unknown as StructuredProviderFailure;
+    }
+    base.reason = redactSecrets(
+      typeof state.safety_note === 'string'
+        ? state.safety_note
+        : 'Task paused on a provider interruption; resume after restoring provider access.'
+    );
+    return base;
+  }
+
   // A child task that reached a reviewer gate but was ultimately blocked (e.g.
   // max fix attempts reached, guardrails blocked a fix, or no fix loop configured)
   // reports state.status === 'blocked' while reviewer_gate may still be
@@ -1397,6 +1418,18 @@ export async function runRealBlockRunAI(
       taskResult.status !== 'accepted' &&
       taskResult.status !== 'fixed_and_accepted'
     ) {
+      if (taskResult.status === 'paused_provider') {
+        // Provider pause: stop launching further tasks, keep the paused task and
+        // all descendants untouched (no skip markers) so a resume can continue.
+        stopped = true;
+        blockState.status = 'paused_provider';
+        blockState.summary.stoppedReason = redactSecrets(
+          `Task ${task.task_id} paused on provider interruption: ${taskResult.reason ?? 'provider interruption'}`
+        );
+        saveBlockState(block, blockState);
+        break;
+      }
+
       const hasDependencies = block.tasks.some(
         (t) => (t.depends_on ?? []).length > 0
       );

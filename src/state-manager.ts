@@ -22,6 +22,7 @@ const VALID_STATUSES: RunStatus[] = [
   'failed',
   'pushed',
   'blocked',
+  'paused_provider',
 ];
 
 const VALID_TASK_PHASES: import('./types.js').TaskRunPhase[] = [

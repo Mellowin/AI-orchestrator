@@ -31,6 +31,26 @@ export function writeMultitaskMissionReport(
     )
     .join('\n');
 
+  const pausedTask =
+    result.verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER'
+      ? result.autopilot_result?.mvp_result?.task_results.find((t) => t.status === 'paused_provider')
+      : undefined;
+  const pausedSection =
+    result.verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER'
+      ? [
+          '',
+          '## Provider pause',
+          '',
+          `- **Verdict:** ${result.verdict}`,
+          `- **Provider:** ${result.provider_failure?.provider ?? 'kimi'}`,
+          `- **Phase:** ${pausedTask?.task_phase ?? 'unknown'}`,
+          `- **Reason:** ${result.provider_failure?.sanitized_message ?? result.reason}`,
+          '- **Mission state preserved:** YES',
+          `- **Resume supported:** ${result.resume_supported === true ? 'YES' : 'NO'}`,
+          `- **Resume command:** \`${result.resume_command ?? 'rerun with --resume'}\``,
+        ]
+      : [];
+
   const md = [
     '# Multi-Task Mission Report',
     '',
@@ -43,6 +63,7 @@ export function writeMultitaskMissionReport(
     `- **Reason:** ${result.reason}`,
     result.work_branch ? `- **Work branch:** ${result.work_branch}` : '',
     result.pr ? `- **PR:** #${result.pr.number} (${result.pr.url})` : '',
+    ...pausedSection,
     result.validation_failure_classification
       ? `- **Validation failure classification:** ${result.validation_failure_classification}`
       : '',

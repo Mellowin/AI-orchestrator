@@ -13,6 +13,7 @@ export type AutopilotRunMode = 'fake' | 'github';
 export type AutopilotRunVerdict =
   | 'AUTOPILOT_GREEN'
   | 'AUTOPILOT_MVP_FAILED'
+  | 'AUTOPILOT_PAUSED_PROVIDER'
   | 'AUTOPILOT_MVP_DONE_CI_NOT_OBSERVED'
   | 'AUTOPILOT_MVP_DEFERRED'
   | 'AUTOPILOT_CI_TIMEOUT'

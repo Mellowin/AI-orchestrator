@@ -63,6 +63,9 @@ function buildNextHumanAction(verdict: MultitaskMissionVerdict, autopilot?: Auto
       ? `Review the PR at ${autopilot.mvp_result.pr.url} and approve/integrate manually if acceptable.`
       : 'Review the generated commits and create a PR manually if desired.';
   }
+  if (verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER') {
+    return 'Restore provider access (credentials, quota, or rate limit) and rerun the mission command with --resume; accepted work is preserved.';
+  }
   if (verdict === 'MULTITASK_MISSION_EXTERNAL_BLOCKER') {
     return 'Check GitHub Actions directly; the workflow may still be running or an external dependency is blocking.';
   }
@@ -84,6 +87,8 @@ function mapMvpStatusToMissionStatus(status: string): MultitaskMissionTaskResult
       return 'skipped';
     case 'needs_human':
       return 'needs_human';
+    case 'paused_provider':
+      return 'paused_provider';
     default:
       return 'failed';
   }
@@ -148,6 +153,9 @@ function markDescendantsSkipped(
 function mapAutopilotFailureToMissionVerdict(
   autopilot: AutopilotRunResult
 ): { verdict: MultitaskMissionVerdict; reason: string } {
+  if (autopilot.verdict === 'AUTOPILOT_PAUSED_PROVIDER') {
+    return { verdict: 'MULTITASK_MISSION_PAUSED_PROVIDER', reason: autopilot.reason };
+  }
   if (autopilot.verdict === 'AUTOPILOT_CI_TIMEOUT') {
     return { verdict: 'MULTITASK_MISSION_EXTERNAL_BLOCKER', reason: autopilot.reason };
   }
@@ -570,11 +578,13 @@ export async function runMultitaskMission(
     // Terminal failures can be returned without re-running, even if the work
     // branch is no longer present, because the persisted result is already a
     // failure. Successful terminal results must still pass the ancestry gate.
+    // A paused mission is NOT terminal: it must re-run on resume.
     if (
       state.stage === 'completed' &&
       state.result &&
       state.result.verdict !== 'MULTITASK_MISSION_DONE' &&
-      state.result.verdict !== 'MULTITASK_MISSION_DONE_WITH_CAVEATS'
+      state.result.verdict !== 'MULTITASK_MISSION_DONE_WITH_CAVEATS' &&
+      state.result.verdict !== 'MULTITASK_MISSION_PAUSED_PROVIDER'
     ) {
       return state.result;
     }
@@ -758,11 +768,28 @@ export async function runMultitaskMission(
     autopilotResult.verdict !== 'AUTOPILOT_MVP_DEFERRED'
   ) {
     const { verdict, reason } = mapAutopilotFailureToMissionVerdict(autopilotResult);
+    const pausedTask = autopilotResult.mvp_result?.task_results.find((t) => t.status === 'paused_provider');
+    const isPaused = verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER';
     const result = buildMissionResult(mission, planResult, runDir, reason, verdict, startedAt, startTime, state.tasks, {
       autopilot_result: autopilotResult,
       work_branch: workBranch,
+      ...(isPaused
+        ? {
+            resume_supported: true,
+            resume_command: command.includes('--resume') ? command : `${command} --resume`,
+            ...(pausedTask?.provider_failure !== undefined ? { provider_failure: pausedTask.provider_failure } : {}),
+            next_human_action: buildNextHumanAction(verdict, autopilotResult),
+          }
+        : {}),
     });
-    state.stage = 'completed';
+    if (isPaused) {
+      // Keep the mission in the executing stage so resume re-runs instead of
+      // replaying a terminal result; accepted tasks stay accepted, the paused
+      // task stays paused_provider, and descendants stay pending.
+      state.stage = 'executing_tasks';
+    } else {
+      state.stage = 'completed';
+    }
     state.last_error = reason;
     state.result = result;
     saveMissionState(runDir, state, options.writeStateFn);

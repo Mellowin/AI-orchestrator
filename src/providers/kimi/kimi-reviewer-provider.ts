@@ -11,10 +11,10 @@ import {
   normalizeProviderCallResult,
   normalizeProviderCallError,
   callProviderWithRetry,
-  ProviderCallFailedError,
   resolveProviderRetryConfig,
 } from '../../provider-call.js';
 import type { FetchFn } from '../../provider-call.js';
+import { KimiProviderError, extractKimiProviderFailure } from './kimi-provider-error.js';
 import { buildReviewerPrompt } from '../../reviewer/reviewer-prompt.js';
 import { parseReviewerDecisionText } from '../../reviewer/reviewer-output-parser.js';
 
@@ -91,12 +91,11 @@ export function createKimiReviewerProvider(
         });
         return parseReviewerDecisionText(normalized.text).decision;
       } catch (err) {
-        if (err instanceof ProviderCallFailedError) {
-          const info = normalizeProviderCallError(err);
-          throw new Error(`Kimi reviewer failed: ${info.message}`);
-        }
         const info = normalizeProviderCallError(err);
-        throw new Error(`Kimi reviewer failed: ${info.message}`);
+        throw new KimiProviderError(
+          `Kimi reviewer failed: ${info.message}`,
+          extractKimiProviderFailure(err, 'reviewer')
+        );
       }
     },
   };

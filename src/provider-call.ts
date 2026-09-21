@@ -1,4 +1,13 @@
 import type { ProviderAttempt } from './types.js';
+import {
+  classifyProviderHttpFailure,
+  classifyProviderTransportFailure,
+  exhausted,
+  extractProviderErrorBody,
+  sanitizeProviderMessage,
+  type ProviderErrorBody,
+  type StructuredProviderFailure,
+} from './provider-failure.js';
 
 export type ProviderRole = 'coder' | 'reviewer';
 
@@ -71,6 +80,48 @@ export function normalizeProviderCallResult(result: unknown): ProviderCallResult
 export interface ProviderCallErrorInfo {
   message: string;
   isRetryable: boolean;
+  failure?: Omit<StructuredProviderFailure, 'provider' | 'role'>;
+}
+
+const PROVIDER_HTTP_ERROR_MESSAGE_MAX_SUFFIX = 200;
+
+export class ProviderHttpError extends Error {
+  public readonly httpStatus: number;
+  public readonly providerErrorCode?: string;
+  public readonly providerErrorType?: string;
+  public readonly providerErrorMessage?: string;
+  public readonly retryAfterMs?: number;
+
+  constructor(
+    httpStatus: number,
+    options: {
+      providerErrorCode?: string;
+      providerErrorType?: string;
+      providerErrorMessage?: string;
+      retryAfterMs?: number;
+    } = {}
+  ) {
+    const label = options.providerErrorCode ?? options.providerErrorType;
+    const detail =
+      options.providerErrorMessage !== undefined
+        ? sanitizeProviderMessage(options.providerErrorMessage).slice(
+            0,
+            PROVIDER_HTTP_ERROR_MESSAGE_MAX_SUFFIX
+          )
+        : undefined;
+    const suffix = [label, detail].filter((part) => part !== undefined).join(': ');
+    super(
+      suffix.length > 0
+        ? `Provider returned status ${httpStatus}: ${suffix}`
+        : `Provider returned status ${httpStatus}`
+    );
+    this.name = 'ProviderHttpError';
+    this.httpStatus = httpStatus;
+    this.providerErrorCode = options.providerErrorCode;
+    this.providerErrorType = options.providerErrorType;
+    this.providerErrorMessage = options.providerErrorMessage;
+    this.retryAfterMs = options.retryAfterMs;
+  }
 }
 
 export function normalizeProviderCallError(error: unknown): ProviderCallErrorInfo {
@@ -146,9 +197,73 @@ export function normalizeProviderCallError(error: unknown): ProviderCallErrorInf
   // 4xx errors (except rate limit 429) are not retryable
   const isNonRetryableClientError = isClientError && !isRateLimit;
 
+  let failure: Omit<StructuredProviderFailure, 'provider' | 'role'> | undefined;
+
+  if (error instanceof ProviderHttpError) {
+    const hasBodyEvidence =
+      error.providerErrorCode !== undefined ||
+      error.providerErrorType !== undefined ||
+      error.providerErrorMessage !== undefined;
+    const classification = classifyProviderHttpFailure({
+      status: error.httpStatus,
+      errorBody: hasBodyEvidence
+        ? {
+            code: error.providerErrorCode,
+            type: error.providerErrorType,
+            message: error.providerErrorMessage,
+          }
+        : null,
+    });
+    failure = {
+      http_status: error.httpStatus,
+      failure_kind: classification.failure_kind,
+      retryable: classification.retryable,
+      pause_recommended: classification.pause_recommended,
+      sanitized_message: message,
+      ...(error.providerErrorCode !== undefined
+        ? { provider_error_code: error.providerErrorCode }
+        : {}),
+      ...(error.providerErrorType !== undefined
+        ? { provider_error_type: error.providerErrorType }
+        : {}),
+    };
+  } else if (httpStatus !== undefined) {
+    const classification = classifyProviderHttpFailure({ status: httpStatus });
+    failure = {
+      http_status: httpStatus,
+      failure_kind: classification.failure_kind,
+      retryable: classification.retryable,
+      pause_recommended: classification.pause_recommended,
+      sanitized_message: message,
+    };
+  } else if (
+    !isSchemaValidationError &&
+    (lower.includes('timeout') ||
+      lower.includes('timed out') ||
+      lower.includes('econnreset') ||
+      lower.includes('etimedout') ||
+      lower.includes('fetch failed') ||
+      lower.includes('network') ||
+      lower.includes('temporarily unavailable'))
+  ) {
+    const transportKind =
+      lower.includes('timeout') || lower.includes('timed out') || lower.includes('etimedout')
+        ? 'timeout'
+        : 'network';
+    const classification = classifyProviderTransportFailure(transportKind);
+    failure = {
+      http_status: null,
+      failure_kind: classification.failure_kind,
+      retryable: classification.retryable,
+      pause_recommended: classification.pause_recommended,
+      sanitized_message: message,
+    };
+  }
+
   return {
     message,
     isRetryable: isRetryable && !isAuthError && !isNonRetryableClientError,
+    ...(failure !== undefined ? { failure } : {}),
   };
 }
 
@@ -348,7 +463,8 @@ export function selectRecoveryPrompt(basePrompt: string, lastError: string): str
 export class ProviderCallFailedError extends Error {
   constructor(
     message: string,
-    public readonly providerAttempts: ProviderAttempt[]
+    public readonly providerAttempts: ProviderAttempt[],
+    public readonly failure?: StructuredProviderFailure
   ) {
     super(message);
     this.name = 'ProviderCallFailedError';
@@ -392,6 +508,7 @@ export async function callProviderWithRetry<T = string>(
   const providerAttempts: ProviderAttempt[] = [];
   let lastError: Error | undefined;
   let lastErrorMessage = '';
+  let lastFailure: Omit<StructuredProviderFailure, 'provider' | 'role'> | undefined;
 
   for (let attempt = 1; attempt <= resolvedConfig.maxAttempts; attempt++) {
     const useRecoveryPrompt = attempt > 1;
@@ -428,6 +545,7 @@ export async function callProviderWithRetry<T = string>(
       const info = normalizeProviderCallError(err);
       lastError = err instanceof Error ? err : new Error(info.message);
       lastErrorMessage = info.message;
+      lastFailure = info.failure;
       providerAttempts.push({
         attempt,
         ok: false,
@@ -447,7 +565,10 @@ export async function callProviderWithRetry<T = string>(
 
       const decision = getProviderRetryDecision(info, attempt, resolvedConfig.maxAttempts);
       if (decision.shouldRetry) {
-        const delayMs = Math.min(decision.delayMs, resolvedConfig.maxDelayMs);
+        let delayMs = Math.min(decision.delayMs, resolvedConfig.maxDelayMs);
+        if (err instanceof ProviderHttpError && err.retryAfterMs !== undefined) {
+          delayMs = Math.min(err.retryAfterMs, RETRY_AFTER_MAX_MS);
+        }
         console.error(`${logPrefix} Provider attempt ${attempt}/${resolvedConfig.maxAttempts} failed for task ${taskId}: ${info.message}`);
         console.error(`${logPrefix} Retrying in ${delayMs}ms...`);
         await sleepFn(delayMs);
@@ -464,9 +585,15 @@ export async function callProviderWithRetry<T = string>(
     }
   }
 
+  const failure =
+    lastFailure !== undefined
+      ? exhausted({ provider, role, ...lastFailure })
+      : undefined;
+
   throw new ProviderCallFailedError(
     lastError?.message ?? 'Provider call failed after retries',
-    providerAttempts
+    providerAttempts,
+    failure
   );
 }
 
@@ -488,7 +615,42 @@ export type FetchFn = (
   ok: boolean;
   status: number;
   json(): Promise<unknown>;
+  text?(): Promise<string>;
+  headers?: { get(name: string): string | null } | Record<string, string>;
 }>;
+
+export const RETRY_AFTER_MAX_MS = 120000;
+const PROVIDER_ERROR_BODY_MAX_CHARS = 4096;
+
+function parseRetryAfterMs(headers: unknown): number | undefined {
+  if (headers === null || typeof headers !== 'object') {
+    return undefined;
+  }
+  let raw: string | null = null;
+  const candidate = headers as { get?: unknown };
+  if (typeof candidate.get === 'function') {
+    raw = (headers as { get(name: string): string | null }).get('retry-after');
+  } else {
+    for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+      if (key.toLowerCase() === 'retry-after' && typeof value === 'string') {
+        raw = value;
+        break;
+      }
+    }
+  }
+  if (raw === null || raw.trim() === '') {
+    return undefined;
+  }
+  const seconds = Number(raw.trim());
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(Math.round(seconds * 1000), RETRY_AFTER_MAX_MS);
+  }
+  const dateMs = Date.parse(raw);
+  if (!Number.isNaN(dateMs)) {
+    return Math.min(Math.max(dateMs - Date.now(), 0), RETRY_AFTER_MAX_MS);
+  }
+  return undefined;
+}
 
 export interface CreateRealProviderCallOptions {
   provider: 'kimi';
@@ -566,7 +728,22 @@ export function createRealProviderCall(options: CreateRealProviderCallOptions): 
       });
 
       if (!response.ok) {
-        throw new Error(`Provider returned status ${response.status}`);
+        // Body read must never mask the original HTTP status failure.
+        let errorBody: ProviderErrorBody | null = null;
+        try {
+          const bodyText = await response.text?.();
+          if (typeof bodyText === 'string' && bodyText.length > 0) {
+            errorBody = extractProviderErrorBody(bodyText.slice(0, PROVIDER_ERROR_BODY_MAX_CHARS));
+          }
+        } catch {
+          errorBody = null;
+        }
+        throw new ProviderHttpError(response.status, {
+          providerErrorCode: errorBody?.code,
+          providerErrorType: errorBody?.type,
+          providerErrorMessage: errorBody?.message,
+          retryAfterMs: parseRetryAfterMs(response.headers),
+        });
       }
 
       const data = await response.json();

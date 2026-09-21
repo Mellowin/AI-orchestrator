@@ -5,6 +5,7 @@ import type { DiagnoseCiResult } from '../../diagnose-ci/types.js';
 import type { DependencyEvidencePackage } from '../../types.js';
 
 import type { MvpRunPrResult } from '../../mvp-run/types.js';
+import type { StructuredProviderFailure } from '../../provider-failure.js';
 
 export type FinalReviewCallFn = (prompt: string) => Promise<string>;
 
@@ -25,11 +26,12 @@ export type MultitaskMissionVerdict =
   | 'MULTITASK_MISSION_DONE_WITH_CAVEATS'
   | 'MULTITASK_MISSION_FAILED'
   | 'MULTITASK_MISSION_NEEDS_HUMAN'
+  | 'MULTITASK_MISSION_PAUSED_PROVIDER'
   | 'MULTITASK_MISSION_EXTERNAL_BLOCKER';
 
 export interface MultitaskMissionTaskState {
   task_id: string;
-  status: 'pending' | 'running' | 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human';
+  status: 'pending' | 'running' | 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human' | 'paused_provider';
   commit_sha?: string;
   fix_commit_sha?: string;
   accepted_commit_sha?: string;
@@ -42,7 +44,7 @@ export interface MultitaskMissionTaskState {
 export interface MultitaskMissionTaskResult {
   task_id: string;
   title: string;
-  status: 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human';
+  status: 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human' | 'paused_provider';
   commit_sha?: string;
   fix_commit_sha?: string;
   accepted_commit_sha?: string;
@@ -87,6 +89,12 @@ export interface MultitaskMissionResult {
   finalization_repair_attempts?: number;
   /** Commit SHA of the accepted finalization repair, if one was produced. */
   finalization_repair_commit_sha?: string;
+  /** True when the mission paused on a provider interruption and can resume. */
+  resume_supported?: boolean;
+  /** Command that resumes a paused mission. */
+  resume_command?: string;
+  /** Structured provider failure that caused the pause, if any. */
+  provider_failure?: StructuredProviderFailure;
 }
 
 export interface RunMultitaskMissionOptions {
