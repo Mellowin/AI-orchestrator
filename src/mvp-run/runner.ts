@@ -148,6 +148,8 @@ function deriveTaskStatus(taskResult: RealBlockRunTaskResult): MvpRunTaskReport[
       return 'skipped';
     case 'paused_provider':
       return 'paused_provider';
+    case 'paused_git_auth':
+      return 'paused_git_auth';
     default:
       return 'failed';
   }
@@ -166,9 +168,10 @@ function buildTaskReport(taskResult: RealBlockRunTaskResult): MvpRunTaskReport {
     recovery_attempts: recoveryAttempts,
     commit_sha: taskResult.originalCommitSha,
     fix_commit_sha: taskResult.fixCommitSha,
-    ...(taskResult.status === 'paused_provider' ? { resume_supported: true } : {}),
+    ...(taskResult.status === 'paused_provider' || taskResult.status === 'paused_git_auth' ? { resume_supported: true } : {}),
     ...(taskResult.taskPhase !== undefined ? { task_phase: taskResult.taskPhase } : {}),
     ...(taskResult.providerFailure !== undefined ? { provider_failure: taskResult.providerFailure } : {}),
+    ...(taskResult.gitFailure !== undefined ? { git_failure: taskResult.gitFailure } : {}),
   };
 }
 
@@ -215,6 +218,15 @@ function deriveVerdict(blockState: RealBlockRunState | null): {
       classification: 'PROVIDER_PAUSED',
       reason: `Task ${lastTaskId} paused on provider interruption: ${lastTaskReason}`,
       nextHumanAction: 'Restore provider access (credentials, quota, or rate limit) and resume with the same command plus --resume.',
+    };
+  }
+
+  if (blockState.status === 'paused_git_auth') {
+    return {
+      verdict: 'MVP_RUN_PAUSED_GIT_AUTH',
+      classification: 'GIT_AUTH_PAUSED',
+      reason: `Task ${lastTaskId} paused on Git remote auth interruption: ${lastTaskReason}`,
+      nextHumanAction: 'Update GITHUB_TOKEN with a credential that can push to the repository and resume with the same command plus --resume; the accepted local commit is preserved.',
     };
   }
 
@@ -554,7 +566,7 @@ export async function runMvpRun(
     caveats,
     failure_classification: verdictResult.classification,
     next_human_action: verdictResult.nextHumanAction,
-    ...(verdictResult.verdict === 'MVP_RUN_PAUSED_PROVIDER' ? { resume_supported: true } : {}),
+    ...(verdictResult.verdict === 'MVP_RUN_PAUSED_PROVIDER' || verdictResult.verdict === 'MVP_RUN_PAUSED_GIT_AUTH' ? { resume_supported: true } : {}),
     report_dir: reportDir,
     block_state_path: blockState?.statePath,
   };

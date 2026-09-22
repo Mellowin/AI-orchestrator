@@ -6,11 +6,12 @@ import { config } from './config.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type { ProviderAttempt } from './types.js';
 import type { StructuredProviderFailure } from './provider-failure.js';
+import type { StructuredGitRemoteFailure } from './git-remote-failure.js';
 
 export interface RealBlockRunTaskResult {
   taskId: string;
   title: string;
-  status: 'accepted' | 'fixed_and_accepted' | 'blocked' | 'fix_required' | 'failed' | 'blocked_skipped' | 'paused_provider';
+  status: 'accepted' | 'fixed_and_accepted' | 'blocked' | 'fix_required' | 'failed' | 'blocked_skipped' | 'paused_provider' | 'paused_git_auth';
   originalCommitSha?: string;
   fixCommitSha?: string;
   reviewerGateStatus?: string;
@@ -39,6 +40,8 @@ export interface RealBlockRunTaskResult {
   taskPhase?: string;
   /** Structured provider failure evidence (paused_provider only). */
   providerFailure?: StructuredProviderFailure;
+  /** Structured Git remote failure evidence (paused_git_auth only). */
+  gitFailure?: StructuredGitRemoteFailure;
   timeoutEvidence?: {
     totalElapsedMs: number;
     timeoutMs: number;
@@ -60,7 +63,7 @@ export interface RealBlockRunSummary {
 export interface RealBlockRunState {
   block_id: string;
   title: string;
-  status: 'completed' | 'completed_with_caveats' | 'blocked' | 'failed' | 'paused' | 'paused_provider';
+  status: 'completed' | 'completed_with_caveats' | 'blocked' | 'failed' | 'paused' | 'paused_provider' | 'paused_git_auth';
   currentTaskId: string | null;
   statePath: string;
   taskResults: RealBlockRunTaskResult[];
@@ -118,7 +121,7 @@ function validateBlockRunState(
     throw new Error('Existing block state file does not match block_id');
   }
 
-  const validStatuses = ['completed', 'completed_with_caveats', 'blocked', 'failed', 'paused', 'paused_provider'];
+  const validStatuses = ['completed', 'completed_with_caveats', 'blocked', 'failed', 'paused', 'paused_provider', 'paused_git_auth'];
   if (typeof parsed.status !== 'string' || !validStatuses.includes(parsed.status)) {
     throw new Error('Existing block state file has invalid status');
   }
@@ -142,7 +145,7 @@ function validateBlockRunState(
     if (typeof result.status !== 'string') {
       throw new Error(`Existing block state task result ${i} is missing status`);
     }
-    const validTaskStatuses = ['accepted', 'fixed_and_accepted', 'blocked', 'fix_required', 'failed', 'blocked_skipped', 'paused_provider'];
+    const validTaskStatuses = ['accepted', 'fixed_and_accepted', 'blocked', 'fix_required', 'failed', 'blocked_skipped', 'paused_provider', 'paused_git_auth'];
     if (!validTaskStatuses.includes(result.status)) {
       throw new Error(`Existing block state task result ${i} has invalid status`);
     }

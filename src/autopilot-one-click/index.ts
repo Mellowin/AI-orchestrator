@@ -139,6 +139,22 @@ export async function main(rawArgs: string[] = process.argv.slice(2)): Promise<v
     console.error(`[autopilot-one-click]   Resume command: ${result.resume_command ?? `${command} --resume`}`);
   }
 
+  if (result.verdict === 'MULTITASK_MISSION_PAUSED_GIT_AUTH') {
+    const gitFailure = result.git_failure ?? result.multitask_result?.git_failure;
+    const pausedTask = result.multitask_result?.autopilot_result?.mvp_result?.task_results.find(
+      (t) => t.status === 'paused_git_auth'
+    );
+    console.error('[autopilot-one-click] MULTITASK_MISSION_PAUSED_GIT_AUTH');
+    console.error(`[autopilot-one-click]   Remote: ${gitFailure?.remote ?? 'origin'}`);
+    console.error(`[autopilot-one-click]   Operation: ${gitFailure?.operation ?? 'push'}`);
+    console.error(`[autopilot-one-click]   Failure kind: ${gitFailure?.failure_kind ?? 'unknown'}`);
+    console.error(`[autopilot-one-click]   Phase: ${pausedTask?.task_phase ?? 'preflight'}`);
+    console.error(`[autopilot-one-click]   Reason: ${gitFailure?.sanitized_message ?? result.reason}`);
+    console.error('[autopilot-one-click]   Mission state preserved: YES');
+    console.error('[autopilot-one-click]   Resume supported: YES');
+    console.error(`[autopilot-one-click]   Resume command: ${result.resume_command ?? `${command} --resume`}`);
+  }
+
   process.exitCode = result.exit_code;
 }
 

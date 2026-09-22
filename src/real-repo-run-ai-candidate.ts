@@ -45,6 +45,10 @@ import {
 } from './provider-failure.js';
 import { parseFakeProviderErrorDirective } from './fake-provider-directive.js';
 import { getGitRemoteUrl } from './git-push-auth.js';
+import {
+  sanitizeGitRemoteMessage,
+  type StructuredGitRemoteFailure,
+} from './git-remote-failure.js';
 import { buildFixTaskPrompt } from './reviewer-fix-task-real-executor.js';
 import { loadState, saveState, initState, getRunDir } from './state-manager.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
@@ -66,6 +70,7 @@ import {
   getCandidateHead,
   getCommitParent,
   getRemoteBranchHead,
+  getRemoteBranchHeadDetailed,
   cleanupCandidateWorkspace,
   configureCandidateRemote,
   pushCandidateCommit,
@@ -488,6 +493,7 @@ export async function runRealRepoRunAICandidateFlow(
 
   const prefix = logPrefix;
   let fixAttempted = false;
+  let resumedFromGitAuthPause = false;
 
   // Fake response arrays for deterministic integration tests. The parent passes
   // per-task arrays via env vars; each round of the reviewer/fix loop consumes
@@ -541,17 +547,23 @@ export async function runRealRepoRunAICandidateFlow(
     if (resumeTimeoutMs !== undefined) {
       state.timeout_ms = resumeTimeoutMs;
     }
+    // Remember a Git-auth pause: after reconciliation the accepted commit must
+    // be exactly the SHA recorded at pause time (fail-closed on any drift).
+    if (state.status === 'paused_git_auth') {
+      resumedFromGitAuthPause = true;
+    }
   } else {
-    // A task paused on a provider interruption must not be silently restarted
-    // from scratch; require explicit resume mode so the paused state survives.
+    // A task paused on a provider or Git credential interruption must not be
+    // silently restarted from scratch; require explicit resume mode so the
+    // paused state (and any accepted local commit) survives.
     let pausedExisting: RunState | null = null;
     try {
       pausedExisting = loadState(task.id, runsDir);
     } catch {
       pausedExisting = null;
     }
-    if (pausedExisting?.status === 'paused_provider') {
-      log(prefix, 'Task is paused on a provider interruption; refusing to restart without resume mode');
+    if (pausedExisting?.status === 'paused_provider' || pausedExisting?.status === 'paused_git_auth') {
+      log(prefix, `Task is paused (${pausedExisting.status}); refusing to restart without resume mode`);
       return { exitCode: 1, state: pausedExisting };
     }
     state = initState(task);
@@ -611,6 +623,35 @@ export async function runRealRepoRunAICandidateFlow(
     return { exitCode: 1, state };
   }
 
+  // Pause instead of failing when a Git remote operation hits a credential or
+  // access interruption. The accepted local commit, candidate workspace,
+  // snapshot, reviewer verdict, and checks evidence are preserved untouched;
+  // resume re-reads the current GITHUB_TOKEN and retries the push only.
+  function pauseOnGitAuthFailure(args: {
+    failure: StructuredGitRemoteFailure;
+    acceptedCommitSha: string;
+    packageHash?: string;
+  }): RealRepoRunAICandidateFlowResult {
+    const note =
+      `Git remote paused (${args.failure.failure_kind}, ${args.failure.operation} on ${args.failure.remote}): ` +
+      args.failure.sanitized_message;
+    log(prefix, note);
+    log(prefix, `Run paused after accepted commit ${args.acceptedCommitSha}; update GITHUB_TOKEN and resume`);
+    setPhase('committed', {
+      status: 'paused_git_auth',
+      git_failure: args.failure,
+      credential_source: 'GITHUB_TOKEN',
+      resume_supported: true,
+      committed: true,
+      pushed: false,
+      commit_sha: args.acceptedCommitSha,
+      accepted_commit_sha: args.acceptedCommitSha,
+      ...(args.packageHash !== undefined ? { paused_candidate_package_hash: args.packageHash } : {}),
+      safety_note: note,
+    });
+    return { exitCode: 1, state };
+  }
+
   const terminalPhases: TaskRunPhase[] = ['blocked', 'failed', 'pushed'];
   if (state.task_phase !== undefined && terminalPhases.includes(state.task_phase)) {
     log(prefix, `Resume mode: task already in terminal phase ${state.task_phase}`);
@@ -620,13 +661,22 @@ export async function runRealRepoRunAICandidateFlow(
   const candidateTask = makeCandidateTask(task, candidatePath);
 
   // Create or validate the candidate workspace before reading context files.
-  const workspaceResult = createCandidateWorkspace(
-    candidatePath,
-    task.repo_path,
-    taskBaseSha,
-    task.work_branch,
-    task.id
-  );
+  // On resume after an accepted local commit (e.g. a Git auth pause at push
+  // time) the workspace HEAD may already be the accepted commit; validate
+  // against both the base and the accepted SHA instead of re-cloning.
+  const workspaceResult =
+    isResume &&
+    state.accepted_commit_sha !== undefined &&
+    existsSync(candidatePath) &&
+    existsSync(resolve(candidatePath, '.git'))
+      ? validateCandidateWorkspace(candidatePath, taskBaseSha, undefined, state.accepted_commit_sha)
+      : createCandidateWorkspace(
+          candidatePath,
+          task.repo_path,
+          taskBaseSha,
+          task.work_branch,
+          task.id
+        );
   if (!workspaceResult.ok) {
     log(prefix, `Candidate workspace creation failed: ${workspaceResult.reason}`);
     setPhase('failed', {
@@ -1564,6 +1614,20 @@ export async function runRealRepoRunAICandidateFlow(
     return { exitCode: 1, state };
   }
 
+  // Git-auth pause resume: the reconciled accepted commit must be exactly the
+  // commit recorded when the push was interrupted. Any drift is a fail-closed
+  // repository conflict, not a credential problem.
+  if (resumedFromGitAuthPause && state.accepted_commit_sha) {
+    const expectedSha = state.accepted_commit_sha;
+    const reconciledSha = reconcileResult.acceptedCommitSha;
+    if (reconciledSha !== expectedSha) {
+      const reason = `Git-auth resume reconciliation mismatch: expected accepted commit ${expectedSha}, reconciled ${reconciledSha ?? 'none'}`;
+      log(prefix, reason);
+      setPhase('failed', { status: 'failed', safety_note: reason });
+      return { exitCode: 1, state };
+    }
+  }
+
   const commitMessage = `ai-orchestrator: ${task.id}`;
   let acceptedCommitSha = reconcileResult.acceptedCommitSha;
 
@@ -1662,18 +1726,55 @@ export async function runRealRepoRunAICandidateFlow(
   if (reconcileResult.pushNeeded) {
     const pushResult = pushCandidateCommit(candidatePath, task.work_branch);
     if (!pushResult.ok) {
-      log(prefix, `Push failed: ${pushResult.reason}`);
+      const failure = pushResult.failure;
+      if (failure?.pause_recommended === true) {
+        // Credential/access interruption: keep the accepted local commit and
+        // all reviewer/checks evidence; resume retries only the push.
+        return pauseOnGitAuthFailure({
+          failure,
+          acceptedCommitSha,
+          packageHash: snapshot.candidatePackageHash,
+        });
+      }
+      // Non-fast-forward / remote conflict / unknown: fail closed, no pause.
+      const reason = pushResult.reason ?? 'Push failed';
+      log(prefix, reason);
       setPhase('failed', {
         status: 'failed',
         committed: true,
         commit_sha: acceptedCommitSha,
         accepted_commit_sha: acceptedCommitSha,
-        safety_note: `Push failed: ${pushResult.reason}`,
+        ...(failure !== undefined ? { git_failure: failure } : {}),
+        safety_note: reason,
       });
       return { exitCode: 1, state };
     }
 
-    const remoteHeadAfterPush = getRemoteBranchHead(candidatePath, task.work_branch);
+    const remoteHeadResult = getRemoteBranchHeadDetailed(candidatePath, task.work_branch);
+    if (remoteHeadResult.status === 'error') {
+      // The push succeeded but the post-push verification could not reach the
+      // remote (e.g. expired credential on ls-remote). Pause instead of
+      // misreporting an accepted-commit mismatch; resume reconciles CASE C.
+      if (remoteHeadResult.failure.pause_recommended) {
+        return pauseOnGitAuthFailure({
+          failure: remoteHeadResult.failure,
+          acceptedCommitSha,
+          packageHash: snapshot.candidatePackageHash,
+        });
+      }
+      const reason = `Remote HEAD verification failed: ${remoteHeadResult.failure.sanitized_message}`;
+      log(prefix, reason);
+      setPhase('failed', {
+        status: 'failed',
+        committed: true,
+        commit_sha: acceptedCommitSha,
+        accepted_commit_sha: acceptedCommitSha,
+        git_failure: remoteHeadResult.failure,
+        safety_note: reason,
+      });
+      return { exitCode: 1, state };
+    }
+    const remoteHeadAfterPush = remoteHeadResult.status === 'ok' ? remoteHeadResult.sha : undefined;
     if (remoteHeadAfterPush !== acceptedCommitSha) {
       const reason = `Remote HEAD ${remoteHeadAfterPush ?? 'missing'} does not match accepted commit ${acceptedCommitSha}`;
       log(prefix, reason);
@@ -1704,6 +1805,7 @@ export async function runRealRepoRunAICandidateFlow(
 
   // A successful finish clears any pause bookkeeping from a previous pause.
   delete state.provider_failure;
+  delete state.git_failure;
   delete state.credential_source;
   delete state.resume_supported;
   delete state.reviewer_round;

@@ -6,8 +6,8 @@
 
 ## Test metrics
 
-- **Total tests:** 4122
-- **Total suites:** 311
+- **Total tests:** 4162
+- **Total suites:** 322
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
@@ -23,6 +23,14 @@
   - `npm run build` — OK
   - `npm run verify:summary` — OK
   - `npm run verify:product:ci` — OK (4122 tests / 311 suites / 0 failures, exit code 0)
+- **Stage 18.26c Git auth pause/resume + write-auth preflight verification (before push):**
+  - `test/git-remote-failure.test.ts` — 27/27 pass (Invalid username/token → GIT_AUTH_INVALID resumable; expired → GIT_AUTH_EXPIRED; HTTP 401 → auth; permission/write access/403 → GIT_PERMISSION_DENIED resumable; network failures classified separately; non-fast-forward and stale/remote conflict stay fail-closed with pause_recommended=false; 404/5xx → GIT_REMOTE_UNAVAILABLE; unknown garbage → GIT_UNKNOWN_FAILURE; URL-embedded credentials, exact GITHUB_TOKEN value, Bearer and github_pat_ patterns redacted; 500-char message cap; isGitCredentialFailureKind matrix)
+  - `test/git-write-auth-preflight.test.ts` — 9/9 pass (missing remote → GIT_REMOTE_UNAVAILABLE; GitHub HTTPS without GITHUB_TOKEN → GIT_AUTH_INVALID before any push; dry-run auth failure classified with token never in sanitized message and x-access-token URL used for the dry-run; happy path runs only `push --dry-run --porcelain` and confirms via ls-remote that no remote ref was created; pre-existing preflight ref → GIT_REMOTE_CONFLICT fail-closed; unresolvable HEAD → GIT_UNKNOWN_FAILURE; real local bare remote: ok=true and zero remote refs created; one-click wiring: failed preflight pauses the mission BEFORE the planner with provider call count = 0, successful preflight proceeds past the gate)
+  - `test/git-auth-pause-resume.test.ts` — 4/4 pass (exact real-run regression via a rejecting pre-receive hook: coder success → reviewer accept → checks pass → accepted local commit → push "Invalid username or token" → task paused_git_auth at phase committed with git_failure/credential_source=GITHUB_TOKEN/resume_supported, accepted commit preserved locally and NOT on the remote; fresh non-resume rerun refused with zero provider calls; after "credential rotation" (hook removed) resume performs ZERO new AI calls, pushes the SAME accepted SHA, verifies remote HEAD, fast-forwards the mission branch and clears pause bookkeeping; unexpected remote head fails closed (no pause); deriveTaskResult maps paused_git_auth with codeApplied=true and checksResult=pass; mission-level: MULTITASK_MISSION_PAUSED_GIT_AUTH with resume_command, git_failure propagated, dependent task stays unstarted (not blocked_skipped), resume completes the mission to MULTITASK_MISSION_DONE)
+  - `npm run typecheck` — OK
+  - `npm run build` — OK
+  - `npm run verify:summary` — OK
+  - `npm run verify:product:ci` — OK (4162 tests / 322 suites / 0 failures, exit code 0)
 - **Stage 18.26a integrated validation / finalization repair verification (before push):**
   - `test/multitask-integrated-validator.test.ts` — 3/3 pass (validation command discovery, REPAIRABLE_REPOSITORY_FAILURE classification, EXTERNAL_BLOCKER classification)
   - `test/multitask-finalization-repair.test.ts` — 2/2 pass (deterministic TESTING_SUMMARY.md fallback and AI-generated repair candidate)

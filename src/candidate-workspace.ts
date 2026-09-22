@@ -3,6 +3,11 @@ import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { getGitRemoteUrl, injectGitHubTokenIntoRemoteUrl } from './git-push-auth.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
+import {
+  classifyGitRemoteFailure,
+  sanitizeGitRemoteMessage,
+  type StructuredGitRemoteFailure,
+} from './git-remote-failure.js';
 import type { CandidateSnapshot } from './candidate-state.js';
 import { computeFileHash } from './candidate-state.js';
 
@@ -339,17 +344,41 @@ export function getCommitParent(candidatePath: string, commitSha: string): strin
  * Returns undefined if the remote or branch does not exist.
  */
 export function getRemoteBranchHead(candidatePath: string, branch: string): string | undefined {
+  const detailed = getRemoteBranchHeadDetailed(candidatePath, branch);
+  return detailed.status === 'ok' ? detailed.sha : undefined;
+}
+
+export type RemoteBranchHeadResult =
+  | { status: 'ok'; sha: string }
+  | { status: 'missing' }
+  | { status: 'error'; failure: StructuredGitRemoteFailure };
+
+/**
+ * Detailed variant of getRemoteBranchHead that distinguishes a missing remote
+ * branch from an ls-remote transport/auth failure so callers can classify
+ * credential interruptions instead of treating them as state mismatches.
+ */
+export function getRemoteBranchHeadDetailed(candidatePath: string, branch: string): RemoteBranchHeadResult {
   validatePath(candidatePath);
   if (!existsSync(candidatePath) || !existsSync(resolve(candidatePath, '.git'))) {
-    return undefined;
+    return { status: 'missing' };
   }
   const result = git(['ls-remote', 'origin', `refs/heads/${branch}`], candidatePath, true);
-  if (result.status !== 0) return undefined;
+  if (result.status !== 0) {
+    return {
+      status: 'error',
+      failure: classifyGitRemoteFailure({
+        remote: 'origin',
+        operation: 'ls-remote',
+        output: result.stderr || result.stdout || `git ls-remote exited with code ${result.status}`,
+      }),
+    };
+  }
   const line = result.stdout.trim();
-  if (!line) return undefined;
+  if (!line) return { status: 'missing' };
   const parts = line.split(/\s+/);
   const sha = parts[0];
-  return /^[0-9a-f]{40}$/i.test(sha) ? sha.toLowerCase() : undefined;
+  return /^[0-9a-f]{40}$/i.test(sha) ? { status: 'ok', sha: sha.toLowerCase() } : { status: 'missing' };
 }
 
 /**
@@ -423,7 +452,7 @@ export interface CandidateReconcileResult {
 function fetchRemoteBranch(candidatePath: string, branch: string): { ok: boolean; error?: string } {
   const result = git(['fetch', 'origin', branch], candidatePath, true);
   if (result.status !== 0) {
-    return { ok: false, error: result.stderr.trim() };
+    return { ok: false, error: sanitizeGitRemoteMessage(result.stderr) };
   }
   return { ok: true };
 }
@@ -582,16 +611,23 @@ export function configureCandidateRemote(
 
 /**
  * Push the current HEAD of the candidate workspace to the remote work branch
- * using a normal, non-force push.
+ * using a normal, non-force push. Failures carry a structured, sanitized
+ * classification so callers can distinguish resumable credential
+ * interruptions from fail-closed repository conflicts.
  */
 export function pushCandidateCommit(
   candidatePath: string,
   workBranch: string
-): { ok: boolean; reason?: string } {
+): { ok: boolean; reason?: string; failure?: StructuredGitRemoteFailure } {
   validatePath(candidatePath);
   const result = git(['push', 'origin', `HEAD:${workBranch}`], candidatePath, true);
   if (result.status !== 0) {
-    return { ok: false, reason: `Push failed: ${result.stderr.trim()}` };
+    const failure = classifyGitRemoteFailure({
+      remote: 'origin',
+      operation: 'push',
+      output: result.stderr || result.stdout || `git push exited with code ${result.status}`,
+    });
+    return { ok: false, reason: `Push failed: ${failure.sanitized_message}`, failure };
   }
   return { ok: true };
 }
@@ -616,7 +652,7 @@ export function fastForwardMissionBranch(
 
   const fetchResult = git(['fetch', 'origin', workBranch], resolvedRepo, true);
   if (fetchResult.status !== 0) {
-    return { ok: false, reason: `Fetch failed: ${fetchResult.stderr.trim()}` };
+    return { ok: false, reason: `Fetch failed: ${sanitizeGitRemoteMessage(fetchResult.stderr)}` };
   }
 
   // Ensure the local work branch exists and points to the fetched commit.

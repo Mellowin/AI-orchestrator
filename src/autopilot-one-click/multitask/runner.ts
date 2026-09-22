@@ -66,6 +66,9 @@ function buildNextHumanAction(verdict: MultitaskMissionVerdict, autopilot?: Auto
   if (verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER') {
     return 'Restore provider access (credentials, quota, or rate limit) and rerun the mission command with --resume; accepted work is preserved.';
   }
+  if (verdict === 'MULTITASK_MISSION_PAUSED_GIT_AUTH') {
+    return 'Update GITHUB_TOKEN with a credential that can push to the repository and rerun the mission command with --resume; accepted local commits are preserved and will be pushed without new AI calls.';
+  }
   if (verdict === 'MULTITASK_MISSION_EXTERNAL_BLOCKER') {
     return 'Check GitHub Actions directly; the workflow may still be running or an external dependency is blocking.';
   }
@@ -89,6 +92,8 @@ function mapMvpStatusToMissionStatus(status: string): MultitaskMissionTaskResult
       return 'needs_human';
     case 'paused_provider':
       return 'paused_provider';
+    case 'paused_git_auth':
+      return 'paused_git_auth';
     default:
       return 'failed';
   }
@@ -155,6 +160,9 @@ function mapAutopilotFailureToMissionVerdict(
 ): { verdict: MultitaskMissionVerdict; reason: string } {
   if (autopilot.verdict === 'AUTOPILOT_PAUSED_PROVIDER') {
     return { verdict: 'MULTITASK_MISSION_PAUSED_PROVIDER', reason: autopilot.reason };
+  }
+  if (autopilot.verdict === 'AUTOPILOT_PAUSED_GIT_AUTH') {
+    return { verdict: 'MULTITASK_MISSION_PAUSED_GIT_AUTH', reason: autopilot.reason };
   }
   if (autopilot.verdict === 'AUTOPILOT_CI_TIMEOUT') {
     return { verdict: 'MULTITASK_MISSION_EXTERNAL_BLOCKER', reason: autopilot.reason };
@@ -584,7 +592,8 @@ export async function runMultitaskMission(
       state.result &&
       state.result.verdict !== 'MULTITASK_MISSION_DONE' &&
       state.result.verdict !== 'MULTITASK_MISSION_DONE_WITH_CAVEATS' &&
-      state.result.verdict !== 'MULTITASK_MISSION_PAUSED_PROVIDER'
+      state.result.verdict !== 'MULTITASK_MISSION_PAUSED_PROVIDER' &&
+      state.result.verdict !== 'MULTITASK_MISSION_PAUSED_GIT_AUTH'
     ) {
       return state.result;
     }
@@ -768,8 +777,11 @@ export async function runMultitaskMission(
     autopilotResult.verdict !== 'AUTOPILOT_MVP_DEFERRED'
   ) {
     const { verdict, reason } = mapAutopilotFailureToMissionVerdict(autopilotResult);
-    const pausedTask = autopilotResult.mvp_result?.task_results.find((t) => t.status === 'paused_provider');
-    const isPaused = verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER';
+    const pausedTask = autopilotResult.mvp_result?.task_results.find(
+      (t) => t.status === 'paused_provider' || t.status === 'paused_git_auth'
+    );
+    const isPaused =
+      verdict === 'MULTITASK_MISSION_PAUSED_PROVIDER' || verdict === 'MULTITASK_MISSION_PAUSED_GIT_AUTH';
     const result = buildMissionResult(mission, planResult, runDir, reason, verdict, startedAt, startTime, state.tasks, {
       autopilot_result: autopilotResult,
       work_branch: workBranch,
@@ -778,6 +790,7 @@ export async function runMultitaskMission(
             resume_supported: true,
             resume_command: command.includes('--resume') ? command : `${command} --resume`,
             ...(pausedTask?.provider_failure !== undefined ? { provider_failure: pausedTask.provider_failure } : {}),
+            ...(pausedTask?.git_failure !== undefined ? { git_failure: pausedTask.git_failure } : {}),
             next_human_action: buildNextHumanAction(verdict, autopilotResult),
           }
         : {}),

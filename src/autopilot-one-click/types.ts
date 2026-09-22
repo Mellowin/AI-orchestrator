@@ -4,6 +4,8 @@
 
 import type { AutopilotPlanMission, AutopilotPlanResult } from '../autopilot-plan/types.js';
 import type { AutopilotRunResult } from '../autopilot-run/types.js';
+import type { StructuredGitRemoteFailure } from '../git-remote-failure.js';
+import type { GitWriteAuthPreflightInput, GitWriteAuthPreflightResult } from '../git-write-auth-preflight.js';
 
 export type AutopilotOneClickPreset =
   | 'safe'
@@ -27,6 +29,7 @@ export type AutopilotOneClickVerdict =
   | 'MULTITASK_MISSION_FAILED'
   | 'MULTITASK_MISSION_NEEDS_HUMAN'
   | 'MULTITASK_MISSION_PAUSED_PROVIDER'
+  | 'MULTITASK_MISSION_PAUSED_GIT_AUTH'
   | 'MULTITASK_MISSION_EXTERNAL_BLOCKER';
 
 export interface AutopilotOneClickOptions {
@@ -48,6 +51,8 @@ export interface AutopilotOneClickOptions {
     planResult: AutopilotPlanResult,
     options: { command: string; resume?: boolean }
   ) => Promise<import('./multitask/types.js').MultitaskMissionResult>;
+  /** Internal test hook for the non-mutating Git write-auth preflight. */
+  writeAuthPreflightFn?: (input: GitWriteAuthPreflightInput) => GitWriteAuthPreflightResult;
 }
 
 export interface AutopilotOneClickResult {
@@ -64,6 +69,10 @@ export interface AutopilotOneClickResult {
   next_human_action?: string;
   /** Command that resumes a mission paused on a provider interruption. */
   resume_command?: string;
+  /** True when the mission can be resumed with `resume_command` after fixing the external cause. */
+  resume_supported?: boolean;
+  /** Structured Git remote failure when the mission paused on a Git auth interruption. */
+  git_failure?: StructuredGitRemoteFailure;
   /** Present when the multitask mission runner produced a separate mission result. */
   multitask_result?: import('./multitask/types.js').MultitaskMissionResult;
 }
@@ -81,6 +90,10 @@ export interface AutopilotOneClickReport {
   next_human_action?: string;
   /** Command that resumes a mission paused on a provider interruption. */
   resume_command?: string;
+  /** True when the mission can be resumed with `resume_command` after fixing the external cause. */
+  resume_supported?: boolean;
+  /** Structured Git remote failure when the mission paused on a Git auth interruption. */
+  git_failure?: StructuredGitRemoteFailure;
   started_at: string;
   finished_at: string;
   duration_ms: number;

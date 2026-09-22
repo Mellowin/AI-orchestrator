@@ -1,6 +1,7 @@
 import type { PersistedReviewerGate } from './reviewer-task-outcome.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type { StructuredProviderFailure } from './provider-failure.js';
+import type { StructuredGitRemoteFailure } from './git-remote-failure.js';
 
 export interface Task {
   id: string;
@@ -46,7 +47,8 @@ export type RunStatus =
   | 'failed'
   | 'pushed'
   | 'blocked'
-  | 'paused_provider';
+  | 'paused_provider'
+  | 'paused_git_auth';
 
 export type TaskRunPhase =
   | 'generating'
@@ -196,6 +198,8 @@ export interface RunState {
   reviewer_gate?: PersistedReviewerGate;
   /** Structured evidence when the run is paused on a provider interruption. */
   provider_failure?: StructuredProviderFailure;
+  /** Structured evidence when the run is paused on a Git remote auth interruption. */
+  git_failure?: StructuredGitRemoteFailure;
   /** Env var the provider credential was read from when the pause happened. */
   credential_source?: string;
   /** True when a paused run can be continued with resume mode. */

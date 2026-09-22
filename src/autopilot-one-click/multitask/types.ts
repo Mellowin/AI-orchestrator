@@ -6,6 +6,7 @@ import type { DependencyEvidencePackage } from '../../types.js';
 
 import type { MvpRunPrResult } from '../../mvp-run/types.js';
 import type { StructuredProviderFailure } from '../../provider-failure.js';
+import type { StructuredGitRemoteFailure } from '../../git-remote-failure.js';
 
 export type FinalReviewCallFn = (prompt: string) => Promise<string>;
 
@@ -27,11 +28,12 @@ export type MultitaskMissionVerdict =
   | 'MULTITASK_MISSION_FAILED'
   | 'MULTITASK_MISSION_NEEDS_HUMAN'
   | 'MULTITASK_MISSION_PAUSED_PROVIDER'
+  | 'MULTITASK_MISSION_PAUSED_GIT_AUTH'
   | 'MULTITASK_MISSION_EXTERNAL_BLOCKER';
 
 export interface MultitaskMissionTaskState {
   task_id: string;
-  status: 'pending' | 'running' | 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human' | 'paused_provider';
+  status: 'pending' | 'running' | 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human' | 'paused_provider' | 'paused_git_auth';
   commit_sha?: string;
   fix_commit_sha?: string;
   accepted_commit_sha?: string;
@@ -44,7 +46,7 @@ export interface MultitaskMissionTaskState {
 export interface MultitaskMissionTaskResult {
   task_id: string;
   title: string;
-  status: 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human' | 'paused_provider';
+  status: 'accepted' | 'fixed_and_accepted' | 'failed' | 'blocked' | 'skipped' | 'skipped_safe_mode' | 'needs_human' | 'paused_provider' | 'paused_git_auth';
   commit_sha?: string;
   fix_commit_sha?: string;
   accepted_commit_sha?: string;
@@ -95,6 +97,8 @@ export interface MultitaskMissionResult {
   resume_command?: string;
   /** Structured provider failure that caused the pause, if any. */
   provider_failure?: StructuredProviderFailure;
+  /** Structured Git remote failure that caused the pause, if any. */
+  git_failure?: StructuredGitRemoteFailure;
 }
 
 export interface RunMultitaskMissionOptions {

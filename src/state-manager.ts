@@ -23,6 +23,7 @@ const VALID_STATUSES: RunStatus[] = [
   'pushed',
   'blocked',
   'paused_provider',
+  'paused_git_auth',
 ];
 
 const VALID_TASK_PHASES: import('./types.js').TaskRunPhase[] = [

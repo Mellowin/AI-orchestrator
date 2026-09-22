@@ -6,6 +6,7 @@ import type { AutopilotPlanMission, AutopilotPlanResult } from '../autopilot-pla
 import { loadAutopilotRunConfig, runAutopilotRun } from '../autopilot-run/index.js';
 import { runMultitaskMission } from './multitask/runner.js';
 import { buildMissionFromGoal, MissionBuilderError } from './mission-builder.js';
+import { runGitWriteAuthPreflight } from '../git-write-auth-preflight.js';
 import { writeOneClickReport } from './report-writer.js';
 import type {
   AutopilotOneClickOptions,
@@ -89,6 +90,58 @@ export async function runAutopilotOneClick(
       'Remote writes (push, PR, CI read) require explicit confirmation. Rerun with --yes.',
       mission
     );
+  }
+
+  // Non-mutating Git write-auth preflight: verify that the configured
+  // GITHUB_TOKEN can push to the target repository BEFORE the first expensive
+  // planner/coder provider call. A credential interruption here pauses the
+  // mission resumably with provider call count = 0 instead of burning quota.
+  // When the mission's provider token is absent the planner gate reports that
+  // first (no provider call is consumed either way), so the preflight is
+  // skipped and legacy token-error precedence is preserved.
+  const providerTokenEnv = mission.provider?.token_env ?? 'KIMI_API_KEY';
+  const providerTokenPresent = (process.env[providerTokenEnv]?.trim() ?? '') !== '';
+  if (
+    mission.mode === 'github' &&
+    mission.capabilities.allow_repo_push &&
+    (!mission.capabilities.allow_real_provider || providerTokenPresent)
+  ) {
+    const preflightFn = options.writeAuthPreflightFn ?? runGitWriteAuthPreflight;
+    const preflight = preflightFn({ repoPath: mission.repo_path });
+    if (!preflight.ok) {
+      const failure = preflight.failure;
+      const isResumable = failure?.pause_recommended === true;
+      const reason = `Git write-auth preflight failed (${failure?.failure_kind ?? 'unknown'}): ${
+        failure?.sanitized_message ?? preflight.reason ?? 'unknown'
+      }`;
+      const finishedAt = new Date().toISOString();
+      const durationMs = new Date(finishedAt).getTime() - new Date(startedAt).getTime();
+      const preflightResult: AutopilotOneClickResult = {
+        raw_goal: rawGoal,
+        mission_path: missionPath,
+        mission,
+        plan_result: {} as AutopilotPlanResult,
+        run_dir: runDirBase,
+        verdict: isResumable ? 'MULTITASK_MISSION_PAUSED_GIT_AUTH' : 'MULTITASK_MISSION_FAILED',
+        reason,
+        exit_code: 1,
+        generated_paths: [],
+        resume_supported: isResumable,
+        ...(isResumable
+          ? {
+              resume_command: command.includes('--resume') ? command : `${command} --resume`,
+              next_human_action:
+                'Update GITHUB_TOKEN with a credential that can push to the repository and run the command again with --resume; no provider calls were made.',
+            }
+          : {}),
+        ...(failure !== undefined ? { git_failure: failure } : {}),
+      };
+      const reportPaths = writeOneClickReport(runDirBase, preflightResult, startedAt, finishedAt, durationMs);
+      return {
+        ...preflightResult,
+        generated_paths: [reportPaths.mdPath, reportPaths.jsonPath],
+      };
+    }
   }
 
   const planResult = await runAutopilotPlan(mission, { command });
@@ -181,6 +234,8 @@ export async function runAutopilotOneClick(
           generated_paths: planResult.generated_files,
           next_human_action: multitaskResult.next_human_action,
           resume_command: multitaskResult.resume_command,
+          resume_supported: multitaskResult.resume_supported,
+          git_failure: multitaskResult.git_failure,
           multitask_result: multitaskResult,
         },
         startedAt,
@@ -201,6 +256,8 @@ export async function runAutopilotOneClick(
         generated_paths: [...planResult.generated_files, reportPaths.mdPath, reportPaths.jsonPath],
         next_human_action: multitaskResult.next_human_action,
         resume_command: multitaskResult.resume_command,
+        resume_supported: multitaskResult.resume_supported,
+        git_failure: multitaskResult.git_failure,
         multitask_result: multitaskResult,
       };
     }

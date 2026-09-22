@@ -16,7 +16,7 @@ export function writeOneClickReport(
     raw_goal: result.raw_goal,
     mission_path: result.mission_path,
     mission: result.mission,
-    plan_verdict: result.plan_result.verdict,
+    plan_verdict: result.plan_result?.verdict ?? 'n/a',
     autopilot_verdict: result.autopilot_result?.verdict,
     final_verdict: result.verdict,
     run_dir: runDir,
@@ -24,6 +24,9 @@ export function writeOneClickReport(
     reason: result.reason,
     next_human_action: result.next_human_action,
     resume_command: result.resume_command,
+    resume_supported:
+      result.resume_supported ?? result.multitask_result?.resume_supported,
+    git_failure: result.git_failure ?? result.multitask_result?.git_failure,
     started_at: startedAt,
     finished_at: finishedAt,
     duration_ms: durationMs,
@@ -56,6 +59,31 @@ export function writeOneClickReport(
         ]
       : [];
 
+  const gitPausedTask =
+    result.verdict === 'MULTITASK_MISSION_PAUSED_GIT_AUTH'
+      ? result.multitask_result?.autopilot_result?.mvp_result?.task_results.find(
+          (t) => t.status === 'paused_git_auth'
+        )
+      : undefined;
+  const gitFailure = result.git_failure ?? result.multitask_result?.git_failure;
+  const gitPausedSection =
+    result.verdict === 'MULTITASK_MISSION_PAUSED_GIT_AUTH'
+      ? [
+          '',
+          '## Git remote auth pause',
+          '',
+          `- **Verdict:** ${result.verdict}`,
+          `- **Remote:** ${gitFailure?.remote ?? 'origin'}`,
+          `- **Operation:** ${gitFailure?.operation ?? 'push'}`,
+          `- **Failure kind:** ${gitFailure?.failure_kind ?? 'unknown'}`,
+          `- **Phase:** ${gitPausedTask?.task_phase ?? 'preflight'}`,
+          `- **Reason:** ${gitFailure?.sanitized_message ?? result.reason}`,
+          '- **Mission state preserved:** YES',
+          `- **Resume supported:** ${result.multitask_result?.resume_supported === true || result.resume_command !== undefined ? 'YES' : 'NO'}`,
+          `- **Resume command:** \`${result.resume_command ?? 'rerun with --resume'}\``,
+        ]
+      : [];
+
   const md = [
     '# One-Click Autopilot Report',
     '',
@@ -63,12 +91,13 @@ export function writeOneClickReport(
     `- **Mission path:** ${result.mission_path ?? '<inline-goal>'}`,
     `- **Run id:** ${result.mission.run_id}`,
     `- **Mode:** ${result.mission.mode}`,
-    `- **Plan verdict:** ${result.plan_result.verdict}`,
+    `- **Plan verdict:** ${result.plan_result?.verdict ?? 'n/a'}`,
     `- **Autopilot verdict:** ${result.autopilot_result?.verdict ?? 'n/a'}`,
     `- **Final verdict:** ${result.verdict}`,
     `- **Reason:** ${result.reason}`,
     result.next_human_action ? `- **Next human action:** ${result.next_human_action}` : '',
     ...pausedSection,
+    ...gitPausedSection,
     '',
     '## Generated paths',
     '',

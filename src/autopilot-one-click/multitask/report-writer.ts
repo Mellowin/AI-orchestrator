@@ -51,6 +51,29 @@ export function writeMultitaskMissionReport(
         ]
       : [];
 
+  const gitPausedTask =
+    result.verdict === 'MULTITASK_MISSION_PAUSED_GIT_AUTH'
+      ? result.autopilot_result?.mvp_result?.task_results.find((t) => t.status === 'paused_git_auth')
+      : undefined;
+  const gitPausedSection =
+    result.verdict === 'MULTITASK_MISSION_PAUSED_GIT_AUTH'
+      ? [
+          '',
+          '## Git remote auth pause',
+          '',
+          `- **Verdict:** ${result.verdict}`,
+          `- **Remote:** ${result.git_failure?.remote ?? 'origin'}`,
+          `- **Operation:** ${result.git_failure?.operation ?? 'push'}`,
+          `- **Failure kind:** ${result.git_failure?.failure_kind ?? 'unknown'}`,
+          `- **Phase:** ${gitPausedTask?.task_phase ?? 'committed'}`,
+          `- **Reason:** ${result.git_failure?.sanitized_message ?? result.reason}`,
+          gitPausedTask?.commit_sha ? `- **Accepted commit preserved:** ${gitPausedTask.commit_sha}` : '',
+          '- **Mission state preserved:** YES',
+          `- **Resume supported:** ${result.resume_supported === true ? 'YES' : 'NO'}`,
+          `- **Resume command:** \`${result.resume_command ?? 'rerun with --resume'}\``,
+        ].filter((line) => line !== '')
+      : [];
+
   const md = [
     '# Multi-Task Mission Report',
     '',
@@ -64,6 +87,7 @@ export function writeMultitaskMissionReport(
     result.work_branch ? `- **Work branch:** ${result.work_branch}` : '',
     result.pr ? `- **PR:** #${result.pr.number} (${result.pr.url})` : '',
     ...pausedSection,
+    ...gitPausedSection,
     result.validation_failure_classification
       ? `- **Validation failure classification:** ${result.validation_failure_classification}`
       : '',

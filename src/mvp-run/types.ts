@@ -6,6 +6,7 @@
 
 import type { Check } from '../types.js';
 import type { StructuredProviderFailure } from '../provider-failure.js';
+import type { StructuredGitRemoteFailure } from '../git-remote-failure.js';
 
 export type MvpRunProvider = 'fake' | 'kimi';
 
@@ -14,6 +15,7 @@ export type MvpRunVerdict =
   | 'MVP_RUN_PASSED_WITH_CAVEATS'
   | 'MVP_RUN_NEEDS_HUMAN'
   | 'MVP_RUN_PAUSED_PROVIDER'
+  | 'MVP_RUN_PAUSED_GIT_AUTH'
   | 'MVP_RUN_FAILED';
 
 export type MvpRunTaskStatus =
@@ -23,7 +25,8 @@ export type MvpRunTaskStatus =
   | 'blocked'
   | 'skipped'
   | 'needs_human'
-  | 'paused_provider';
+  | 'paused_provider'
+  | 'paused_git_auth';
 
 export interface MvpRunTaskConfig {
   id: string;
@@ -91,6 +94,8 @@ export interface MvpRunTaskReport {
   /** Task phase at which the provider pause occurred. */
   task_phase?: string;
   provider_failure?: StructuredProviderFailure;
+  /** Structured Git remote failure evidence (paused_git_auth only). */
+  git_failure?: StructuredGitRemoteFailure;
 }
 
 export interface MvpRunPrResult {

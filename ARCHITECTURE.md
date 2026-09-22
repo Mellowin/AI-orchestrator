@@ -176,7 +176,8 @@ export type RunStatus =
   | 'failed'
   | 'pushed'
   | 'blocked'
-  | 'paused_provider';
+  | 'paused_provider'
+  | 'paused_git_auth';
 
 export interface KimiOutput {
   mode: 'file_update';
@@ -239,6 +240,36 @@ fail-closed проверкой хеша кандидат-пакета. На ур
 (потомки не помечаются skipped); далее статус пробрасывается в mvp-run
 (`MVP_RUN_PAUSED_PROVIDER`), autopilot (`AUTOPILOT_PAUSED_PROVIDER`) и
 multitask-миссию (`MULTITASK_MISSION_PAUSED_PROVIDER`).
+
+`paused_git_auth` — задача поставлена на паузу из-за прерывания Git remote
+аутентификации/доступа (push или post-push проверка remote HEAD упали с
+auth/permission/network/unavailable ошибкой). Классификация — модуль
+`src/git-remote-failure.ts`: `GIT_AUTH_INVALID`, `GIT_AUTH_EXPIRED`,
+`GIT_PERMISSION_DENIED`, `GIT_REMOTE_UNAVAILABLE`, `GIT_NETWORK_FAILURE`
+(pause_recommended=true) против fail-closed `GIT_NON_FAST_FORWARD`,
+`GIT_REMOTE_CONFLICT`, `GIT_UNKNOWN_FAILURE` (pause_recommended=false); все
+сообщения проходят sanitization (URL credentials, точное значение
+`GITHUB_TOKEN`, Bearer/PAT-паттерны — никогда не сохраняются). При паузе
+принятый локальный коммит НЕ откатывается: в `RunState` сохраняются
+`git_failure`, `credential_source` ('GITHUB_TOKEN'), `resume_supported`,
+`commit_sha`/`accepted_commit_sha`, `paused_candidate_package_hash`; задача
+остаётся в фазе `committed`, потомки остаются `pending`. Resume после замены
+`GITHUB_TOKEN` не вызывает planner/coder/reviewer: reconcile проверяет, что
+HEAD кандидата == `accepted_commit_sha`, parent == `task_base_sha`, содержимое
+== snapshot, затем пушит ТОТ ЖЕ коммит и проверяет remote HEAD. Вердикты по
+цепочке: `MVP_RUN_PAUSED_GIT_AUTH` → `AUTOPILOT_PAUSED_GIT_AUTH` →
+`MULTITASK_MISSION_PAUSED_GIT_AUTH`.
+
+Дополнительно перед первым дорогим planner/coder вызовом в github-миссии с
+`allow_repo_push` one-click runner выполняет неизменяющий write-auth preflight
+(`src/git-write-auth-preflight.ts`): `git push --dry-run --porcelain` текущего
+HEAD на детерминированный ref `refs/heads/ai-orchestrator/write-auth-preflight`
+с той же конструкцией credential (x-access-token injection в HTTPS URL), затем
+`ls-remote` подтверждает, что ref не создан. `ls-remote` alone недостаточен:
+публичные репозитории читаются анонимно. При провале preflight миссия
+останавливается ДО provider-вызовов (call count = 0) с resumable вердиктом
+`MULTITASK_MISSION_PAUSED_GIT_AUTH`. Никакой модификации global git config,
+никаких credential-helper'ов — достаточно `.env` `GITHUB_TOKEN`.
 
 ### 4.2. `src/config.ts`
 

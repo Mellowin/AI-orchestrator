@@ -21,6 +21,7 @@ import {
 } from './real-block-task-timeout.js';
 import type { ReviewerEvidence } from './reviewer-evidence.js';
 import type { StructuredProviderFailure } from './provider-failure.js';
+import type { StructuredGitRemoteFailure } from './git-remote-failure.js';
 import { buildDependencyEvidence } from './reviewer/dependency-evidence.js';
 import type { ProviderAttempt, TaskRunPhase } from './types.js';
 import type {
@@ -833,6 +834,30 @@ export function deriveTaskResult(
     return base;
   }
 
+  // A child paused on a Git remote credential/access interruption: the accepted
+  // local commit and all reviewer/checks evidence are preserved; the task stays
+  // resumable and descendants remain pending instead of blocked_skipped.
+  if (runStatus === 'paused_git_auth') {
+    base.status = 'paused_git_auth';
+    base.finalStatus = 'paused_git_auth';
+    base.nextAction = 'wait';
+    base.codeApplied = true;
+    base.pushed = false;
+    // A Git auth pause can only occur at the push stage, after final checks passed.
+    base.checksResult = 'pass';
+    base.taskPhase = getStateString(state, 'task_phase');
+    const failure = state.git_failure;
+    if (isObject(failure)) {
+      base.gitFailure = failure as unknown as StructuredGitRemoteFailure;
+    }
+    base.reason = redactSecrets(
+      typeof state.safety_note === 'string'
+        ? state.safety_note
+        : 'Task paused on a Git remote auth interruption; resume after updating GITHUB_TOKEN.'
+    );
+    return base;
+  }
+
   // A child task that reached a reviewer gate but was ultimately blocked (e.g.
   // max fix attempts reached, guardrails blocked a fix, or no fix loop configured)
   // reports state.status === 'blocked' while reviewer_gate may still be
@@ -1418,13 +1443,17 @@ export async function runRealBlockRunAI(
       taskResult.status !== 'accepted' &&
       taskResult.status !== 'fixed_and_accepted'
     ) {
-      if (taskResult.status === 'paused_provider') {
-        // Provider pause: stop launching further tasks, keep the paused task and
-        // all descendants untouched (no skip markers) so a resume can continue.
+      if (taskResult.status === 'paused_provider' || taskResult.status === 'paused_git_auth') {
+        // Provider/Git-auth pause: stop launching further tasks, keep the paused
+        // task and all descendants untouched (no skip markers) so a resume can
+        // continue. The accepted local commit of a git-auth-paused task is
+        // preserved and will be pushed by resume without new provider calls.
         stopped = true;
-        blockState.status = 'paused_provider';
+        blockState.status = taskResult.status;
         blockState.summary.stoppedReason = redactSecrets(
-          `Task ${task.task_id} paused on provider interruption: ${taskResult.reason ?? 'provider interruption'}`
+          taskResult.status === 'paused_git_auth'
+            ? `Task ${task.task_id} paused on Git remote auth interruption: ${taskResult.reason ?? 'git credential interruption'}`
+            : `Task ${task.task_id} paused on provider interruption: ${taskResult.reason ?? 'provider interruption'}`
         );
         saveBlockState(block, blockState);
         break;

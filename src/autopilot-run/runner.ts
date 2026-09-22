@@ -281,6 +281,16 @@ export async function runAutopilotRun(
     return finalize(paused);
   }
 
+  if (mvpResult.verdict === 'MVP_RUN_PAUSED_GIT_AUTH') {
+    const paused = buildResult(
+      'AUTOPILOT_PAUSED_GIT_AUTH',
+      `MVP run paused on Git remote auth interruption: ${mvpResult.reason}`,
+      mvpResult
+    );
+    paused.next_human_action = mvpResult.next_human_action;
+    return finalize(paused);
+  }
+
   if (!isMvpSuccess(mvpResult.verdict)) {
     const reason = `MVP run failed: ${mvpResult.verdict} — ${mvpResult.reason}`;
     return finalize(buildResult('AUTOPILOT_MVP_FAILED', reason, mvpResult));
