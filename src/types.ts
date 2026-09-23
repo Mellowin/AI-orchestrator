@@ -149,6 +149,26 @@ export interface ReviewerPhaseEvidence {
   };
 }
 
+export interface ReviewerRoundEvidence {
+  reviewer_round: number;
+  reviewer_type: 'reviewer' | 'second_reviewer';
+  task_base_sha: string;
+  candidate_package_hash: string;
+  status: string;
+  source: string;
+  nextAction: string;
+  blockingIssues: string[];
+  nonBlockingIssues: string[];
+  reviewSummary: string;
+  fixTask?: string;
+  parse_attempts: number;
+  parser_error?: string;
+  malformed_raw_excerpt?: string;
+  malformed_raw_length?: number;
+  malformed_raw_sha256?: string;
+  recorded_at: string;
+}
+
 export interface RunState {
   task_id: string;
   status: RunStatus;
@@ -196,6 +216,8 @@ export interface RunState {
   check_summary?: ReviewerEvidence['checkSummary'];
   reviewer_phase_evidence?: ReviewerPhaseEvidence;
   reviewer_gate?: PersistedReviewerGate;
+  /** Append-only reviewer round history; never overwritten by later rounds. */
+  reviewer_rounds?: ReviewerRoundEvidence[];
   /** Structured evidence when the run is paused on a provider interruption. */
   provider_failure?: StructuredProviderFailure;
   /** Structured evidence when the run is paused on a Git remote auth interruption. */

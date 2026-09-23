@@ -14,7 +14,10 @@ import {
 import {
   parseReviewerDecisionText,
   buildParseFailureResult,
+  sanitizeRawOutput,
+  ReviewerOutputParseError,
   type ReviewerParseFailure,
+  type SanitizedRawOutput,
 } from './reviewer/reviewer-output-parser.js';
 
 export type ReviewerProviderCall = (
@@ -32,6 +35,10 @@ export interface ReviewerProviderRunnerResult {
   rawReviewerOutput?: string | unknown;
   gateResult: ReviewerGateResult;
   parseFailure?: ReviewerParseFailure;
+  /** Structural classification result of the last parse failure, if any. */
+  lastParseError?: string;
+  /** Sanitized raw output of the last malformed reviewer response, if any. */
+  lastMalformedRaw?: SanitizedRawOutput;
 }
 
 const DEFAULT_REVIEWER_PARSE_RETRIES = 2;
@@ -214,6 +221,8 @@ export async function runReviewerGateWithProvider(
 
   let lastRaw: string | unknown = undefined;
   let lastError = '';
+  let lastParseError: string | undefined;
+  let lastMalformedRaw: SanitizedRawOutput | undefined;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const reviewerInput =
@@ -229,7 +238,7 @@ export async function runReviewerGateWithProvider(
       const parseResult = tryParseReviewerOutput(text);
 
       if (parseResult === undefined) {
-        throw new Error(`Reviewer output is not valid JSON`);
+        throw new ReviewerOutputParseError('Reviewer output is not valid JSON', text);
       }
 
       const gateResult = evaluateReviewerGate({
@@ -244,6 +253,8 @@ export async function runReviewerGateWithProvider(
           ...gateResult,
           parseAttempts: attempt + 1,
         } as ReviewerGateResult,
+        lastParseError,
+        lastMalformedRaw,
       };
     } catch (providerError) {
       const errorMessage =
@@ -252,10 +263,27 @@ export async function runReviewerGateWithProvider(
           : String(providerError);
       lastError = errorMessage;
 
+      // Structural classification first: ReviewerOutputParseError is the
+      // explicit contract for malformed reviewer output. Message substrings
+      // are kept only as a legacy fallback for non-Kimi reviewer providers.
       const isParseError =
+        providerError instanceof ReviewerOutputParseError ||
         errorMessage.includes('not valid JSON') ||
         errorMessage.includes('ReviewerDecision') ||
         errorMessage.includes('Invalid or missing');
+
+      if (isParseError) {
+        lastParseError = redactSecrets(errorMessage);
+        const errorRawText =
+          providerError instanceof ReviewerOutputParseError ? providerError.rawText : undefined;
+        const rawCandidate = errorRawText ?? lastRaw;
+        if (rawCandidate !== undefined) {
+          const { text: rawText } = normalizeReviewerOutput(rawCandidate);
+          if (typeof rawText === 'string') {
+            lastMalformedRaw = sanitizeRawOutput(rawText);
+          }
+        }
+      }
 
       if (!isParseError || attempt >= maxRetries) {
         const providerFailure = extractStructuredProviderFailure(providerError);
@@ -263,7 +291,11 @@ export async function runReviewerGateWithProvider(
           status: 'blocked',
           source: isParseError ? 'parser' : 'provider',
           reviewerInput,
-          blockingIssues: [`Reviewer provider failed: ${redactSecrets(errorMessage)}`],
+          blockingIssues: [
+            isParseError
+              ? `Reviewer output remained invalid after ${attempt + 1} parse attempt(s): ${redactSecrets(errorMessage)}`
+              : `Reviewer provider failed: ${redactSecrets(errorMessage)}`,
+          ],
           nonBlockingIssues: [],
           reviewSummary: isParseError
             ? 'Blocked due to invalid reviewer output format.'
@@ -283,6 +315,8 @@ export async function runReviewerGateWithProvider(
               parseAttempts: attempt + 1,
             } as ReviewerGateResult,
             parseFailure: buildParseFailureResult(attempt + 1, lastRaw),
+            lastParseError,
+            lastMalformedRaw,
           };
         }
 
@@ -302,7 +336,9 @@ export async function runReviewerGateWithProvider(
     status: 'blocked',
     source: 'parser',
     reviewerInput: baseReviewerInput,
-    blockingIssues: [`Reviewer provider failed: ${redactSecrets(lastError)}`],
+    blockingIssues: [
+      `Reviewer output remained invalid after ${maxRetries + 1} parse attempt(s): ${redactSecrets(lastError)}`,
+    ],
     nonBlockingIssues: [],
     reviewSummary: 'Blocked due to invalid reviewer output format.',
     nextAction: 'block',
@@ -315,5 +351,7 @@ export async function runReviewerGateWithProvider(
       parseAttempts: maxRetries + 1,
     } as ReviewerGateResult,
     parseFailure: buildParseFailureResult(maxRetries + 1, lastRaw),
+    lastParseError,
+    lastMalformedRaw,
   };
 }

@@ -16,7 +16,10 @@ import {
 import type { FetchFn } from '../../provider-call.js';
 import { KimiProviderError, extractKimiProviderFailure } from './kimi-provider-error.js';
 import { buildReviewerPrompt } from '../../reviewer/reviewer-prompt.js';
-import { parseReviewerDecisionText } from '../../reviewer/reviewer-output-parser.js';
+import {
+  parseReviewerDecisionText,
+  ReviewerOutputParseError,
+} from '../../reviewer/reviewer-output-parser.js';
 
 export interface KimiReviewerProviderOptions {
   allowReal?: boolean;
@@ -91,6 +94,12 @@ export function createKimiReviewerProvider(
         });
         return parseReviewerDecisionText(normalized.text).decision;
       } catch (err) {
+        if (err instanceof ReviewerOutputParseError) {
+          // Malformed reviewer output is a recoverable format failure, not a
+          // provider interruption; the reviewer-gate runner owns bounded parse
+          // retries and must see the structural type, not a wrapped provider error.
+          throw err;
+        }
         const info = normalizeProviderCallError(err);
         throw new KimiProviderError(
           `Kimi reviewer failed: ${info.message}`,

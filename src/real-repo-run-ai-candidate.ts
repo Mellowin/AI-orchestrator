@@ -1151,6 +1151,11 @@ export async function runRealRepoRunAICandidateFlow(
             fakeReviewerResponse;
 
       let gateResult: PersistedReviewerGate;
+      let gateParseAttempts = 1;
+      let gateParseError: string | undefined;
+      let gateMalformedRaw:
+        | { excerptMasked: string; length: number; sha256: string; truncated: boolean }
+        | undefined;
 
       try {
         const reviewerResult = await runReviewerGateWithProvider({
@@ -1189,6 +1194,7 @@ export async function runRealRepoRunAICandidateFlow(
               gitStatus: '',
               safetyFindings: [],
               dependencyEvidence: reviewerInput.dependency_evidence,
+              previousFailure: reviewerInput.previousFailure,
               candidateState: {
                 base_sha: reviewPackage.task_base_sha,
                 package_hash: reviewPackage.candidate_package_hash,
@@ -1226,6 +1232,9 @@ export async function runRealRepoRunAICandidateFlow(
           maxParseRetries: reviewerParseRetries,
         });
         const gate = reviewerResult.gateResult;
+        gateParseAttempts = gate.parseAttempts ?? 1;
+        gateParseError = reviewerResult.lastParseError;
+        gateMalformedRaw = reviewerResult.lastMalformedRaw;
         gateResult = {
           status: gate.status,
           source: gate.source,
@@ -1282,6 +1291,37 @@ export async function runRealRepoRunAICandidateFlow(
           fixTask: gateResult.fixTask,
         },
       };
+      // Append-only per-round evidence: later reviewer rounds must never
+      // overwrite the first reviewer's blockingIssues/fixTask record.
+      state.reviewer_rounds = [
+        ...(state.reviewer_rounds ?? []),
+        {
+          reviewer_round: reviewerRound,
+          reviewer_type: reviewerRound === 0 ? ('reviewer' as const) : ('second_reviewer' as const),
+          task_base_sha: reviewPackage.task_base_sha,
+          candidate_package_hash: reviewPackage.candidate_package_hash,
+          status: gateResult.status,
+          source: gateResult.source,
+          nextAction: gateResult.nextAction,
+          blockingIssues: gateResult.blockingIssues,
+          nonBlockingIssues: gateResult.nonBlockingIssues,
+          reviewSummary: gateResult.reviewSummary,
+          fixTask: gateResult.fixTask,
+          parse_attempts: gateParseAttempts,
+          ...(gateParseError !== undefined ? { parser_error: gateParseError } : {}),
+          ...(gateMalformedRaw !== undefined
+            ? {
+                malformed_raw_excerpt: gateMalformedRaw.excerptMasked,
+                malformed_raw_length: gateMalformedRaw.length,
+                malformed_raw_sha256: gateMalformedRaw.sha256,
+              }
+            : {}),
+          recorded_at: nowIso(),
+        },
+      ];
+      // Persist the first reviewer's verdict (blockingIssues + fixTask) before
+      // any fix coder runs, so the evidence survives an interruption mid-fix.
+      saveState(task.id, state, runsDir);
 
       if (gateResult.status === 'accepted') {
         acceptedReviewPackage = reviewPackage;
