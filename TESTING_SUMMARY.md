@@ -2,18 +2,18 @@
 
 **Branch:** `stage-18-26-autonomous-multitask-completion`
 
-**Last verified:** `34e655147cc67ebb6c45360aa306f4b6cb8c1851`
+**Last verified:** `bb940531b24222fb458508855ace9d74225209ca`
 
 ## Test metrics
 
-- **Total tests:** 4167
-- **Total suites:** 323
+- **Total tests:** 4174
+- **Total suites:** 325
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `34e655147cc67ebb6c45360aa306f4b6cb8c1851` (Stage 18.26c.1: keep GitHub credentials ephemeral)
+- **Last verified commit:** `bb940531b24222fb458508855ace9d74225209ca` (Stage 18.26c.2: fix ephemeral Git PAT auth and exact resume identity)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Stage 18.26b provider pause/resume verification (before push):**
@@ -31,6 +31,16 @@
   - `npm run build` — OK
   - `npm run verify:summary` — OK
   - `npm run verify:product:ci` — OK (4162 tests / 322 suites / 0 failures, exit code 0)
+- **Stage 18.26c.2 ephemeral Git PAT auth + exact resume identity verification (before push):**
+  - `test/git-push-auth.test.ts` — 14/14 pass (buildEphemeralGitAuthEnv emits a github.com-scoped `http.extraHeader` with HTTP Basic `base64("x-access-token:<PAT>")` — NOT Bearer; decoded credential has non-empty username and the PAT as password; raw token absent from the header value; defaults to process.env.GITHUB_TOKEN; returns {} without a token; credential rotation re-reads the CURRENT environment)
+  - `test/git-write-auth-preflight.test.ts` — 10/10 pass (dry-run push and ls-remote argv contain neither the raw token nor the encoded Basic credential; auth travels only via ephemeral GIT_CONFIG env; preflight and candidate push share the exact same buildEphemeralGitAuthEnv mechanism; invalid token still classifies GIT_AUTH_INVALID and pauses BEFORE the planner with provider call count = 0; generated resume command pins `--run-id <original>`; happy path creates no remote ref)
+  - `test/one-click-resume-identity.test.ts` — 4/4 pass (buildResumeCommand pins the original run id and never duplicates --run-id/--resume; raw goal + --resume without --run-id fails closed with ONE_CLICK_CONFIG_ERROR — no report directory, no provider calls, no repo mutation; exact pause→resume flow: initial run pauses at preflight as mission-A, the generated resume command is parsed through the real CLI parser and resumes the SAME mission-A after credential rotation — preflight passes exactly once, the mission runs exactly once, no mission-B directory is created)
+  - `test/git-auth-pause-resume.test.ts` — 5/5 pass (pause/resume flow unchanged; recursive byte scans of candidate .git/ and runs/ now also cover the encoded Basic credential — zero occurrences; mission-level resume_command contains `--run-id <runId> --resume`)
+  - `test/provider-pause-resume.test.ts` — 12/12 pass (provider pause/resume unchanged; mission-level resume_command pins the original run id)
+  - `npm run typecheck` — OK
+  - `npm run build` — OK
+  - `npm run verify:summary` — OK
+  - `npm run verify:product:ci` — OK (4174 tests / 325 suites / 0 failures, exit code 0)
 - **Stage 18.26c.1 ephemeral GitHub credentials verification (before push):**
   - `test/git-push-auth.test.ts` — 13/13 pass (legacy URL injection kept for compatibility; stripCredentialsFromRemoteUrl removes embedded userinfo and leaves clean/SSH/local URLs unchanged; buildEphemeralGitAuthEnv emits a github.com-scoped `http.extraHeader` Authorization Bearer via GIT_CONFIG_* env, defaults to process.env.GITHUB_TOKEN, returns {} without a token)
   - `test/git-write-auth-preflight.test.ts` — 9/9 pass (dry-run push argv contains NO token and NO x-access-token URL — auth travels only via ephemeral GIT_CONFIG env; credential-free remote URL; dry-run auth failure still classifies GIT_AUTH_INVALID and pauses the mission BEFORE the planner with provider call count = 0; missing provider token keeps the legacy planner token error with preflight skipped; happy path creates no remote ref)
