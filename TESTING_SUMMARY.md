@@ -2,7 +2,7 @@
 
 **Branch:** `stage-18-26-autonomous-multitask-completion`
 
-**Last verified:** `bdcd382d2a3594906f08b092af386cd5b7e6f1b6`
+**Last verified:** `34e655147cc67ebb6c45360aa306f4b6cb8c1851`
 
 ## Test metrics
 
@@ -13,7 +13,7 @@
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `bdcd382d2a3594906f08b092af386cd5b7e6f1b6` (Stage 18.26c: preserve and resume missions across Git auth interruptions)
+- **Last verified commit:** `34e655147cc67ebb6c45360aa306f4b6cb8c1851` (Stage 18.26c.1: keep GitHub credentials ephemeral)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Stage 18.26b provider pause/resume verification (before push):**
