@@ -6,6 +6,7 @@ import type { AutopilotPlanMission, AutopilotPlanResult } from '../autopilot-pla
 import { loadAutopilotRunConfig, runAutopilotRun } from '../autopilot-run/index.js';
 import { runMultitaskMission } from './multitask/runner.js';
 import { buildMissionFromGoal, MissionBuilderError } from './mission-builder.js';
+import { buildResumeCommand } from './resume-command.js';
 import { runGitWriteAuthPreflight } from '../git-write-auth-preflight.js';
 import { writeOneClickReport } from './report-writer.js';
 import type {
@@ -52,6 +53,18 @@ export async function runAutopilotOneClick(
   let mission: AutopilotPlanMission;
   let missionPath: string | undefined;
   let rawGoal: string | undefined;
+
+  // Fail closed on ambiguous resume: a raw-goal mission derives its run id from
+  // the current time, so --resume without an explicit --run-id would silently
+  // create a NEW mission instead of resuming the paused one. Persisted mission
+  // configs already carry a stable run_id and are exempt. No report directory,
+  // no provider call, no repository mutation happens on this path.
+  if (options.resume === true && !input.endsWith('.json') && !options.run_id) {
+    return makeFailureResult(
+      'ONE_CLICK_CONFIG_ERROR',
+      'Resume requires the original --run-id for a raw-goal mission.'
+    );
+  }
 
   try {
     if (input.endsWith('.json')) {
@@ -129,7 +142,7 @@ export async function runAutopilotOneClick(
         resume_supported: isResumable,
         ...(isResumable
           ? {
-              resume_command: command.includes('--resume') ? command : `${command} --resume`,
+              resume_command: buildResumeCommand(command, mission.run_id),
               next_human_action:
                 'Update GITHUB_TOKEN with a credential that can push to the repository and run the command again with --resume; no provider calls were made.',
             }

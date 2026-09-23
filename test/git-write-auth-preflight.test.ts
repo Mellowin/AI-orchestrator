@@ -9,6 +9,7 @@ import {
   GIT_WRITE_AUTH_PREFLIGHT_REF,
   runGitWriteAuthPreflight,
 } from '../src/git-write-auth-preflight.js';
+import { buildEphemeralGitAuthEnv } from '../src/git-push-auth.js';
 import { runAutopilotOneClick } from '../src/autopilot-one-click/runner.js';
 
 type FakeGitResult = { status: number; stdout: string; stderr: string };
@@ -26,6 +27,7 @@ function makeFakeSpawn(
 }
 
 const SENTINEL_TOKEN = 'ghp_SENTINELpreflighttoken000000000000000000'; // 36 chars after ghp_
+const SENTINEL_BASIC = Buffer.from(`x-access-token:${SENTINEL_TOKEN}`, 'utf-8').toString('base64');
 
 function withToken<T>(value: string | undefined, fn: () => T): T {
   const prev = process.env.GITHUB_TOKEN;
@@ -126,16 +128,24 @@ test('preflight: dry-run auth failure -> GIT_AUTH_INVALID, ephemeral token, no t
       'no argv element may contain the token'
     );
     assert.ok(
+      pushCall.args.every((a) => !a.includes(SENTINEL_BASIC)),
+      'no argv element may contain the encoded Basic credential'
+    );
+    assert.ok(
       pushCall.args.every((a) => !a.includes('x-access-token')),
       'no argv element may carry embedded credentials'
     );
     // The push URL stays credential-free.
     assert.ok(pushCall.args.includes(GITHUB_REMOTE), 'push URL must be the credential-free remote');
-    // Authentication is ephemeral: GIT_CONFIG_* env carries the Authorization
-    // header scoped to github.com for this process only.
+    // Authentication is ephemeral: GIT_CONFIG_* env carries an HTTP Basic
+    // (x-access-token:<PAT>) header scoped to github.com for this process only.
     assert.equal(pushCall.env?.GIT_CONFIG_COUNT, '1');
     assert.equal(pushCall.env?.GIT_CONFIG_KEY_0, 'http.https://github.com/.extraHeader');
-    assert.equal(pushCall.env?.GIT_CONFIG_VALUE_0, `Authorization: Bearer ${SENTINEL_TOKEN}`);
+    assert.equal(pushCall.env?.GIT_CONFIG_VALUE_0, `Authorization: Basic ${SENTINEL_BASIC}`);
+    assert.ok(
+      !pushCall.env?.GIT_CONFIG_VALUE_0?.includes(SENTINEL_TOKEN),
+      'raw token must not appear in the env header value'
+    );
     assert.ok(!result.failure!.sanitized_message.includes(SENTINEL_TOKEN), 'token must be redacted');
     // Regression 17: a readable (anonymous) remote does NOT count as write auth —
     // the result is a failure even though only the write step failed.
@@ -158,13 +168,13 @@ test('preflight: happy path -> ok, every push is a dry-run, ls-remote confirms n
     assert.equal(pushCalls.length, 1);
     assert.ok(pushCalls[0].args.includes('--dry-run'), 'preflight must never perform a real push');
     assert.ok(
-      pushCalls[0].args.every((a) => !a.includes(SENTINEL_TOKEN)),
-      'token must not appear in argv on the happy path'
+      pushCalls[0].args.every((a) => !a.includes(SENTINEL_TOKEN) && !a.includes(SENTINEL_BASIC)),
+      'neither the raw token nor the encoded Basic credential may appear in argv on the happy path'
     );
     assert.equal(
       pushCalls[0].env?.GIT_CONFIG_VALUE_0,
-      `Authorization: Bearer ${SENTINEL_TOKEN}`,
-      'auth must be ephemeral via GIT_CONFIG env'
+      `Authorization: Basic ${SENTINEL_BASIC}`,
+      'auth must be ephemeral HTTP Basic via GIT_CONFIG env'
     );
     const lsRemote = calls.find((c) => c.args[0] === 'ls-remote');
     assert.ok(lsRemote?.args.includes(GIT_WRITE_AUTH_PREFLIGHT_REF));
@@ -184,6 +194,27 @@ test('preflight: pre-existing preflight ref on remote -> GIT_REMOTE_CONFLICT, fa
     assert.equal(result.ok, false);
     assert.equal(result.failure?.failure_kind, 'GIT_REMOTE_CONFLICT');
     assert.equal(result.failure?.pause_recommended, false);
+  });
+});
+
+test('preflight and candidate push share the exact same ephemeral auth mechanism', () => {
+  withToken(SENTINEL_TOKEN, () => {
+    const calls: RecordedCall[] = [];
+    const spawnFn = makeFakeSpawn(okHandler(), calls);
+    const result = runGitWriteAuthPreflight({ repoPath: '.', spawnFn });
+    assert.equal(result.ok, true);
+    // The candidate workspace gitRemote (push/fetch/ls-remote) authenticates
+    // through the same buildEphemeralGitAuthEnv builder; the preflight must
+    // hand git the identical env so a rotated credential behaves the same on
+    // the preflight dry-run and on the real push.
+    const expected = buildEphemeralGitAuthEnv(SENTINEL_TOKEN);
+    const remoteCalls = calls.filter((c) => c.args[0] === 'push' || c.args[0] === 'ls-remote');
+    assert.ok(remoteCalls.length >= 2, 'dry-run push and ls-remote must both run');
+    for (const call of remoteCalls) {
+      for (const [key, value] of Object.entries(expected)) {
+        assert.equal(call.env?.[key], value, `${call.args[0]} must use the shared auth env (${key})`);
+      }
+    }
   });
 });
 
@@ -276,6 +307,10 @@ test('one-click wiring: preflight failure pauses mission BEFORE planner (regress
     assert.equal(result.exit_code, 1);
     assert.equal(result.resume_supported, true);
     assert.ok(result.resume_command?.endsWith(' --resume'), 'resume command must be persisted');
+    assert.ok(
+      result.resume_command?.includes(`--run-id ${result.mission.run_id}`),
+      'resume command must pin the original run id'
+    );
     assert.equal(result.git_failure?.failure_kind, 'GIT_AUTH_INVALID');
     // Planner never ran: plan_result is an empty placeholder, no provider call happened.
     assert.equal(result.plan_result?.verdict, undefined);

@@ -635,7 +635,7 @@ describe('multitask mission provider pause', () => {
       assert.strictEqual(pausedResult.verdict, 'MULTITASK_MISSION_PAUSED_PROVIDER');
       assert.strictEqual(pausedResult.exit_code, 1);
       assert.strictEqual(pausedResult.resume_supported, true);
-      assert.strictEqual(pausedResult.resume_command, 'test-cmd --resume');
+      assert.strictEqual(pausedResult.resume_command, `test-cmd --run-id ${runId} --resume`);
       assert.strictEqual(pausedResult.provider_failure?.failure_kind, 'QUOTA_EXHAUSTED');
       const pausedTaskState = pausedResult.task_states?.find((s) => s.task_id === taskId);
       assert.strictEqual(pausedTaskState?.status, 'paused_provider');

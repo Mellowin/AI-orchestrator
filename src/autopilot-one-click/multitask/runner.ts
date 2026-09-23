@@ -17,6 +17,7 @@ import {
   type PersistedMissionState,
 } from './state-manager.js';
 import { writeMultitaskMissionReport } from './report-writer.js';
+import { buildResumeCommand } from '../resume-command.js';
 import {
   allRequiredTasksAccepted,
   buildInitialTaskStates,
@@ -788,7 +789,7 @@ export async function runMultitaskMission(
       ...(isPaused
         ? {
             resume_supported: true,
-            resume_command: command.includes('--resume') ? command : `${command} --resume`,
+            resume_command: buildResumeCommand(command, mission.run_id),
             ...(pausedTask?.provider_failure !== undefined ? { provider_failure: pausedTask.provider_failure } : {}),
             ...(pausedTask?.git_failure !== undefined ? { git_failure: pausedTask.git_failure } : {}),
             next_human_action: buildNextHumanAction(verdict, autopilotResult),

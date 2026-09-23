@@ -207,10 +207,10 @@ ai-orchestrator: {task_id} attempt {N}
 
 - `paused_provider` — прерывание AI-провайдера (quota/429/5xx/network). Resume продолжает с сохранённой фазы без повторных вызовов уже завершённых ролей.
 - `paused_git_auth` — прерывание Git remote аутентификации/доступа на push. Принятый локальный коммит, candidate workspace и reviewer evidence сохраняются; потомки остаются `pending` (НЕ `blocked_skipped`). Resume после замены `GITHUB_TOKEN` пушит ТОТ ЖЕ принятый коммит с нулём новых AI-вызовов; non-fast-forward/remote conflict — это НЕ pause, а fail-closed `failed`.
-- Миссионные вердикты: `MULTITASK_MISSION_PAUSED_PROVIDER` / `MULTITASK_MISSION_PAUSED_GIT_AUTH`; обе паузы resumable через `resume_command` (`... --resume`).
+- Миссионные вердикты: `MULTITASK_MISSION_PAUSED_PROVIDER` / `MULTITASK_MISSION_PAUSED_GIT_AUTH`; обе паузы resumable через `resume_command` (`... --run-id <оригинальный run_id> --resume`). Сгенерированная resume command ВСЕГДА содержит точный исходный `--run-id`; `--resume` без `--run-id` для raw-goal миссии fail-closed (`ONE_CLICK_CONFIG_ERROR`), без создания новой миссии.
 - Перед первым planner/coder вызовом в github-миссии с push выполняется неизменяющий write-auth preflight (`git push --dry-run` на временный ref) — сломанный `GITHUB_TOKEN` останавливает миссию до расхода provider-квоты.
 - `GITHUB_TOKEN` никогда не сохраняется в state/отчётах; все git remote сообщения проходят sanitization (`src/git-remote-failure.ts`).
-- Git remote аутентификация — только эфемерная: токен передаётся через `GIT_CONFIG_*` env (`http.https://github.com/.extraHeader`) в конкретный git-процесс (`buildEphemeralGitAuthEnv`). Persisted remote URL всегда credential-free — НИКОГДА не делай `git remote set-url` с токеном в URL.
+- Git remote аутентификация — только эфемерная: PAT передаётся через `GIT_CONFIG_*` env (`http.https://github.com/.extraHeader: Authorization: Basic base64("x-access-token:<GITHUB_TOKEN>")`) в конкретный git-процесс (`buildEphemeralGitAuthEnv`). GitHub smart-HTTP требует непустой username + PAT как password; Bearer для git push/fetch/ls-remote НЕ использовать. Persisted remote URL всегда credential-free — НИКОГДА не делай `git remote set-url` с токеном в URL.
 
 ---
 

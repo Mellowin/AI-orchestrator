@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import process from 'node:process';
 import { runAutopilotOneClick } from './runner.js';
+import { buildResumeCommand } from './resume-command.js';
 import type { AutopilotOneClickOptions, AutopilotOneClickPreset } from './types.js';
 
 export { runAutopilotOneClick };
@@ -89,6 +90,14 @@ function printCapabilitySummary(): void {
   console.error('    - repo.delete_branch');
 }
 
+function fallbackResumeCommand(command: string, result: { mission: { run_id?: string } }): string {
+  const runId = result.mission?.run_id;
+  if (typeof runId === 'string' && runId.length > 0) {
+    return buildResumeCommand(command, runId);
+  }
+  return command.includes('--resume') ? command : `${command} --resume`;
+}
+
 export async function main(rawArgs: string[] = process.argv.slice(2)): Promise<void> {
   if (rawArgs.length === 0) {
     console.error('[autopilot-one-click] Error: mission config path or raw goal is required');
@@ -136,7 +145,7 @@ export async function main(rawArgs: string[] = process.argv.slice(2)): Promise<v
     console.error(`[autopilot-one-click]   Reason: ${result.multitask_result?.provider_failure?.sanitized_message ?? result.reason}`);
     console.error('[autopilot-one-click]   Mission state preserved: YES');
     console.error('[autopilot-one-click]   Resume supported: YES');
-    console.error(`[autopilot-one-click]   Resume command: ${result.resume_command ?? `${command} --resume`}`);
+    console.error(`[autopilot-one-click]   Resume command: ${result.resume_command ?? fallbackResumeCommand(command, result)}`);
   }
 
   if (result.verdict === 'MULTITASK_MISSION_PAUSED_GIT_AUTH') {
@@ -152,7 +161,7 @@ export async function main(rawArgs: string[] = process.argv.slice(2)): Promise<v
     console.error(`[autopilot-one-click]   Reason: ${gitFailure?.sanitized_message ?? result.reason}`);
     console.error('[autopilot-one-click]   Mission state preserved: YES');
     console.error('[autopilot-one-click]   Resume supported: YES');
-    console.error(`[autopilot-one-click]   Resume command: ${result.resume_command ?? `${command} --resume`}`);
+    console.error(`[autopilot-one-click]   Resume command: ${result.resume_command ?? fallbackResumeCommand(command, result)}`);
   }
 
   process.exitCode = result.exit_code;

@@ -273,8 +273,10 @@ config, никаких credential-helper'ов — достаточно `.env` `G
 Аутентификация git remote операций — всегда эфемерная
 (`buildEphemeralGitAuthEnv` в `src/git-push-auth.ts`): токен передаётся через
 `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` с
-`http.https://github.com/.extraHeader: Authorization: Bearer <token>` только в
-environment конкретного git-процесса. Persisted origin URL всегда
+`http.https://github.com/.extraHeader: Authorization: Basic base64("x-access-token:<token>")`
+только в environment конкретного git-процесса. GitHub smart-HTTP ожидает
+непустой username (`x-access-token`) и PAT в роли password; Bearer для Git
+операций не используется. Persisted origin URL всегда
 credential-free (`stripCredentialsFromRemoteUrl` применяется при копировании
 origin в candidate workspace и в `configureCandidateRemote`), токен не
 появляется в argv, в `.git/config`, в state.json, логах и отчётах. Единый

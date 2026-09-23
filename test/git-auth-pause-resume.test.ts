@@ -37,6 +37,8 @@ const ENV_KEYS = [
  * on disk (candidate .git/, state.json, run logs, reports).
  */
 const FLOW_SENTINEL = 'ghp_SENTINELephemeralflow00000000000000';
+/** base64("x-access-token:<FLOW_SENTINEL>") — the encoded Basic credential must never be persisted either. */
+const FLOW_SENTINEL_BASIC = Buffer.from(`x-access-token:${FLOW_SENTINEL}`, 'utf-8').toString('base64');
 
 /** Recursively scan a directory tree for the exact sentinel bytes. */
 function findSentinelInTree(rootDir: string, sentinel: string): string[] {
@@ -325,9 +327,19 @@ describe('git auth pause/resume (flow level)', () => {
         'candidate .git/ must not contain the token after paused_git_auth'
       );
       assert.deepStrictEqual(
+        findSentinelInTree(join(setup.candidatePath, '.git'), FLOW_SENTINEL_BASIC),
+        [],
+        'candidate .git/ must not contain the encoded Basic credential after paused_git_auth'
+      );
+      assert.deepStrictEqual(
         findSentinelInTree(setup.runsDir, FLOW_SENTINEL),
         [],
         'state/logs must not contain the token'
+      );
+      assert.deepStrictEqual(
+        findSentinelInTree(setup.runsDir, FLOW_SENTINEL_BASIC),
+        [],
+        'state/logs must not contain the encoded Basic credential'
       );
 
       // Fresh (non-resume) rerun must refuse to restart over the paused state.
@@ -382,11 +394,21 @@ describe('git auth pause/resume (flow level)', () => {
           [],
           'candidate .git/ must not contain the token after resume'
         );
+        assert.deepStrictEqual(
+          findSentinelInTree(join(setup.candidatePath, '.git'), FLOW_SENTINEL_BASIC),
+          [],
+          'candidate .git/ must not contain the encoded Basic credential after resume'
+        );
       }
       assert.deepStrictEqual(
         findSentinelInTree(setup.runsDir, FLOW_SENTINEL),
         [],
         'state/logs must not contain the token after resume'
+      );
+      assert.deepStrictEqual(
+        findSentinelInTree(setup.runsDir, FLOW_SENTINEL_BASIC),
+        [],
+        'state/logs must not contain the encoded Basic credential after resume'
       );
     } finally {
       restoreEnv(envSnap);
@@ -606,7 +628,7 @@ describe('multitask mission git auth pause', () => {
       assert.strictEqual(pausedResult.verdict, 'MULTITASK_MISSION_PAUSED_GIT_AUTH');
       assert.strictEqual(pausedResult.exit_code, 1);
       assert.strictEqual(pausedResult.resume_supported, true);
-      assert.strictEqual(pausedResult.resume_command, 'test-cmd --resume');
+      assert.strictEqual(pausedResult.resume_command, `test-cmd --run-id ${runId} --resume`);
       assert.strictEqual(pausedResult.git_failure?.failure_kind, 'GIT_AUTH_INVALID');
       const pausedTaskState = pausedResult.task_states?.find((s) => s.task_id === task1.id);
       assert.strictEqual(pausedTaskState?.status, 'paused_git_auth');

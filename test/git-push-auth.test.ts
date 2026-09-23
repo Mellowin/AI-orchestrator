@@ -102,23 +102,63 @@ describe('git-push-auth', () => {
     assert.strictEqual(stripCredentialsFromRemoteUrl('/tmp/local/remote.git'), '/tmp/local/remote.git');
   });
 
-  test('buildEphemeralGitAuthEnv carries a github-scoped Authorization header via GIT_CONFIG env', () => {
+  test('buildEphemeralGitAuthEnv carries a github-scoped HTTP Basic PAT header via GIT_CONFIG env', () => {
     const env = buildEphemeralGitAuthEnv('ghp_sentinel_ephemeral');
     assert.strictEqual(env.GIT_CONFIG_COUNT, '1');
     assert.strictEqual(env.GIT_CONFIG_KEY_0, 'http.https://github.com/.extraHeader');
-    assert.strictEqual(env.GIT_CONFIG_VALUE_0, 'Authorization: Bearer ghp_sentinel_ephemeral');
+    const expectedBasic = Buffer.from('x-access-token:ghp_sentinel_ephemeral', 'utf-8').toString('base64');
+    assert.strictEqual(env.GIT_CONFIG_VALUE_0, `Authorization: Basic ${expectedBasic}`);
+    assert.ok(!env.GIT_CONFIG_VALUE_0.includes('Bearer'), 'Git smart-HTTP PAT auth must not use Bearer');
+    assert.ok(
+      !env.GIT_CONFIG_VALUE_0.includes('ghp_sentinel_ephemeral'),
+      'raw token must not appear in the header value'
+    );
+  });
+
+  test('buildEphemeralGitAuthEnv decodes to a non-empty username with the PAT as password', () => {
+    const token = 'github_pat_SENTINELdecode000000000000';
+    const env = buildEphemeralGitAuthEnv(token);
+    const match = env.GIT_CONFIG_VALUE_0.match(/^Authorization: Basic (.+)$/);
+    assert.ok(match, 'header must use the Basic scheme');
+    const decoded = Buffer.from(match[1], 'base64').toString('utf-8');
+    const sep = decoded.indexOf(':');
+    assert.ok(sep > 0, 'username must be non-empty');
+    assert.strictEqual(decoded.slice(0, sep), 'x-access-token');
+    assert.strictEqual(decoded.slice(sep + 1), token, 'PAT must be the password credential');
   });
 
   test('buildEphemeralGitAuthEnv defaults to process.env.GITHUB_TOKEN and returns {} without a token', () => {
     const prev = process.env.GITHUB_TOKEN;
     try {
       process.env.GITHUB_TOKEN = 'ghp_from_env';
+      const expectedBasic = Buffer.from('x-access-token:ghp_from_env', 'utf-8').toString('base64');
       assert.strictEqual(
         buildEphemeralGitAuthEnv().GIT_CONFIG_VALUE_0,
-        'Authorization: Bearer ghp_from_env'
+        `Authorization: Basic ${expectedBasic}`
       );
       delete process.env.GITHUB_TOKEN;
       assert.deepStrictEqual(buildEphemeralGitAuthEnv(), {});
+    } finally {
+      if (prev === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = prev;
+      }
+    }
+  });
+
+  test('buildEphemeralGitAuthEnv reads the CURRENT environment (credential rotation on resume)', () => {
+    const prev = process.env.GITHUB_TOKEN;
+    try {
+      process.env.GITHUB_TOKEN = 'ghp_rotated_old';
+      const first = buildEphemeralGitAuthEnv();
+      process.env.GITHUB_TOKEN = 'ghp_rotated_new';
+      const second = buildEphemeralGitAuthEnv();
+      const decode = (v: string) =>
+        Buffer.from(v.replace('Authorization: Basic ', ''), 'base64').toString('utf-8');
+      assert.strictEqual(decode(first.GIT_CONFIG_VALUE_0), 'x-access-token:ghp_rotated_old');
+      assert.strictEqual(decode(second.GIT_CONFIG_VALUE_0), 'x-access-token:ghp_rotated_new');
+      assert.notStrictEqual(first.GIT_CONFIG_VALUE_0, second.GIT_CONFIG_VALUE_0);
     } finally {
       if (prev === undefined) {
         delete process.env.GITHUB_TOKEN;

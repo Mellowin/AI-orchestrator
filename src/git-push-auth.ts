@@ -73,21 +73,26 @@ export function stripCredentialsFromRemoteUrl(remoteUrl: string): string {
 /**
  * Ephemeral per-process git authentication for GitHub HTTPS remotes.
  *
- * Returns GIT_CONFIG_* environment variables that inject
- * `http.https://github.com/.extraHeader: Authorization: Bearer <token>` into a
- * single git invocation. The credential exists only in the child process
- * environment: never in argv (process list), never in .git/config, never on
- * disk. The config key is scoped to https://github.com/ so the token is never
- * sent to a different host. Returns {} when no token is configured.
+ * Returns GIT_CONFIG_* environment variables that inject an HTTP Basic
+ * credential into a single git invocation:
+ * `http.https://github.com/.extraHeader: Authorization: Basic base64("x-access-token:<token>")`.
+ * GitHub smart-HTTP expects a non-empty username (`x-access-token`) with the
+ * personal access token supplied as the PASSWORD credential; Bearer tokens are
+ * not accepted for Git operations. The credential exists only in the child
+ * process environment: never in argv (process list), never in .git/config,
+ * never on disk. The config key is scoped to https://github.com/ so the
+ * credential is never sent to a different host. Returns {} when no token is
+ * configured.
  */
 export function buildEphemeralGitAuthEnv(token?: string): Record<string, string> {
   const value = (token ?? process.env.GITHUB_TOKEN)?.trim();
   if (!value) {
     return {};
   }
+  const basic = Buffer.from(`x-access-token:${value}`, 'utf-8').toString('base64');
   return {
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'http.https://github.com/.extraHeader',
-    GIT_CONFIG_VALUE_0: `Authorization: Bearer ${value}`,
+    GIT_CONFIG_VALUE_0: `Authorization: Basic ${basic}`,
   };
 }
