@@ -2,20 +2,30 @@
 
 **Branch:** `stage-18-26-autonomous-multitask-completion`
 
-**Last verified:** `d377824c3614fa9b650658db4e958ac22ca1c913`
+**Last verified:** `70facd48f41b3c593f7989d4364c273f435ae8c8`
 
 ## Test metrics
 
-- **Total tests:** 4174
-- **Total suites:** 325
+- **Total tests:** 4187
+- **Total suites:** 326
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `d377824c3614fa9b650658db4e958ac22ca1c913` (Stage 18.26c.2: fix ephemeral Git PAT auth and exact resume identity + planFn test seam)
+- **Last verified commit:** `70facd48f41b3c593f7989d4364c273f435ae8c8` (Stage 18.26d: recover malformed reviewer output without repeating coder work)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
+- **Stage 18.26d malformed reviewer output recovery verification (before push):**
+  - `test/reviewer-parse-recovery.test.ts` — 13/13 pass (typed ReviewerOutputParseError for malformed JSON / missing fields / invalid schema; provider propagates parse failures structurally while 403 quota stays a wrapped provider failure; native JSON.parse SyntaxError message classified without substring matching; recovery prompt demands a single valid JSON object; valid response on retry accepted; same candidate package hash across parse retries; reviewer round unchanged; fix coder not repeated; parse exhaustion blocks with source=parser and explicit reason; malformed raw evidence sanitized, size-capped, hash+length stored; first reviewer blockingIssues/fixTask persisted before fix coder; append-only reviewer_rounds evidence not overwritten; exact real-failure full-flow regression: reviewer#1 fix_required → one fix coder → malformed reviewer#2 → parse retry only → accepted + pushed)
+  - `test/reviewer-provider-runner.test.ts` — 7/7 pass (existing parse-retry semantics preserved)
+  - `test/kimi-reviewer-provider.test.ts` — 17/17 pass (provider behavior unchanged, invalid output still safe)
+  - `test/provider-pause-resume.test.ts` — 12/12 pass (Stage 18.26b provider pause/resume unchanged: 403 quota → PAUSED_PROVIDER, timeout/5xx semantics intact)
+  - `test/git-auth-pause-resume.test.ts` — 5/5 pass (Git pause/resume unchanged)
+  - `npm run typecheck` — OK
+  - `npm run build` — OK
+  - `npm run verify:summary` — OK
+  - `npm run verify:product:ci` — OK (4187 tests / 326 suites / 0 failures, exit code 0)
 - **Stage 18.26b provider pause/resume verification (before push):**
   - `test/provider-failure-classification.test.ts` — 27/27 pass (401 AUTH_INVALID, 403 quota/permission/unknown evidence-based classification, 429 retry-then-pause, timeout/500 retry-then-pause, 400 BAD_REQUEST no pause, CONTEXT_LIMIT, redaction, no API key persistence)
   - `test/provider-pause-resume.test.ts` — 12/12 pass (exact failed-run regression: coder → reviewer fix_required → fix coder → second reviewer 403 quota → paused_provider at second_review_pending; resume with rotated credential re-calls only the second reviewer on the same candidate package hash, then accept/commit/push; tampered candidate fails closed; mission-level pause keeps descendant tasks unstarted (not skipped) and resume completes the mission)
