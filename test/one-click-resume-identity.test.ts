@@ -7,9 +7,10 @@ import { join } from 'node:path';
 import { runAutopilotOneClick } from '../src/autopilot-one-click/runner.js';
 import { parseArgs } from '../src/autopilot-one-click/index.js';
 import { buildResumeCommand } from '../src/autopilot-one-click/resume-command.js';
+import type { AutopilotPlanResult } from '../src/autopilot-plan/types.js';
 import type { MultitaskMissionResult } from '../src/autopilot-one-click/multitask/types.js';
 
-const ENV_KEYS = ['KIMI_API_KEY', 'AI_PROVIDER'] as const;
+const ENV_KEYS = ['KIMI_API_KEY'] as const;
 
 function snapshotEnv(): Map<string, string | undefined> {
   const snap = new Map<string, string | undefined>();
@@ -91,13 +92,27 @@ describe('one-click resume identity', () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'resume-identity-out-'));
     const tmpRepo = mkdtempSync(join(tmpdir(), 'resume-identity-repo-'));
     const envSnap = snapshotEnv();
-    // Provider token present so the git write-auth preflight runs; mock provider
-    // so the planner never touches the network on the resumed run.
+    // Provider token present so the git write-auth preflight runs. The planner
+    // step is injected via planFn so the test never depends on the ambient
+    // AI_PROVIDER/.env provider configuration.
     process.env.KIMI_API_KEY = 'sk-test-resume-identity';
-    process.env.AI_PROVIDER = 'mock';
     try {
       const goal = 'Add docs note';
       const initialCommand = `npx tsx src/cli.ts autopilot-one-click --yes ${goal}`;
+      let planCalls = 0;
+      const planFn = async (mission: { run_id: string }) => {
+        planCalls += 1;
+        return {
+          mission,
+          plan: { goal, mode: 'github', tasks: [] },
+          run_dir: join(tmpDir, mission.run_id),
+          generated_files: [join(tmpDir, mission.run_id, 'plan.json')],
+          verdict: 'AUTOPILOT_PLAN_READY',
+          reason: 'plan generated (test hook)',
+          exit_code: 0,
+          next_command: '',
+        } as unknown as AutopilotPlanResult;
+      };
 
       // Initial run: write-auth preflight rejects the credential -> pause with 0 provider calls.
       const first = await runAutopilotOneClick(
@@ -117,11 +132,13 @@ describe('one-click resume identity', () => {
               sanitized_message: 'Invalid username or token',
             },
           }),
+          planFn,
         },
         initialCommand
       );
 
       assert.strictEqual(first.verdict, 'MULTITASK_MISSION_PAUSED_GIT_AUTH');
+      assert.strictEqual(planCalls, 0, 'planner must not run before the preflight pause');
       const runA = first.mission.run_id;
       assert.match(runA, /^mission-\d{8}-\d{6}-/);
 
@@ -151,6 +168,7 @@ describe('one-click resume identity', () => {
             preflightCalls += 1;
             return { ok: true };
           },
+          planFn,
           runMultitaskMissionFn: async (mission, planResult) => {
             multitaskCalls += 1;
             resumedRunId = mission.run_id;
@@ -171,6 +189,7 @@ describe('one-click resume identity', () => {
       );
 
       assert.strictEqual(preflightCalls, 1, 'write-auth preflight must pass exactly once after rotation');
+      assert.strictEqual(planCalls, 1, 'the planner must begin exactly once on resume');
       assert.strictEqual(multitaskCalls, 1, 'the mission must run exactly once');
       assert.strictEqual(second.mission.run_id, runA, 'resumed mission must reuse the exact original run id');
       assert.strictEqual(resumedRunId, runA, 'the multitask runner must receive the original run id');

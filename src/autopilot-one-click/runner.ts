@@ -157,7 +157,8 @@ export async function runAutopilotOneClick(
     }
   }
 
-  const planResult = await runAutopilotPlan(mission, { command });
+  const planFn = options.planFn ?? runAutopilotPlan;
+  const planResult = await planFn(mission, { command });
 
   let verdict: AutopilotOneClickVerdict;
   let reason: string;

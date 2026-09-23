@@ -51,6 +51,11 @@ export interface AutopilotOneClickOptions {
     planResult: AutopilotPlanResult,
     options: { command: string; resume?: boolean }
   ) => Promise<import('./multitask/types.js').MultitaskMissionResult>;
+  /** Internal test hook for the planner step. */
+  planFn?: (
+    mission: AutopilotPlanMission,
+    options: { command?: string }
+  ) => Promise<AutopilotPlanResult>;
   /** Internal test hook for the non-mutating Git write-auth preflight. */
   writeAuthPreflightFn?: (input: GitWriteAuthPreflightInput) => GitWriteAuthPreflightResult;
 }
