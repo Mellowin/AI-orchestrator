@@ -279,7 +279,7 @@ describe('candidate-workspace', () => {
     assert.strictEqual(reconcile.alreadyPushed, false);
   });
 
-  test('configureCandidateRemote injects GitHub token as password with x-access-token username', () => {
+  test('configureCandidateRemote stores a credential-free origin even when GITHUB_TOKEN is set', () => {
     const candidatePath = join(tmpDir, 'workspace-auth');
     createCandidateWorkspace(candidatePath, repoPath, baseSha, 'main', 'task-auth');
     const previousToken = process.env.GITHUB_TOKEN;
@@ -291,8 +291,11 @@ describe('candidate-workspace', () => {
       const remoteUrl = getGitRemoteUrl(candidatePath, 'origin');
       assert.ok(remoteUrl, 'origin URL should be set');
       const parsed = new URL(remoteUrl!);
-      assert.strictEqual(parsed.username, 'x-access-token');
-      assert.strictEqual(parsed.password, 'ghp_testtoken123');
+      assert.strictEqual(parsed.username, '', 'persisted origin must not carry a username');
+      assert.strictEqual(parsed.password, '', 'persisted origin must not carry the token');
+      assert.ok(!remoteUrl!.includes('ghp_testtoken123'), 'persisted origin must not contain the token');
+      const configText = readFileSync(join(candidatePath, '.git', 'config'), 'utf-8');
+      assert.ok(!configText.includes('ghp_testtoken123'), 'candidate .git/config must not contain the token');
     } finally {
       if (previousToken === undefined) {
         delete process.env.GITHUB_TOKEN;

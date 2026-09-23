@@ -210,6 +210,7 @@ ai-orchestrator: {task_id} attempt {N}
 - Миссионные вердикты: `MULTITASK_MISSION_PAUSED_PROVIDER` / `MULTITASK_MISSION_PAUSED_GIT_AUTH`; обе паузы resumable через `resume_command` (`... --resume`).
 - Перед первым planner/coder вызовом в github-миссии с push выполняется неизменяющий write-auth preflight (`git push --dry-run` на временный ref) — сломанный `GITHUB_TOKEN` останавливает миссию до расхода provider-квоты.
 - `GITHUB_TOKEN` никогда не сохраняется в state/отчётах; все git remote сообщения проходят sanitization (`src/git-remote-failure.ts`).
+- Git remote аутентификация — только эфемерная: токен передаётся через `GIT_CONFIG_*` env (`http.https://github.com/.extraHeader`) в конкретный git-процесс (`buildEphemeralGitAuthEnv`). Persisted remote URL всегда credential-free — НИКОГДА не делай `git remote set-url` с токеном в URL.
 
 ---
 

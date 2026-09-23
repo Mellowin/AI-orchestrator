@@ -1,6 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { injectGitHubTokenIntoRemoteUrl } from './git-push-auth.js';
+import {
+  buildEphemeralGitAuthEnv,
+  stripCredentialsFromRemoteUrl,
+} from './git-push-auth.js';
 import {
   classifyGitRemoteFailure,
   sanitizeGitRemoteMessage,
@@ -14,11 +17,12 @@ import {
  * before any expensive planner/coder provider call. Read-only checks such as
  * `git ls-remote` are NOT sufficient: public repositories can be read
  * anonymously. The check therefore performs a `git push --dry-run` of the
- * current HEAD to a deterministic temporary ref using the exact same
- * credential construction as real candidate pushes (token injected into the
- * HTTPS URL as x-access-token). A dry-run creates no remote ref and mutates no
- * repository state; afterwards the preflight verifies via ls-remote that the
- * temporary ref does not exist.
+ * current HEAD to a deterministic temporary ref. Authentication uses the exact
+ * same ephemeral mechanism as real candidate pushes: the token is passed via
+ * GIT_CONFIG_* environment variables (http.extraHeader scoped to github.com),
+ * never in the persisted remote URL and never in the command line. A dry-run
+ * creates no remote ref and mutates no repository state; afterwards the
+ * preflight verifies via ls-remote that the temporary ref does not exist.
  */
 
 /** Deterministic temporary ref used only for dry-run validation. */
@@ -63,8 +67,16 @@ export function runGitWriteAuthPreflight(input: GitWriteAuthPreflightInput): Git
   const repoPath = resolve(input.repoPath);
   const remote = input.remote ?? 'origin';
 
-  const runGit = (args: string[]): { status: number; stdout: string; stderr: string } => {
-    const result = spawnFn('git', args, { cwd: repoPath, encoding: 'utf-8', shell: false });
+  const runGit = (
+    args: string[],
+    extraEnv?: Record<string, string>
+  ): { status: number; stdout: string; stderr: string } => {
+    const result = spawnFn('git', args, {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      shell: false,
+      ...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}),
+    });
     return {
       status: result.status ?? 1,
       stdout: result.stdout || '',
@@ -83,13 +95,15 @@ export function runGitWriteAuthPreflight(input: GitWriteAuthPreflightInput): Git
   }
   const remoteUrl = urlResult.stdout.trim();
 
-  // Same credential construction as real candidate pushes: GITHUB_TOKEN
-  // injected into the HTTPS GitHub URL. No global git config mutation, no
-  // credential-helper dependency; the canonical one-click works from .env
-  // GITHUB_TOKEN alone.
+  // Same credential mechanism as real candidate pushes: GITHUB_TOKEN supplied
+  // ephemerally via GIT_CONFIG_* environment (http.extraHeader scoped to
+  // github.com). No token in the persisted remote URL, no token in argv, no
+  // global git config mutation, no credential-helper dependency; the canonical
+  // one-click works from .env GITHUB_TOKEN alone.
   const token = process.env.GITHUB_TOKEN?.trim();
-  let pushUrl = remoteUrl;
-  const isGithubHttps = /^https:\/\/([^/@]+\.)?github\.com\//i.test(remoteUrl);
+  const pushUrl = stripCredentialsFromRemoteUrl(remoteUrl);
+  let authEnv: Record<string, string> = {};
+  const isGithubHttps = /^https:\/\/([^/@]+\.)?github\.com\//i.test(pushUrl);
   if (isGithubHttps) {
     if (!token) {
       return buildLocalFailure(
@@ -99,16 +113,7 @@ export function runGitWriteAuthPreflight(input: GitWriteAuthPreflightInput): Git
         'GITHUB_TOKEN is not set; cannot verify write access to the GitHub remote'
       );
     }
-    const injected = injectGitHubTokenIntoRemoteUrl(remoteUrl, token);
-    if (!injected) {
-      return buildLocalFailure(
-        remote,
-        'GIT_AUTH_INVALID',
-        true,
-        `Could not build an authenticated push URL for remote "${remote}"`
-      );
-    }
-    pushUrl = injected;
+    authEnv = buildEphemeralGitAuthEnv(token);
   }
 
   const headResult = runGit(['rev-parse', '--verify', 'HEAD']);
@@ -124,9 +129,12 @@ export function runGitWriteAuthPreflight(input: GitWriteAuthPreflightInput): Git
 
   // Non-mutating write check: dry-run push of the current HEAD to the
   // deterministic temporary ref. Authenticates and checks write permission
-  // without creating any remote ref. The URL carrying the credential is never
-  // logged; failure output is sanitized by the classifier.
-  const dryRun = runGit(['push', '--dry-run', '--porcelain', pushUrl, `${headSha}:${GIT_WRITE_AUTH_PREFLIGHT_REF}`]);
+  // without creating any remote ref. The credential travels only in the child
+  // process environment; failure output is sanitized by the classifier.
+  const dryRun = runGit(
+    ['push', '--dry-run', '--porcelain', pushUrl, `${headSha}:${GIT_WRITE_AUTH_PREFLIGHT_REF}`],
+    authEnv
+  );
   if (dryRun.status !== 0) {
     const failure = classifyGitRemoteFailure({
       remote,
@@ -138,7 +146,7 @@ export function runGitWriteAuthPreflight(input: GitWriteAuthPreflightInput): Git
 
   // Verify the dry-run created no remote ref. A pre-existing or unexpectedly
   // created preflight ref is a fail-closed repository conflict.
-  const lsRemote = runGit(['ls-remote', pushUrl, GIT_WRITE_AUTH_PREFLIGHT_REF]);
+  const lsRemote = runGit(['ls-remote', pushUrl, GIT_WRITE_AUTH_PREFLIGHT_REF], authEnv);
   if (lsRemote.status !== 0) {
     const failure = classifyGitRemoteFailure({
       remote,

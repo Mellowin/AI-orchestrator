@@ -12,13 +12,14 @@ import {
 import { runAutopilotOneClick } from '../src/autopilot-one-click/runner.js';
 
 type FakeGitResult = { status: number; stdout: string; stderr: string };
+type RecordedCall = { args: string[]; env?: Record<string, string | undefined> };
 
 function makeFakeSpawn(
   handler: (args: string[]) => FakeGitResult,
-  calls: string[][]
+  calls: RecordedCall[]
 ): typeof spawnSync {
-  return ((_cmd: string, args: string[]) => {
-    calls.push([...args]);
+  return ((_cmd: string, args: string[], options?: { env?: Record<string, string | undefined> }) => {
+    calls.push({ args: [...args], env: options?.env });
     const r = handler(args);
     return { status: r.status, stdout: r.stdout, stderr: r.stderr, pid: 0, output: [], signal: null };
   }) as unknown as typeof spawnSync;
@@ -66,7 +67,7 @@ function okHandler(overrides: Partial<Record<string, FakeGitResult>> = {}) {
 }
 
 test('preflight: missing remote -> GIT_REMOTE_UNAVAILABLE, resumable', () => {
-  const calls: string[][] = [];
+  const calls: RecordedCall[] = [];
   const spawnFn = makeFakeSpawn(
     () => ({ status: 128, stdout: '', stderr: 'error: No such remote' }),
     calls
@@ -76,29 +77,29 @@ test('preflight: missing remote -> GIT_REMOTE_UNAVAILABLE, resumable', () => {
   assert.equal(result.failure?.failure_kind, 'GIT_REMOTE_UNAVAILABLE');
   assert.equal(result.failure?.pause_recommended, true);
   assert.equal(result.failure?.operation, 'preflight_write_check');
-  assert.deepEqual(calls, [['remote', 'get-url', 'origin']]);
+  assert.deepEqual(calls.map((c) => c.args), [['remote', 'get-url', 'origin']]);
 });
 
 test('preflight: GitHub HTTPS remote without GITHUB_TOKEN -> GIT_AUTH_INVALID before any push', () => {
   withToken(undefined, () => {
-    const calls: string[][] = [];
+    const calls: RecordedCall[] = [];
     const spawnFn = makeFakeSpawn(okHandler(), calls);
     const result = runGitWriteAuthPreflight({ repoPath: '.', spawnFn });
     assert.equal(result.ok, false);
     assert.equal(result.failure?.failure_kind, 'GIT_AUTH_INVALID');
     assert.equal(result.failure?.pause_recommended, true);
     // No push or ls-remote attempted: fail-fast before touching the remote.
-    assert.deepEqual(calls, [['remote', 'get-url', 'origin']]);
+    assert.deepEqual(calls.map((c) => c.args), [['remote', 'get-url', 'origin']]);
   });
 });
 
-test('preflight: dry-run auth failure -> GIT_AUTH_INVALID, token never in sanitized message', () => {
+test('preflight: dry-run auth failure -> GIT_AUTH_INVALID, ephemeral token, no token in argv or messages', () => {
   withToken(SENTINEL_TOKEN, () => {
-    const calls: string[][] = [];
+    const calls: RecordedCall[] = [];
     const authError = [
       'remote: Invalid username or token.',
       'Password authentication is not supported for Git operations.',
-      `fatal: Authentication failed for 'https://x-access-token:${SENTINEL_TOKEN}@github.com/Mellowin/AI-orchestrator.git/'`,
+      'fatal: Authentication failed for \'https://github.com/Mellowin/AI-orchestrator.git/\'',
     ].join('\n');
     const spawnFn = makeFakeSpawn(
       okHandler({ push: { status: 128, stdout: '', stderr: authError } }),
@@ -110,44 +111,69 @@ test('preflight: dry-run auth failure -> GIT_AUTH_INVALID, token never in saniti
     assert.equal(result.failure?.operation, 'preflight_write_check');
     assert.equal(result.failure?.pause_recommended, true);
 
-    const pushCall = calls.find((c) => c[0] === 'push');
+    const pushCall = calls.find((c) => c.args[0] === 'push');
     assert.ok(pushCall, 'a push must have been attempted');
-    assert.ok(pushCall.includes('--dry-run'), 'push must be a dry-run');
-    assert.ok(pushCall.includes('--porcelain'));
+    assert.ok(pushCall.args.includes('--dry-run'), 'push must be a dry-run');
+    assert.ok(pushCall.args.includes('--porcelain'));
     assert.ok(
-      pushCall.some((a) => a.includes(`x-access-token:${SENTINEL_TOKEN}`)),
-      'push must authenticate with the injected x-access-token URL (same mechanism as real pushes)'
-    );
-    assert.ok(
-      pushCall.some((a) => a.endsWith(`:${GIT_WRITE_AUTH_PREFLIGHT_REF}`)),
+      pushCall.args.some((a) => a.endsWith(`:${GIT_WRITE_AUTH_PREFLIGHT_REF}`)),
       'push must target the deterministic preflight ref'
     );
+    // The token must NEVER appear in the command line (regression: no
+    // token-bearing URL in argv).
+    assert.ok(
+      pushCall.args.every((a) => !a.includes(SENTINEL_TOKEN)),
+      'no argv element may contain the token'
+    );
+    assert.ok(
+      pushCall.args.every((a) => !a.includes('x-access-token')),
+      'no argv element may carry embedded credentials'
+    );
+    // The push URL stays credential-free.
+    assert.ok(pushCall.args.includes(GITHUB_REMOTE), 'push URL must be the credential-free remote');
+    // Authentication is ephemeral: GIT_CONFIG_* env carries the Authorization
+    // header scoped to github.com for this process only.
+    assert.equal(pushCall.env?.GIT_CONFIG_COUNT, '1');
+    assert.equal(pushCall.env?.GIT_CONFIG_KEY_0, 'http.https://github.com/.extraHeader');
+    assert.equal(pushCall.env?.GIT_CONFIG_VALUE_0, `Authorization: Bearer ${SENTINEL_TOKEN}`);
     assert.ok(!result.failure!.sanitized_message.includes(SENTINEL_TOKEN), 'token must be redacted');
-    assert.ok(!result.failure!.sanitized_message.includes('x-access-token:' + SENTINEL_TOKEN));
     // Regression 17: a readable (anonymous) remote does NOT count as write auth —
     // the result is a failure even though only the write step failed.
-    assert.equal(calls.some((c) => c[0] === 'ls-remote'), false, 'ls-remote must not run after a failed dry-run');
+    assert.equal(
+      calls.some((c) => c.args[0] === 'ls-remote'),
+      false,
+      'ls-remote must not run after a failed dry-run'
+    );
   });
 });
 
 test('preflight: happy path -> ok, every push is a dry-run, ls-remote confirms no ref created', () => {
   withToken(SENTINEL_TOKEN, () => {
-    const calls: string[][] = [];
+    const calls: RecordedCall[] = [];
     const spawnFn = makeFakeSpawn(okHandler(), calls);
     const result = runGitWriteAuthPreflight({ repoPath: '.', spawnFn });
     assert.equal(result.ok, true);
     assert.equal(result.failure, undefined);
-    const pushCalls = calls.filter((c) => c[0] === 'push');
+    const pushCalls = calls.filter((c) => c.args[0] === 'push');
     assert.equal(pushCalls.length, 1);
-    assert.ok(pushCalls[0].includes('--dry-run'), 'preflight must never perform a real push');
-    const lsRemote = calls.find((c) => c[0] === 'ls-remote');
-    assert.ok(lsRemote?.includes(GIT_WRITE_AUTH_PREFLIGHT_REF));
+    assert.ok(pushCalls[0].args.includes('--dry-run'), 'preflight must never perform a real push');
+    assert.ok(
+      pushCalls[0].args.every((a) => !a.includes(SENTINEL_TOKEN)),
+      'token must not appear in argv on the happy path'
+    );
+    assert.equal(
+      pushCalls[0].env?.GIT_CONFIG_VALUE_0,
+      `Authorization: Bearer ${SENTINEL_TOKEN}`,
+      'auth must be ephemeral via GIT_CONFIG env'
+    );
+    const lsRemote = calls.find((c) => c.args[0] === 'ls-remote');
+    assert.ok(lsRemote?.args.includes(GIT_WRITE_AUTH_PREFLIGHT_REF));
   });
 });
 
 test('preflight: pre-existing preflight ref on remote -> GIT_REMOTE_CONFLICT, fail-closed (no pause)', () => {
   withToken(SENTINEL_TOKEN, () => {
-    const calls: string[][] = [];
+    const calls: RecordedCall[] = [];
     const spawnFn = makeFakeSpawn(
       okHandler({
         'ls-remote': { status: 0, stdout: `${HEAD_SHA}\t${GIT_WRITE_AUTH_PREFLIGHT_REF}\n`, stderr: '' },
@@ -163,7 +189,7 @@ test('preflight: pre-existing preflight ref on remote -> GIT_REMOTE_CONFLICT, fa
 
 test('preflight: unresolvable HEAD -> GIT_UNKNOWN_FAILURE, no pause', () => {
   withToken(SENTINEL_TOKEN, () => {
-    const calls: string[][] = [];
+    const calls: RecordedCall[] = [];
     const spawnFn = makeFakeSpawn(
       okHandler({ 'rev-parse': { status: 128, stdout: '', stderr: 'fatal: ambiguous argument' } }),
       calls
@@ -172,7 +198,11 @@ test('preflight: unresolvable HEAD -> GIT_UNKNOWN_FAILURE, no pause', () => {
     assert.equal(result.ok, false);
     assert.equal(result.failure?.failure_kind, 'GIT_UNKNOWN_FAILURE');
     assert.equal(result.failure?.pause_recommended, false);
-    assert.equal(calls.some((c) => c[0] === 'push'), false, 'must not push without a valid HEAD');
+    assert.equal(
+      calls.some((c) => c.args[0] === 'push'),
+      false,
+      'must not push without a valid HEAD'
+    );
   });
 });
 

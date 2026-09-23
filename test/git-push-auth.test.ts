@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
+  buildEphemeralGitAuthEnv,
   getGitRemoteUrl,
   injectGitHubTokenIntoRemoteUrl,
+  stripCredentialsFromRemoteUrl,
 } from '../src/git-push-auth.js';
 
 describe('git-push-auth', () => {
@@ -75,5 +77,54 @@ describe('git-push-auth', () => {
     spawnSync('git', ['init'], { cwd: dir, shell: false, encoding: 'utf-8' });
     const url = getGitRemoteUrl(dir, 'origin');
     assert.strictEqual(url, null);
+  });
+
+  test('stripCredentialsFromRemoteUrl removes embedded userinfo', () => {
+    assert.strictEqual(
+      stripCredentialsFromRemoteUrl('https://x-access-token:ghp_secret@github.com/owner/repo.git'),
+      'https://github.com/owner/repo.git'
+    );
+    assert.strictEqual(
+      stripCredentialsFromRemoteUrl('https://user:pass@github.com/owner/repo.git'),
+      'https://github.com/owner/repo.git'
+    );
+  });
+
+  test('stripCredentialsFromRemoteUrl keeps clean URLs and non-URL inputs unchanged', () => {
+    assert.strictEqual(
+      stripCredentialsFromRemoteUrl('https://github.com/owner/repo.git'),
+      'https://github.com/owner/repo.git'
+    );
+    assert.strictEqual(
+      stripCredentialsFromRemoteUrl('git@github.com:owner/repo.git'),
+      'git@github.com:owner/repo.git'
+    );
+    assert.strictEqual(stripCredentialsFromRemoteUrl('/tmp/local/remote.git'), '/tmp/local/remote.git');
+  });
+
+  test('buildEphemeralGitAuthEnv carries a github-scoped Authorization header via GIT_CONFIG env', () => {
+    const env = buildEphemeralGitAuthEnv('ghp_sentinel_ephemeral');
+    assert.strictEqual(env.GIT_CONFIG_COUNT, '1');
+    assert.strictEqual(env.GIT_CONFIG_KEY_0, 'http.https://github.com/.extraHeader');
+    assert.strictEqual(env.GIT_CONFIG_VALUE_0, 'Authorization: Bearer ghp_sentinel_ephemeral');
+  });
+
+  test('buildEphemeralGitAuthEnv defaults to process.env.GITHUB_TOKEN and returns {} without a token', () => {
+    const prev = process.env.GITHUB_TOKEN;
+    try {
+      process.env.GITHUB_TOKEN = 'ghp_from_env';
+      assert.strictEqual(
+        buildEphemeralGitAuthEnv().GIT_CONFIG_VALUE_0,
+        'Authorization: Bearer ghp_from_env'
+      );
+      delete process.env.GITHUB_TOKEN;
+      assert.deepStrictEqual(buildEphemeralGitAuthEnv(), {});
+    } finally {
+      if (prev === undefined) {
+        delete process.env.GITHUB_TOKEN;
+      } else {
+        process.env.GITHUB_TOKEN = prev;
+      }
+    }
   });
 });

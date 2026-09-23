@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { getGitRemoteUrl, injectGitHubTokenIntoRemoteUrl } from './git-push-auth.js';
+import { getGitRemoteUrl, stripCredentialsFromRemoteUrl, buildEphemeralGitAuthEnv } from './git-push-auth.js';
 import { redactSecrets } from './sandbox-preflight-repair.js';
 import {
   classifyGitRemoteFailure,
@@ -31,6 +31,26 @@ function git(args: string[], cwd: string, allowFailure = false): { status: numbe
     const message = result.stderr?.trim() || `git ${args.join(' ')} exited with code ${result.status}`;
     throw new Error(message);
   }
+  return {
+    status: result.status ?? 1,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+  };
+}
+
+/**
+ * Git invocation that talks to the remote. Authenticates ephemerally via
+ * GIT_CONFIG_* environment variables (http.extraHeader scoped to github.com)
+ * so the credential exists only in the child process environment — never in
+ * argv, never in .git/config, never on disk.
+ */
+function gitRemote(args: string[], cwd: string): { status: number; stdout: string; stderr: string } {
+  const result = spawnSync('git', args, {
+    cwd,
+    shell: false,
+    encoding: 'utf-8',
+    env: { ...process.env, ...buildEphemeralGitAuthEnv() },
+  });
   return {
     status: result.status ?? 1,
     stdout: result.stdout || '',
@@ -131,9 +151,11 @@ export function createCandidateWorkspace(
   }
 
   // Copy the origin URL from the main repo so pushes go to the real remote.
+  // The persisted URL is always credential-free: authentication is supplied
+  // ephemerally per git invocation (see gitRemote).
   const originUrl = getGitRemoteUrl(resolvedRepo, 'origin');
   if (originUrl) {
-    git(['remote', 'set-url', 'origin', originUrl], candidatePath);
+    git(['remote', 'set-url', 'origin', stripCredentialsFromRemoteUrl(originUrl)], candidatePath);
   }
 
   // Configure a local identity for the candidate workspace so git commits work.
@@ -363,7 +385,7 @@ export function getRemoteBranchHeadDetailed(candidatePath: string, branch: strin
   if (!existsSync(candidatePath) || !existsSync(resolve(candidatePath, '.git'))) {
     return { status: 'missing' };
   }
-  const result = git(['ls-remote', 'origin', `refs/heads/${branch}`], candidatePath, true);
+  const result = gitRemote(['ls-remote', 'origin', `refs/heads/${branch}`], candidatePath);
   if (result.status !== 0) {
     return {
       status: 'error',
@@ -450,7 +472,7 @@ export interface CandidateReconcileResult {
 }
 
 function fetchRemoteBranch(candidatePath: string, branch: string): { ok: boolean; error?: string } {
-  const result = git(['fetch', 'origin', branch], candidatePath, true);
+  const result = gitRemote(['fetch', 'origin', branch], candidatePath);
   if (result.status !== 0) {
     return { ok: false, error: sanitizeGitRemoteMessage(result.stderr) };
   }
@@ -579,9 +601,10 @@ export function cleanupCandidateWorkspace(candidatePath: string): void {
 }
 
 /**
- * Configure the candidate workspace origin for push, injecting a GitHub token
- * if one is present in the environment. This mirrors the existing cli.ts
- * remote injection logic.
+ * Configure the candidate workspace origin for push. The persisted URL is
+ * always credential-free (any embedded credentials are stripped), so a
+ * preserved/paused candidate never contains a GITHUB_TOKEN on disk. Push,
+ * fetch and ls-remote authenticate ephemerally per process via gitRemote.
  */
 export function configureCandidateRemote(
   candidatePath: string,
@@ -591,15 +614,8 @@ export function configureCandidateRemote(
   if (!existsSync(candidatePath) || !existsSync(resolve(candidatePath, '.git'))) {
     return { ok: false, reason: 'Candidate workspace does not exist or is not a git repository' };
   }
-  const githubToken = process.env.GITHUB_TOKEN?.trim();
-  let url = remoteUrl;
-  if (githubToken) {
-    const injected = injectGitHubTokenIntoRemoteUrl(remoteUrl, githubToken);
-    if (injected) {
-      url = injected;
-    }
-  }
-  const result = git(['remote', 'set-url', 'origin', url], candidatePath, true);
+  const cleanUrl = stripCredentialsFromRemoteUrl(remoteUrl);
+  const result = git(['remote', 'set-url', 'origin', cleanUrl], candidatePath, true);
   if (result.status !== 0) {
     return {
       ok: false,
@@ -620,7 +636,7 @@ export function pushCandidateCommit(
   workBranch: string
 ): { ok: boolean; reason?: string; failure?: StructuredGitRemoteFailure } {
   validatePath(candidatePath);
-  const result = git(['push', 'origin', `HEAD:${workBranch}`], candidatePath, true);
+  const result = gitRemote(['push', 'origin', `HEAD:${workBranch}`], candidatePath);
   if (result.status !== 0) {
     const failure = classifyGitRemoteFailure({
       remote: 'origin',
@@ -650,7 +666,7 @@ export function fastForwardMissionBranch(
     return { ok: false, reason: `repoPath is not a git repository: ${repoPath}` };
   }
 
-  const fetchResult = git(['fetch', 'origin', workBranch], resolvedRepo, true);
+  const fetchResult = gitRemote(['fetch', 'origin', workBranch], resolvedRepo);
   if (fetchResult.status !== 0) {
     return { ok: false, reason: `Fetch failed: ${sanitizeGitRemoteMessage(fetchResult.stderr)}` };
   }

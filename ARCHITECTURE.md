@@ -263,13 +263,25 @@ HEAD кандидата == `accepted_commit_sha`, parent == `task_base_sha`, с�
 Дополнительно перед первым дорогим planner/coder вызовом в github-миссии с
 `allow_repo_push` one-click runner выполняет неизменяющий write-auth preflight
 (`src/git-write-auth-preflight.ts`): `git push --dry-run --porcelain` текущего
-HEAD на детерминированный ref `refs/heads/ai-orchestrator/write-auth-preflight`
-с той же конструкцией credential (x-access-token injection в HTTPS URL), затем
-`ls-remote` подтверждает, что ref не создан. `ls-remote` alone недостаточен:
-публичные репозитории читаются анонимно. При провале preflight миссия
-останавливается ДО provider-вызовов (call count = 0) с resumable вердиктом
-`MULTITASK_MISSION_PAUSED_GIT_AUTH`. Никакой модификации global git config,
-никаких credential-helper'ов — достаточно `.env` `GITHUB_TOKEN`.
+HEAD на детерминированный ref `refs/heads/ai-orchestrator/write-auth-preflight`,
+затем `ls-remote` подтверждает, что ref не создан. `ls-remote` alone
+недостаточен: публичные репозитории читаются анонимно. При провале preflight
+миссия останавливается ДО provider-вызовов (call count = 0) с resumable
+вердиктом `MULTITASK_MISSION_PAUSED_GIT_AUTH`. Никакой модификации global git
+config, никаких credential-helper'ов — достаточно `.env` `GITHUB_TOKEN`.
+
+Аутентификация git remote операций — всегда эфемерная
+(`buildEphemeralGitAuthEnv` в `src/git-push-auth.ts`): токен передаётся через
+`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` с
+`http.https://github.com/.extraHeader: Authorization: Bearer <token>` только в
+environment конкретного git-процесса. Persisted origin URL всегда
+credential-free (`stripCredentialsFromRemoteUrl` применяется при копировании
+origin в candidate workspace и в `configureCandidateRemote`), токен не
+появляется в argv, в `.git/config`, в state.json, логах и отчётах. Единый
+механизм используется для write-auth preflight, candidate push, resume push и
+authenticated fetch/ls-remote (`gitRemote` в `src/candidate-workspace.ts`).
+Это гарантирует, что candidate workspace, сохранённый при `paused_git_auth`,
+не содержит старого токена.
 
 ### 4.2. `src/config.ts`
 

@@ -1,12 +1,13 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { runRealRepoRunAICandidateFlow } from '../src/real-repo-run-ai-candidate.js';
 import { loadState } from '../src/state-manager.js';
+import { configureCandidateRemote } from '../src/candidate-workspace.js';
 import { deriveTaskResult } from '../src/real-block-run-ai.js';
 import type { FetchFn } from '../src/provider-call.js';
 import type { Task } from '../src/types.js';
@@ -28,7 +29,35 @@ const ENV_KEYS = [
   'REAL_PROVIDER_MAX_ATTEMPTS',
   'REAL_PROVIDER_RETRY_BASE_MS',
   'REAL_PROVIDER_RETRY_MAX_MS',
+  'GITHUB_TOKEN',
 ] as const;
+
+/**
+ * Sentinel credential: a token-shaped value that must never survive anywhere
+ * on disk (candidate .git/, state.json, run logs, reports).
+ */
+const FLOW_SENTINEL = 'ghp_SENTINELephemeralflow00000000000000';
+
+/** Recursively scan a directory tree for the exact sentinel bytes. */
+function findSentinelInTree(rootDir: string, sentinel: string): string[] {
+  const hits: string[] = [];
+  const needle = Buffer.from(sentinel, 'utf-8');
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile()) {
+        const content = readFileSync(full);
+        if (content.includes(needle)) {
+          hits.push(full);
+        }
+      }
+    }
+  };
+  walk(rootDir);
+  return hits;
+}
 
 function snapshotEnv(): Map<string, string | undefined> {
   const snap = new Map<string, string | undefined>();
@@ -205,11 +234,39 @@ function installAuthRejectHook(remotePath: string): string {
   return hookPath;
 }
 
+describe('configureCandidateRemote stores a credential-free origin', () => {
+  test('a token-bearing URL is stripped before being persisted in .git/config', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gitauth-remote-cfg-'));
+    const credSentinel = 'ghp_SENTINELconfigurecandidate0000000000';
+    try {
+      git(['init'], dir);
+      git(['remote', 'add', 'origin', 'https://github.com/Mellowin/AI-orchestrator.git'], dir);
+      const result = configureCandidateRemote(
+        dir,
+        `https://x-access-token:${credSentinel}@github.com/Mellowin/AI-orchestrator.git`
+      );
+      assert.strictEqual(result.ok, true);
+      const stored = git(['remote', 'get-url', 'origin'], dir);
+      assert.strictEqual(stored.stdout.trim(), 'https://github.com/Mellowin/AI-orchestrator.git');
+      assert.deepStrictEqual(
+        findSentinelInTree(join(dir, '.git'), credSentinel),
+        [],
+        '.git must not contain the stripped credential'
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('git auth pause/resume (flow level)', () => {
   test('push auth failure pauses with accepted commit preserved; rotated credential resumes push-only', async () => {
     const envSnap = snapshotEnv();
     const setup = makeFlowSetup('pause');
     process.env.REAL_REPO_REVIEWER_FAKE_RESPONSE = ACCEPT_REVIEWER;
+    // A token-shaped sentinel is configured for the whole scenario; it must
+    // never be persisted anywhere (regressions 1–6).
+    process.env.GITHUB_TOKEN = FLOW_SENTINEL;
     const hookPath = installAuthRejectHook(setup.repo.remotePath);
 
     const coderCalls = { calls: 0 };
@@ -257,6 +314,22 @@ describe('git auth pause/resume (flow level)', () => {
       // Regression 8: the single coder call happened once; nothing after the pause.
       assert.strictEqual(coderCalls.calls, 1);
 
+      // Regressions 1/3/5/6: the paused candidate and all run artifacts must
+      // contain NO credential. The persisted origin URL is credential-free.
+      const pausedOrigin = git(['remote', 'get-url', 'origin'], setup.candidatePath);
+      assert.ok(!pausedOrigin.stdout.includes(FLOW_SENTINEL), 'candidate origin must not contain the token');
+      assert.ok(!pausedOrigin.stdout.includes('x-access-token'), 'candidate origin must not embed credentials');
+      assert.deepStrictEqual(
+        findSentinelInTree(join(setup.candidatePath, '.git'), FLOW_SENTINEL),
+        [],
+        'candidate .git/ must not contain the token after paused_git_auth'
+      );
+      assert.deepStrictEqual(
+        findSentinelInTree(setup.runsDir, FLOW_SENTINEL),
+        [],
+        'state/logs must not contain the token'
+      );
+
       // Fresh (non-resume) rerun must refuse to restart over the paused state.
       const freshRerunCalls = { calls: 0 };
       const freshRerun = await runFlow(setup, {
@@ -296,6 +369,25 @@ describe('git auth pause/resume (flow level)', () => {
       const persisted = loadState(setup.task.id, setup.runsDir);
       assert.strictEqual(persisted?.status, 'pushed');
       assert.strictEqual(persisted?.git_failure, undefined);
+
+      // Regressions 2/4/5/6: after a successful resume-push, if the candidate
+      // workspace is still on disk it must remain credential-free; run
+      // artifacts must never contain the token.
+      if (existsSync(join(setup.candidatePath, '.git'))) {
+        const resumedOrigin = git(['remote', 'get-url', 'origin'], setup.candidatePath);
+        assert.ok(!resumedOrigin.stdout.includes(FLOW_SENTINEL), 'origin must stay credential-free after resume');
+        assert.ok(!resumedOrigin.stdout.includes('x-access-token'));
+        assert.deepStrictEqual(
+          findSentinelInTree(join(setup.candidatePath, '.git'), FLOW_SENTINEL),
+          [],
+          'candidate .git/ must not contain the token after resume'
+        );
+      }
+      assert.deepStrictEqual(
+        findSentinelInTree(setup.runsDir, FLOW_SENTINEL),
+        [],
+        'state/logs must not contain the token after resume'
+      );
     } finally {
       restoreEnv(envSnap);
       cleanupFlowSetup(setup);

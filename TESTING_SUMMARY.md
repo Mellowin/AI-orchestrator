@@ -6,8 +6,8 @@
 
 ## Test metrics
 
-- **Total tests:** 4162
-- **Total suites:** 322
+- **Total tests:** 4167
+- **Total suites:** 323
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
@@ -31,6 +31,16 @@
   - `npm run build` — OK
   - `npm run verify:summary` — OK
   - `npm run verify:product:ci` — OK (4162 tests / 322 suites / 0 failures, exit code 0)
+- **Stage 18.26c.1 ephemeral GitHub credentials verification (before push):**
+  - `test/git-push-auth.test.ts` — 13/13 pass (legacy URL injection kept for compatibility; stripCredentialsFromRemoteUrl removes embedded userinfo and leaves clean/SSH/local URLs unchanged; buildEphemeralGitAuthEnv emits a github.com-scoped `http.extraHeader` Authorization Bearer via GIT_CONFIG_* env, defaults to process.env.GITHUB_TOKEN, returns {} without a token)
+  - `test/git-write-auth-preflight.test.ts` — 9/9 pass (dry-run push argv contains NO token and NO x-access-token URL — auth travels only via ephemeral GIT_CONFIG env; credential-free remote URL; dry-run auth failure still classifies GIT_AUTH_INVALID and pauses the mission BEFORE the planner with provider call count = 0; missing provider token keeps the legacy planner token error with preflight skipped; happy path creates no remote ref)
+  - `test/git-auth-pause-resume.test.ts` — 5/5 pass (configureCandidateRemote strips a token-bearing URL so candidate .git/config stores the credential-free origin; full pause/resume flow runs with a sentinel GITHUB_TOKEN: candidate origin credential-free before push, after paused_git_auth, and after resume; recursive byte scan of candidate .git/ and runs/ finds zero sentinel occurrences; rotated credential resume still pushes the SAME accepted SHA with zero repeated AI calls)
+  - `test/git-remote-failure.test.ts` — 27/27 pass (classification and redaction unchanged)
+  - `test/candidate-workspace.test.ts` — 14/14 pass (legacy token-injection assertion replaced: persisted candidate origin must be credential-free with empty username/password even when GITHUB_TOKEN is set, and candidate .git/config must not contain the token)
+  - `npm run typecheck` — OK
+  - `npm run build` — OK
+  - `npm run verify:summary` — OK
+  - `npm run verify:product:ci` — OK (4167 tests / 323 suites / 0 failures, exit code 0)
 - **Stage 18.26a integrated validation / finalization repair verification (before push):**
   - `test/multitask-integrated-validator.test.ts` — 3/3 pass (validation command discovery, REPAIRABLE_REPOSITORY_FAILURE classification, EXTERNAL_BLOCKER classification)
   - `test/multitask-finalization-repair.test.ts` — 2/2 pass (deterministic TESTING_SUMMARY.md fallback and AI-generated repair candidate)
