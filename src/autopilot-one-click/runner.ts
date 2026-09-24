@@ -5,6 +5,13 @@ import { runAutopilotPlan } from '../autopilot-plan/runner.js';
 import type { AutopilotPlanMission, AutopilotPlanResult } from '../autopilot-plan/types.js';
 import { loadAutopilotRunConfig, runAutopilotRun } from '../autopilot-run/index.js';
 import { runMultitaskMission } from './multitask/runner.js';
+import { getMissionRunDir, loadMissionState, computePlanHash } from './multitask/state-manager.js';
+import {
+  appendResumeAttempt,
+  loadResumePlanSnapshot,
+  saveResumePlanSnapshot,
+  validateResumeSnapshotIdentity,
+} from './resume-plan-snapshot.js';
 import { buildMissionFromGoal, MissionBuilderError } from './mission-builder.js';
 import { buildResumeCommand } from './resume-command.js';
 import { runGitWriteAuthPreflight } from '../git-write-auth-preflight.js';
@@ -97,6 +104,12 @@ export async function runAutopilotOneClick(
     options.yes = true;
   }
 
+  const isMultitaskMission =
+    options.preset === 'real-multitask' ||
+    options.preset === 'multitask-safe' ||
+    presetFromMission === 'real-multitask' ||
+    presetFromMission === 'multitask-safe';
+
   if (requiresConfirmation(mission) && !options.yes) {
     return makeFailureResult(
       'ONE_CLICK_NEEDS_CONFIRMATION',
@@ -157,8 +170,83 @@ export async function runAutopilotOneClick(
     }
   }
 
+  // Resolve the plan result. A resumed multitask mission MUST reuse the exact
+  // plan that belonged to the original run: the AI planner is non-deterministic,
+  // so re-running it on resume can change the plan hash and abort a legitimate
+  // resume, and it wastes provider quota. Resume is read-mostly: the persisted
+  // snapshot is validated BEFORE any planning artifact can be overwritten, and
+  // no planner provider call happens on a resume that has a valid snapshot.
   const planFn = options.planFn ?? runAutopilotPlan;
-  const planResult = await planFn(mission, { command });
+  let planResult: AutopilotPlanResult;
+
+  const recordResumeAttempt = (outcome: string, reason: string, plannerCalls: number): void => {
+    if (options.resume === true && isMultitaskMission) {
+      appendResumeAttempt(mission.output_dir, mission.run_id, {
+        attempted_at: new Date().toISOString(),
+        outcome,
+        reason,
+        planner_calls: plannerCalls,
+      });
+    }
+  };
+
+  if (options.resume === true && isMultitaskMission) {
+    const snapshot = loadResumePlanSnapshot(mission.output_dir, mission.run_id);
+    if (snapshot) {
+      const identity = validateResumeSnapshotIdentity(snapshot, mission);
+      if (!identity.ok) {
+        recordResumeAttempt('identity_check_failed', identity.reason, 0);
+        return makeFailureResult('ONE_CLICK_CONFIG_ERROR', identity.reason, mission);
+      }
+      const snapshotPlanHash = computePlanHash(snapshot.plan_result.plan);
+      if (snapshotPlanHash !== snapshot.plan_hash) {
+        const reason =
+          'Resume aborted: persisted plan snapshot integrity check failed (snapshot plan hash mismatch)';
+        recordResumeAttempt('snapshot_integrity_failed', reason, 0);
+        return makeFailureResult('ONE_CLICK_CONFIG_ERROR', reason, mission);
+      }
+      const persistedState = loadMissionState(
+        getMissionRunDir(mission.output_dir, mission.run_id)
+      );
+      if (persistedState && persistedState.plan_hash !== snapshot.plan_hash) {
+        const reason =
+          'Resume aborted: persisted mission state plan_hash does not match the persisted plan snapshot';
+        recordResumeAttempt('state_plan_hash_mismatch', reason, 0);
+        return makeFailureResult('ONE_CLICK_CONFIG_ERROR', reason, mission);
+      }
+      // Exact original plan reused; ZERO planner provider calls on this path.
+      recordResumeAttempt('snapshot_loaded', 'exact persisted plan snapshot loaded', 0);
+      planResult = snapshot.plan_result;
+    } else {
+      // No immutable snapshot. If the mission already has persisted execution
+      // state, the exact original plan cannot be recovered safely (the run
+      // predates immutable planning snapshots or its mutable planning artifacts
+      // were overwritten). Fail closed WITHOUT provider calls; never
+      // reconstruct or guess the original plan with AI.
+      const persistedState = loadMissionState(
+        getMissionRunDir(mission.output_dir, mission.run_id)
+      );
+      if (persistedState) {
+        const reason =
+          'LEGACY_RESUME_PLAN_UNAVAILABLE: this run predates immutable resume plan snapshots and its exact original plan cannot be recovered from trustworthy persisted evidence; accepted remote commits are preserved, start a new mission instead';
+        recordResumeAttempt('legacy_plan_unavailable', reason, 0);
+        return makeFailureResult('ONE_CLICK_CONFIG_ERROR', reason, mission);
+      }
+      // Planning legitimately never happened yet (e.g. the mission paused on the
+      // git write-auth preflight before the first planner call). Plan now — this
+      // is the deferred initial planning, not a re-plan — and persist the
+      // immutable snapshot for all later resumes.
+      planResult = await planFn(mission, { command });
+      if (planResult.exit_code === 0 && planResult.generated_files.length > 0) {
+        saveResumePlanSnapshot(mission.output_dir, mission.run_id, mission, planResult);
+      }
+    }
+  } else {
+    planResult = await planFn(mission, { command });
+    if (isMultitaskMission && planResult.exit_code === 0 && planResult.generated_files.length > 0) {
+      saveResumePlanSnapshot(mission.output_dir, mission.run_id, mission, planResult);
+    }
+  }
 
   let verdict: AutopilotOneClickVerdict;
   let reason: string;
@@ -181,16 +269,6 @@ export async function runAutopilotOneClick(
     reason = planResult.reason || 'Plan step failed';
     exitCode = 1;
   } else {
-    const presetFromMission = mission.constraints
-      ?.find((c) => c.startsWith('Preset: '))
-      ?.slice('Preset: '.length)
-      .trim();
-    const isMultitaskMission =
-      options.preset === 'real-multitask' ||
-      options.preset === 'multitask-safe' ||
-      presetFromMission === 'real-multitask' ||
-      presetFromMission === 'multitask-safe';
-
     if (isMultitaskMission) {
       const runMultitaskMissionFn = options.runMultitaskMissionFn ?? runMultitaskMission;
       let multitaskResult;
