@@ -2,20 +2,29 @@
 
 **Branch:** `stage-18-26-autonomous-multitask-completion`
 
-**Last verified:** `b130d4945005513bbdc47aa00a0b9259c49b39e2`
+**Last verified:** `2915401a7d780e664599919940f859f0295099e3`
 
 ## Test metrics
 
-- **Total tests:** 4187
-- **Total suites:** 326
+- **Total tests:** 4206
+- **Total suites:** 332
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `b130d4945005513bbdc47aa00a0b9259c49b39e2` (Stage 18.26e: authorize validated finalization maintenance in mission review)
+- **Last verified commit:** `2915401a7d780e664599919940f859f0295099e3` (Stage 18.26f: resume exact persisted plan without rerunning planner)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
+- **Stage 18.26f deterministic resume reuses exact persisted plan verification (before push):**
+  - `test/one-click-resume-plan-snapshot.test.ts` — 8/8 pass (immutable `resume-plan-snapshot.json` persisted after first successful planning; resume with same `--run-id` makes ZERO planner provider calls and reuses exact PLAN-A while an injected PLAN-B provider is never invoked; tampered snapshot plan hash / snapshot run id / snapshot repo / snapshot goal / mismatched multitask state `plan_hash` all fail closed with zero provider calls and no mission execution; legacy run with execution state but no snapshot fails closed as `LEGACY_RESUME_PLAN_UNAVAILABLE` with zero provider calls; snapshot never overwritten by a second save)
+  - `test/one-click-resume-identity.test.ts` — 4/4 pass (18.26c.2 behavior preserved: `--resume` without `--run-id` fails closed; git-auth preflight pause before planning resumes the SAME run id, planner runs exactly once as deferred initial planning, snapshot persisted, no duplicate mission directory)
+  - `test/autopilot-one-click-multitask.test.ts`, `test/autopilot-one-click-goal.test.ts`, `test/autopilot-one-click-multitask-scenarios.test.ts` — 163/163 pass (multitask runner behavior unchanged: plan-hash/base-sha/ancestry gates, task-state resume, safe mode)
+  - Verified product commit: `2915401a7d780e664599919940f859f0295099e3`
+  - `npm run typecheck` — OK
+  - `npm run build` — OK
+  - `npm run verify:summary` — OK
+  - `npm run verify:product:ci` — OK (4206 tests / 332 suites / 0 failures, exit code 0)
 - **Stage 18.26d malformed reviewer output recovery verification (before push):**
   - `test/reviewer-parse-recovery.test.ts` — 13/13 pass (typed ReviewerOutputParseError for malformed JSON / missing fields / invalid schema; provider propagates parse failures structurally while 403 quota stays a wrapped provider failure; native JSON.parse SyntaxError message classified without substring matching; recovery prompt demands a single valid JSON object; valid response on retry accepted; same candidate package hash across parse retries; reviewer round unchanged; fix coder not repeated; parse exhaustion blocks with source=parser and explicit reason; malformed raw evidence sanitized, size-capped, hash+length stored; first reviewer blockingIssues/fixTask persisted before fix coder; append-only reviewer_rounds evidence not overwritten; exact real-failure full-flow regression: reviewer#1 fix_required → one fix coder → malformed reviewer#2 → parse retry only → accepted + pushed)
   - `test/reviewer-provider-runner.test.ts` — 7/7 pass (existing parse-retry semantics preserved)
