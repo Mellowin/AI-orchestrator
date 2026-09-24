@@ -2,7 +2,7 @@
 
 **Branch:** `stage-18-26-autonomous-multitask-completion`
 
-**Last verified:** `e0adb6011cc580daa09faeeac6ff77501bae2d73`
+**Last verified:** `760ce086f13d02d83f06b687febe28bce8b25ff7`
 
 ## Test metrics
 
@@ -13,7 +13,7 @@
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `e0adb6011cc580daa09faeeac6ff77501bae2d73` (Stage 18.26g: make CI diagnosis and repair checks reliable)
+- **Last verified commit:** `760ce086f13d02d83f06b687febe28bce8b25ff7` (Stage 18.26g: make CI diagnosis and repair checks reliable)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
 - **Stage 18.26g reliable CI diagnosis, portable repair checks, deterministic timeout regression verification (before push):**
