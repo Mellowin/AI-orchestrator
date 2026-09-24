@@ -882,6 +882,25 @@ export async function runMultitaskMission(
 
             const revalidation = runIntegratedValidation(mission.repo_path, { spawnFn: spawnSync });
             state.validation_outcome = revalidation;
+
+            if (revalidation.ok) {
+              // Persist the authorized maintenance scope as deterministic
+              // evidence. Only a repair whose files stay within the
+              // validator's maintenanceFiles list, and whose revalidation
+              // passed, becomes final-review authorization. Fail closed
+              // otherwise: no evidence, no maintenance allowance.
+              const maintenanceFiles = validationOutcome.maintenanceFiles ?? [];
+              const repairOutOfScope = repairResult.files.filter((f) => !maintenanceFiles.includes(f));
+              if (repairOutOfScope.length === 0) {
+                state.authorized_maintenance = {
+                  classification: 'REPAIRABLE_REPOSITORY_FAILURE',
+                  maintenance_files: maintenanceFiles,
+                  repair_files: repairResult.files,
+                  repair_commit_sha: repairResult.commitSha,
+                  revalidation_ok: true,
+                };
+              }
+            }
             saveMissionState(runDir, state, options.writeStateFn);
 
             if (revalidation.ok) {
@@ -1006,6 +1025,7 @@ export async function runMultitaskMission(
       autopilotResult,
       integratedDiff,
       taskStates: state.tasks,
+      authorized_maintenance: state.authorized_maintenance,
     };
 
     try {

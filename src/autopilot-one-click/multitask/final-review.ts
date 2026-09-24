@@ -4,7 +4,13 @@ import type { AutopilotRunResult } from '../../autopilot-run/types.js';
 import { matchesPattern } from '../../guardrails.js';
 import { buildMissionDependencyEvidence } from '../../reviewer/dependency-evidence.js';
 import type { DependencyEvidencePackage } from '../../types.js';
-import type { FinalReviewInput, MultitaskMissionFinalReview, MultitaskMissionTaskState, FinalReviewCallFn } from './types.js';
+import type {
+  FinalReviewInput,
+  MultitaskMissionFinalReview,
+  MultitaskMissionTaskState,
+  FinalReviewCallFn,
+  AuthorizedMaintenanceEvidence,
+} from './types.js';
 
 export type { FinalReviewCallFn };
 
@@ -106,6 +112,30 @@ function collectUnauthorizedFiles(
   return Array.from(files);
 }
 
+/**
+ * Resolve the system-authorized finalization-maintenance file list from
+ * persisted deterministic repair evidence. Fail closed: any inconsistency
+ * (wrong classification, missing SHA, repair files outside the validator's
+ * maintenance list, or failed revalidation) yields NO maintenance allowance,
+ * so any such file in the diff is treated as unauthorized.
+ */
+function resolveAuthorizedMaintenanceFiles(
+  evidence: AuthorizedMaintenanceEvidence | undefined
+): string[] {
+  if (!evidence) return [];
+  if (evidence.classification !== 'REPAIRABLE_REPOSITORY_FAILURE') return [];
+  if (evidence.revalidation_ok !== true) return [];
+  if (typeof evidence.repair_commit_sha !== 'string' || !/^[a-f0-9]{40}$/.test(evidence.repair_commit_sha)) {
+    return [];
+  }
+  const maintenanceFiles = Array.isArray(evidence.maintenance_files) ? evidence.maintenance_files : [];
+  const repairFiles = Array.isArray(evidence.repair_files) ? evidence.repair_files : [];
+  if (maintenanceFiles.length === 0 || repairFiles.length === 0) return [];
+  const outOfScope = repairFiles.filter((f) => !maintenanceFiles.includes(f));
+  if (outOfScope.length > 0) return [];
+  return maintenanceFiles;
+}
+
 function collectAcceptanceGaps(
   taskStates: MultitaskMissionTaskState[],
   expectedResults: Map<string, string>
@@ -138,6 +168,27 @@ function buildReviewPrompt(input: FinalReviewInput): string {
 
   const autopilot = input.autopilotResult;
   const ciInfo = autopilot.ci_run_id !== undefined ? `CI run ${autopilot.ci_run_id}: ${autopilot.ci_conclusion ?? 'unknown'}` : 'CI not observed';
+
+  const maintenanceFiles = resolveAuthorizedMaintenanceFiles(input.authorized_maintenance);
+  const scopeSection =
+    maintenanceFiles.length > 0
+      ? [
+          '## Writable scope',
+          '',
+          'Task writable scope (union of task allowed_files):',
+          ...Array.from(new Set(input.plan.tasks.flatMap((t) => t.allowed_files))).map((f) => `- ${f}`),
+          '',
+          'System-authorized finalization maintenance (explicitly authorized, deterministic):',
+          ...maintenanceFiles.map((f) => `- ${f}`),
+          '',
+          `These maintenance files were modified only to satisfy repository-level integrated validation ` +
+            `after all task outputs were accepted (classification REPAIRABLE_REPOSITORY_FAILURE, ` +
+            `repair commit ${input.authorized_maintenance?.repair_commit_sha}). ` +
+            `Do NOT report them as unauthorized merely because they are outside the original task writable scope. ` +
+            `The deterministic gate, not the model, is the final security authority for scope.`,
+          '',
+        ].join('\n')
+      : '';
 
   const dependencyEvidence = input.dependency_evidence;
   const dependencyEvidenceSection =
@@ -173,6 +224,7 @@ function buildReviewPrompt(input: FinalReviewInput): string {
     '## Task plan',
     taskSummary,
     '',
+    scopeSection,
     '## Autopilot result',
     `- Verdict: ${autopilot.verdict}`,
     `- Reason: ${autopilot.reason}`,
@@ -257,11 +309,11 @@ function computeMandatoryGaps(input: FinalReviewInput): {
 } {
   const expectedResults = new Map(input.plan.tasks.map((t) => [t.id, t.expected_result ?? '']));
   const gaps = collectAcceptanceGaps(input.taskStates ?? [], expectedResults);
+  const taskAllowedFiles = input.plan.tasks.flatMap((t) => t.allowed_files);
+  const maintenanceFiles = resolveAuthorizedMaintenanceFiles(input.authorized_maintenance);
+  const effectiveAllowedFiles = Array.from(new Set([...taskAllowedFiles, ...maintenanceFiles]));
   const unauthorized = input.integratedDiff
-    ? collectUnauthorizedFiles(
-        input.integratedDiff,
-        input.plan.tasks.flatMap((t) => t.allowed_files)
-      )
+    ? collectUnauthorizedFiles(input.integratedDiff, effectiveAllowedFiles)
     : [];
   return { unauthorized, gaps };
 }
@@ -381,4 +433,4 @@ export async function runMissionFinalReview(
   };
 }
 
-export { collectDiff, collectUnauthorizedFiles, collectAcceptanceGaps };
+export { collectDiff, collectUnauthorizedFiles, collectAcceptanceGaps, resolveAuthorizedMaintenanceFiles };

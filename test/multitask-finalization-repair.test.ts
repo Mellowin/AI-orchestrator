@@ -188,4 +188,54 @@ describe('finalization-repair', () => {
 
     rmSync(join(repoPath, '..'), { recursive: true, force: true });
   });
+
+  test('AI candidate touching files outside maintenanceFiles is rejected before commit', async () => {
+    const { repoPath, initialSha } = createTempRepo();
+
+    mkdirSync(join(repoPath, 'docs'), { recursive: true });
+    writeFileSync(join(repoPath, 'docs', 'new.md'), '# new doc\n', 'utf-8');
+    spawnSync('git', ['add', 'docs/new.md'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+    spawnSync('git', ['commit', '-m', 'add doc', '--no-gpg-sign'], { cwd: repoPath, encoding: 'utf-8', shell: false });
+
+    const headBefore = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf-8', shell: false }).stdout.trim();
+
+    const validationResult = runIntegratedValidation(repoPath);
+    assert.strictEqual(validationResult.classification, 'REPAIRABLE_REPOSITORY_FAILURE');
+
+    const { fakeSpawn } = makeFakeSpawn(repoPath);
+
+    const repairResult = await runFinalizationRepair(
+      {
+        repoPath,
+        workBranch: 'main',
+        missionGoal: 'Create docs',
+        missionAllowedFiles: ['docs/new.md'],
+        missionDeniedFiles: [],
+        validationResult,
+        reportDir: join(repoPath, '..', 'report'),
+        attempt: 1,
+        maxAttempts: 2,
+      },
+      {
+        spawnFn: fakeSpawn as typeof spawnSync,
+        aiGenerateFn: async () =>
+          JSON.stringify({
+            mode: 'file_update',
+            files: [
+              { path: 'TESTING_SUMMARY.md', content: '# touched\n' },
+              { path: 'src/foo.ts', content: 'export {}\n' },
+            ],
+          }),
+        validateFn: (repoPath: string) => runIntegratedValidation(repoPath),
+      }
+    );
+
+    assert.strictEqual(repairResult.ok, false);
+    assert.ok(repairResult.reason.includes('outside authorized maintenance scope'), repairResult.reason);
+
+    const headAfter = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoPath, encoding: 'utf-8', shell: false }).stdout.trim();
+    assert.strictEqual(headAfter, headBefore, 'no repair commit must be created for an out-of-scope candidate');
+
+    rmSync(join(repoPath, '..'), { recursive: true, force: true });
+  });
 });

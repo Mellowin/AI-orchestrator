@@ -10,6 +10,25 @@ import type { StructuredGitRemoteFailure } from '../../git-remote-failure.js';
 
 export type FinalReviewCallFn = (prompt: string) => Promise<string>;
 
+/**
+ * Deterministic evidence that a finalization repair was authorized and
+ * completed successfully. Only repairs authorized by the integrated-validation
+ * failure classification (REPAIRABLE_REPOSITORY_FAILURE) may produce this
+ * evidence; it is persisted in mission state and reused verbatim on resume.
+ */
+export interface AuthorizedMaintenanceEvidence {
+  /** Always REPAIRABLE_REPOSITORY_FAILURE: only this class authorizes maintenance scope. */
+  classification: 'REPAIRABLE_REPOSITORY_FAILURE';
+  /** Files the validator identified as repository-maintenance targets. */
+  maintenance_files: string[];
+  /** Files the repair actually changed; must be a subset of maintenance_files. */
+  repair_files: string[];
+  /** Commit SHA of the accepted repair commit. */
+  repair_commit_sha: string;
+  /** True only when post-repair revalidation passed. */
+  revalidation_ok: true;
+}
+
 export interface FinalReviewInput {
   mission: AutopilotPlanMission;
   plan: AutopilotPlanGeneratedPlan;
@@ -20,6 +39,12 @@ export interface FinalReviewInput {
   taskStates?: MultitaskMissionTaskState[];
   /** Read-only context from accepted ancestor tasks for summary tasks. */
   dependency_evidence?: DependencyEvidencePackage;
+  /**
+   * System-authorized finalization-maintenance scope from a successful
+   * integrated-validation repair. Unioned with task allowed_files for the
+   * mandatory unauthorized-files gate. Never inferred from the diff itself.
+   */
+  authorized_maintenance?: AuthorizedMaintenanceEvidence;
 }
 
 export type MultitaskMissionVerdict =

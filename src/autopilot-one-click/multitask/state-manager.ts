@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join, resolve } from 'node:path';
 import type { AutopilotPlanGeneratedPlan, AutopilotPlanTask } from '../../autopilot-plan/types.js';
 import type { AutopilotRunResult } from '../../autopilot-run/types.js';
-import type { MultitaskMissionResult, MultitaskMissionTaskState, MultitaskMissionFinalReview } from './types.js';
+import type { MultitaskMissionResult, MultitaskMissionTaskState, MultitaskMissionFinalReview, AuthorizedMaintenanceEvidence } from './types.js';
 import type { IntegratedValidationResult } from './integrated-validator.js';
 
 export interface PersistedMissionState {
@@ -43,6 +43,8 @@ export interface PersistedMissionState {
   finalization_repair_attempts?: number;
   finalization_repair_commit_sha?: string;
   validation_outcome?: IntegratedValidationResult;
+  /** Persisted authorized finalization-maintenance scope; reused verbatim on resume. */
+  authorized_maintenance?: AuthorizedMaintenanceEvidence;
 }
 
 export function getMissionRunDir(outputDir: string, runId: string): string {

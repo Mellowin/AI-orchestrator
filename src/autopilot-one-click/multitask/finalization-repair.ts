@@ -311,6 +311,21 @@ export async function runFinalizationRepair(
   let reason = '';
 
   if (aiCandidate) {
+    // Fail closed before any fallback: a candidate that touches files outside
+    // the validator-authorized maintenance scope is a safety violation, not a
+    // disposable invalid candidate.
+    const candidateOutOfScope = aiCandidate.files.map((f) => f.path).filter((p) => !maintenanceFiles.includes(p));
+    if (candidateOutOfScope.length > 0) {
+      return {
+        ok: false,
+        pushed: false,
+        classification: 'REPAIRABLE_REPOSITORY_FAILURE',
+        attempts: context.attempt,
+        reason: `Repair candidate files outside authorized maintenance scope: ${candidateOutOfScope.join(', ')}`,
+        files: aiCandidate.files.map((f) => f.path),
+        aiGenerated: true,
+      };
+    }
     const validation = validateCandidate(context.repoPath, aiCandidate.files, expandedAllowedFiles, context.missionDeniedFiles);
     if (validation.ok) {
       files = aiCandidate.files;
@@ -373,6 +388,23 @@ export async function runFinalizationRepair(
         aiGenerated: false,
       };
     }
+  }
+
+  // Fail closed: the repair may only touch files the validator explicitly
+  // identified as repository-maintenance targets. Anything else is rejected
+  // before files are applied or committed.
+  const repairPaths = files.map((f) => f.path);
+  const notMaintenance = repairPaths.filter((p) => !maintenanceFiles.includes(p));
+  if (notMaintenance.length > 0) {
+    return {
+      ok: false,
+      pushed: false,
+      classification: 'REPAIRABLE_REPOSITORY_FAILURE',
+      attempts: context.attempt,
+      reason: `Repair candidate files outside authorized maintenance scope: ${notMaintenance.join(', ')}`,
+      files: repairPaths,
+      aiGenerated,
+    };
   }
 
   applyFileUpdates(context.repoPath, files, runDir);
