@@ -2,20 +2,29 @@
 
 **Branch:** `stage-18-26-autonomous-multitask-completion`
 
-**Last verified:** `2915401a7d780e664599919940f859f0295099e3`
+**Last verified:** `e0adb6011cc580daa09faeeac6ff77501bae2d73`
 
 ## Test metrics
 
-- **Total tests:** 4206
-- **Total suites:** 332
+- **Total tests:** 4212
+- **Total suites:** 334
 - **Acceptance-matrix tests:** 52/52 green (local run)
 - **Real-repo-run-ai retry tests:** 12/12 green (local run)
 - **MVP-run tests:** 12/12 green (local run)
 - **Autopilot-run tests:** 24/24 green (local run)
 - **Autopilot-plan tests:** 21/21 green (local run)
-- **Last verified commit:** `2915401a7d780e664599919940f859f0295099e3` (Stage 18.26f: resume exact persisted plan without rerunning planner)
+- **Last verified commit:** `e0adb6011cc580daa09faeeac6ff77501bae2d73` (Stage 18.26g: make CI diagnosis and repair checks reliable)
 - **Type check:** strict (`tsc --noEmit`)
 - **Build:** `tsc` (ES Modules, NodeNext resolution)
+- **Stage 18.26g reliable CI diagnosis, portable repair checks, deterministic timeout regression verification (before push):**
+  - `test/diagnose-ci-skipped-job-logs.test.ts` — 3/3 pass (real canonical regression: failed `checks` job log collected while skipped `post-push-follow-up-drill-smoke` job log endpoint returns 404 — diagnosis continues as `TEST_FAILURE`, fix task names the real failing test `REAL_BLOCK_RUN_RESUME=1 env flag enables resume after timeout` in `test/cli-real-block-run-ai.test.ts`, unavailable log evidence (job_id/name/conclusion/status=404/reason) persisted in report.md and report.json; fail closed as `DIAGNOSE_CI_NOT_FOUND` only when no failed job has logs; job-log 403 still fails closed as `DIAGNOSE_CI_ACCESS_ERROR`)
+  - `test/repair-runner-local-checks.test.ts` — 3/3 pass (Windows bare-npm spawn ENOENT simulation surfaces explicit `typecheck failed: command failed to start: ENOENT: spawn npm ENOENT` evidence, never empty output; `local-checks.json` persists command/args/cwd/exit_status/signal/spawn_error; npx targeted test runs with the failing file; non-zero exit status captured with stderr)
+  - `test/cli-real-block-run-ai.test.ts` — resume-after-timeout tests deterministic via per-task `REAL_BLOCK_TASK_TIMEOUT_OVERRIDES` seam: task-one always accepted with ample margin on loaded CI, task-two still hits its intended 2s timeout, resume skips task-one, task-two completes, exit 0, no duplicate commits
+  - Verified product commit: `e0adb6011cc580daa09faeeac6ff77501bae2d73`
+  - `npm run typecheck` — OK
+  - `npm run build` — OK
+  - `npm run verify:summary` — OK
+  - `npm run verify:product:ci` — OK (4212 tests / 334 suites / 0 failures, exit code 0)
 - **Stage 18.26f deterministic resume reuses exact persisted plan verification (before push):**
   - `test/one-click-resume-plan-snapshot.test.ts` — 8/8 pass (immutable `resume-plan-snapshot.json` persisted after first successful planning; resume with same `--run-id` makes ZERO planner provider calls and reuses exact PLAN-A while an injected PLAN-B provider is never invoked; tampered snapshot plan hash / snapshot run id / snapshot repo / snapshot goal / mismatched multitask state `plan_hash` all fail closed with zero provider calls and no mission execution; legacy run with execution state but no snapshot fails closed as `LEGACY_RESUME_PLAN_UNAVAILABLE` with zero provider calls; snapshot never overwritten by a second save)
   - `test/one-click-resume-identity.test.ts` — 4/4 pass (18.26c.2 behavior preserved: `--resume` without `--run-id` fails closed; git-auth preflight pause before planning resumes the SAME run id, planner runs exactly once as deferred initial planning, snapshot persisted, no duplicate mission directory)
