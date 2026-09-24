@@ -94,6 +94,14 @@ export interface DiagnoseCiLogParseResult {
   rawExcerpt: string;
 }
 
+export interface DiagnoseCiUnavailableJobLog {
+  job_id: number;
+  job_name: string;
+  job_conclusion: string | null;
+  status?: number;
+  reason: string;
+}
+
 export interface DiagnoseCiWorkflowRun {
   id: number;
   run_number: number;

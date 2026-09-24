@@ -1264,6 +1264,9 @@ describe('cli real-block-run-ai', () => {
       const firstResult = runCli(['real-block-run-ai', blockPath], baseBlockEnv({
         RUNS_DIR: runsDir,
         REAL_BLOCK_TASK_TIMEOUT_MS: '2000',
+        // Deterministic margin for the fast task: task-one must always finish
+        // even on loaded CI, while task-two still hits its intended 2s timeout.
+        REAL_BLOCK_TASK_TIMEOUT_OVERRIDES: JSON.stringify({ 'task-one': 120000 }),
         KIMI_BASE_URL: server.url,
         REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
           buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
@@ -1295,6 +1298,7 @@ describe('cli real-block-run-ai', () => {
       const resumeResult = runCli(['real-block-run-ai', blockPath, '--resume'], baseBlockEnv({
         RUNS_DIR: runsDir,
         REAL_BLOCK_TASK_TIMEOUT_MS: '2000',
+        REAL_BLOCK_TASK_TIMEOUT_OVERRIDES: JSON.stringify({ 'task-two': 120000 }),
         KIMI_BASE_URL: 'http://localhost:9999',
         REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
           buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
@@ -1349,9 +1353,12 @@ describe('cli real-block-run-ai', () => {
       const beforeLogCount = getGitLogCount(repoPath);
 
       // First run accepts task-one and times out task-two after its original push.
+      // Task-one gets a deterministic timeout margin so a loaded CI runner can
+      // never mistake it for the task that should time out.
       runCli(['real-block-run-ai', blockPath], baseBlockEnv({
         RUNS_DIR: runsDir,
         REAL_BLOCK_TASK_TIMEOUT_MS: '2000',
+        REAL_BLOCK_TASK_TIMEOUT_OVERRIDES: JSON.stringify({ 'task-one': 120000 }),
         KIMI_BASE_URL: server.url,
         REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
           buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
@@ -1368,6 +1375,7 @@ describe('cli real-block-run-ai', () => {
         RUNS_DIR: runsDir,
         REAL_BLOCK_RUN_RESUME: '1',
         REAL_BLOCK_TASK_TIMEOUT_MS: '2000',
+        REAL_BLOCK_TASK_TIMEOUT_OVERRIDES: JSON.stringify({ 'task-two': 120000 }),
         REAL_BLOCK_TASK_KIMI_FAKE_RESPONSES: JSON.stringify([
           buildFakeKimiOutput([{ path: 'README.md', content: '# block updated\n' }]),
           buildFakeKimiOutput([{ path: 'feature.txt', content: 'feature\n' }]),

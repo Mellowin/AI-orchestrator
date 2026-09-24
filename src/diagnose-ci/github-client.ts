@@ -3,6 +3,7 @@ import type {
   DiagnoseCiFakeScenario,
   DiagnoseCiJob,
   DiagnoseCiJobStep,
+  DiagnoseCiUnavailableJobLog,
   DiagnoseCiVerdict,
   DiagnoseCiWorkflowRun,
 } from './types.js';
@@ -18,6 +19,7 @@ export interface WorkflowBundle {
   run: DiagnoseCiWorkflowRun;
   jobs: DiagnoseCiJob[];
   logs: Record<string, string>;
+  unavailable_logs: DiagnoseCiUnavailableJobLog[];
 }
 
 export class DiagnoseCiGithubError extends Error {
@@ -224,11 +226,48 @@ export async function fetchWorkflowBundle(
   const jobs = rawJobs.map((j) => normalizeJob(j as Record<string, unknown>));
 
   const logs: Record<string, string> = {};
+  const unavailableLogs: DiagnoseCiUnavailableJobLog[] = [];
   for (const job of jobs) {
-    logs[job.id] = await githubTextRequest(`${baseUrl}/actions/jobs/${job.id}/logs`, token, fetchFn);
+    try {
+      logs[job.id] = await githubTextRequest(`${baseUrl}/actions/jobs/${job.id}/logs`, token, fetchFn);
+    } catch (err) {
+      if (err instanceof DiagnoseCiGithubError && err.verdict === 'DIAGNOSE_CI_ACCESS_ERROR') {
+        // Auth problems are never tolerable: fail closed immediately.
+        throw err;
+      }
+      // A single job's log blob may be legitimately missing (GitHub returns
+      // 404/BlobNotFound for skipped jobs). Record structured evidence and
+      // keep the logs already collected from other jobs.
+      const status = err instanceof DiagnoseCiGithubError ? err.status : undefined;
+      unavailableLogs.push({
+        job_id: job.id,
+        job_name: job.name,
+        job_conclusion: job.conclusion,
+        status,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
-  return { run, jobs, logs };
+  // Fail closed only when no failed job has retrievable logs: without any
+  // actionable log, diagnosis cannot proceed.
+  const failedJobs = jobs.filter(
+    (job) =>
+      job.conclusion !== null &&
+      job.conclusion !== 'success' &&
+      job.conclusion !== 'skipped' &&
+      job.conclusion !== 'neutral'
+  );
+  if (failedJobs.length > 0 && !failedJobs.some((job) => logs[job.id] !== undefined)) {
+    throw new DiagnoseCiGithubError(
+      'DIAGNOSE_CI_NOT_FOUND',
+      `Logs unavailable for failed job(s): ${failedJobs
+        .map((j) => `${j.name} (id=${j.id})`)
+        .join(', ')}`
+    );
+  }
+
+  return { run, jobs, logs, unavailable_logs: unavailableLogs };
 }
 
 export function buildFakeWorkflowBundle(scenario: DiagnoseCiFakeScenario): WorkflowBundle {
@@ -261,7 +300,7 @@ export function buildFakeWorkflowBundle(scenario: DiagnoseCiFakeScenario): Workf
     [job.id]: isGreen ? fakeGreenLog() : fakeRedLog(),
   };
 
-  return { run, jobs: [job], logs };
+  return { run, jobs: [job], logs, unavailable_logs: [] };
 }
 
 function fakeGreenLog(): string {

@@ -8,6 +8,7 @@ import type {
   DiagnoseCiJob,
   DiagnoseCiLogParseResult,
   DiagnoseCiReportPaths,
+  DiagnoseCiUnavailableJobLog,
   DiagnoseCiWorkflowRun,
 } from './types.js';
 import { redactSecrets } from './redaction.js';
@@ -19,6 +20,7 @@ export interface DiagnoseCiReportInput {
   run: DiagnoseCiWorkflowRun;
   jobs: DiagnoseCiJob[];
   parseResult: DiagnoseCiLogParseResult;
+  unavailableLogs: DiagnoseCiUnavailableJobLog[];
   classification: DiagnoseCiClassification;
   confidence: DiagnoseCiConfidence;
   reason: string;
@@ -136,6 +138,18 @@ export function writeDiagnoseCiReports(input: DiagnoseCiReportInput): DiagnoseCi
   lines.push('');
   lines.push(renderFailedJobs(input.jobs));
   lines.push('');
+  if (input.unavailableLogs.length > 0) {
+    lines.push('## Unavailable Job Logs');
+    lines.push('');
+    for (const entry of input.unavailableLogs) {
+      lines.push(
+        `- **${entry.job_name}** (id=${entry.job_id}, conclusion=${entry.job_conclusion ?? 'unknown'}${
+          entry.status !== undefined ? `, status=${entry.status}` : ''
+        }): logs_available=false — ${redactSecrets(entry.reason)}`
+      );
+    }
+    lines.push('');
+  }
   lines.push('## Extracted Failures');
   lines.push('');
 
@@ -242,7 +256,7 @@ export function writeDiagnoseCiReports(input: DiagnoseCiReportInput): DiagnoseCi
     ),
     parse_result: {
       failed_test_files: input.parseResult.failedTestFiles,
-      summary_lock: input.parseResult.summaryLock,
+      unavailable_job_logs: input.unavailableLogs,      summary_lock: input.parseResult.summaryLock,
       chunk_runner: input.parseResult.chunkRunner,
       timeouts: input.parseResult.timeouts,
       typecheck_failures: input.parseResult.typecheckFailures,

@@ -62,6 +62,32 @@ export function resolveTaskTimeoutMs(block: BlockDefinition): number {
   return getDefaultTaskTimeoutMs(block);
 }
 
+/**
+ * Deterministic per-task timeout override. REAL_BLOCK_TASK_TIMEOUT_OVERRIDES
+ * is a JSON object mapping task_id to a timeout in ms. It wins over the global
+ * REAL_BLOCK_TASK_TIMEOUT_MS so tests can give fast tasks ample margin while
+ * still forcing an intended timeout on a specific task.
+ */
+export function resolveTaskTimeoutMsForTask(block: BlockDefinition, taskId: string): number {
+  const fromEnv = process.env.REAL_BLOCK_TASK_TIMEOUT_OVERRIDES;
+  if (fromEnv !== undefined && fromEnv.trim() !== '') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(fromEnv);
+    } catch {
+      throw new Error('Invalid REAL_BLOCK_TASK_TIMEOUT_OVERRIDES: must be a JSON object mapping task_id to timeout ms');
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('Invalid REAL_BLOCK_TASK_TIMEOUT_OVERRIDES: must be a JSON object mapping task_id to timeout ms');
+    }
+    const value = (parsed as Record<string, unknown>)[taskId];
+    if (value !== undefined) {
+      return validateTaskTimeoutMs(value, block);
+    }
+  }
+  return resolveTaskTimeoutMs(block);
+}
+
 const DEFAULT_REVIEWER_PARSE_RETRIES = 2;
 const MIN_REVIEWER_PARSE_RETRIES = 0;
 const MAX_REVIEWER_PARSE_RETRIES = 5;

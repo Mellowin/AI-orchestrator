@@ -16,6 +16,7 @@ import { redactSecrets } from './sandbox-preflight-repair.js';
 import { checkRealBlockRunReadiness } from './real-block-run-ai-readiness.js';
 import {
   resolveTaskTimeoutMs,
+  resolveTaskTimeoutMsForTask,
   resolveReviewerParseRetries,
   resolveOnBlockedTask,
 } from './real-block-task-timeout.js';
@@ -1416,7 +1417,7 @@ export async function runRealBlockRunAI(
           task,
           i,
           arrays,
-          resolveTaskTimeoutMs(block),
+          resolveTaskTimeoutMsForTask(block, task.task_id),
           true
         );
         taskResult = deriveTaskResult(task, run);
@@ -1427,7 +1428,7 @@ export async function runRealBlockRunAI(
         task,
         i,
         arrays,
-        resolveTaskTimeoutMs(block),
+        resolveTaskTimeoutMsForTask(block, task.task_id),
         false
       );
       taskResult = deriveTaskResult(task, run);

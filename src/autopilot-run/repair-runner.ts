@@ -1,11 +1,29 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import crossSpawn from 'cross-spawn';
 import { createAIClient } from '../ai-client-factory.js';
 import { validateFileList } from '../guardrails.js';
 import { parseKimiOutputJson } from '../kimi-output-validator.js';
 import { applyFileUpdates } from '../patch-engine.js';
+import { redactSecrets } from '../sandbox-preflight-repair.js';
 import type { FileUpdate } from '../types.js';
 import type { AutopilotRunConfig } from './types.js';
+
+const MAX_EVIDENCE_OUTPUT_CHARS = 20000;
+
+export interface LocalCheckEvidence {
+  check: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  ok: boolean;
+  exit_status: number | null;
+  signal: string | null;
+  spawn_error: string | null;
+  stdout: string;
+  stderr: string;
+}
 
 export interface RepairAttemptContext {
   repoPath: string;
@@ -30,18 +48,65 @@ export interface RepairAttemptResult {
 }
 
 function defaultSpawnFn(): typeof spawnSync {
-  return spawnSync;
+  // cross-spawn resolves npm.cmd/npx.cmd on Windows and plain npm/npx on
+  // Unix without going through a shell, keeping arguments structured.
+  return crossSpawn.sync as unknown as typeof spawnSync;
+}
+
+function capOutput(text: string): string {
+  return text.length > MAX_EVIDENCE_OUTPUT_CHARS
+    ? `${text.slice(0, MAX_EVIDENCE_OUTPUT_CHARS)}\n...[truncated]`
+    : text;
 }
 
 function runCommand(
+  check: string,
   command: string,
   args: string[],
   cwd: string,
   spawnFn: typeof spawnSync
-): { ok: boolean; output: string } {
+): LocalCheckEvidence {
   const result = spawnFn(command, args, { cwd, encoding: 'utf-8', shell: false });
-  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
-  return { ok: result.status === 0, output };
+  const stdout = capOutput(
+    Buffer.isBuffer(result.stdout) ? result.stdout.toString('utf-8') : (result.stdout ?? '')
+  );
+  const stderr = capOutput(
+    Buffer.isBuffer(result.stderr) ? result.stderr.toString('utf-8') : (result.stderr ?? '')
+  );
+  const rawError = result.error as NodeJS.ErrnoException | null | undefined;
+  const spawnError =
+    rawError !== null && rawError !== undefined
+      ? redactSecrets(rawError.code ? `${rawError.code}: ${rawError.message ?? String(rawError)}` : (rawError.message ?? String(rawError)))
+      : null;
+  const exitStatus = typeof result.status === 'number' ? result.status : null;
+  const signal = typeof result.signal === 'string' ? result.signal : null;
+  const ok = spawnError === null && signal === null && exitStatus === 0;
+  return {
+    check,
+    command,
+    args,
+    cwd,
+    ok,
+    exit_status: exitStatus,
+    signal,
+    spawn_error: spawnError,
+    stdout: redactSecrets(stdout),
+    stderr: redactSecrets(stderr),
+  };
+}
+
+function describeCheckFailure(evidence: LocalCheckEvidence): string {
+  if (evidence.spawn_error !== null) {
+    return `${evidence.check} failed: command failed to start: ${evidence.spawn_error}`;
+  }
+  if (evidence.signal !== null) {
+    return `${evidence.check} failed: terminated by signal ${evidence.signal}:\n${
+      evidence.stderr || evidence.stdout || '(no output)'
+    }`;
+  }
+  return `${evidence.check} failed (exit ${evidence.exit_status ?? 'unknown'}):\n${
+    evidence.stderr || evidence.stdout || '(no output)'
+  }`;
 }
 
 function buildMockRepairResponse(config: AutopilotRunConfig): string {
@@ -174,6 +239,7 @@ export async function runRepairAttempt(
   }
 
   const checkResult = runLocalChecks(repoPath, failingFile, spawnFn);
+  persistLocalCheckEvidence(reportDir, attempt, checkResult.checks);
   if (!checkResult.ok) {
     return {
       ok: false,
@@ -215,27 +281,44 @@ export async function runRepairAttempt(
   };
 }
 
+function persistLocalCheckEvidence(reportDir: string, attempt: number, checks: LocalCheckEvidence[]): void {
+  const dir = join(reportDir, `repair-attempt-${attempt}`);
+  try {
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(join(dir, 'local-checks.json'), JSON.stringify({ attempt, checks }, null, 2), 'utf-8');
+  } catch {
+    // Evidence persistence is best-effort; the reason string still carries the failure.
+  }
+}
+
 function runLocalChecks(
   repoPath: string,
   failingFile: string | undefined,
   spawnFn: typeof spawnSync
-): { ok: boolean; output: string } {
-  const typecheck = runCommand('npm', ['run', 'typecheck'], repoPath, spawnFn);
+): { ok: boolean; output: string; checks: LocalCheckEvidence[] } {
+  const checks: LocalCheckEvidence[] = [];
+
+  const typecheck = runCommand('typecheck', 'npm', ['run', 'typecheck'], repoPath, spawnFn);
+  checks.push(typecheck);
   if (!typecheck.ok) {
-    return { ok: false, output: `typecheck failed:\n${typecheck.output}` };
+    return { ok: false, output: describeCheckFailure(typecheck), checks };
   }
 
-  const build = runCommand('npm', ['run', 'build'], repoPath, spawnFn);
+  const build = runCommand('build', 'npm', ['run', 'build'], repoPath, spawnFn);
+  checks.push(build);
   if (!build.ok) {
-    return { ok: false, output: `build failed:\n${build.output}` };
+    return { ok: false, output: describeCheckFailure(build), checks };
   }
 
   if (failingFile) {
-    const test = runCommand('npx', ['tsx', '--test', failingFile], repoPath, spawnFn);
+    const test = runCommand('targeted-test', 'npx', ['tsx', '--test', failingFile], repoPath, spawnFn);
+    checks.push(test);
     if (!test.ok) {
-      return { ok: false, output: `targeted test failed:\n${test.output}` };
+      return { ok: false, output: describeCheckFailure(test), checks };
     }
   }
 
-  return { ok: true, output: 'all local checks passed' };
+  return { ok: true, output: 'all local checks passed', checks };
 }

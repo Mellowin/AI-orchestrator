@@ -108,6 +108,7 @@ export async function runDiagnoseCi(
     run: bundle.run,
     jobs: bundle.jobs,
     parseResult,
+    unavailableLogs: bundle.unavailable_logs,
     classification: classificationResult.classification,
     confidence: classificationResult.confidence,
     reason: classificationResult.reason,
