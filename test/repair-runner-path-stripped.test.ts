@@ -1,5 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { runRepairAttempt } from '../src/autopilot-run/repair-runner.js';
@@ -106,11 +107,16 @@ describe('repair-runner PATH-stripped real execution (stage 18.26h)', () => {
         'utf-8'
       );
 
-      // Windows-style stripped environment: nothing on PATH, so bare
-      // npm/npx are unresolvable; absolute paths must carry everything.
+      // Windows-style stripped environment: the directories holding bare
+      // `npm`/`npx` (nodejs install dir / /usr/local/bin) are NOT on PATH, so
+      // bare npm/npx are unresolvable; only the shell utilities npm needs to
+      // run scripts (cmd.exe / sh) remain reachable. Absolute paths must
+      // carry npm and tsx themselves.
+      const isWindows = process.platform === 'win32';
       const strippedEnv: NodeJS.ProcessEnv = {
-        PATH: '',
-        Path: '',
+        ...(isWindows
+          ? { PATH: `${process.env.SystemRoot}\\System32`, Path: `${process.env.SystemRoot}\\System32` }
+          : { PATH: '/usr/bin:/bin', Path: '/usr/bin:/bin' }),
         npm_execpath: npmCli,
         SystemRoot: process.env.SystemRoot,
         COMSPEC: process.env.COMSPEC,
@@ -119,6 +125,11 @@ describe('repair-runner PATH-stripped real execution (stage 18.26h)', () => {
         TEMP: process.env.TEMP,
         TMP: process.env.TMP,
       };
+
+      // Sanity: in this environment bare `npm` must really be unresolvable.
+      const bareNpm = spawnSync('npm', ['--version'], { env: strippedEnv, shell: false, encoding: 'utf-8' });
+      assert.notStrictEqual(bareNpm.status, 0, 'bare npm must not resolve on the stripped PATH');
+      assert.ok(bareNpm.error || (bareNpm.stderr ?? '').length > 0 || bareNpm.status === null);
 
       const result = await runRepairAttempt(
         makeConfig(reportDir),
