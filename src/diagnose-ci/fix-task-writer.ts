@@ -5,6 +5,7 @@ import type {
   DiagnoseCiConfig,
   DiagnoseCiConfidence,
   DiagnoseCiJob,
+  DiagnoseCiJobEvidence,
   DiagnoseCiJobStep,
   DiagnoseCiLogParseResult,
   DiagnoseCiReportPaths,
@@ -17,6 +18,7 @@ export interface DiagnoseCiFixTaskInput {
   run: DiagnoseCiWorkflowRun;
   jobs: DiagnoseCiJob[];
   parseResult: DiagnoseCiLogParseResult;
+  jobEvidence?: DiagnoseCiJobEvidence[];
   classification: DiagnoseCiClassification;
   confidence: DiagnoseCiConfidence;
   reason: string;
@@ -29,16 +31,17 @@ function ensureDir(dir: string): void {
   }
 }
 
-function findFailedJob(jobs: DiagnoseCiJob[]): DiagnoseCiJob | null {
+function isFailedJob(job: DiagnoseCiJob): boolean {
   return (
-    jobs.find(
-      (job) =>
-        job.conclusion !== null &&
-        job.conclusion !== 'success' &&
-        job.conclusion !== 'skipped' &&
-        job.conclusion !== 'neutral'
-    ) ?? null
+    job.conclusion !== null &&
+    job.conclusion !== 'success' &&
+    job.conclusion !== 'skipped' &&
+    job.conclusion !== 'neutral'
   );
+}
+
+function findFailedJobs(jobs: DiagnoseCiJob[]): DiagnoseCiJob[] {
+  return jobs.filter(isFailedJob);
 }
 
 function findFailedStep(steps: DiagnoseCiJobStep[] | undefined): DiagnoseCiJobStep | null {
@@ -68,6 +71,14 @@ function rootCauseHypothesis(
       return 'TypeScript type-checking failed. Likely a type error introduced by recent changes.';
     case 'BUILD_FAILURE':
       return 'The build step failed. Likely a syntax, import, or bundling issue introduced by recent changes.';
+    case 'MISSING_NPM_SCRIPT':
+      return (
+        'The CI workflow runs npm scripts that do not exist in package.json: ' +
+        parseResult.missingNpmScripts.map((s) => `"${s}"`).join(', ') +
+        '. The repository CI contract is broken: either restore the missing scripts (and the files they invoke) in package.json, ' +
+        'or remove/change the workflow commands — but workflow edits are high-risk and NOT authorized for this repair. ' +
+        'This is NOT a timeout; do not increase timeouts or retry.'
+      );
     case 'CI_TIMEOUT':
       return 'A job or step exceeded its time limit or was cancelled. Likely a hung process, slow dependency, or infinite loop.';
     case 'WORKFLOW_INFRA_FAILURE':
@@ -81,7 +92,20 @@ function rootCauseHypothesis(
   }
 }
 
-function reproductionCommands(parseResult: DiagnoseCiLogParseResult): string[] {
+function reproductionCommands(
+  classification: DiagnoseCiClassification,
+  parseResult: DiagnoseCiLogParseResult
+): string[] {
+  if (classification === 'MISSING_NPM_SCRIPT') {
+    const commands = ['npm install'];
+    for (const script of parseResult.missingNpmScripts) {
+      commands.push(`npm run ${script}`);
+    }
+    commands.push('npm run typecheck');
+    commands.push('npm run build');
+    return commands;
+  }
+
   const commands: string[] = ['npm install'];
 
   if (parseResult.failedTestFiles.length > 0) {
@@ -95,7 +119,14 @@ function reproductionCommands(parseResult: DiagnoseCiLogParseResult): string[] {
   return commands;
 }
 
-function verificationCommands(parseResult: DiagnoseCiLogParseResult): string[] {
+function verificationCommands(
+  classification: DiagnoseCiClassification,
+  parseResult: DiagnoseCiLogParseResult
+): string[] {
+  if (classification === 'MISSING_NPM_SCRIPT') {
+    return ['npm run verify:ci-contract', 'npm run typecheck', 'npm run build'];
+  }
+
   const commands: string[] = ['npm run typecheck', 'npm run build'];
   if (parseResult.failedTestFiles.length > 0) {
     const primaryFile = parseResult.failedTestFiles[0].file;
@@ -113,8 +144,11 @@ export function writeDiagnoseCiFixTask(input: DiagnoseCiFixTaskInput): Pick<
   const fixTaskMdPath = join(input.reportDir, 'fix-task.md');
   const fixTaskJsonPath = join(input.reportDir, 'fix-task.json');
 
-  const failedJob = findFailedJob(input.jobs);
-  const failedStep = findFailedStep(failedJob?.steps);
+  const failedJobs = findFailedJobs(input.jobs);
+  const failedJobSteps = new Map<number, DiagnoseCiJobStep | null>();
+  for (const job of failedJobs) {
+    failedJobSteps.set(job.id, findFailedStep(job.steps));
+  }
 
   const lines: string[] = [];
   lines.push('# CI Fix Task');
@@ -126,19 +160,41 @@ export function writeDiagnoseCiFixTask(input: DiagnoseCiFixTaskInput): Pick<
   lines.push(`- **Classification:** \`${input.classification}\``);
   lines.push(`- **Confidence:** ${input.confidence}`);
   lines.push('');
-  lines.push('## Failed Job / Step');
+  lines.push('## Failed Jobs / Steps');
   lines.push('');
-  if (failedJob) {
-    lines.push(`- **Job:** ${failedJob.name} (id=${failedJob.id}, conclusion=${failedJob.conclusion})`);
+  if (failedJobs.length > 0) {
+    for (const job of failedJobs) {
+      const step = failedJobSteps.get(job.id);
+      lines.push(`- **Job:** ${job.name} (id=${job.id}, conclusion=${job.conclusion})`);
+      if (step) {
+        lines.push(`  - **Failed step:** ${step.name} (${step.conclusion ?? step.status})`);
+      }
+      const evidence = input.jobEvidence?.find((e) => e.job_id === job.id);
+      if (evidence) {
+        lines.push(`  - Log available: ${evidence.log_available ? 'yes' : 'no'}`);
+        if (evidence.failed_steps.length > 0 && !step) {
+          lines.push(`  - Failed steps: ${evidence.failed_steps.join(', ')}`);
+        }
+      }
+    }
   } else {
-    lines.push('- **Job:** none identified');
-  }
-  if (failedStep) {
-    lines.push(`- **Step:** ${failedStep.name} (${failedStep.conclusion ?? failedStep.status})`);
-  } else {
-    lines.push('- **Step:** none identified');
+    lines.push('- **Jobs:** none identified as failed');
   }
   lines.push('');
+
+  if (input.parseResult.missingNpmScripts.length > 0) {
+    lines.push('## Missing npm Scripts');
+    lines.push('');
+    lines.push('The following npm scripts are invoked by the CI workflow but do NOT exist in package.json:');
+    lines.push('');
+    for (const script of input.parseResult.missingNpmScripts) {
+      lines.push(`- \`${script}\``);
+    }
+    lines.push('');
+    lines.push('Restore the scripts (and the repository files they invoke, e.g. `scripts/*.mjs`).');
+    lines.push('Do NOT edit `.github/workflows/*` for this failure: workflow files are not authorized.');
+    lines.push('');
+  }
 
   if (input.parseResult.failedTestFiles.length > 0) {
     lines.push('## Failing Test Files / Subtests');
@@ -177,7 +233,7 @@ export function writeDiagnoseCiFixTask(input: DiagnoseCiFixTaskInput): Pick<
   lines.push('## Local Reproduction');
   lines.push('');
   lines.push('```bash');
-  for (const command of reproductionCommands(input.parseResult)) {
+  for (const command of reproductionCommands(input.classification, input.parseResult)) {
     lines.push(command);
   }
   lines.push('```');
@@ -186,7 +242,7 @@ export function writeDiagnoseCiFixTask(input: DiagnoseCiFixTaskInput): Pick<
   lines.push('## Verification Commands');
   lines.push('');
   lines.push('```bash');
-  for (const command of verificationCommands(input.parseResult)) {
+  for (const command of verificationCommands(input.classification, input.parseResult)) {
     lines.push(command);
   }
   lines.push('```');
@@ -213,12 +269,20 @@ export function writeDiagnoseCiFixTask(input: DiagnoseCiFixTaskInput): Pick<
     classification: input.classification,
     confidence: input.confidence,
     reason: input.reason,
-    failed_job: failedJob
-      ? { id: failedJob.id, name: failedJob.name, conclusion: failedJob.conclusion }
-      : null,
-    failed_step: failedStep
-      ? { name: failedStep.name, conclusion: failedStep.conclusion, status: failedStep.status }
-      : null,
+    failed_jobs: failedJobs.map((job) => {
+      const step = failedJobSteps.get(job.id);
+      const evidence = input.jobEvidence?.find((e) => e.job_id === job.id);
+      return {
+        id: job.id,
+        name: job.name,
+        conclusion: job.conclusion,
+        failed_step: step ? { name: step.name, conclusion: step.conclusion, status: step.status } : null,
+        failed_steps: evidence?.failed_steps ?? [],
+        log_available: evidence?.log_available ?? false,
+        log_excerpt: evidence?.parseResult.rawExcerpt ?? '',
+      };
+    }),
+    missing_npm_scripts: input.parseResult.missingNpmScripts,
     failing_tests: input.parseResult.failedTestFiles,
     log_excerpt: input.parseResult.rawExcerpt,
     root_cause_hypothesis: rootCauseHypothesis(input.classification, input.parseResult),
@@ -229,8 +293,8 @@ export function writeDiagnoseCiFixTask(input: DiagnoseCiFixTaskInput): Pick<
       'Tokens must be supplied via environment variables only.',
       'All changes must pass local verification before being committed by a human.',
     ],
-    reproduction_commands: reproductionCommands(input.parseResult),
-    verification_commands: verificationCommands(input.parseResult),
+    reproduction_commands: reproductionCommands(input.classification, input.parseResult),
+    verification_commands: verificationCommands(input.classification, input.parseResult),
     final_report_format: {
       required_fields: [
         'local_pass_confirmation',

@@ -5,7 +5,8 @@ import { createAIClient } from '../ai-client-factory.js';
 import { loadMvpRunConfig, runMvpRun } from '../mvp-run/index.js';
 import type { MvpRunConfig, MvpRunResult } from '../mvp-run/types.js';
 import { runDiagnoseCi } from '../diagnose-ci/index.js';
-import type { DiagnoseCiConfig, DiagnoseCiOptions, DiagnoseCiResult } from '../diagnose-ci/types.js';
+import type { DiagnoseCiClassification, DiagnoseCiConfig, DiagnoseCiOptions, DiagnoseCiResult } from '../diagnose-ci/types.js';
+import { resolveCiMaintenanceScope } from './ci-maintenance-scope.js';
 import { redactSecrets } from '../diagnose-ci/redaction.js';
 import { AutopilotGithubError } from './github-client.js';
 import { resolveAutopilotWorkflowRunId, pollAutopilotWorkflowRun } from './github-client.js';
@@ -131,6 +132,29 @@ function extractFailingFile(reportDir: string): string | undefined {
     // ignore parse errors
   }
   return undefined;
+}
+
+/** Deterministic evidence extracted from the persisted diagnosis JSON. */
+function extractDiagnosisEvidence(reportDir: string): {
+  classification: string | null;
+  missingNpmScripts: string[];
+} {
+  const path = join(reportDir, 'latest-diagnosis.json');
+  if (!existsSync(path)) {
+    return { classification: null, missingNpmScripts: [] };
+  }
+  try {
+    const raw = readFileSync(path, 'utf-8');
+    const json = JSON.parse(raw) as Record<string, unknown>;
+    const classification = typeof json.classification === 'string' ? json.classification : null;
+    const scripts = json.missing_npm_scripts;
+    const missingNpmScripts = Array.isArray(scripts)
+      ? scripts.filter((s): s is string => typeof s === 'string')
+      : [];
+    return { classification, missingNpmScripts };
+  } catch {
+    return { classification: null, missingNpmScripts: [] };
+  }
 }
 
 function computeExitCode(verdict: AutopilotRunVerdict): number {
@@ -340,6 +364,8 @@ export interface RunAutopilotRemoteFinalizationOptions {
   spawnFn?: typeof spawnSync;
   runDiagnoseCiFn?: typeof runDiagnoseCi;
   createAIClientFn?: typeof createAIClient;
+  /** Deterministic per-attempt mock repair responses (tests only). */
+  repairMockResponses?: string[];
   timeline?: AutopilotRunTimelineEvent[];
 }
 
@@ -457,6 +483,14 @@ export async function runAutopilotRemoteFinalization(
   }
 
   const fixTaskMd = readFixTaskMarkdown(reportDir);
+  const diagnosisEvidence = extractDiagnosisEvidence(reportDir);
+  // Deterministic system-authorized CI-maintenance scope derived from the
+  // diagnosis classification. Task writable scope stays separate inside the
+  // repair runner (config.repair.allowed_files).
+  const maintenanceScope = resolveCiMaintenanceScope(
+    diagnosisEvidence.classification as DiagnoseCiClassification | null,
+    diagnosisEvidence.missingNpmScripts
+  );
   let attempts = 0;
   const maxAttempts = config.repair.max_attempts;
 
@@ -472,8 +506,10 @@ export async function runAutopilotRemoteFinalization(
         failingFile: extractFailingFile(reportDir),
         reportDir,
         attempt: attempts,
+        maintenanceScope,
+        missingNpmScripts: diagnosisEvidence.missingNpmScripts,
       },
-      { createAIClientFn: options.createAIClientFn, spawnFn }
+      { createAIClientFn: options.createAIClientFn, spawnFn, mockResponses: options.repairMockResponses }
     );
 
     emit('repair_attempt_completed', {

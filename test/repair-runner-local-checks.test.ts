@@ -65,7 +65,7 @@ function spawnRecorder(
 }
 
 function enoentResult(call: RecordedCall): Record<string, unknown> {
-  // Simulates bare `npm` on Windows with shell:false: spawn ENOENT, no status.
+  // Simulates a process that cannot start at all (e.g. PATH-stripped env).
   const err = new Error(`spawn ${call.command} ENOENT`) as Error & { code: string };
   err.code = 'ENOENT';
   return { error: err, status: null, signal: null, stdout: '', stderr: '' };
@@ -75,19 +75,68 @@ function okResult(): Record<string, unknown> {
   return { error: null, status: 0, signal: null, stdout: '', stderr: '' };
 }
 
-describe('repair-runner local checks (stage 18.26g)', () => {
-  test('bare npm spawn ENOENT (Windows) surfaces explicit spawn error, never empty output', async () => {
+const FAKE_NPM_CLI = join('/', 'fake', 'npm-cli.js');
+
+/** Tooling overrides that resolve npm/tsx deterministically without touching disk/PATH. */
+const FAKE_TOOLING = {
+  env: { npm_execpath: FAKE_NPM_CLI },
+  existsFn: () => true,
+};
+
+describe('repair-runner local checks (stage 18.26h: absolute tooling)', () => {
+  test('checks run via process.execPath + absolute npm CLI, never bare npm/npx', async () => {
+    const config = makeConfig();
+    const repoPath = tmpDir();
+    const failingFile = join('test', 'example.test.ts');
+    try {
+      const { spawnFn, calls } = spawnRecorder(() => okResult());
+
+      const result = await runRepairAttempt(
+        config,
+        { repoPath, fixTaskMd: '# fix\n', failingFile, reportDir: config.report_dir, attempt: 1 },
+        { spawnFn: spawnFn as never, tooling: FAKE_TOOLING }
+      );
+
+      assert.strictEqual(result.ok, true, `expected success: ${result.reason}`);
+      assert.deepStrictEqual(
+        calls.map((c) => [c.command, ...c.args]),
+        [
+          [process.execPath, FAKE_NPM_CLI, 'run', 'typecheck'],
+          [process.execPath, FAKE_NPM_CLI, 'run', 'build'],
+          // tsx CLI resolves to the repository local path because existsFn says it exists
+          [process.execPath, join(repoPath, 'node_modules', 'tsx', 'dist', 'cli.mjs'), '--test', failingFile],
+        ]
+      );
+
+      const evidencePath = join(config.report_dir, 'repair-attempt-1', 'local-checks.json');
+      const evidence = JSON.parse(readFileSync(evidencePath, 'utf-8')) as {
+        checks: { ok: boolean; exit_status: number | null; cwd: string; command: string }[];
+      };
+      assert.strictEqual(evidence.checks.length, 3);
+      for (const check of evidence.checks) {
+        assert.strictEqual(check.ok, true);
+        assert.strictEqual(check.exit_status, 0);
+        assert.strictEqual(check.cwd, repoPath);
+        assert.strictEqual(check.command, process.execPath);
+      }
+    } finally {
+      rmSync(config.report_dir, { recursive: true, force: true });
+      rmSync(repoPath, { recursive: true, force: true });
+    }
+  });
+
+  test('spawn failure surfaces explicit spawn error, never empty output', async () => {
     const config = makeConfig();
     const repoPath = tmpDir();
     try {
       const { spawnFn, calls } = spawnRecorder((call) =>
-        call.command === 'npm' ? enoentResult(call) : okResult()
+        call.command === process.execPath ? enoentResult(call) : okResult()
       );
 
       const result = await runRepairAttempt(
         config,
         { repoPath, fixTaskMd: '# fix\n', reportDir: config.report_dir, attempt: 1 },
-        { spawnFn: spawnFn as never }
+        { spawnFn: spawnFn as never, tooling: FAKE_TOOLING }
       );
 
       assert.strictEqual(result.ok, false);
@@ -112,48 +161,9 @@ describe('repair-runner local checks (stage 18.26g)', () => {
       };
       assert.strictEqual(evidence.checks.length, 1);
       assert.strictEqual(evidence.checks[0].check, 'typecheck');
-      assert.strictEqual(evidence.checks[0].command, 'npm');
+      assert.strictEqual(evidence.checks[0].command, process.execPath);
       assert.strictEqual(evidence.checks[0].exit_status, null);
       assert.match(evidence.checks[0].spawn_error ?? '', /ENOENT/);
-    } finally {
-      rmSync(config.report_dir, { recursive: true, force: true });
-      rmSync(repoPath, { recursive: true, force: true });
-    }
-  });
-
-  test('successful npm/npx checks pass and npx targeted test uses the failing file', async () => {
-    const config = makeConfig();
-    const repoPath = tmpDir();
-    const failingFile = join('test', 'example.test.ts');
-    try {
-      const { spawnFn, calls } = spawnRecorder(() => okResult());
-
-      const result = await runRepairAttempt(
-        config,
-        { repoPath, fixTaskMd: '# fix\n', failingFile, reportDir: config.report_dir, attempt: 1 },
-        { spawnFn: spawnFn as never }
-      );
-
-      assert.strictEqual(result.ok, true, `expected success: ${result.reason}`);
-      assert.deepStrictEqual(
-        calls.map((c) => [c.command, ...c.args]),
-        [
-          ['npm', 'run', 'typecheck'],
-          ['npm', 'run', 'build'],
-          ['npx', 'tsx', '--test', failingFile],
-        ]
-      );
-
-      const evidencePath = join(config.report_dir, 'repair-attempt-1', 'local-checks.json');
-      const evidence = JSON.parse(readFileSync(evidencePath, 'utf-8')) as {
-        checks: { ok: boolean; exit_status: number | null; cwd: string }[];
-      };
-      assert.strictEqual(evidence.checks.length, 3);
-      for (const check of evidence.checks) {
-        assert.strictEqual(check.ok, true);
-        assert.strictEqual(check.exit_status, 0);
-        assert.strictEqual(check.cwd, repoPath);
-      }
     } finally {
       rmSync(config.report_dir, { recursive: true, force: true });
       rmSync(repoPath, { recursive: true, force: true });
@@ -165,7 +175,7 @@ describe('repair-runner local checks (stage 18.26g)', () => {
     const repoPath = tmpDir();
     try {
       const { spawnFn } = spawnRecorder((call) =>
-        call.command === 'npm' && call.args[1] === 'build'
+        call.args[2] === 'build'
           ? { error: null, status: 2, signal: null, stdout: '', stderr: 'tsc emit error\n' }
           : okResult()
       );
@@ -173,7 +183,7 @@ describe('repair-runner local checks (stage 18.26g)', () => {
       const result = await runRepairAttempt(
         config,
         { repoPath, fixTaskMd: '# fix\n', reportDir: config.report_dir, attempt: 2 },
-        { spawnFn: spawnFn as never }
+        { spawnFn: spawnFn as never, tooling: FAKE_TOOLING }
       );
 
       assert.strictEqual(result.ok, false);
@@ -182,6 +192,40 @@ describe('repair-runner local checks (stage 18.26g)', () => {
         `reason must include check name and exit status: ${result.reason}`
       );
       assert(result.reason.includes('tsc emit error'), 'reason must include stderr');
+    } finally {
+      rmSync(config.report_dir, { recursive: true, force: true });
+      rmSync(repoPath, { recursive: true, force: true });
+    }
+  });
+
+  test('unresolvable npm CLI persists a precise failure reason, never empty output', async () => {
+    const config = makeConfig();
+    const repoPath = tmpDir();
+    try {
+      const { spawnFn, calls } = spawnRecorder(() => okResult());
+
+      const result = await runRepairAttempt(
+        config,
+        { repoPath, fixTaskMd: '# fix\n', reportDir: config.report_dir, attempt: 1 },
+        {
+          spawnFn: spawnFn as never,
+          tooling: { env: { npm_execpath: join('relative', 'invalid.ps1') }, existsFn: () => false },
+        }
+      );
+
+      assert.strictEqual(result.ok, false);
+      assert(
+        result.reason.includes('typecheck failed') && result.reason.includes('npm CLI not found'),
+        `reason must explain the resolution failure: ${result.reason}`
+      );
+      assert.strictEqual(calls.length, 0, 'no spawn should be attempted when tooling is unresolvable');
+
+      const evidencePath = join(config.report_dir, 'repair-attempt-1', 'local-checks.json');
+      const evidence = JSON.parse(readFileSync(evidencePath, 'utf-8')) as {
+        checks: { check: string; spawn_error: string | null }[];
+      };
+      assert.strictEqual(evidence.checks.length, 1);
+      assert.match(evidence.checks[0].spawn_error ?? '', /npm CLI not found/);
     } finally {
       rmSync(config.report_dir, { recursive: true, force: true });
       rmSync(repoPath, { recursive: true, force: true });

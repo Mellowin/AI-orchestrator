@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { createAIClient } from '../../ai-client-factory.js';
 import { parseKimiOutputJson } from '../../kimi-output-validator.js';
 import { applyFileUpdates } from '../../patch-engine.js';
-import { validateFileList } from '../../guardrails.js';
+import { validateFileList, matchesPattern } from '../../guardrails.js';
 import { validateAiSafetyPolicy } from '../../ai-safety-policy.js';
 import { runIntegratedValidation, type IntegratedValidationResult } from './integrated-validator.js';
 import type { DependencyEvidencePackage } from '../../types.js';
@@ -58,6 +58,10 @@ function getHeadSha(repoPath: string, spawnFn: typeof spawnSync): string | undef
   });
   if (result.status !== 0) return undefined;
   return result.stdout.trim();
+}
+
+function isWithinMaintenanceScope(path: string, maintenanceFiles: string[]): boolean {
+  return maintenanceFiles.some((m) => m === path || matchesPattern(path, m));
 }
 
 function buildExpandedScope(
@@ -314,7 +318,7 @@ export async function runFinalizationRepair(
     // Fail closed before any fallback: a candidate that touches files outside
     // the validator-authorized maintenance scope is a safety violation, not a
     // disposable invalid candidate.
-    const candidateOutOfScope = aiCandidate.files.map((f) => f.path).filter((p) => !maintenanceFiles.includes(p));
+    const candidateOutOfScope = aiCandidate.files.map((f) => f.path).filter((p) => !isWithinMaintenanceScope(p, maintenanceFiles));
     if (candidateOutOfScope.length > 0) {
       return {
         ok: false,
@@ -394,7 +398,7 @@ export async function runFinalizationRepair(
   // identified as repository-maintenance targets. Anything else is rejected
   // before files are applied or committed.
   const repairPaths = files.map((f) => f.path);
-  const notMaintenance = repairPaths.filter((p) => !maintenanceFiles.includes(p));
+  const notMaintenance = repairPaths.filter((p) => !isWithinMaintenanceScope(p, maintenanceFiles));
   if (notMaintenance.length > 0) {
     return {
       ok: false,

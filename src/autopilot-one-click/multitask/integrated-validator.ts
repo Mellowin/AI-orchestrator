@@ -1,10 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { validateRepoCiContract } from '../../ci-contract.js';
 
 export type ValidationFailureClassification =
   | 'REPAIRABLE_REPOSITORY_FAILURE'
   | 'EXTERNAL_BLOCKER';
+
+/** Deterministic repository-maintenance scope authorized for CI-contract repair. */
+export const CI_CONTRACT_MAINTENANCE_FILES = ['package.json', 'scripts/**'];
 
 export interface IntegratedValidationResult {
   ok: boolean;
@@ -103,6 +107,17 @@ function classifyFailure(output: string): {
     };
   }
 
+  if (output.includes('CI CONTRACT VIOLATION')) {
+    // Deterministic repository-maintenance failure: the workflow references
+    // npm scripts that do not exist (or package scripts referencing missing
+    // files). Repair is limited to package.json and scripts/** — workflow
+    // files stay protected and are NOT authorized by this classification.
+    return {
+      classification: 'REPAIRABLE_REPOSITORY_FAILURE',
+      maintenanceFiles: [...CI_CONTRACT_MAINTENANCE_FILES],
+    };
+  }
+
   return { classification: 'EXTERNAL_BLOCKER' };
 }
 
@@ -135,25 +150,46 @@ export function runIntegratedValidation(
   const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
   const exitCode = result.status ?? null;
 
-  if (exitCode === 0) {
+  if (exitCode !== 0) {
+    const failure = classifyFailure(output);
     return {
-      ok: true,
-      exitCode: 0,
+      ok: false,
+      exitCode,
       command,
       output,
-      classification: 'success',
+      classification: failure.classification,
+      changedFiles: failure.changedFiles,
+      maintenanceFiles: failure.maintenanceFiles,
+      error: output,
     };
   }
 
-  const failure = classifyFailure(output);
+  // Deterministic CI contract validation: even when the repository's own
+  // validation command passes, the workflow↔package.json contract must hold.
+  // This catches "product verification green but every PR CI red" drift
+  // before a PR is created. Purely read-only and deterministic.
+  if (exitCode === 0) {
+    const contract = validateRepoCiContract(repoPath);
+    if (!contract.ok) {
+      const contractOutput = contract.violations.map((v) => v.message).join('\n');
+      const contractFailure = classifyFailure(contractOutput);
+      return {
+        ok: false,
+        exitCode: 1,
+        command: 'verify:ci-contract',
+        output: contractOutput,
+        classification: contractFailure.classification,
+        maintenanceFiles: contractFailure.maintenanceFiles,
+        error: contractOutput,
+      };
+    }
+  }
+
   return {
-    ok: false,
-    exitCode,
+    ok: true,
+    exitCode: 0,
     command,
     output,
-    classification: failure.classification,
-    changedFiles: failure.changedFiles,
-    maintenanceFiles: failure.maintenanceFiles,
-    error: output,
+    classification: 'success',
   };
 }

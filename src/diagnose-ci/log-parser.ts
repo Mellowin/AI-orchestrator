@@ -21,6 +21,7 @@ export function parseLog(log: string, maxLogExcerptChars = 4000): DiagnoseCiLogP
   const timeouts: string[] = [];
   const typecheckFailures: string[] = [];
   const buildFailures: string[] = [];
+  const missingNpmScripts: string[] = [];
 
   const lines = log.split(/\r?\n/);
   let currentSubtest: string | undefined;
@@ -153,6 +154,11 @@ export function parseLog(log: string, maxLogExcerptChars = 4000): DiagnoseCiLogP
     if (/\bBuild\b/i.test(line) && /(?:failed|error|exit)/i.test(line)) {
       buildFailures.push(line.trim());
     }
+
+    const missingScriptMatch = line.match(/(?:npm error\s+)?Missing script:\s*"([^"]+)"/i);
+    if (missingScriptMatch && !missingNpmScripts.includes(missingScriptMatch[1])) {
+      missingNpmScripts.push(missingScriptMatch[1]);
+    }
   }
 
   flushEntry();
@@ -168,6 +174,7 @@ export function parseLog(log: string, maxLogExcerptChars = 4000): DiagnoseCiLogP
     timeouts,
     typecheckFailures,
     buildFailures,
+    missingNpmScripts,
     rawExcerpt,
   };
 }

@@ -100,6 +100,30 @@ describe('integrated-validator', () => {
     rmSync(repoPath, { recursive: true, force: true });
   });
 
+  test('classifies workflow missing npm scripts as REPAIRABLE with bounded maintenance scope', () => {
+    const repoPath = createTempRepo();
+
+    // Workflow references an npm script that package.json does not define.
+    // The repository's own verify:summary still passes, so only the
+    // deterministic CI contract check may catch it.
+    writeFileSync(
+      join(repoPath, '.github', 'workflows', 'ci.yml'),
+      'name: CI\non:\n  pull_request:\njobs:\n  smoke:\n    runs-on: ubuntu-latest\n    steps:\n      - name: Drill smoke\n        run: npm run demo:missing-drill\n',
+      'utf-8'
+    );
+
+    const result = runIntegratedValidation(repoPath);
+    assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.classification, 'REPAIRABLE_REPOSITORY_FAILURE');
+    assert(result.output.includes('CI CONTRACT VIOLATION'), `expected contract evidence: ${result.output}`);
+    assert(result.output.includes('demo:missing-drill'));
+    assert.deepStrictEqual(result.maintenanceFiles, ['package.json', 'scripts/**']);
+    // Workflow files must NOT be authorized by this classification.
+    assert(!(result.maintenanceFiles ?? []).some((f) => f.startsWith('.github/workflows')));
+
+    rmSync(repoPath, { recursive: true, force: true });
+  });
+
   test('classifies an unknown validation failure as EXTERNAL_BLOCKER', () => {
     const repoPath = createTempRepo();
     const result = runIntegratedValidation(repoPath, { command: 'node -e process.exit(1)' });

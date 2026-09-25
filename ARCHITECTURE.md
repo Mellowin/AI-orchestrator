@@ -705,3 +705,14 @@ npx tsx src/cli.ts reset contact-phone-validation
 6. **State — единственный источник правды.** Всегда можно восстановить, что происходило.
 7. **Path traversal защита.** Никаких `../../../etc/passwd`, absolute paths запрещены.
 8. **Rollback корректный.** Если файл существовал — восстановить из backup. Если создан новый — удалить.
+
+---
+
+## 11. CI-контракт и автономный CI-ремонт (Stage 18.26h)
+
+- `src/ci-contract.ts` (+ `scripts/ci-contract-lib.mjs`, `scripts/verify-ci-contract.mjs`) — детерминированный валидатор CI-контракта: каждая команда `npm run <script>` в `.github/workflows/*` обязана ссылаться на существующий скрипт package.json; скрипты вида `node scripts/foo.mjs` / `tsx scripts/foo.ts` обязаны ссылаться на существующие файлы. `npm run verify:ci-contract` входит в `verify:product:ci`.
+- `src/diagnose-ci` — failed-job-first классификация: per-job лог-парсинг (`DiagnoseCiJobEvidence`), классификация строится только по логам реально упавших job'ов. Новая классификация `MISSING_NPM_SCRIPT` с извлечением точных имён скриптов. Fix-task содержит все упавшие job'ы/шаги, точные имена скриптов и log excerpts.
+- `src/autopilot-run/tooling-resolution.ts` — локальные проверки ремонта не зависят от PATH: `process.execPath <абсолютный npm CLI> run <script>` (npm CLI из `npm_execpath` с детерминированным fallback) и `process.execPath <repo>/node_modules/tsx/dist/cli.mjs --test <file>`. Никакого `shell:true`.
+- `src/autopilot-run/ci-maintenance-scope.ts` — разделение TASK WRITABLE SCOPE и SYSTEM-AUTHORIZED CI MAINTENANCE SCOPE: для `MISSING_NPM_SCRIPT` детерминированно авторизуются только `package.json` и `scripts/**`; `.github/workflows/**` всегда в deny.
+- `src/autopilot-run/repair-runner.ts` — эффективный scope = task allowed_files ∪ maintenance scope; prompt явно содержит TASK WRITABLE FILES / SYSTEM-AUTHORIZED CI MAINTENANCE FILES / DENIED FILES / REMOTE FAILURE; для `MISSING_NPM_SCRIPT` перед commit/push выполняется пост-валидация: контракт CI, существование восстановленных скриптов и прогон соответствующих smoke-команд.
+- `src/autopilot-one-click/multitask/integrated-validator.ts` — после успеха `verify:summary` прогоняет валидатор контракта; нарушения классифицируются как `REPAIRABLE_REPOSITORY_FAILURE` с `maintenanceFiles = [package.json, scripts/**]`.

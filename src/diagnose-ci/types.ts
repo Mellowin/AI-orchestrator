@@ -50,6 +50,7 @@ export type DiagnoseCiClassification =
   | 'SUMMARY_LOCK_STALE'
   | 'TYPECHECK_FAILURE'
   | 'BUILD_FAILURE'
+  | 'MISSING_NPM_SCRIPT'
   | 'CI_TIMEOUT'
   | 'WORKFLOW_INFRA_FAILURE'
   | 'ACCESS_FAILURE'
@@ -91,7 +92,20 @@ export interface DiagnoseCiLogParseResult {
   timeouts: string[];
   typecheckFailures: string[];
   buildFailures: string[];
+  /** npm script names referenced by `npm run` but missing (npm error Missing script). */
+  missingNpmScripts: string[];
   rawExcerpt: string;
+}
+
+/** Per-job diagnostic evidence preserved for failed-job-first classification. */
+export interface DiagnoseCiJobEvidence {
+  job_id: number;
+  job_name: string;
+  job_conclusion: string | null;
+  log_available: boolean;
+  /** Names of steps that failed or were cancelled. */
+  failed_steps: string[];
+  parseResult: DiagnoseCiLogParseResult;
 }
 
 export interface DiagnoseCiUnavailableJobLog {

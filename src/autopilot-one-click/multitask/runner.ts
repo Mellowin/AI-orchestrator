@@ -39,6 +39,7 @@ import {
 import { collectDiff } from './final-review.js';
 import { runIntegratedValidation, type IntegratedValidationResult } from './integrated-validator.js';
 import { runFinalizationRepair } from './finalization-repair.js';
+import { matchesPattern } from '../../guardrails.js';
 import type {
   MultitaskMissionFinalReview,
   MultitaskMissionResult,
@@ -890,7 +891,9 @@ export async function runMultitaskMission(
               // passed, becomes final-review authorization. Fail closed
               // otherwise: no evidence, no maintenance allowance.
               const maintenanceFiles = validationOutcome.maintenanceFiles ?? [];
-              const repairOutOfScope = repairResult.files.filter((f) => !maintenanceFiles.includes(f));
+              const repairOutOfScope = repairResult.files.filter(
+                (f) => !maintenanceFiles.some((m) => m === f || matchesPattern(f, m))
+              );
               if (repairOutOfScope.length === 0) {
                 state.authorized_maintenance = {
                   classification: 'REPAIRABLE_REPOSITORY_FAILURE',

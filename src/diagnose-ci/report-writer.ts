@@ -6,6 +6,7 @@ import type {
   DiagnoseCiConfig,
   DiagnoseCiConfidence,
   DiagnoseCiJob,
+  DiagnoseCiJobEvidence,
   DiagnoseCiLogParseResult,
   DiagnoseCiReportPaths,
   DiagnoseCiUnavailableJobLog,
@@ -20,6 +21,7 @@ export interface DiagnoseCiReportInput {
   run: DiagnoseCiWorkflowRun;
   jobs: DiagnoseCiJob[];
   parseResult: DiagnoseCiLogParseResult;
+  jobEvidence?: DiagnoseCiJobEvidence[];
   unavailableLogs: DiagnoseCiUnavailableJobLog[];
   classification: DiagnoseCiClassification;
   confidence: DiagnoseCiConfidence;
@@ -261,8 +263,18 @@ export function writeDiagnoseCiReports(input: DiagnoseCiReportInput): DiagnoseCi
       timeouts: input.parseResult.timeouts,
       typecheck_failures: input.parseResult.typecheckFailures,
       build_failures: input.parseResult.buildFailures,
+      missing_npm_scripts: input.parseResult.missingNpmScripts,
       raw_excerpt: input.parseResult.rawExcerpt,
     },
+    job_evidence: (input.jobEvidence ?? []).map((e) => ({
+      job_id: e.job_id,
+      job_name: e.job_name,
+      job_conclusion: e.job_conclusion,
+      log_available: e.log_available,
+      failed_steps: e.failed_steps,
+      missing_npm_scripts: e.parseResult.missingNpmScripts,
+      timeouts: e.parseResult.timeouts,
+    })),
     classification: input.classification,
     confidence: input.confidence,
     reason: input.reason,

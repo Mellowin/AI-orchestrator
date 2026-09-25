@@ -11,6 +11,7 @@ import { getDiagnoseCiReportDir, writeDiagnoseCiReports } from './report-writer.
 import { writeDiagnoseCiFixTask } from './fix-task-writer.js';
 import type {
   DiagnoseCiConfig,
+  DiagnoseCiJobEvidence,
   DiagnoseCiOptions,
   DiagnoseCiResult,
   DiagnoseCiVerdict,
@@ -84,9 +85,33 @@ export async function runDiagnoseCi(
     };
   }
 
+  // Preserve per-job diagnostic evidence: each job keeps its own parsed log so
+  // classification can prioritize ACTUAL FAILED JOBS. Successful-job logs
+  // (which may contain benign timeout-like test output) must not override
+  // actionable errors from failed jobs.
+  const jobEvidence: DiagnoseCiJobEvidence[] = bundle.jobs.map((job) => {
+    const log = bundle.logs[job.id];
+    const failedSteps = (job.steps ?? [])
+      .filter(
+        (step) =>
+          step.conclusion === 'failure' ||
+          step.status === 'failed' ||
+          step.conclusion === 'cancelled'
+      )
+      .map((step) => step.name);
+    return {
+      job_id: job.id,
+      job_name: job.name,
+      job_conclusion: job.conclusion,
+      log_available: typeof log === 'string' && log.length > 0,
+      failed_steps: failedSteps,
+      parseResult: parseLog(log ?? '', config.max_log_excerpt_chars),
+    };
+  });
+
   const combinedLog = Object.values(bundle.logs).join('\n\n');
   const parseResult = parseLog(combinedLog, config.max_log_excerpt_chars);
-  const classificationResult = classifyRun(bundle.run, bundle.jobs, parseResult);
+  const classificationResult = classifyRun(bundle.run, bundle.jobs, parseResult, jobEvidence);
 
   const reportDir = getDiagnoseCiReportDir(config, bundle.run.id);
 
@@ -95,6 +120,7 @@ export async function runDiagnoseCi(
     run: bundle.run,
     jobs: bundle.jobs,
     parseResult,
+    jobEvidence,
     classification: classificationResult.classification,
     confidence: classificationResult.confidence,
     reason: classificationResult.reason,
@@ -108,6 +134,7 @@ export async function runDiagnoseCi(
     run: bundle.run,
     jobs: bundle.jobs,
     parseResult,
+    jobEvidence,
     unavailableLogs: bundle.unavailable_logs,
     classification: classificationResult.classification,
     confidence: classificationResult.confidence,
